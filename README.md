@@ -49,7 +49,29 @@ pnpm render all         # every fixture
 pnpm render nasty-chart --paper letter
 ```
 
-To look at a rendered page without a PDF viewer:
+## Proofing
+
+Engraving defects are visual, and a green test suite does not catch them — so looking is
+part of the loop, and `pnpm proof` makes it cheap and aimed.
+
+```sh
+pnpm proof                            # every fixture, whole pages
+pnpm proof nasty-chart --systems      # every system as its own image
+pnpm proof nasty-chart --bar 6        # one bar, zoom chosen for you
+pnpm proof nasty-chart --census       # what the SVG contains, vs the snapshot
+```
+
+Crops are named after the music rather than pixel coordinates: layout knows where every
+system and bar sits, so `--bar 11` is exact. `--census` counts the SVG's elements and
+diffs them against the committed snapshot, which turns "one very long line differs" into
+something you can read:
+
+```
+vf-stem     73  58  -15
+<path>     344 314  -30
+```
+
+There is also a plain single-file previewer for ad-hoc use:
 
 ```sh
 pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 2

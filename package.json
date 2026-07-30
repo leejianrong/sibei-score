@@ -15,6 +15,7 @@
     "check": "pnpm run typecheck && pnpm run test",
     "render": "tsx scripts/render-fixture.ts",
     "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
+    "proof": "tsx scripts/proof.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\""
   },
   "devDependencies": {
