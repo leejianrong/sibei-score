@@ -1,6 +1,6 @@
 # ADR-0014: VexFlow behind a draw seam, with a spike gate
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR-0030](0030-own-the-engraver.md) after the gate ran
 - **Date:** 2026-07-30
 - **Deciders:** Jian (interview via `/grill-with-docs`)
 
@@ -55,3 +55,29 @@ then converting to PDF. Screen and print share one layout path.
   by construction, but adds a browser to the image and makes byte-stable output
   harder. Rejected: **owning the engraver now** — total control of the look, at the
   cost of not seeing a chart render for weeks.
+
+## Status update: the gate ran, 2026-07-31
+
+V1 built the seam, the layout engine, the VexFlow adapter and the PDF path, and rendered
+the nasty test chart (`docs/v1-render-gate.md`).
+
+**Outcome: own the engraver** ([ADR-0030](0030-own-the-engraver.md)). Not because the
+output was bad — it was good, and readable off a stand — but because jazz-specific
+typography is a differentiator for this product rather than polish, and because VexFlow
+4.2.5 is the end of a line that 5.x cannot continue server-side.
+
+Three things this ADR got right and one it did not:
+
+- **The seam was worth building.** It is exactly what makes the replacement affordable:
+  a new draw adapter, with `layout` untouched.
+- **The spike gate was worth putting on it.** The decision was made on a rendered page
+  rather than on speculation, and the page turned up a real defect no test caught.
+- **"A lead sheet is the easiest engraving target that exists" holds** — with one
+  exception. Beams are the hard part, and they are hard in a way the single-voice
+  constraint does not relieve.
+- **What it missed:** that snapshots plus a proofing loop would become the specification
+  for a replacement. That harness now exists, which lowers the cost of this decision
+  well below what this ADR assumed.
+
+VexFlow remains in place behind the seam, pinned to 4.2.5, until the replacement reaches
+parity.

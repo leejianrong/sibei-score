@@ -12,9 +12,14 @@ the VexFlow draw adapter, and the server-side PDF path. What does **not** exist 
 store, HTTP API, CLI, browser UI, chord grammar, transposition, MusicXML codec, or import
 pipeline. Do not assume a module is there because a plan mentions it.
 
-V1 ends in a decision that is Jian's alone: whether VexFlow's engraving is good enough or
-we own the engraver (ADR-0014). See `docs/v1-render-gate.md`. **Nothing proceeds past that
-gate without him.**
+**The V1 gate has run and is closed.** The decision: **own the engraver** (ADR-0030). Not
+because VexFlow's output was bad — it was good — but because jazz typography is this
+product's differentiator, and 4.2.5 is the end of a line 5.x cannot continue server-side.
+
+**V1b is next: the engraver spike.** One system engraved from scratch off Bravura's own
+metrics, side by side with VexFlow's, to prove the approach and produce a real estimate.
+The full replacement is not scheduled until V1b returns that number — see ADR-0030 for
+why that ordering is deliberate.
 
 ## Commands
 
@@ -142,12 +147,20 @@ direction, beam grouping, accidental stacking, tie curves.
 If you find yourself computing a position in `draw`, it belongs in `layout`. If you find
 yourself naming a glyph in `layout`, it belongs in `draw`.
 
-### VexFlow is pinned to 4.2.5 on purpose
+### VexFlow is pinned to 4.2.5, and is on its way out
 
-Do not upgrade to 5.x. 4.x draws every music glyph as a filled `<path>`; 5.x draws them as
-Bravura `<text>` measured through a canvas, which a headless DOM does not have. That breaks
-server-side rendering outright and would make byte-stable PDF output depend on font
-subsetting. Reasoning in full: `docs/v1-render-gate.md`.
+Do not upgrade to 5.x, and do not invest in it either. 4.x draws every music glyph as a
+filled `<path>`; 5.x draws them as Bravura `<text>` measured through a canvas, which a
+headless DOM does not have. That breaks server-side rendering outright and would make
+byte-stable PDF output depend on font subsetting.
+
+It stays in place behind the seam, unchanged, until our own engraver reaches parity
+(ADR-0030). Fix bugs in the adapter, but do not extend it — new engraving work belongs in
+the engraver. Reasoning in full: `docs/v1-render-gate.md`.
+
+The committed SVG snapshots are the **specification** the new engraver has to meet, and
+`pnpm proof --census` is how you read the difference. That is the whole reason this
+replacement is affordable.
 
 For the same reason, **do not use `ctx.measureText` or anything that reaches `getBBox()`**
 in `draw`. Only a real browser implements it, so measuring would place text differently on
@@ -195,3 +208,4 @@ Not oversights. Each lands with the slice that needs it.
 | Deploy gating | never, as such | Local-only by decision (ADR-0001). V8 ships a container; there is no environment to deploy to |
 | Published docs site | undecided | ADRs already carry the "why". Revisit if the CLI reference outgrows a README |
 | Linter / formatter | undecided | `tsc` is strict and there is one author. Adding one now means reformatting the whole tree; ask first |
+| Full engraver replacement | after V1b | The spike has to give a real estimate first (ADR-0030) |

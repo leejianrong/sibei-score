@@ -1,10 +1,18 @@
 # V1: the render gate
 
-The exit condition for ADR-0014. Look at the PDF and decide: keep VexFlow, or own the
-engraver. This file records what was built and what turned up; the decision itself goes
-on ADR-0014 as a status update once it is made.
+The exit condition for ADR-0014: look at the PDF and decide, keep VexFlow or own the
+engraver. This file records what was built, what turned up, and how it went.
 
-**Status: awaiting decision.**
+**Status: decided, 2026-07-31 — own the engraver.** See
+[ADR-0030](adr/0030-own-the-engraver.md). VexFlow's output was judged good, and the
+decision went the other way anyway: jazz typography is this product's differentiator
+rather than its polish, and 4.2.5 is the end of a line 5.x cannot continue server-side.
+V1b is the spike that proves the approach and produces the estimate.
+
+One thing this gate is worth remembering for: the defect it caught. Beamed notes were
+drawing both their own flag and a duplicate stem, and 82 green tests plus a passing
+snapshot did not notice. Someone had to look. That is why `pnpm proof` now exists and why
+proofing is a required step in `CLAUDE.md`.
 
 ## What to look at
 
@@ -54,8 +62,8 @@ converts to PDF exactly. The cost is being pinned to a frozen version — accept
 ADR-0014 already treats the renderer as replaceable behind the seam, and given that
 reproducible output is a requirement rather than a nicety.
 
-**This is a decision to confirm or reject as part of the gate.** If VexFlow stays, it is
-worth recording on ADR-0014 that it stays at 4.x and why.
+**This became part of why the gate went the way it did.** Staying on VexFlow means staying
+on a dead branch, since 5.x cannot continue server-side. Recorded in ADR-0030.
 
 ### Text is placed by us, not by VexFlow
 
@@ -103,7 +111,7 @@ Not bugs — choices worth a second opinion.
 
 ## Verification
 
-79 tests, covering the V1 test plan in `SLICES.md`.
+82 tests, covering the V1 test plan in `SLICES.md`.
 
 - The nasty chart's A section lays out 4 / 4 / 3, and the pickup takes no grid slot.
 - Rendering the same score twice gives byte-identical PDFs; dates and the producer string
@@ -118,3 +126,5 @@ Not bugs — choices worth a second opinion.
 - `model` and `layout` import nothing framework- or Node-specific — checked by the
   compiler, the import graph, and the declared dependencies. The checks were confirmed to
   fail when violations were injected.
+- A beamed note draws no flag, asserted with a control so the check cannot pass vacuously.
+  This is the regression test for the defect the gate itself found.

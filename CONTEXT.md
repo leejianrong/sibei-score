@@ -108,7 +108,8 @@ in full: `docs/adr/`.
 | Term | Meaning |
 |---|---|
 | **Layout engine** | Ours. Turns the model into engine-independent positions, including the four-bar grid. Runs in the browser and on the server, same code. |
-| **Draw adapter** | The seam. Turns layout positions into glyphs. VexFlow is one implementation. |
+| **Draw adapter** | The seam. Turns layout positions into glyphs. VexFlow is one implementation; ours is the intended one (ADR-0030). |
+| **Engraver** | Our own draw adapter, drawing glyphs from Bravura's outlines and metrics rather than delegating to VexFlow. Proved by V1b, built after. |
 | **Four-bar grid** | Four bars per line, the jazz-chart convention. Default, broken by section boundaries. |
 | **System** | One rendered line of music. Usually four bars. |
 | **Nasty test chart** | The spike-gate fixture: four-bar grid, ties across barlines, triplets, a pickup, double barlines, `C7alt`, `F#m7b5`. |
@@ -198,6 +199,9 @@ in full: `docs/adr/`.
 | D61 | The core operation arbitrates when the two surfaces conflict — neither surface owns anything | Accepted | — (`QUESTIONS.md` Q79) |
 | D62 | Exports are cached in the `BlobStore` keyed by score version; no score *variant* is ever stored | Accepted | — (`QUESTIONS.md` Q81, `PLAN.md`) |
 | D50 | `REQS.md` is kept as a historical record with inline supersession markers; `CONTEXT.md` wins where they differ | Accepted | — (`QUESTIONS.md` Q70) |
+| D63 | The V1 gate ran and decided: **own the engraver**. VexFlow stays behind the seam, pinned to 4.2.5, until the replacement reaches parity | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
+| D64 | The engraver is sequenced spike-first: V1b proves the approach and produces the estimate; the full replacement is scheduled only after that | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
+| D65 | The project is MIT licensed | Accepted | `LICENSE` |
 
 ### Not yet decided
 
