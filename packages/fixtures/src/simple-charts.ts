@@ -103,6 +103,45 @@ export function everyGlyphChart(): Score {
 }
 
 /**
+ * Beaming, isolated. Bar 1 is nothing but beamable groups; bar 2 holds a single
+ * unbeamable eighth as the control.
+ *
+ * Every pitch sits between the bottom and top staff lines (E4 to F5) and there are no
+ * accidentals and no dots. That is deliberate: it leaves a note's group in the rendered
+ * SVG containing nothing but its notehead and stem, so a bare path in that group can
+ * only be a flag. Add a note above the staff and its ledger lines land in the same
+ * place, and the signal stops meaning anything.
+ */
+export function beamingChart(): Score {
+  const ids = createIdFactory();
+  const bars = [
+    new BarBuilder(ids, { number: 1 })
+      .note('C5', dur(8))
+      .note('D5', dur(8))
+      .note('E5', dur(16))
+      .note('F5', dur(16))
+      .note('E5', dur(16))
+      .note('D5', dur(16))
+      .note('C5', dur(8))
+      .note('B4', dur(8))
+      .note('A4', dur(8))
+      .note('G4', dur(8))
+      .build(),
+
+    // One eighth alone on its beat has nothing to beam to, so it keeps its flag.
+    new BarBuilder(ids, { number: 2 })
+      .note('C5', dur(8))
+      .rest(dur(8))
+      .note('D5', dur(4))
+      .note('E5', dur(4))
+      .note('F5', dur(4))
+      .build(),
+  ];
+
+  return makeScore({ id: 'score-beaming', title: 'Beaming', bars });
+}
+
+/**
  * Three bars: one short, one exact, one overfull. Metrically invalid bars are stored
  * and flagged, never rejected (ADR-0013), so a fixture that contains them is the
  * point rather than a problem.

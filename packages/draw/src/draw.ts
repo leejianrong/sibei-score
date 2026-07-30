@@ -287,10 +287,18 @@ function drawBar(
       .addTickables(staveNotes);
 
     voice.setStave(stave);
+
+    // Beams are built before the notes are formatted or drawn, and the order is
+    // load-bearing twice over. A note decides at draw time whether to draw its own
+    // flag by asking whether it belongs to a beam, so a beam built afterwards leaves
+    // the flag already drawn underneath it. And beaming settles stem direction and
+    // length for the whole group, which the formatter needs to space the bar.
+    const beams = Beam.applyAndGetBeams(voice, undefined, vexBeamGroups(result.time));
+
     new Formatter().joinVoices([voice]).formatToStave([voice], stave);
     voice.draw(context, stave);
 
-    for (const beam of Beam.applyAndGetBeams(voice, undefined, vexBeamGroups(result.time))) {
+    for (const beam of beams) {
       beam.setContext(context).draw();
     }
     for (const tuplet of tuplets) {
