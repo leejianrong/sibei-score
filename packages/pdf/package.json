@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@types/jsdom": "21.1.7",
-    "@types/pdfkit": "0.17.4",
+    "@types/pdfkit": "0.17.6",
     "@types/svg-to-pdfkit": "0.1.4"
   }
 }
