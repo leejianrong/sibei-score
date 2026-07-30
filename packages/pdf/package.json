@@ -13,7 +13,7 @@
     "@sibei/draw": "workspace:*",
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",
-    "jsdom": "26.1.0",
+    "jsdom": "30.0.1",
     "pdfkit": "0.19.1",
     "svg-to-pdfkit": "0.1.8"
   },
