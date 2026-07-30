@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same ref makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Matches the local toolchain and the engines field in package.json.
+  NODE_VERSION: '24'
+
+jobs:
+  # One job per concern, run in parallel. Every job installs frozen, so CI resolves
+  # exactly what a developer resolved.
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  # The demo has to keep working: a chart that will not render is not a chart. The
+  # rendered PDFs are uploaded so a reviewer can look at the engraving on a PR.
+  render:
+    name: render the fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm render all
+      - name: check every fixture produced a PDF
+        run: |
+          for f in nasty-chart every-glyph invalid-bars; do
+            test -s "out/$f.pdf" || { echo "missing or empty: out/$f.pdf"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rendered-charts
+          path: out/
+          retention-days: 14
+
+  # A cheap standing check that no credential ever lands in a public repo. Upgrade to
+  # gitleaks or trufflehog if this ever needs to understand entropy rather than shapes.
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: scan tracked content for credential shapes
+        run: |
+          # This file states the patterns, so it is excluded from its own scan.
+          if git grep -nIE \
+            'gh[pousr]_[A-Za-z0-9]{16,}|kanban_pat_|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY' \
+            -- . ':!.github/workflows/ci.yml'; then
+            echo '::error::possible credential in tracked content'
+            exit 1
+          fi
+          echo 'no credential shapes found'

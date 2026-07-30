@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  # A patch cadence, so dependency drift arrives as reviewable PRs rather than as a
+  # surprise the first time something is rebuilt.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        patterns: ['typescript', 'vitest', 'tsx', '@types/*']
+      render:
+        patterns: ['pdfkit', 'svg-to-pdfkit', 'jsdom', '@resvg/*']
+    ignore:
+      # VexFlow is pinned to 4.2.5 deliberately: 5.x draws glyphs as Bravura text
+      # measured through a canvas, which breaks headless rendering and byte-stable
+      # PDF output. See docs/v1-render-gate.md and CLAUDE.md before changing this.
+      - dependency-name: vexflow
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

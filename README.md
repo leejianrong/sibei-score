@@ -40,6 +40,7 @@ by the compiler — those packages declare `"types": []` and no DOM lib — and 
 
 ```sh
 pnpm install
+pnpm hooks:install      # once per clone: points git at .githooks
 pnpm check              # typecheck every package, then the whole suite
 pnpm test               # vitest
 pnpm typecheck          # each package under its own strict config
@@ -61,6 +62,20 @@ in a browser. Refresh them deliberately:
 ```sh
 UPDATE_SNAPSHOTS=1 pnpm test
 ```
+
+## Gates
+
+`main` is protected: PR-only, CI green before merge, no direct pushes.
+
+| Where | What runs |
+|---|---|
+| Pre-push hook | `pnpm typecheck` and `pnpm test` — the cheap checks, so a push rarely lands red |
+| CI, per PR | the same two as parallel jobs, plus rendering every fixture and a secret scan |
+
+CI uploads the rendered PDFs as a build artifact, so a change to the engraving can be
+looked at on the pull request rather than taken on trust. `git push --no-verify` skips the
+local hook for a scoped push; CI is still the backstop. Contributor conventions and the
+invariants an agent must not break are in `CLAUDE.md`.
 
 ## Invariants
 

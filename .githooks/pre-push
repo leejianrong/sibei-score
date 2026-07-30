@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# The fast gate. Mirrors the cheap CI jobs so a push rarely lands red.
+#
+# Install once per clone:   pnpm hooks:install
+# Skip for a scoped push:   git push --no-verify   (CI is still the backstop)
+#
+# Keep this fast. Nothing that needs a database, a browser or a network should ever be
+# added here — a slow pre-push hook gets bypassed, and then it protects nothing.
+
+set -e
+
+echo '[pre-push] typecheck'
+pnpm run typecheck
+
+echo '[pre-push] test'
+pnpm test
+
+echo '[pre-push] ok'

@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/draw && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p tests && tsc --noEmit -p scripts",
     "check": "pnpm run typecheck && pnpm run test",
     "render": "tsx scripts/render-fixture.ts",
-    "render:nasty": "tsx scripts/render-fixture.ts nasty-chart"
+    "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
+    "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\""
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
@@ -27,5 +28,6 @@
     "tsx": "4.23.1",
     "typescript": "5.7.3",
     "vitest": "3.2.4"
-  }
+  },
+  "packageManager": "pnpm@11.13.0"
 }
