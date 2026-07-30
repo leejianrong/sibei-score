@@ -1,0 +1,15 @@
+{
+  "name": "@sibei/fixtures",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "Hand-authored score fixtures, including the nasty test chart of record.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/model": "workspace:*"
+  }
+}

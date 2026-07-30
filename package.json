@@ -1,0 +1,31 @@
+{
+  "name": "sibei-score",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "A local-only jazz lead sheet notation app",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/draw && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p tests && tsc --noEmit -p scripts",
+    "check": "pnpm run typecheck && pnpm run test",
+    "render": "tsx scripts/render-fixture.ts",
+    "render:nasty": "tsx scripts/render-fixture.ts nasty-chart"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@sibei/draw": "workspace:*",
+    "@sibei/fixtures": "workspace:*",
+    "@sibei/layout": "workspace:*",
+    "@sibei/model": "workspace:*",
+    "@sibei/pdf": "workspace:*",
+    "@types/node": "22.13.1",
+    "tsx": "4.23.1",
+    "typescript": "5.7.3",
+    "vitest": "3.2.4"
+  }
+}

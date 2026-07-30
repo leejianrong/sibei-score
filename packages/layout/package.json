@@ -1,0 +1,15 @@
+{
+  "name": "@sibei/layout",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "Layout engine: score to engine-independent positions. Framework-free, Node-free, VexFlow-free.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/model": "workspace:*"
+  }
+}
