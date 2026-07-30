@@ -66,7 +66,7 @@ jobs:
           for f in nasty-chart every-glyph invalid-bars; do
             test -s "out/$f.pdf" || { echo "missing or empty: out/$f.pdf"; exit 1; }
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rendered-charts
           path: out/
