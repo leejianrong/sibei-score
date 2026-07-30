@@ -24,8 +24,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import { everyGlyphChart, beamingChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
@@ -142,31 +142,100 @@ function clamp(value: number, low: number, high: number): number {
 }
 
 /**
- * Proofing the PDF needs a PDF rasteriser, and the good ones — mupdf, ghostscript,
- * poppler — are all copyleft. ADR-0027 keeps this project's dependency register
- * permissive, so none of them is committed here. Instead: use whatever the machine
- * already has, and say so plainly when it has nothing.
+ * Proofing the PDF needs a PDF rasteriser, and nothing is committed for the job: the
+ * capable ones are mostly copyleft (poppler GPL, mupdf and ghostscript AGPL) and
+ * ADR-0027 keeps this project's dependency register permissive. A rasteriser used to
+ * look at output is a separate program, not something linked into the product, so
+ * installing one locally carries no obligation either way — but it does not belong in
+ * the lockfile.
  *
- * Little is lost by default. The PDF is a conversion of exactly the SVG geometry, and
- * an e2e test already asserts the conversion is byte-stable — so the SVG proof is a
- * faithful proxy for all of the engraving, and only the conversion itself is unseen.
+ * So: use whatever the machine already has, cheapest first, and say plainly when it has
+ * nothing. Installed binaries come before `uvx`, which reaches the network the first time
+ * it runs — but `uvx` is the one to recommend to someone with nothing, because PDFium is
+ * BSD/Apache and needs no root.
+ *
+ * Little is lost when none is present. The PDF is a conversion of exactly the SVG
+ * geometry and an e2e test pins that conversion to identical bytes, so the SVG proof
+ * stands in for all of the engraving and only the conversion itself goes unseen.
  */
-function rasterisePdf(pdfPath: string, outPath: string): string | null {
-  const candidates: { bin: string; args: (input: string, output: string) => string[] }[] = [
-    { bin: 'pdftoppm', args: (i, o) => ['-r', '150', '-png', '-f', '1', '-l', '1', i, o.replace(/\.png$/, '')] },
-    { bin: 'mutool', args: (i, o) => ['draw', '-r', '150', '-o', o, i, '1'] },
-  ];
+interface Rasteriser {
+  label: string;
+  /** How to test for it without running a conversion. */
+  probe: [string, string[]];
+  run: (pdf: string, outPath: string) => void;
+}
 
-  for (const candidate of candidates) {
+const RASTERISERS: Rasteriser[] = [
+  {
+    label: 'pdftoppm (poppler-utils)',
+    probe: ['command', ['-v', 'pdftoppm']],
+    run: (pdf, out) => {
+      const prefix = out.replace(/\.png$/, '');
+      execFileSync('pdftoppm', ['-r', '150', '-png', '-f', '1', '-l', '1', pdf, prefix], {
+        stdio: 'ignore',
+      });
+      // Poppler appends its own page number, so claim whatever it produced.
+      adopt(`${prefix}-`, out);
+    },
+  },
+  {
+    label: 'mutool (mupdf-tools)',
+    probe: ['command', ['-v', 'mutool']],
+    run: (pdf, out) => {
+      execFileSync('mutool', ['draw', '-r', '150', '-o', out, pdf, '1'], { stdio: 'ignore' });
+    },
+  },
+  {
+    label: 'pypdfium2 via uvx (no root needed)',
+    probe: ['command', ['-v', 'uvx']],
+    run: (pdf, out) => {
+      const stem = 'pdfium-page';
+      execFileSync(
+        'uvx',
+        [
+          '--with', 'pillow',
+          '--from', 'pypdfium2',
+          'pypdfium2', 'render',
+          '-o', PROOF_DIR,
+          '--pages', '1',
+          '--scale', '2',
+          '--format', 'png',
+          '--prefix', `${stem}-`,
+          pdf,
+        ],
+        { stdio: 'ignore' },
+      );
+      adopt(resolve(PROOF_DIR, `${stem}-`), out);
+    },
+  },
+];
+
+/** Find the single file a tool wrote under `prefix*` and move it to `outPath`. */
+function adopt(prefix: string, outPath: string): void {
+  const directory = dirname(prefix);
+  const stem = basename(prefix);
+  const produced = readdirSync(directory).filter(
+    (name) => name.startsWith(stem) && name.endsWith('.png'),
+  );
+  const first = produced[0];
+  if (first === undefined) throw new Error(`the rasteriser wrote nothing matching ${prefix}*`);
+  const from = resolve(directory, first);
+  if (from !== outPath) renameSync(from, outPath);
+}
+
+function rasterisePdf(pdfPath: string, outPath: string): string | null {
+  for (const rasteriser of RASTERISERS) {
+    const [bin, args] = rasteriser.probe;
     try {
-      execFileSync('command', ['-v', candidate.bin], { stdio: 'ignore', shell: '/bin/sh' });
+      execFileSync(bin, args, { stdio: 'ignore', shell: '/bin/sh' });
     } catch {
       continue;
     }
     try {
-      execFileSync(candidate.bin, candidate.args(pdfPath, outPath), { stdio: 'ignore' });
-      return candidate.bin;
+      rasteriser.run(pdfPath, outPath);
+      return rasteriser.label;
     } catch {
+      // Present but unusable — offline uvx, a broken build. Try the next one.
       continue;
     }
   }
@@ -324,10 +393,15 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
     const used = rasterisePdf(pdfPath, pngPath);
     if (used === null) {
       process.stdout.write(
-        `\n  no PDF rasteriser on this machine (looked for pdftoppm, mutool).\n` +
-          `  The SVG proof carries the same geometry, so only the SVG-to-PDF conversion\n` +
-          `  itself goes unseen — and an e2e test already pins that to identical bytes.\n` +
-          `  Install poppler-utils or mupdf-tools to proof the PDF directly.\n`,
+        '\n  No PDF rasteriser found. Any one of these gives you --pdf:\n' +
+          '    uv tool install --with pillow pypdfium2   (no root; PDFium, BSD/Apache)\n' +
+          '    sudo apt install poppler-utils           (pdftoppm; GPL)\n' +
+          '    sudo apt install mupdf-tools             (mutool; AGPL)\n' +
+          '  Nothing is committed for this because ADR-0027 keeps the dependency\n' +
+          '  register permissive, and a tool you look at output with is a separate\n' +
+          '  program rather than part of the product.\n' +
+          '  Meanwhile the SVG proof carries the same geometry, so only the SVG-to-PDF\n' +
+          '  conversion goes unseen, and an e2e test pins that to identical bytes.\n',
       );
     } else {
       manifest.images.push({
