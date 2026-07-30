@@ -9,11 +9,16 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # Group only minor and patch, so routine drift arrives as one PR. Majors come one
+    # at a time: a grouped major is an all-or-nothing review, which is how a breaking
+    # change gets waved through next to three harmless ones.
     groups:
       dev-tooling:
         patterns: ['typescript', 'vitest', 'tsx', '@types/*']
+        update-types: ['minor', 'patch']
       render:
         patterns: ['pdfkit', 'svg-to-pdfkit', 'jsdom', '@resvg/*']
+        update-types: ['minor', 'patch']
     ignore:
       # VexFlow is pinned to 4.2.5 deliberately: 5.x draws glyphs as Bravura text
       # measured through a canvas, which breaks headless rendering and byte-stable
