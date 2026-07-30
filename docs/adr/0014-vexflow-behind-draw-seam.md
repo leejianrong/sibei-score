@@ -1,0 +1,57 @@
+# ADR-0014: VexFlow behind a draw seam, with a spike gate
+
+- **Status:** Accepted
+- **Date:** 2026-07-30
+- **Deciders:** Jian (interview via `/grill-with-docs`)
+
+## Context
+
+The renderer choice was VexFlow, with the caveat *"based on how it looks I might
+want to develop it on my own."* A concern was then raised that VexFlow cannot read
+MusicXML — which ADR-0004 dissolves, since MusicXML is not the runtime truth and
+some model-to-renderer mapping is required whatever engine is chosen.
+
+That left the real question: use VexFlow, or engrave from scratch?
+
+What VexFlow supplies: a bundled SMuFL music font with glyph tables and anchor
+metrics; noteheads, stems and flags with correct stem direction and length; beam
+grouping and slope; accidental stacking and collision avoidance; ledger lines; dot
+placement; tie and slur bezier curves; tuplet brackets with numbers; rest glyph
+selection by duration; clefs, key signatures with accidentals in the right order and
+octave, time signatures; every barline type; and a `ChordSymbol` class that renders
+jazz superscript extensions properly. SVG and Canvas backends, and it runs in Node.
+
+What is ours regardless: the four-bar grid, justification policy, system and page
+breaking, headers, the model, and all editing and hit-testing (ADR-0015).
+
+## Decision
+
+Ship on VexFlow, behind an explicit draw seam: the layout engine produces
+engine-independent positions, and a draw adapter turns them into glyphs. The
+VexFlow adapter is one implementation of that adapter.
+
+Put a **spike gate** on it early in the build: render one deliberately nasty test
+chart — four-bar grid, ties across barlines, triplets, a pickup, double barlines,
+dense chord symbols including `C7alt` and `F#m7b5` — and judge the output. If it
+fails, replace the draw adapter only.
+
+PDF is produced by running the same VexFlow code server-side in Node to emit SVG,
+then converting to PDF. Screen and print share one layout path.
+
+## Consequences
+
+- The decision is genuinely reversible, for two reasons. The seam confines a
+  replacement to the draw layer. And a lead sheet is the easiest engraving target
+  that exists — single staff, one voice, no dynamics, no multi-voice collisions — so
+  owning the engraver later is perhaps 15% of a general engraver rather than the
+  whole thing.
+- Weeks of fiddly glyph work are deferred until there is evidence they are needed.
+  The failure mode of hand-rolled engraving is not "broken" but "subtly amateur",
+  which is exactly what a musician notices on a music stand.
+- Exports are deterministic and therefore regression-testable. Tests snapshot the
+  **SVG**, not the PDF bytes — PDF carries creation timestamps and producer strings
+  that would make byte comparison flaky. PDF metadata is pinned to fixed values.
+- Rejected: **headless Chromium print-to-PDF** — guarantees screen and print match
+  by construction, but adds a browser to the image and makes byte-stable output
+  harder. Rejected: **owning the engraver now** — total control of the look, at the
+  cost of not seeing a chart render for weeks.
