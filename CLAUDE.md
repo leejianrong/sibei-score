@@ -29,7 +29,48 @@ pnpm render all            # every fixture
 pnpm hooks:install         # point git at .githooks (do this once per clone)
 ```
 
-Look at a rendered page without a PDF viewer:
+## Proofing visual output — do this, it is not optional
+
+Engraving defects are visual and the test suite does not catch them. 82 green tests and a
+passing snapshot coexisted happily with every beamed note drawing a stray flag *and* a
+doubled stem. Someone had to look. **After any change that touches `layout`, `draw` or
+`pdf`, look at the result.**
+
+```sh
+pnpm proof                            # every fixture, whole pages
+pnpm proof nasty-chart --systems      # every system as its own image
+pnpm proof nasty-chart --bar 6        # one bar, zoom chosen for you
+pnpm proof nasty-chart --system 2 --census
+pnpm proof nasty-chart --pdf          # proof the PDF itself, if a rasteriser is present
+```
+
+Crops are named after the music, not pixel coordinates: layout knows where every system
+and bar sits, so `--bar 11` is exact and the zoom lands at a readable size on its own.
+Each run prints a manifest of what it wrote and what each image shows, so **read those
+files** — that is the point of the tool.
+
+`--census` is the highest-value flag. It counts the SVG's elements and diffs them against
+the committed snapshot:
+
+```
+vf-stem     73  58  -15        <- 15 beamed notes were drawing two stems each
+<path>     344 314  -30        <- ...and a flag each on top of that
+```
+
+That table is what diagnosed the beaming bug, where the raw snapshot diff said only
+"one very long line differs". Reach for it whenever a snapshot moves and you want to know
+*what* moved before you accept it.
+
+**Never refresh a snapshot to make a red test green.** Run `--census`, understand the
+delta, look at the image, and only then accept it.
+
+Proofing the PDF needs an external rasteriser (`pdftoppm` or `mutool`). None is committed
+because the good ones are all copyleft and ADR-0027 keeps the dependency register
+permissive. Little is lost: the PDF is a conversion of exactly the SVG geometry and an
+e2e test pins it to identical bytes, so the SVG proof stands in for the engraving and
+only the conversion goes unseen.
+
+The older single-file previewer is still there for ad-hoc use:
 
 ```sh
 pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 2
