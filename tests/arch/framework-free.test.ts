@@ -17,8 +17,17 @@ import { describe, expect, it } from 'vitest';
 
 const REPO = resolve(import.meta.dirname, '../..');
 
-/** The four packages PLAN.md names. Those not yet built are skipped, not assumed. */
-const FRAMEWORK_FREE = ['model', 'music', 'layout', 'codec'];
+/**
+ * The four packages PLAN.md names, plus `engrave`. Those not yet built are skipped, not
+ * assumed.
+ *
+ * `engrave` is here because it turned out it could be: our own engraver emits SVG markup
+ * rather than DOM nodes, so unlike `@sibei/draw` it needs no `document`, no jsdom and no
+ * renderer. That is a property worth holding on to — it is what would let a future
+ * server-side render drop a headless DOM entirely — so the same guards that keep `layout`
+ * portable now apply to it.
+ */
+const FRAMEWORK_FREE = ['model', 'music', 'layout', 'codec', 'engrave'];
 
 /** Present in the repo but framework- or platform-bound by design. */
 const ALLOWED_TO_BE_IMPURE = ['draw', 'pdf', 'api', 'cli', 'ui'];
@@ -149,28 +158,55 @@ describe('the framework-free core', () => {
 describe('the draw seam', () => {
   const layoutFiles = sourceFiles(join(REPO, 'packages/layout/src'));
   const drawFiles = sourceFiles(join(REPO, 'packages/draw/src'));
+  const engraveFiles = sourceFiles(join(REPO, 'packages/engrave/src'));
+
+  /** Both adapters, so the seam is asserted per implementation rather than per package. */
+  const adapters: [string, string[]][] = [
+    ['draw', drawFiles],
+    ['engrave', engraveFiles],
+  ].filter((entry): entry is [string, string[]] => (entry[1] as string[]).length > 0);
 
   it('keeps VexFlow out of layout entirely (ADR-0014)', () => {
     const offenders = layoutFiles.filter((file) => /vexflow|\bVex\b|\bVF\./i.test(codeOf(file)));
     expect(offenders).toEqual([]);
   });
 
-  it('keeps layout decisions out of draw: no grid, no pagination, no page spec building', () => {
-    // The adapter is handed positions. If it started resolving them it would be
-    // deciding layout, which is the one thing ADR-0014 forbids it.
-    const offenders = drawFiles.filter((file) =>
-      /\b(planSystems|allocateWidths|resolvePageSpec|systemVertical|resolveBarAccidentals)\b/.test(
-        codeOf(file),
-      ),
-    );
+  it('has both adapters to check', () => {
+    expect(adapters.map(([name]) => name)).toEqual(['draw', 'engrave']);
+  });
+
+  for (const [name, files] of adapters) {
+    it(`keeps layout decisions out of ${name}: no grid, no pagination, no page spec building`, () => {
+      // The adapter is handed positions. If it started resolving them it would be
+      // deciding layout, which is the one thing ADR-0014 forbids it.
+      const offenders = files.filter((file) =>
+        /\b(planSystems|allocateWidths|resolvePageSpec|systemVertical|resolveBarAccidentals)\b/.test(
+          codeOf(file),
+        ),
+      );
+      expect(offenders).toEqual([]);
+    });
+
+    it(`keeps Node out of ${name}, which runs in the browser too`, () => {
+      const offenders = files.flatMap((file) =>
+        importsOf(file)
+          .filter((specifier) => NODE_BUILTINS.has(specifier))
+          .map((specifier) => `${file}: ${specifier}`),
+      );
+      expect(offenders).toEqual([]);
+    });
+  }
+
+  it('keeps VexFlow out of the engraver, which is the whole point of it (ADR-0030)', () => {
+    const offenders = engraveFiles.filter((file) => /vexflow|\bVex\b|\bVF\./i.test(codeOf(file)));
     expect(offenders).toEqual([]);
   });
 
-  it('keeps Node out of draw, which runs in the browser too', () => {
-    const offenders = drawFiles.flatMap((file) =>
-      importsOf(file)
-        .filter((specifier) => NODE_BUILTINS.has(specifier))
-        .map((specifier) => `${file}: ${specifier}`),
+  it('keeps text measurement out of both adapters (ADR-0015)', () => {
+    // `measureText` and `getBBox` only exist in a real browser, so using either would
+    // put text in one place on screen and another in print.
+    const offenders = [...drawFiles, ...engraveFiles].filter((file) =>
+      /\b(measureText|getBBox)\b/.test(codeOf(file)),
     );
     expect(offenders).toEqual([]);
   });

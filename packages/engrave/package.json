@@ -1,0 +1,16 @@
+{
+  "name": "@sibei/engrave",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "The engraver spike (ADR-0030): a second draw adapter that engraves from Bravura's own metrics. Framework-free, Node-free, VexFlow-free.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/layout": "workspace:*",
+    "@sibei/model": "workspace:*"
+  }
+}

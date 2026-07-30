@@ -11,16 +11,18 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/draw && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p tests && tsc --noEmit -p scripts",
+    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/draw && tsc --noEmit -p packages/engrave && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p tests && tsc --noEmit -p scripts",
     "check": "pnpm run typecheck && pnpm run test",
     "render": "tsx scripts/render-fixture.ts",
     "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
     "proof": "tsx scripts/proof.ts",
+    "vendor:bravura": "tsx scripts/vendor-bravura.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\""
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
     "@sibei/draw": "workspace:*",
+    "@sibei/engrave": "workspace:*",
     "@sibei/fixtures": "workspace:*",
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",

@@ -35,9 +35,22 @@ The dependency register of record:
 | PaddleOCR | Chord-band text recognition | Apache-2.0 | Yes, weights baked in | EasyOCR, same interface shape |
 | OpenCV | Preprocessing: deskew, crop, contrast | Apache-2.0 | Yes | — |
 | VexFlow | Draw adapter | MIT | Yes | Own engraver (ADR-0014) |
-| Bravura | SMuFL music font, via VexFlow | SIL OFL | Yes | — |
+| Bravura | SMuFL music font. Via VexFlow, and since V1b also read directly — see the note below | SIL OFL | Yes | — |
 | SQLite | Store | Public domain | Yes | Postgres at hosting (ADR-0006) |
 | Svelte 5 + Vite | UI shell | MIT | Yes | Framework-free core makes it swappable (ADR-0022) |
+
+### Register note, 2026-07-31: Bravura is now vendored as well as bundled
+
+V1b's engraver reads Bravura's own published metrics rather than VexFlow's copy of them
+(ADR-0030). No new dependency: same font, same SIL OFL 1.1 licence, same offline story.
+What changed is the delivery route, and it changed in the direction this ADR prefers —
+`scripts/vendor-bravura.ts` generates a 12 KB checked-in slice of fifteen glyph outlines
+plus the `engravingDefaults` table from the pinned `bravura-1.392` release, so
+`pnpm install` reaches the network for it never rather than once. Attribution is in
+`packages/engrave/NOTICE.md`.
+
+SMuFL's `glyphnames.json` is read at vendoring time to resolve glyph names to codepoints
+and is **not** redistributed, so it is not a dependency and does not enter this register.
 
 ## Alternatives considered
 

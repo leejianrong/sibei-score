@@ -5,6 +5,28 @@
 - **Deciders:** Jian, at the V1 render gate
 - **Amends:** [ADR-0014](0014-vexflow-behind-draw-seam.md)
 
+## Status updates
+
+**2026-07-31 — V1b built, gate open.** The engraver spike is in `packages/engrave` and the
+side-by-side is `pnpm proof nasty-chart --bar 6 --compare`. Findings and the estimate:
+[`docs/v1b-engraver-spike.md`](../v1b-engraver-spike.md).
+
+The assumption this ADR put on the spike held: **Bravura's published metadata is sufficient
+to anchor stems, flags and beams with no per-glyph tuning.** Two things came out
+differently from what this ADR expected, and both are recorded there rather than here
+because neither changes the decision:
+
+- **Beams were not the hard part.** Slope, stem adjustment and secondary beams took an
+  afternoon, because each of the four decisions has a published convention behind it. The
+  risk moved to **within-bar spacing**, which the spike deliberately does not build.
+- **The engraver needs no DOM.** It emits markup rather than DOM nodes, so it is
+  framework-free in the sense `layout` and `model` are, and a future server-side render
+  could drop jsdom.
+
+The exit condition — the approach confirmed, the anchoring design agreed, and a real
+estimate — is put to Jian as four questions at the end of that document. **The position of
+the full replacement in the slice order is still unscheduled until they are answered.**
+
 ## Context
 
 ADR-0014 chose VexFlow behind an explicit draw seam and put a spike gate on the
