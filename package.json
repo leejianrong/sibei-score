@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A local-only jazz lead sheet notation app",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

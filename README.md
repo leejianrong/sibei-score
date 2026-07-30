@@ -4,8 +4,11 @@ A local-only jazz lead sheet notation app. Single staff, chord symbols above it,
 bars to a line, printable from a music stand — reachable equally from a browser and a
 CLI (`PLAN.md`).
 
-Status: **V1 of 14** (`SLICES.md`). The render path exists; there is no store, no API,
-no CLI and no UI yet.
+Status: **V1 done, V1b next** (`SLICES.md`). The render path exists; there is no store, no
+API, no CLI and no UI yet. The V1 gate decided we own the engraver (ADR-0030), so VexFlow
+is a starting position rather than the destination.
+
+MIT licensed — see `LICENSE`.
 
 ## Reading order
 

@@ -71,6 +71,57 @@ shape, nothing else.
 
 ---
 
+## V1b: The engraver spike
+
+**Delivers:** the exit condition for ADR-0030, and a real estimate for the rest
+
+The gate decided we own the engraver (ADR-0030). This slice buys the evidence before the
+commitment, the same way V1 did: it does not replace anything, it proves the approach and
+produces a number.
+
+**Build plan**
+
+1. Read Bravura's `bravura_metadata.json` — glyph anchors (`stemUpSE`, `stemDownNW`) and
+   engraving defaults (staff line, stem and beam thickness, beam spacing). This is the
+   metrics problem already solved as data; do not re-derive it.
+2. A second draw adapter behind the *same* seam, implementing only what one system needs:
+   noteheads, stems with direction and length, ledger lines, and **beams** — slope,
+   stem adjustment to meet the beam, and a secondary beam for sixteenths.
+3. Render one system of the nasty chart through it. Bar 6 is the interesting one: four
+   sixteenths with an accidental, which is where beaming is hardest and where V1's bug
+   lived.
+4. **Side by side.** Both adapters, same music, same layout, one image. `pnpm proof`
+   already crops by bar, so this is a comparison rather than an impression.
+5. **Gate:** look at both. Confirm the approach is viable, agree the glyph-anchoring
+   design, and write down a real estimate for reaching parity. Record the outcome as a
+   status update on ADR-0030.
+
+**Demo:** one image, two engravings of bar 6, ours and VexFlow's, at the same scale.
+
+**Rests on assumptions:** that Bravura's metadata is sufficient to anchor stems and beams
+without hand-tuned per-glyph offsets. If it is not, the estimate grows and the spike is
+exactly where that surfaces.
+
+**Explicitly not in this slice:** rests, ties, tuplet brackets, accidental stacking,
+clefs, key and time signatures, barlines, chord symbols, or within-bar spacing. Parity is
+a later slice whose position is chosen once this one has given a number (ADR-0030).
+
+### Test plan
+
+#### Integration
+- The spike adapter renders the fixture system without throwing, and consumes only the
+  layout contract — asserted by the same architecture test that guards the seam.
+- Both adapters produce output for the same layout, so the comparison is of engraving and
+  not of two different layouts.
+
+#### Unit
+- Glyph anchoring: a stem attached at Bravura's `stemUpSE` anchor lands on the notehead's
+  right edge, at every staff position.
+- Beam geometry: slope stays within the conventional limit; every stem in a group
+  terminates on the beam; a group of four sixteenths gets two beams.
+
+---
+
 ## V2: One write path
 
 **Delivers:** R1 (partial), R2, R8, R9
@@ -646,8 +697,12 @@ this is the slice that grows a crop UI. Q42 (the gate itself).
 
 ## Sequencing notes
 
-- **V1 and V9 are gates, not features.** Each has an explicit decision as its exit
+- **V1, V1b and V9 are gates, not features.** Each has an explicit decision as its exit
   condition, and each precedes everything that depends on it.
+- **V1b does not block V2.** The engraver spike and the write path touch nothing in
+  common, so they can run in either order or in parallel. Only the full engraver
+  replacement competes for time with the rest of v0.1, which is why ADR-0030 leaves its
+  position unscheduled until V1b returns a number.
 - **V5 pays for itself twice.** The chord grammar built for user input is the OCR
   corrector in V13, which is why it is not deferred to v0.2.
 - **V12 precedes V13** so the chord pipeline is measured as it is built. Reversing them
