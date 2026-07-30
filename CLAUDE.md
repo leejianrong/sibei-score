@@ -69,11 +69,20 @@ That table is what diagnosed the beaming bug, where the raw snapshot diff said o
 **Never refresh a snapshot to make a red test green.** Run `--census`, understand the
 delta, look at the image, and only then accept it.
 
-Proofing the PDF needs an external rasteriser (`pdftoppm` or `mutool`). None is committed
-because the good ones are all copyleft and ADR-0027 keeps the dependency register
-permissive. Little is lost: the PDF is a conversion of exactly the SVG geometry and an
-e2e test pins it to identical bytes, so the SVG proof stands in for the engraving and
-only the conversion goes unseen.
+Proofing the PDF needs an external rasteriser. None is committed because ADR-0027 keeps
+the dependency register permissive and the capable ones are mostly copyleft — a tool you
+look at output with is a separate program, not part of the product, but it does not belong
+in the lockfile either. Any one of these works, and `pnpm proof --pdf` finds it:
+
+```sh
+uv tool install --with pillow pypdfium2   # no root; PDFium, BSD/Apache
+sudo apt install poppler-utils            # pdftoppm; GPL
+sudo apt install mupdf-tools              # mutool; AGPL
+```
+
+With none installed, `--pdf` says so and carries on. Little is lost: the PDF is a
+conversion of exactly the SVG geometry and an e2e test pins it to identical bytes, so the
+SVG proof stands in for the engraving and only the conversion goes unseen.
 
 The older single-file previewer is still there for ad-hoc use:
 

@@ -74,6 +74,21 @@ vf-stem     73  58  -15
 <path>     344 314  -30
 ```
 
+Proofing the PDF needs an external rasteriser. None is committed because ADR-0027 keeps
+the dependency register permissive and the capable ones are mostly copyleft — a tool you
+look at output with is a separate program, not part of the product, but it does not belong
+in the lockfile either. Any one of these works, and `pnpm proof --pdf` finds it:
+
+```sh
+uv tool install --with pillow pypdfium2   # no root; PDFium, BSD/Apache
+sudo apt install poppler-utils            # pdftoppm; GPL
+sudo apt install mupdf-tools              # mutool; AGPL
+```
+
+With none installed, `--pdf` says so and carries on. Little is lost: the PDF is a
+conversion of exactly the SVG geometry and an e2e test pins it to identical bytes, so the
+SVG proof stands in for the engraving and only the conversion goes unseen.
+
 There is also a plain single-file previewer for ad-hoc use:
 
 ```sh
