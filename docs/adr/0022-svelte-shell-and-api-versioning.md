@@ -4,6 +4,14 @@
 - **Date:** 2026-07-30
 - **Deciders:** Jian (interview via `/grill-with-docs`)
 
+## Status note, 2026-07-31
+
+**Both decisions stand, and the framework argument got stronger.** VexFlow is gone
+(ADR-0030). The Context reasons that the framework choice does not fall out of the
+rendering library because VexFlow is framework-agnostic; the engraver that replaced it
+emits SVG **markup** and touches no DOM at all, so there is even less for a framework to
+fall out of. `/v1/` shipped at V2d and is unaffected.
+
 ## Context
 
 Two loose ends, both consequences of earlier decisions rather than independent
