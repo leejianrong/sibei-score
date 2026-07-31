@@ -602,6 +602,25 @@ option (`docs/v1-render-gate.md`).
 
 `main` is protected: **PR-only, CI green before merge, no direct pushes.**
 
+**The required status checks are matched by name, and the names are load-bearing.** Exactly
+six, and a CI job's `name:` must keep matching its context string or the check can never
+report and the PR can never merge:
+
+```
+typecheck    test    test (infra)    render the fixtures    secret scan    the V2 demo
+```
+
+**Renaming a CI job is therefore a two-part change** — the workflow and the branch protection,
+together — and getting the order wrong has already made every PR unmergeable on this repo
+once. `the V2 demo` is misnamed on purpose: it covers V3's export demo too, and correcting the
+name is not worth the window in which nothing can merge. Do not rename it casually; the
+`gh api` call to protection has to land in the same operation.
+
+Protection is also **strict** ("require branches up to date"), which serialises landings: the
+moment one PR merges, every other open PR goes `BEHIND` and is refused even while `MERGEABLE`
+and fully green. `gh pr update-branch <n>`, wait for the re-green, then merge. Parallelise
+implementation; never parallelise landing.
+
 1. Branch per slice off a fresh `main`: `git fetch origin && git switch -c v2/one-write-path origin/main`
 2. Build the slice. Match the surrounding style — comment density, naming, and the habit of
    citing the ADR that forced a decision.
