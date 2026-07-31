@@ -14,6 +14,7 @@ import {
   migrateDocumentWith,
 } from '@sibei/model';
 import type { DocumentMigration, Score } from '@sibei/model';
+import { insert, update } from './helpers.js';
 
 /**
  * Migration on read, end to end through the store (ADR-0028).
@@ -103,7 +104,7 @@ describe('a document at the current version', () => {
   it('is read, and reading it twice is stable', () => {
     const filename = onDisk();
     const store = openAtV1(filename);
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
 
     expect(store.get(LOCAL_OWNER, 'score-1')?.score).toEqual(aScore());
     expect(store.get(LOCAL_OWNER, 'score-1')?.version).toBe(1);
@@ -114,7 +115,7 @@ describe('a document at the current version', () => {
 describe('a document below the current version', () => {
   it('is migrated on read, so the caller gets the current shape', () => {
     const filename = onDisk();
-    openAtV1(filename).insert(LOCAL_OWNER, aScore());
+    insert(openAtV1(filename), LOCAL_OWNER, aScore());
     closeAll();
 
     const found = openAtV2(filename).get(LOCAL_OWNER, 'score-1');
@@ -124,7 +125,7 @@ describe('a document below the current version', () => {
 
   it('is written back at the current version, so the next read costs nothing', () => {
     const filename = onDisk();
-    openAtV1(filename).insert(LOCAL_OWNER, aScore());
+    insert(openAtV1(filename), LOCAL_OWNER, aScore());
     closeAll();
 
     openAtV2(filename).get(LOCAL_OWNER, 'score-1');
@@ -139,8 +140,8 @@ describe('a document below the current version', () => {
     // The assertion ADR-0028 exists for.
     const filename = onDisk();
     const first = openAtV1(filename);
-    first.insert(LOCAL_OWNER, aScore());
-    first.update(LOCAL_OWNER, 'score-1', 1, aScore());
+    insert(first, LOCAL_OWNER, aScore());
+    update(first, LOCAL_OWNER, 'score-1', 1, aScore());
     expect(first.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
     closeAll();
 
@@ -152,7 +153,7 @@ describe('a document below the current version', () => {
 
     // And the consequence that matters: a client still holding version 2 can still write. If
     // the read had bumped, this would come back as a conflict for no reason at all.
-    expect(migrating.update(LOCAL_OWNER, 'score-1', 2, aScore())).toMatchObject({
+    expect(update(migrating, LOCAL_OWNER, 'score-1', 2, aScore())).toMatchObject({
       ok: true,
       version: 3,
     });
@@ -161,7 +162,7 @@ describe('a document below the current version', () => {
   it('does not move the timestamp either, so the library does not reorder itself for a read', () => {
     const filename = onDisk();
     const first = openAtV1(filename);
-    first.insert(LOCAL_OWNER, aScore());
+    insert(first, LOCAL_OWNER, aScore());
     const before = first.list(LOCAL_OWNER)[0]?.updatedAt;
     closeAll();
 
@@ -180,7 +181,7 @@ describe('a document from a newer schema version', () => {
   it('fails loudly rather than being read on a best-effort basis', () => {
     const filename = onDisk();
     const ahead = openAtV2(filename);
-    ahead.insert(LOCAL_OWNER, fromTheFuture());
+    insert(ahead, LOCAL_OWNER, fromTheFuture());
     closeAll();
 
     const behind = openAtV1(filename);
@@ -192,7 +193,7 @@ describe('a document from a newer schema version', () => {
     // A partial write on the way out would corrupt the one copy of data ADR-0028 calls
     // irreplaceable. The proof is that a build which *can* read it still can.
     const filename = onDisk();
-    openAtV2(filename).insert(LOCAL_OWNER, fromTheFuture());
+    insert(openAtV2(filename), LOCAL_OWNER, fromTheFuture());
     closeAll();
 
     expect(() => openAtV1(filename).get(LOCAL_OWNER, 'score-1')).toThrow();
@@ -207,7 +208,7 @@ describe('a document from a newer schema version', () => {
     // A listing reads columns, not documents, so one unreadable chart must not take the
     // library view down with it.
     const filename = onDisk();
-    openAtV2(filename).insert(LOCAL_OWNER, fromTheFuture());
+    insert(openAtV2(filename), LOCAL_OWNER, fromTheFuture());
     closeAll();
 
     expect(openAtV1(filename).list(LOCAL_OWNER).map((row) => row.id)).toEqual(['score-1']);

@@ -1,4 +1,5 @@
 import type { Id, Score } from '@sibei/model';
+import type { StoredOperation } from '../ops/operations.js';
 
 /**
  * The store port (ADR-0006). Nothing above this file may know that SQLite exists — that is
@@ -54,6 +55,11 @@ export interface ScoreReader {
    */
   get(owner: Owner, id: Id): ScoreRecord | null;
   exists(owner: Owner, id: Id): boolean;
+  /**
+   * The score's whole operation log in sequence order (ADR-0003). Reading is safe for anyone —
+   * it is the audit trail, the input to replay, and what undo walks backwards.
+   */
+  operations(owner: Owner, id: Id): StoredOperation[];
 }
 
 /** The outcome of a write that carried an expected version (ADR-0003). */
@@ -77,19 +83,31 @@ export type WriteOutcome =
  */
 export interface ScoreWriter {
   /**
-   * Insert a score that does not exist yet. `version` starts at 1.
+   * Create a score and append the operations that created it, in **one transaction**.
+   * `version` starts at 1.
    *
    * Creation is itself an operation (`score.create`), which is what keeps replay-from-empty
-   * true as a property rather than an aspiration (ADR-0003) — so this is called by the
-   * applier like every other write, not beside it.
+   * true as a property rather than an aspiration (ADR-0003) — so it comes through here like
+   * every other write, not beside it.
    */
-  insert(owner: Owner, score: Score): WriteOutcome;
+  create(owner: Owner, score: Score, operations: readonly StoredOperation[]): WriteOutcome;
   /**
-   * Replace the document if and only if the stored version is `expectedVersion`, bumping it
-   * on success. The check and the write are one statement, so two concurrent writers cannot
-   * both win — no locks and no last-write-wins (ADR-0003).
+   * Replace the document and append its operations if and only if the stored version is
+   * `expectedVersion`, bumping it on success. One transaction, and the version check is part of
+   * the same statement as the write, so two concurrent writers cannot both win — no locks and no
+   * last-write-wins (ADR-0003).
+   *
+   * A batch of operations arrives here as one call and commits as one unit: one invalid
+   * operation earlier in the applier means this is never reached, so none of them land
+   * (ADR-0008).
    */
-  update(owner: Owner, id: Id, expectedVersion: number, score: Score): WriteOutcome;
+  commit(
+    owner: Owner,
+    id: Id,
+    expectedVersion: number,
+    score: Score,
+    operations: readonly StoredOperation[],
+  ): WriteOutcome;
 }
 
 /**

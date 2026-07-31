@@ -8,10 +8,10 @@ stale — fix it.
 ## Build status, honestly
 
 **V1 and V1b–V1d are done, and V2 is in progress** (`SLICES.md`). What exists: the score
-model, the layout engine, **our own engraver**, the server-side PDF path, and — from V2a —
-**the store**. What does **not** exist yet: the op log or applier, any HTTP API, CLI,
-browser UI, chord grammar, transposition, MusicXML codec, or import pipeline. Do not assume
-a module is there because a plan mentions it.
+model, the layout engine, **our own engraver**, the server-side PDF path, and — from V2a–V2c —
+**the store, the address resolver, the op log and the applier**. What does **not** exist yet:
+any HTTP API, CLI, browser UI, chord grammar, transposition, MusicXML codec, or import
+pipeline. Do not assume a module is there because a plan mentions it.
 
 **V2 is being built in five sub-slices**, the way V1 was cut into V1b–V1d, because one write
 path is nine build steps and 13 points. Board cards KAN-468 through KAN-472, under the
@@ -21,8 +21,8 @@ KAN-410 umbrella:
 |---|---|---|
 | V2a | The store, migrations on read, and the suite split | **done** |
 | V2b | The address resolver — `bar12.beat3`, `bar12.n3`, `note-17` | **done** |
-| V2c | The op log, and the applier as the only writer | |
-| V2d | The `/v1/` API, the auth seam, and the Origin check | |
+| V2c | The op log, and the applier as the only writer | **done** |
+| V2d | The `/v1/` API, the auth seam, and the Origin check | next |
 | V2e | The CLI, and the text projection — carries V2's demo | |
 
 Nothing in V2 touches the renderer, so `pnpm proof` is not usually relevant to it. The
@@ -39,7 +39,6 @@ draws every glyph the layout contract can emit, in either of two faces, and
 render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 `renderScoreToPdf(score, {}, { font: 'jazz' })`.
 
-**V2 is next**, and nothing about it touches the renderer.
 
 ## Commands
 
@@ -47,7 +46,7 @@ render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
 pnpm check                 # typecheck every package, then both suite layers. The gate.
 pnpm typecheck             # each package under its own strict config
-pnpm test                  # vitest, both layers, 211 tests
+pnpm test                  # vitest, both layers, 354 tests
 pnpm test:fast             # the no-infra layer — what the pre-push hook runs
 pnpm test:infra            # the layer that needs a real store
 pnpm test:watch
@@ -308,6 +307,54 @@ The chain is a *parameter* of the store, not an import, so the write-back path i
 against a synthetic migration while `DOCUMENT_MIGRATIONS` is still empty. Every model change
 that alters the document shape owes a migration and a fixture. That is a standing tax and it
 is the point.
+
+### The op log, and the one write path
+
+`packages/api/src/ops/`. Every mutation is an operation appended to a per-score log and applied
+by a single applier, and **nothing else writes to the store** (ADR-0003). "The UI and the CLI
+can never disagree" is structurally true rather than maintained by discipline, and it rests on
+three things:
+
+1. There is no second write path — both surfaces are HTTP clients of one API (ADR-0002).
+2. The only writes come from the applier. `tests/arch/one-writer.test.ts`.
+3. Replaying a log from empty reproduces the stored document exactly. `tests/store/applier.test.ts`.
+
+**`apply.ts` is pure; `applier.ts` persists.** Keep it that way. The pure reducer is
+`(score, operation) -> {score, operation, changed}` with no store anywhere in it, and that
+separation is the only reason property 3 above can be asserted at all. Anything interesting
+belongs in the pure half.
+
+**The log stores the *normalised* operation, not the request.** Every value the applier generated
+— an id, a bar list — is written back into the payload before it is logged, and replay prefers
+the recorded value. That is what makes replay exact rather than merely likely: it does not depend
+on the id policy in force when the operation was first applied.
+
+**Three versions, and they are all different things.** The score's `version` is optimistic
+concurrency. The document's `schemaVersion` is its shape (ADR-0028). An operation's `version` is
+*its* shape, and old operation shapes must stay readable **forever** rather than being migrated,
+because undo replays them — so nothing migrates a payload on the way out of the log, and nothing
+ever UPDATEs or DELETEs a log row.
+
+**Batches.** One apply is one version bump and one undoable unit whatever its length. The whole
+batch folds before anything is written, and the document write plus every log append happen in
+one SQL transaction — so one invalid operation means none of them land (ADR-0008). Both halves
+are needed: the fold alone would still let a partial append through.
+
+**ADR-0013 lives here.** A `note.add` that makes a bar overflow is *applied* and the bar flagged
+`metrically-invalid`. Nothing in the applier may repair or refuse a bar for its rhythm, and
+`meta.set` re-flags every bar because changing the meter changes which bars are valid without
+touching a note.
+
+There is one deliberate asymmetry with that. **Read leniently, write strictly:** the resolver
+copes with two items sharing an onset, because an imported document may contain one, but
+`note.add` refuses to *create* one. Two onsets stacked is a second voice, and single-voice is
+load-bearing in the layout engine rather than incidental.
+
+**The verb set is deliberately short** — `score.create`, `meta.set`, `note.add|set|rm`,
+`rest.add|rm`. `chord`, `section`, `repeat`, `tie`, `tuplet`, `transpose` and `undo` each belong
+to a later slice. Two gaps worth knowing about: a score's bar count is fixed at creation (there
+is no `bar.append` until V7 needs one), and deleting a score is *not* an operation — it destroys
+the log an entry would live in, so it is a library lifecycle call instead.
 
 ### Never measure text
 

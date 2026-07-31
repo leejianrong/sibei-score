@@ -3,13 +3,8 @@ import type { Database } from 'better-sqlite3';
 import { formatKeySignature, migrateDocument } from '@sibei/model';
 import type { Id, MigrationResult, Score } from '@sibei/model';
 import { migrateTables } from './sqlite-schema.js';
-import type {
-  Owner,
-  ScoreListing,
-  ScoreRecord,
-  ScoreStore,
-  WriteOutcome,
-} from './repository.js';
+import type { StoredOperation } from '../ops/operations.js';
+import type { Owner, ScoreListing, ScoreRecord, ScoreStore } from './repository.js';
 
 /**
  * The SQLite implementation of the store port (ADR-0006).
@@ -53,6 +48,14 @@ interface ScoreRow {
 
 type ListingRow = Omit<ScoreRow, 'doc' | 'owner'>;
 
+interface OperationRow {
+  seq: number;
+  batch: number;
+  op_version: number;
+  payload: string;
+  created_at: string;
+}
+
 export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
   const db: Database = new SqliteDatabase(options.filename);
   migrateTables(db);
@@ -90,7 +93,55 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
         WHERE owner = @owner AND id = @id AND version = @version`,
     ),
     delete: db.prepare(`DELETE FROM scores WHERE owner = ? AND id = ?`),
+
+    // The log. Append-only: there is no UPDATE and no DELETE against it, because rewriting
+    // history is exactly what undo-by-replay must never be able to do (ADR-0003). Rows go only
+    // when the score they belong to does, by cascade.
+    appendOp: db.prepare(
+      `INSERT INTO operations (score_id, seq, batch, op_version, type, payload, created_at)
+       VALUES (@score_id, @seq, @batch, @op_version, @type, @payload, @created_at)`,
+    ),
+    listOps: db.prepare<[Owner, Id], OperationRow>(
+      `SELECT o.seq, o.batch, o.op_version, o.payload, o.created_at
+         FROM operations o JOIN scores s ON s.id = o.score_id
+        WHERE s.owner = ? AND o.score_id = ?
+        ORDER BY o.seq ASC`,
+    ),
+    /** Where the next operation and the next batch go. */
+    nextSeq: db.prepare<[Id], { next_seq: number; next_batch: number }>(
+      `SELECT COALESCE(MAX(seq), 0) + 1  AS next_seq,
+              COALESCE(MAX(batch), 0) + 1 AS next_batch
+         FROM operations WHERE score_id = ?`,
+    ),
   };
+
+  /**
+   * Append a batch of operations as one undoable unit (ADR-0003). Sequence numbers are gapless
+   * per score and assigned here rather than by the caller, so the log's order is the store's to
+   * guarantee.
+   */
+  function appendOperations(scoreId: Id, operations: readonly StoredOperation[]): void {
+    const cursor = statements.nextSeq.get(scoreId) ?? { next_seq: 1, next_batch: 1 };
+    operations.forEach((operation, offset) => {
+      statements.appendOp.run({
+        score_id: scoreId,
+        seq: cursor.next_seq + offset,
+        batch: cursor.next_batch,
+        op_version: operation.version,
+        type: operation.operation.type,
+        payload: JSON.stringify(operation.operation),
+        created_at: operation.createdAt,
+      });
+    });
+  }
+
+  function refuseEmpty(operations: readonly StoredOperation[]): void {
+    // A document write with no operation behind it is the thing ADR-0003 forbids, so the store
+    // refuses it rather than trusting every future caller to remember.
+    if (operations.length === 0) {
+      throw new Error('a write must carry the operations that caused it (ADR-0003)');
+    }
+  }
 
   function get(owner: Owner, id: Id): ScoreRecord | null {
     const row = statements.get.get(owner, id);
@@ -122,7 +173,12 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
       return statements.exists.get(owner, id) !== undefined;
     },
 
-    insert(owner, score) {
+    operations(owner, id) {
+      return statements.listOps.all(owner, id).map(toStoredOperation);
+    },
+
+    create: db.transaction((owner: Owner, score: Score, operations: readonly StoredOperation[]) => {
+      refuseEmpty(operations);
       const updatedAt = timestamp(now);
       try {
         statements.insert.run({
@@ -135,30 +191,46 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
       } catch (error) {
         // Let the primary key answer rather than checking first, so the check and the write
         // cannot come apart. An id collision means a bug upstream, not a user error.
-        if (isUniqueViolation(error)) return { ok: false, reason: 'already-exists' };
+        if (isUniqueViolation(error)) return { ok: false, reason: 'already-exists' } as const;
         throw error;
       }
-      return { ok: true, version: 1, updatedAt };
-    },
+      appendOperations(score.id, operations);
+      return { ok: true, version: 1, updatedAt } as const;
+    }) as ScoreStore['create'],
 
-    update(owner, id, expectedVersion, score) {
-      const updatedAt = timestamp(now);
-      const outcome = statements.update.run({
-        ...listingColumns(score),
-        owner,
-        id,
-        expected_version: expectedVersion,
-        updated_at: updatedAt,
-        doc: JSON.stringify(score),
-      });
-      if (outcome.changes === 1) return { ok: true, version: expectedVersion + 1, updatedAt };
+    commit: db.transaction(
+      (
+        owner: Owner,
+        id: Id,
+        expectedVersion: number,
+        score: Score,
+        operations: readonly StoredOperation[],
+      ) => {
+        refuseEmpty(operations);
+        const updatedAt = timestamp(now);
+        const outcome = statements.update.run({
+          ...listingColumns(score),
+          owner,
+          id,
+          expected_version: expectedVersion,
+          updated_at: updatedAt,
+          doc: JSON.stringify(score),
+        });
 
-      // The statement matched nothing, so either the score is gone or the version moved.
-      // Reading the row is what tells the client which, and gives it the version to retry at.
-      const row = statements.get.get(owner, id);
-      if (row === undefined) return { ok: false, reason: 'not-found' };
-      return { ok: false, reason: 'conflict', version: row.version };
-    },
+        if (outcome.changes === 1) {
+          // Inside the same transaction as the version check, so a document can never be written
+          // without the operations that caused it, and vice versa.
+          appendOperations(id, operations);
+          return { ok: true, version: expectedVersion + 1, updatedAt } as const;
+        }
+
+        // The statement matched nothing, so either the score is gone or the version moved.
+        // Reading the row is what tells the client which, and gives it the version to retry at.
+        const row = statements.get.get(owner, id);
+        if (row === undefined) return { ok: false, reason: 'not-found' } as const;
+        return { ok: false, reason: 'conflict', version: row.version } as const;
+      },
+    ) as ScoreStore['commit'],
 
     delete(owner, id) {
       return statements.delete.run(owner, id).changes === 1;
@@ -179,6 +251,21 @@ function listingColumns(score: Score): { title: string; composer: string; key: s
     title: score.meta.title,
     composer: score.meta.composer,
     key: formatKeySignature(score.meta.key),
+  };
+}
+
+/**
+ * The log row, back as an operation. The payload is *not* migrated on the way out: an old
+ * operation shape must stay interpretable forever, because undo replays it (ADR-0028), so
+ * whatever was written is what comes back.
+ */
+function toStoredOperation(row: OperationRow): StoredOperation {
+  return {
+    seq: row.seq,
+    batch: row.batch,
+    version: row.op_version,
+    operation: JSON.parse(row.payload) as StoredOperation['operation'],
+    createdAt: row.created_at,
   };
 }
 

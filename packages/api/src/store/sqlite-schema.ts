@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 1;
+export const TABLE_SCHEMA_VERSION = 2;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -42,6 +42,27 @@ CREATE TABLE IF NOT EXISTS scores (
 
 -- Every read filters on owner (ADR-0001), so every index leads with it.
 CREATE INDEX IF NOT EXISTS scores_owner_updated ON scores (owner, updated_at DESC);
+
+-- The operation log: the spine of the system (ADR-0003). Append-only. Nothing updates a row
+-- here, and only the op applier inserts one.
+--
+-- The payload holds the whole normalised operation, so an old operation shape stays readable
+-- forever rather than being migrated — undo replays them, so a migration would rewrite history
+-- (ADR-0028). op_version is the operation shape's own version and has nothing to do with either
+-- the document's schema_version or the score's version.
+--
+-- ON DELETE CASCADE is the delete semantics: removing a chart removes its log, which is exactly
+-- why deleting a score cannot itself be an operation — there would be no log left to put it in.
+CREATE TABLE IF NOT EXISTS operations (
+  score_id    TEXT    NOT NULL REFERENCES scores (id) ON DELETE CASCADE,
+  seq         INTEGER NOT NULL,
+  batch       INTEGER NOT NULL,
+  op_version  INTEGER NOT NULL,
+  type        TEXT    NOT NULL,
+  payload     TEXT    NOT NULL CHECK (json_valid(payload)),
+  created_at  TEXT    NOT NULL,
+  PRIMARY KEY (score_id, seq)
+);
 `;
 
 /**
