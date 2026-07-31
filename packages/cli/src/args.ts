@@ -15,7 +15,14 @@ export interface Flags {
   switches: Set<string>;
 }
 
-const SWITCHES = new Set(['json', 'help', 'pickup']);
+const SWITCHES = new Set(['json', 'help', 'pickup', 'pdf']);
+
+/**
+ * The short forms. There is exactly one, because `-o` for "write it here" is what every program
+ * that produces a file spells this way and a caller should not have to look it up. Everything else
+ * stays long: a CLI an agent drives is read more often than it is typed.
+ */
+const SHORT = new Map([['o', 'out']]);
 
 export function parseFlags(argv: readonly string[]): Flags {
   const positional: string[] = [];
@@ -25,7 +32,17 @@ export function parseFlags(argv: readonly string[]): Flags {
   for (let at = 0; at < argv.length; at += 1) {
     const token = argv[at] ?? '';
     if (!token.startsWith('--')) {
-      positional.push(token);
+      const short = token.startsWith('-') ? SHORT.get(token.slice(1)) : undefined;
+      if (short === undefined) {
+        positional.push(token);
+        continue;
+      }
+      const value = argv[at + 1];
+      if (value === undefined || value.startsWith('--')) {
+        throw new CliError(EXIT.usage, 'usage', `${token} needs a value`);
+      }
+      options.set(short, value);
+      at += 1;
       continue;
     }
     const body = token.slice(2);

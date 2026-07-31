@@ -60,7 +60,34 @@ export interface Client {
   remove(id: string): Promise<void>;
   create(operations: Operation[]): Promise<ApplyWire>;
   apply(id: string, operations: Operation[], expectedVersion?: number): Promise<ApplyWire>;
+  exportScore(id: string, query: ExportQuery): Promise<Download>;
   health(): Promise<{ status: string; api: string }>;
+}
+
+/**
+ * The export query, as strings, straight from the command line.
+ *
+ * **Nothing here is validated locally**, which is the same rule the rest of this CLI follows: the
+ * server owns what a paper or a face *is*, and a client that had its own opinion could disagree
+ * with it (ADR-0002). An unrecognised value comes back as a 422 carrying the list of what this
+ * build can produce, which is a better answer than anything the CLI could have made up.
+ */
+export interface ExportQuery {
+  format?: string;
+  paper?: string;
+  font?: string;
+}
+
+/** Bytes off the wire, plus what the server called them. */
+export interface Download {
+  bytes: Buffer;
+  /**
+   * The server's own download name, out of `Content-Disposition`. A *suggestion*: it is sanitised
+   * at the source, but it arrives over a socket and the CLI turns it into a path, so it is checked
+   * again before anything is written (`output.ts`).
+   */
+  filename: string;
+  contentType: string;
 }
 
 export interface ScoreListingWire {
@@ -80,10 +107,9 @@ export interface ApplyWire {
 }
 
 export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    let response: Response;
+  async function send(method: string, path: string, body?: unknown): Promise<Response> {
     try {
-      response = await fetch(`${baseUrl}${path}`, {
+      return await fetch(`${baseUrl}${path}`, {
         method,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' } }),
@@ -98,26 +124,49 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
         { detail: error instanceof Error ? error.message : undefined },
       );
     }
+  }
 
+  /**
+   * A failure body into a `CliError`. Shared by the JSON calls and the byte-returning one, so an
+   * export that asks for a paper this build cannot produce reports exactly what a bad address
+   * reports — the server's own words and the server's own `detail`.
+   */
+  function fail(status: number, text: string): never {
+    const error = (safeParse(text) as { error?: ServerError }).error;
+    if (error === undefined) {
+      throw new CliError(EXIT.usage, 'unknown', `the server answered ${status}`);
+    }
+    // The server's own message, verbatim. Both surfaces print the same words because neither
+    // rewrites them (PLAN.md).
+    throw new CliError(exitCodeForKind(error.kind), error.kind, error.message, {
+      detail: error.detail,
+      ...(error.currentVersion === undefined ? {} : { currentVersion: error.currentVersion }),
+      ...(error.operation === undefined ? {} : { operation: error.operation }),
+    });
+  }
+
+  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const response = await send(method, path, body);
     if (response.status === 204) return undefined as T;
 
     const text = await response.text();
-    const parsed: unknown = text === '' ? {} : safeParse(text);
+    if (!response.ok) fail(response.status, text);
+    return (text === '' ? {} : safeParse(text)) as T;
+  }
 
-    if (!response.ok) {
-      const error = (parsed as { error?: ServerError }).error;
-      if (error === undefined) {
-        throw new CliError(EXIT.usage, 'unknown', `the server answered ${response.status}`);
-      }
-      // The server's own message, verbatim. Both surfaces print the same words because neither
-      // rewrites them (PLAN.md).
-      throw new CliError(exitCodeForKind(error.kind), error.kind, error.message, {
-        detail: error.detail,
-        ...(error.currentVersion === undefined ? {} : { currentVersion: error.currentVersion }),
-        ...(error.operation === undefined ? {} : { operation: error.operation }),
-      });
-    }
-    return parsed as T;
+  /**
+   * The one call that does not come back as JSON. A PDF is bytes, so it is read as bytes and never
+   * decoded — an artefact that went through `JSON.parse` on its way past would be a corrupted one.
+   * A failure is still JSON, which is why the not-ok branch comes first.
+   */
+  async function download(path: string): Promise<Download> {
+    const response = await send('GET', path);
+    if (!response.ok) fail(response.status, await response.text());
+    return {
+      bytes: Buffer.from(await response.arrayBuffer()),
+      filename: filenameFrom(response.headers.get('content-disposition')),
+      contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    };
   }
 
   return {
@@ -131,7 +180,21 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
         operations,
         ...(expectedVersion === undefined ? {} : { expectedVersion }),
       }),
+    exportScore: (id, query) => {
+      // Only what was asked for. Restating the server's defaults here would be two places that
+      // have to agree about what a default is, and the query is the export cache's key (Q81).
+      const search = new URLSearchParams(
+        Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== undefined),
+      );
+      const suffix = search.size === 0 ? '' : `?${search.toString()}`;
+      return download(`/v1/scores/${encodeURIComponent(id)}/export${suffix}`);
+    },
   };
+}
+
+/** `attachment; filename="Body and Soul.pdf"` -> `Body and Soul.pdf`, or nothing at all. */
+function filenameFrom(header: string | null): string {
+  return /filename="([^"]*)"/.exec(header ?? '')?.[1] ?? '';
 }
 
 function safeParse(text: string): unknown {

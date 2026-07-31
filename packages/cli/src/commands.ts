@@ -1,12 +1,14 @@
+import { statSync, writeFileSync } from 'node:fs';
 import { projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type { MetaSetPayload, Operation, ScoreCreatePayload } from '@sibei/api';
 import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
 import { CliError, createClient } from './client.js';
-import type { Client } from './client.js';
+import type { Client, ExportQuery } from './client.js';
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
+import { fallbackName, outputPathFor } from './output.js';
 import { serve } from './serve.js';
 
 /**
@@ -33,6 +35,11 @@ export interface RunOptions {
   baseUrl?: string;
   /** Injected so a test can drive the commands without a socket at all. */
   client?: Client;
+  /**
+   * What a relative output path is relative to. The process's working directory in real use;
+   * injected so a test can write into a temp directory rather than changing the process's.
+   */
+  cwd?: string;
 }
 
 const USAGE = `sibei — a jazz lead sheet, from the command line
@@ -43,6 +50,7 @@ const USAGE = `sibei — a jazz lead sheet, from the command line
   sibei list
   sibei open <id>                          the full document, as JSON
   sibei show <id>                          the text projection
+  sibei export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]
   sibei rm <id>
   sibei meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sibei note add <id> <address> --pitch Eb5 --dur 8
@@ -56,6 +64,11 @@ Addresses (ADR-0007):  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
   \`sibei show\` prints the addresses this CLI accepts, so you never have to guess one.
 
+Export:  --pdf is the only format this build has, and it is the default.
+  Without -o the file is written to the working directory, named after the chart's
+  title — "Body and Soul" becomes ./Body and Soul.pdf. -o takes a file path, or a
+  directory to put that name in.
+
 Everywhere:  --json   machine-readable output
              --url    the API base URL (or SIBEI_URL)
 
@@ -64,15 +77,18 @@ Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version
 `;
 
 export async function run(argv: readonly string[], options: RunOptions): Promise<ExitCode> {
-  const flags = parseFlags(argv);
-  const json = flags.switches.has('json');
-
-  if (flags.positional.length === 0 || flags.switches.has('help')) {
-    options.io.out(USAGE);
-    return flags.switches.has('help') ? EXIT.ok : EXIT.usage;
-  }
+  // `--json` comes off the raw arguments because **the parser itself can fail**, and everything
+  // that can fail belongs inside the try. `sibei new --title` with nothing after it used to throw
+  // out of `run` altogether: the shell got node's unhandled-rejection stack instead of a message
+  // and a code, which is precisely the contract ADR-0008 is. Found by `-o` with no path after it.
+  const json = argv.includes('--json');
 
   try {
+    const flags = parseFlags(argv);
+    if (flags.positional.length === 0 || flags.switches.has('help')) {
+      options.io.out(USAGE);
+      return flags.switches.has('help') ? EXIT.ok : EXIT.usage;
+    }
     return await dispatch(flags, options, json);
   } catch (error) {
     if (error instanceof CliError) {
@@ -121,6 +137,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return open(flags, client, io);
     case 'show':
       return show(flags, client, io, json);
+    case 'export':
+      return exportScore(flags, client, io, json, options.cwd ?? process.cwd());
     case 'rm':
       return remove(flags, client, io, json);
     case 'meta':
@@ -197,6 +215,88 @@ async function show(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const text = projectScore(record.score);
   io.out(json ? JSON.stringify({ version: record.version, projection: text }) : text);
   return EXIT.ok;
+}
+
+/**
+ * `sibei export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]` (V3, R0).
+ *
+ * **The CLI renders nothing.** It asks the API for the bytes and writes them down — it imports no
+ * `@sibei/pdf`, no `@sibei/layout` and no `@sibei/engrave`, and `tests/cli` asserts that. The
+ * reason is the same one that keeps writes on one path (ADR-0002): a second renderer in the client
+ * is a second thing that can disagree with the server about what a chart looks like, and "the UI
+ * and the CLI cannot disagree" would stop being structurally true. With the server stopped, this
+ * verb exits 6 like every other one.
+ *
+ * `--pdf` is **optional and the default**, not required. Every export parameter is optional with a
+ * default on the route it calls, and every other verb here treats a flag the same way — `sibei
+ * export <id>` doing the one thing this build can do is the behaviour a caller expects. Naming it
+ * explicitly stays available and stays meaningful when a second format arrives.
+ *
+ * Nothing about the paper or the face is judged here. An unrecognised one is a 422 whose message
+ * lists what this build can produce, which lands on exit 2 — the same "the error is the feature"
+ * bargain the address resolver makes (ADR-0008).
+ */
+async function exportScore(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  cwd: string,
+): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'export');
+
+  const query: ExportQuery = {};
+  // The switch says pdf; absent, the server's default says pdf too. Only what was asked for goes
+  // on the query, so there is one place that decides what a default is.
+  if (flags.switches.has('pdf')) query.format = 'pdf';
+  const paper = flags.options.get('paper');
+  if (paper !== undefined) query.paper = paper;
+  const font = flags.options.get('font');
+  if (font !== undefined) query.font = font;
+
+  const artefact = await client.exportScore(id, query);
+  const path = outputPathFor({
+    out: flags.options.get('out'),
+    // A name off a socket is a suggestion, never a path (`output.ts`).
+    suggested: artefact.filename,
+    fallback: fallbackName(id, 'pdf'),
+    cwd,
+    isDirectory,
+  });
+
+  try {
+    writeFileSync(path, artefact.bytes);
+  } catch (error) {
+    // A directory that is not there, or one that is not writable. Usage, because it is the path
+    // the caller gave: nothing about the chart or the server was wrong.
+    throw new CliError(
+      EXIT.usage,
+      'output',
+      `cannot write ${path}: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
+  }
+
+  // The bytes are never printed — a PDF down a pipe is not output, it is noise. The path is,
+  // because the caller asked for a file and has to be able to find it.
+  io.out(
+    json
+      ? JSON.stringify({
+          scoreId: id,
+          path,
+          bytes: artefact.bytes.length,
+          contentType: artefact.contentType,
+        })
+      : `wrote ${path}  ${artefact.bytes.length} bytes`,
+  );
+  return EXIT.ok;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 async function remove(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {

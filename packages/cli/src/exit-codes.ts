@@ -36,6 +36,12 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  * what a failure *is* — they already agree about the message, because the server sends it.
  */
 export function exitCodeForKind(kind: string): ExitCode {
+  // Every `unsupported-<parameter>` the export route can answer with — format, instrument, paper,
+  // font — is a 422 of the same class as a validation failure: the request was readable, the
+  // content could not be produced, and the message carries the list of what can. Matched by prefix
+  // rather than a case per parameter, so a parameter added server-side lands on 2 and not on 1.
+  if (kind.startsWith('unsupported-')) return EXIT.validation;
+
   switch (kind) {
     case 'stale-version':
       return EXIT.conflict;

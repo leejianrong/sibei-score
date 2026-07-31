@@ -142,6 +142,10 @@ describe('the exit codes are distinct enough to branch on (ADR-0008)', () => {
 
   it('1 for usage', async () => {
     expect((await sibei('nonsense')).code).toBe(EXIT.usage);
+    // A flag with nothing after it fails in the argument parser, which used to run *outside* the
+    // handler — so it threw out of `run` and reached the shell as a stack trace rather than as an
+    // exit code. Found by V3d's `-o` with no path after it, which is the same shape.
+    expect((await sibei('new', '--title')).code).toBe(EXIT.usage);
     expect((await sibei('note', 'add')).code).toBe(EXIT.usage);
     expect((await sibei('note', 'sideways', 'soul', 'bar1.beat1')).code).toBe(EXIT.usage);
     expect((await sibei()).code).toBe(EXIT.usage);
@@ -328,6 +332,10 @@ describe('there is no second write path (ADR-0002)', () => {
   it('every editing verb goes through the API, so a stopped server means no edit at all', async () => {
     // The structural guarantee, from the CLI's side: it holds no store and cannot write to one. With
     // the server down, nothing it can be asked to do changes a score.
+    //
+    // `export` is in the list for the render side of the same argument (V3d): the CLI holds no
+    // renderer either, so with the server down it cannot produce a page rather than producing one
+    // that might disagree with the server's.
     await aChart();
     await api.close();
 
@@ -337,6 +345,7 @@ describe('there is no second write path (ADR-0002)', () => {
       ['meta', 'set', 'soul', '--title', 'X'],
       ['rm', 'soul'],
       ['batch', 'soul', '--ops', '[]'],
+      ['export', 'soul'],
     ]) {
       expect((await sibei(...argv)).code).toBe(EXIT.noServer);
     }
@@ -354,6 +363,14 @@ describe('help', () => {
     expect(result.out).toContain('bar12.n3');
     expect(result.out).toContain('note-17');
     expect(result.out).toContain('4 stale-version conflict');
+  });
+
+  it('lists every verb, and says where an export lands when -o is absent', async () => {
+    // The verb list is part of the contract, and a program that writes a file somewhere the caller
+    // has to guess is a program nobody trusts.
+    const result = await sibei('--help');
+    expect(result.out).toContain('sibei export <id>');
+    expect(result.out).toContain('./Body and Soul.pdf');
   });
 
   it('prints usage and exits non-zero when given nothing', async () => {
