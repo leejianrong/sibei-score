@@ -17,7 +17,7 @@
     "svg-to-pdfkit": "0.1.8"
   },
   "devDependencies": {
-    "@types/pdfkit": "0.17.4",
+    "@types/pdfkit": "0.17.6",
     "@types/svg-to-pdfkit": "0.1.4"
   }
 }
