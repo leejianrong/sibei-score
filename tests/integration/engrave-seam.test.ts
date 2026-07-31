@@ -1,6 +1,6 @@
 import { ENGRAVED_ITEM_KINDS, engravePage } from '@sibei/engrave';
-import { beamingChart, everyGlyphChart, nastyChart } from '@sibei/fixtures';
-import type { LayoutResult } from '@sibei/layout';
+import { beamingChart, everyGlyphChart, longFormChart, nastyChart } from '@sibei/fixtures';
+import type { LayoutResult, LayoutSystem } from '@sibei/layout';
 import { LAYOUT_BAR_ITEM_KINDS, STAFF_SPACE, layout } from '@sibei/layout';
 import { notesInReadingOrder } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
@@ -100,6 +100,91 @@ describe('the staff, where layout said to put it', () => {
     expect(engravedStaffLines(engraved(result)).filter((y) => tops.includes(y))).toHaveLength(
       tops.length,
     );
+  });
+});
+
+describe('the bands layout reserved', () => {
+  /** Every boxed rehearsal letter, as the top and bottom of its rectangle. */
+  function rehearsalBoxes(svg: string): { top: number; bottom: number }[] {
+    return [
+      ...svg.matchAll(/class="se-rehearsalbox" x="[\d.]+" y="([\d.-]+)"[^/]*height="([\d.]+)"/g),
+    ].map((match) => ({
+      top: Number(match[1]),
+      bottom: Number(match[1]) + Number(match[2]),
+    }));
+  }
+
+  function systemsWithAMark(systems: readonly LayoutSystem[]): LayoutSystem[] {
+    return systems.filter((system) =>
+      system.bars.some((bar) => bar.items.some((item) => item.kind === 'rehearsalMark')),
+    );
+  }
+
+  it('puts a rehearsal mark inside its band rather than above the system', () => {
+    // Found by looking at page 2 of the long-form chart, which is the first page in the
+    // corpus whose first ink is a rehearsal mark: the box hung above the top of the
+    // system layout had placed, and so into the page's top margin. On page 1 the same
+    // overhang is invisible, because the title block's reserved height swallows it.
+    //
+    // `rehearsalBand` is what layout reserves above the chord line (ADR-0014); the
+    // adapter's job is to draw the box in it, not near it.
+    const result = layout(longFormChart());
+
+    for (const page of result.pages) {
+      const boxes = rehearsalBoxes(engravePage(result, page.index).svg);
+      const marked = systemsWithAMark(page.systems);
+      expect(boxes).toHaveLength(marked.length);
+
+      for (const [index, box] of boxes.entries()) {
+        const system = marked[index];
+        expect(box.top, `page ${page.index + 1}, system ${system?.index}`).toBeGreaterThanOrEqual(
+          system?.y ?? 0,
+        );
+        expect(box.bottom).toBeLessThanOrEqual((system?.y ?? 0) + result.pageSpec.rehearsalBand);
+      }
+    }
+  });
+
+  it('starts a tie arriving from the previous system after the clef and key signature', () => {
+    // `prefixWidth` is published so an adapter knows where a bar's *music* starts. The
+    // half-tie that arrives from the previous system was reaching back to the system's
+    // left edge instead, so it began inside the key signature: visible at bar 33, the
+    // first bar of the long-form chart's second page, and at bar 9 of the nasty chart
+    // long before that.
+    for (const score of [longFormChart(), nastyChart()]) {
+      const result = layout(score);
+
+      for (const page of result.pages) {
+        const svg = engravePage(result, page.index).svg;
+        const starts = [...svg.matchAll(/class="se-tie" d="M([\d.-]+) /g)].map((m) =>
+          Number(m[1]),
+        );
+        // The earliest point on this page at which any bar's music may begin.
+        const musicLeft = Math.min(
+          ...page.systems.map((s) => (s.bars[0]?.x ?? 0) + (s.bars[0]?.prefixWidth ?? 0)),
+        );
+
+        expect(starts.length).toBeGreaterThan(0);
+        for (const start of starts) expect(start).toBeGreaterThanOrEqual(musicLeft);
+      }
+    }
+  });
+
+  it('draws no rectangle above the top margin of a page with no title block', () => {
+    // Staff lines, stems, beams, ledger lines and the rehearsal box are all rects, so
+    // their geometry is exact and needs no measuring to check. A page that is not the
+    // first has nothing above its first system, which makes it the page where ink in the
+    // margin has nowhere to hide.
+    const result = layout(longFormChart());
+    const spec = result.pageSpec;
+
+    for (const page of result.pages.slice(1)) {
+      const svg = engravePage(result, page.index).svg;
+      const tops = [...svg.matchAll(/<rect [^>]*\sy="([\d.-]+)"/g)].map((m) => Number(m[1]));
+
+      expect(tops.length).toBeGreaterThan(0);
+      expect(Math.min(...tops), `page ${page.index + 1}`).toBeGreaterThanOrEqual(spec.margin.top);
+    }
   });
 });
 

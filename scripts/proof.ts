@@ -31,7 +31,13 @@ import { basename, dirname, resolve } from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import type { MusicFontName } from '@sibei/engrave';
 import { MUSIC_FONT_NAMES, engravePage, musicFontNamed } from '@sibei/engrave';
-import { everyGlyphChart, beamingChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
+import {
+  everyGlyphChart,
+  beamingChart,
+  invalidBarChart,
+  longFormChart,
+  nastyChart,
+} from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -42,6 +48,7 @@ const FIXTURES: Record<string, () => Score> = {
   'every-glyph': everyGlyphChart,
   beaming: beamingChart,
   'invalid-bars': invalidBarChart,
+  'long-form': longFormChart,
 };
 
 const PROOF_DIR = resolve('out/proof');
@@ -55,6 +62,13 @@ const CROP_PAD = 16;
 interface Crop {
   name: string;
   what: string;
+  /**
+   * Which page's SVG this rectangle is cut from. Every crop carried a rectangle and no
+   * page until V3b, which worked only because no fixture had ever produced a second
+   * page: `--bar 41` of a two-page chart cut page 2's rectangle out of page 1's markup
+   * and showed a convincing image of the wrong thing.
+   */
+  page: number;
   x: number;
   y: number;
   width: number;
@@ -76,6 +90,7 @@ function wholePage(result: LayoutResult, pageIndex: number): Crop {
   return {
     name: `page${pageIndex + 1}`,
     what: `the whole of page ${pageIndex + 1}`,
+    page: pageIndex,
     x: 0,
     y: 0,
     width: page.width,
@@ -84,20 +99,25 @@ function wholePage(result: LayoutResult, pageIndex: number): Crop {
 }
 
 function systemCrop(result: LayoutResult, index: number): Crop {
-  const systems = result.pages.flatMap((page) => page.systems);
-  const system = systems[index - 1];
-  if (system === undefined) {
-    throw new Error(`no system ${index}; this score has ${systems.length}`);
+  const total = result.pages.flatMap((page) => page.systems).length;
+  let seen = 0;
+  for (const page of result.pages) {
+    for (const system of page.systems) {
+      seen += 1;
+      if (seen !== index) continue;
+      const bars = system.bars.map((bar) => bar.barNumber).join(', ');
+      return {
+        name: `system${index}`,
+        what: `system ${index} — bars ${bars}, on page ${page.index + 1}`,
+        page: page.index,
+        x: system.x - CROP_PAD,
+        y: system.y - CROP_PAD,
+        width: system.width + CROP_PAD * 2,
+        height: system.height + CROP_PAD * 2,
+      };
+    }
   }
-  const bars = system.bars.map((bar) => bar.barNumber).join(', ');
-  return {
-    name: `system${index}`,
-    what: `system ${index} — bars ${bars}`,
-    x: system.x - CROP_PAD,
-    y: system.y - CROP_PAD,
-    width: system.width + CROP_PAD * 2,
-    height: system.height + CROP_PAD * 2,
-  };
+  throw new Error(`no system ${index}; this score has ${total}`);
 }
 
 function barCrop(result: LayoutResult, barNumber: number): Crop {
@@ -107,9 +127,10 @@ function barCrop(result: LayoutResult, barNumber: number): Crop {
       if (bar === undefined) continue;
       return {
         name: `bar${barNumber}`,
-        what: `bar ${barNumber} (${bar.metrics.status}), in the system holding bars ${system.bars
+        what: `bar ${barNumber} (${bar.metrics.status}), on page ${page.index + 1}, in the system holding bars ${system.bars
           .map((b) => b.barNumber)
           .join(', ')}`,
+        page: page.index,
         x: bar.x - CROP_PAD * 2,
         y: system.y - CROP_PAD,
         width: bar.width + CROP_PAD * 4,
@@ -348,22 +369,22 @@ function census(svg: string): Map<string, number> {
  * exactly the fixture's 15 beamed notes said what had changed and why, where the raw
  * snapshot diff said only "one very long line differs".
  */
-/** The committed snapshot for a fixture's first page, or null if there is none. */
-function snapshotOf(fixture: string): string | null {
-  const path = resolve(`tests/snapshots/${fixture}.page1.svg`);
+/** The committed snapshot for one of a fixture's pages, or null if there is none. */
+function snapshotOf(fixture: string, pageIndex: number): string | null {
+  const path = resolve(`tests/snapshots/${fixture}.page${pageIndex + 1}.svg`);
   return existsSync(path) ? readFileSync(path, 'utf8') : null;
 }
 
-function reportCensus(fixture: string, svg: string): void {
+function reportCensus(fixture: string, pageIndex: number, svg: string): void {
   const now = census(svg);
-  const committed = snapshotOf(fixture);
+  const committed = snapshotOf(fixture, pageIndex);
   const before = committed === null ? new Map<string, number>() : census(committed);
   const baseline = committed !== null;
 
   const keys = [...new Set([...before.keys(), ...now.keys()])].sort();
   const width = Math.max(...keys.map((k) => k.length));
 
-  process.stdout.write(`\ncensus — ${fixture}\n`);
+  process.stdout.write(`\ncensus — ${fixture}, page ${pageIndex + 1}\n`);
   process.stdout.write(
     `  ${'element'.padEnd(width)}  ${baseline ? 'snapshot   now  delta' : 'count'}\n`,
   );
@@ -466,11 +487,19 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
   const score = build();
   const result = layout(score, { paper: options.paper });
   const pages = renderScoreToSvg(score, { paper: options.paper }, { font: options.font });
-  const svg = pages[0]?.svg;
-  if (svg === undefined) throw new Error('nothing rendered');
+  if (pages.length === 0) throw new Error('nothing rendered');
+
+  /** The markup a crop is cut from — its own page's, which is the whole point. */
+  const markupFor = (crop: Crop): string => {
+    const page = pages[crop.page];
+    if (page === undefined) throw new Error(`nothing rendered for page ${crop.page + 1}`);
+    return page.svg;
+  };
 
   mkdirSync(PROOF_DIR, { recursive: true });
-  writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.svg`), svg);
+  for (const page of pages) {
+    writeFileSync(resolve(PROOF_DIR, `${fixture}.page${page.index + 1}.svg`), page.svg);
+  }
 
   const face = musicFontNamed(options.font).data;
 
@@ -488,15 +517,17 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
   const manifest: Manifest = { fixture, images: [] };
   for (const crop of crops) {
     if (options.compare) {
-      const committed = snapshotOf(fixture);
+      const committed = snapshotOf(fixture, crop.page);
       if (committed === null) {
-        process.stdout.write(`\n  no committed snapshot for ${fixture}; nothing to compare\n`);
+        process.stdout.write(
+          `\n  no committed snapshot for ${fixture} page ${crop.page + 1}; nothing to compare\n`,
+        );
       } else {
         const zoom = clamp(TARGET_WIDTH / crop.width, 0.5, 8);
         const markup = comparison(
           [
             { label: `committed snapshot`, svg: committed },
-            { label: `this render (${face.name} ${face.version})`, svg },
+            { label: `this render (${face.name} ${face.version})`, svg: markupFor(crop) },
           ],
           crop,
         );
@@ -511,7 +542,7 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
       }
     }
 
-    const { png, zoom } = rasterise(svg, crop);
+    const { png, zoom } = rasterise(markupFor(crop), crop);
     const suffix = options.font === 'normal' ? '' : `.${options.font}`;
     const file = `${fixture}.${crop.name}${suffix}.png`;
     writeFileSync(resolve(PROOF_DIR, file), png);
@@ -548,7 +579,7 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
     }
   }
 
-  if (options.census) reportCensus(fixture, svg);
+  if (options.census) for (const page of pages) reportCensus(fixture, page.index, page.svg);
   return manifest;
 }
 

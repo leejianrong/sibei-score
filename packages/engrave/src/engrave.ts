@@ -172,11 +172,17 @@ export function engraveSystem(
     children.push(...engraveBar(font, bar, system, time, options, bands, anchors, skipped));
   }
 
+  // Where this system's *music* begins, which is past the clef and key signature rather
+  // than at the system's left edge: a half-tie arriving from the previous system runs
+  // back to here, and running it to the edge drew it through the key signature.
+  const opening = system.bars[0];
+  const musicLeft = opening === undefined ? system.x : opening.x + opening.prefixWidth;
+
   for (const layoutTie of system.ties) {
     const curve = tie(font, {
       from: layoutTie.fromNoteId === null ? null : (anchors.get(layoutTie.fromNoteId) ?? null),
       to: layoutTie.toNoteId === null ? null : (anchors.get(layoutTie.toNoteId) ?? null),
-      systemLeft: system.x,
+      systemLeft: musicLeft,
       systemRight: system.x + system.width,
     });
     if (curve !== null) children.push(curve);
@@ -259,12 +265,9 @@ function engraveBar(
       case 'rehearsalMark':
         hasRehearsalMark = true;
         before.push(
-          ...rehearsalMark(
-            item.text,
-            bar.x,
-            bands.top + options.rehearsalFontSize,
-            options.rehearsalFontSize,
-          ),
+          // The top of the band, not a baseline: the box's own padding is the adapter's
+          // to allow for, and layout reserved the band from `bands.top` down.
+          ...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize),
         );
         break;
 

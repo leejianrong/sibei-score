@@ -11,7 +11,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { everyGlyphChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
+import { everyGlyphChart, invalidBarChart, longFormChart, nastyChart } from '@sibei/fixtures';
 import type { Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import { scoreMetrics } from '@sibei/model';
@@ -22,6 +22,7 @@ const FIXTURES: Record<string, () => Score> = {
   'nasty-chart': nastyChart,
   'every-glyph': everyGlyphChart,
   'invalid-bars': invalidBarChart,
+  'long-form': longFormChart,
 };
 
 async function main(argv: string[]): Promise<number> {
