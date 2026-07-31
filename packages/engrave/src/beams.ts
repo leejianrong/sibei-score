@@ -1,4 +1,5 @@
-import { BEAM_PITCH, INK, units } from './bravura.js';
+import type { MusicFont } from './font.js';
+import { units } from './font.js';
 import type { Stem, StemDirection } from './stems.js';
 import type { SvgElement } from './svg.js';
 import { el, num } from './svg.js';
@@ -156,16 +157,20 @@ function runSegment(
   return { level, x1: start.stem.left, x2: start.stem.right + PARTIAL_BEAM };
 }
 
-export function beamElements(line: BeamLine, members: readonly BeamMember[]): SvgElement[] {
+export function beamElements(
+  font: MusicFont,
+  line: BeamLine,
+  members: readonly BeamMember[],
+): SvgElement[] {
   const inward = line.direction === 'up' ? 1 : -1;
 
   return beamSegments(members).map((segment) => {
     // Each deeper beam steps inward, towards the noteheads.
-    const offset = inward * (segment.level - 1) * BEAM_PITCH;
+    const offset = inward * (segment.level - 1) * font.beamPitch;
     const y1 = beamYAt(line, segment.x1) + offset;
     const y2 = beamYAt(line, segment.x2) + offset;
     // The outer edge is the top for an upward group, the bottom for a downward one.
-    const far = line.direction === 'up' ? INK.beam : -INK.beam;
+    const far = line.direction === 'up' ? font.ink.beam : -font.ink.beam;
     return el('polygon', {
       class: 'se-beam',
       points: [

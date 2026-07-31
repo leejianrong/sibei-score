@@ -1,7 +1,7 @@
 import { STAFF_SPACE } from '@sibei/layout';
 import type { Pitch } from '@sibei/model';
 import { STEPS } from '@sibei/model';
-import { INK } from './bravura.js';
+import type { MusicFont } from './font.js';
 import type { SvgElement } from './svg.js';
 import { el } from './svg.js';
 
@@ -75,16 +75,16 @@ export interface StaffLinesSpec {
  * The five lines. Centred on their positions rather than hanging below them, so the
  * staff's outer edges are symmetric about the notes.
  */
-export function staffLines(spec: StaffLinesSpec): SvgElement[] {
+export function staffLines(font: MusicFont, spec: StaffLinesSpec): SvgElement[] {
   const lines: SvgElement[] = [];
   for (let line = 0; line <= BOTTOM_LINE; line += 2) {
     lines.push(
       el('rect', {
         class: 'se-stafflines',
         x: spec.x,
-        y: positionY(line, spec.staveY) - INK.staffLine / 2,
+        y: positionY(line, spec.staveY) - font.ink.staffLine / 2,
         width: spec.width,
-        height: INK.staffLine,
+        height: font.ink.staffLine,
         fill: '#000000',
       }),
     );
@@ -100,14 +100,14 @@ export interface LedgerLineSpec {
   staveY: number;
 }
 
-export function ledgerLines(spec: LedgerLineSpec): SvgElement[] {
+export function ledgerLines(font: MusicFont, spec: LedgerLineSpec): SvgElement[] {
   return ledgerPositions(spec.position).map((line) =>
     el('rect', {
       class: 'se-ledgerline',
-      x: spec.noteX - INK.ledgerExtension,
-      y: positionY(line, spec.staveY) - INK.ledgerLine / 2,
-      width: spec.noteheadWidth + INK.ledgerExtension * 2,
-      height: INK.ledgerLine,
+      x: spec.noteX - font.ink.ledgerExtension,
+      y: positionY(line, spec.staveY) - font.ink.ledgerLine / 2,
+      width: spec.noteheadWidth + font.ink.ledgerExtension * 2,
+      height: font.ink.ledgerLine,
       fill: '#000000',
     }),
   );

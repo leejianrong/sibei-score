@@ -7,12 +7,13 @@ import type {
 } from '@sibei/layout';
 import type { TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks } from '@sibei/model';
-import type { BravuraGlyphName } from './bravura.js';
-import { glyphElement, glyphWidth } from './bravura.js';
 import type { BeamMember } from './beams.js';
 import { applyBeam, beamElements, beamLine } from './beams.js';
+import type { MusicFont, MusicGlyphName } from './font.js';
+import type { MusicFontName } from './fonts/index.js';
+import { DEFAULT_MUSIC_FONT, musicFontNamed } from './fonts/index.js';
 import type { PlacedItem } from './spacing.js';
-import { placeItems } from './spacing.js';
+import { ACCIDENTAL_GAP, accidentalGlyph, placeItems } from './spacing.js';
 import { ledgerLines, positionY, staffLines, staffPosition } from './staff.js';
 import type { Stem, StemDirection } from './stems.js';
 import {
@@ -48,11 +49,18 @@ import { el, serialise } from './svg.js';
  */
 
 export interface EngraveOptions {
+  /**
+   * Which face to engrave in. A lead sheet is read in a handwritten Real Book face as
+   * often as an engraved one, and it is the reader's choice per render, not a build-time
+   * constant — so the font arrives here and is threaded through every geometry function
+   * rather than imported by them.
+   */
+  font: MusicFontName;
   /** Off for the side-by-side, where VexFlow's staff is already underneath. */
   staffLines: boolean;
 }
 
-const DEFAULT_OPTIONS: EngraveOptions = { staffLines: true };
+const DEFAULT_OPTIONS: EngraveOptions = { font: DEFAULT_MUSIC_FONT, staffLines: true };
 
 export interface EngravedPage {
   /** Standalone SVG markup, in the same coordinates and at the same size as `@sibei/draw`. */
@@ -73,10 +81,11 @@ export function engravePage(
   const page = result.pages[pageIndex];
   if (page === undefined) throw new Error(`no such page: ${pageIndex}`);
 
+  const font = musicFontNamed(opts.font);
   const skipped = new Map<LayoutBarItemKind, number>();
   const children: SvgElement[] = [];
   for (const system of page.systems) {
-    children.push(...engraveSystem(system, result.time, opts, skipped));
+    children.push(...engraveSystem(font, system, result.time, opts, skipped));
   }
 
   const svg = el(
@@ -97,6 +106,7 @@ export function engravePage(
 }
 
 export function engraveSystem(
+  font: MusicFont,
   system: LayoutSystem,
   time: TimeSignature,
   options: EngraveOptions,
@@ -105,11 +115,11 @@ export function engraveSystem(
   const children: SvgElement[] = [];
   if (options.staffLines) {
     children.push(
-      ...staffLines({ x: system.x, width: system.width, staveY: system.staveY }),
+      ...staffLines(font, { x: system.x, width: system.width, staveY: system.staveY }),
     );
   }
   for (const bar of system.bars) {
-    children.push(...engraveBar(bar, system.staveY, time, skipped));
+    children.push(...engraveBar(font, bar, system.staveY, time, skipped));
   }
   return children;
 }
@@ -123,7 +133,7 @@ interface EngravedNote {
   item: NoteItem;
   x: number;
   position: number;
-  notehead: BravuraGlyphName;
+  notehead: MusicGlyphName;
   levels: number;
   /** Null for a whole note. */
   stem: Stem | null;
@@ -136,6 +146,7 @@ interface EngravedNote {
  * stem end rewritten, so a beamed note cannot be asked twice what it is.
  */
 function engraveBar(
+  font: MusicFont,
   bar: LayoutBar,
   staveY: number,
   time: TimeSignature,
@@ -147,14 +158,14 @@ function engraveBar(
     }
   }
 
-  const placed = placeItems(bar);
+  const placed = placeItems(font, bar);
   const groups = beamGroups(placed, time);
   const beamed = new Set<PlacedItem>(groups.flat());
 
   const notes = new Map<PlacedItem, EngravedNote>();
   for (const entry of placed) {
     if (entry.item.kind !== 'note') continue;
-    notes.set(entry, engraveNote(entry.item, entry.x, staveY, null));
+    notes.set(entry, engraveNote(font, entry.item, entry.x, staveY, null));
   }
 
   // A beamed group takes one stem direction, so its members' stems are rebuilt from the
@@ -166,7 +177,7 @@ function engraveBar(
     const direction = groupStemDirection(positions);
     for (const entry of group) {
       if (entry.item.kind !== 'note') continue;
-      const rebuilt = engraveNote(entry.item, entry.x, staveY, direction);
+      const rebuilt = engraveNote(font, entry.item, entry.x, staveY, direction);
       notes.set(entry, rebuilt);
       if (rebuilt.stem !== null) {
         members.push({ stem: rebuilt.stem, position: rebuilt.position, levels: rebuilt.levels });
@@ -175,19 +186,20 @@ function engraveBar(
     if (members.length < 2) continue;
     const line = beamLine(members);
     applyBeam(line, members);
-    beams.push(...beamElements(line, members));
+    beams.push(...beamElements(font, line, members));
   }
 
   const ink: SvgElement[] = [];
   for (const entry of placed) {
     const note = notes.get(entry);
-    if (note !== undefined) ink.push(...noteInk(note, staveY, beamed.has(entry)));
+    if (note !== undefined) ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
   }
   return [...ink, ...beams];
 }
 
 /** `direction` is the beamed group's when there is one, and null when the note decides. */
 function engraveNote(
+  font: MusicFont,
   item: NoteItem,
   x: number,
   staveY: number,
@@ -202,7 +214,7 @@ function engraveNote(
     notehead,
     levels: beamCount(item.duration),
     stem: hasStem(item.duration)
-      ? stem({
+      ? stem(font, {
           notehead,
           direction: direction ?? stemDirection(position),
           noteX: x,
@@ -213,34 +225,42 @@ function engraveNote(
   };
 }
 
-function noteInk(note: EngravedNote, staveY: number, isBeamed: boolean): SvgElement[] {
+function noteInk(
+  font: MusicFont,
+  note: EngravedNote,
+  staveY: number,
+  isBeamed: boolean,
+): SvgElement[] {
   const elements: SvgElement[] = [];
   const noteY = positionY(note.position, staveY);
 
   elements.push(
-    ...ledgerLines({
+    ...ledgerLines(font, {
       noteX: note.x,
-      noteheadWidth: glyphWidth(note.notehead),
+      noteheadWidth: font.width(note.notehead),
       position: note.position,
       staveY,
     }),
   );
 
   if (note.item.accidentalGlyph !== null) {
+    // Spacing already reserved exactly this much room to the left of the notehead, so
+    // the accidental lands in it rather than on top of whatever came before.
     const glyph = accidentalGlyph(note.item.accidentalGlyph);
-    elements.push(glyphElement(glyph, note.x - ACCIDENTAL_GAP - glyphWidth(glyph), noteY));
+    elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), noteY));
   }
 
-  elements.push(glyphElement(note.notehead, note.x, noteY));
+  elements.push(font.element(note.notehead, note.x, noteY));
 
   for (const dot of dotPositions(
+    font,
     note.item.duration,
     note.notehead,
     note.x,
     note.position,
     staveY,
   )) {
-    elements.push(glyphElement('augmentationDot', dot.x, dot.y));
+    elements.push(font.element('augmentationDot', dot.x, dot.y));
   }
 
   if (note.stem !== null) {
@@ -248,31 +268,13 @@ function noteInk(note: EngravedNote, staveY: number, isBeamed: boolean): SvgElem
     if (!isBeamed) {
       const flag = flagFor(note.item.duration, note.stem.direction);
       if (flag !== null) {
-        const origin = flagOrigin(flag, note.stem);
-        elements.push(glyphElement(flag, origin.x, origin.y));
+        const origin = flagOrigin(font, flag, note.stem);
+        elements.push(font.element(flag, origin.x, origin.y));
       }
     }
   }
 
   return elements;
-}
-
-/** Gould: an accidental sits a fifth of a space clear of the notehead it belongs to. */
-const ACCIDENTAL_GAP = 2;
-
-function accidentalGlyph(alter: -2 | -1 | 0 | 1 | 2): BravuraGlyphName {
-  switch (alter) {
-    case -2:
-      return 'accidentalDoubleFlat';
-    case -1:
-      return 'accidentalFlat';
-    case 0:
-      return 'accidentalNatural';
-    case 1:
-      return 'accidentalSharp';
-    case 2:
-      return 'accidentalDoubleSharp';
-  }
 }
 
 // ---------------------------------------------------------------------------

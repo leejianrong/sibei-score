@@ -1,13 +1,10 @@
 import {
   BOTTOM_LINE,
-  INK,
   MIDDLE_LINE,
   STANDARD_STEM,
   TOP_LINE,
-  anchor,
-  glyphWidth,
-  hasAnchor,
   ledgerPositions,
+  musicFontNamed,
   positionY,
   stem,
   stemDirection,
@@ -23,6 +20,7 @@ import { describe, expect, it } from 'vitest';
  * release whose noteheads had moved.
  */
 
+const font = musicFontNamed();
 const STAVE_Y = 200;
 
 /** Every position the fixture reaches, and then some: two ledger lines either side. */
@@ -30,13 +28,13 @@ const POSITIONS = Array.from({ length: 17 }, (_, index) => index - 4);
 
 describe('stem attachment from Bravura anchors', () => {
   it("puts an up stem's right edge on the notehead's right edge, at every staff position", () => {
-    const width = glyphWidth('noteheadBlack');
+    const width = font.width('noteheadBlack');
     // The anchor and the bounding box agree in the font: stemUpSE.x is the notehead's
     // advance width. That is the fact the claim rests on, so assert it directly.
-    expect(anchor('noteheadBlack', 'stemUpSE').x).toBeCloseTo(width, 10);
+    expect(font.anchor('noteheadBlack', 'stemUpSE').x).toBeCloseTo(width, 10);
 
     for (const position of POSITIONS) {
-      const result = stem({
+      const result = stem(font, {
         notehead: 'noteheadBlack',
         direction: 'up',
         noteX: 100,
@@ -44,13 +42,13 @@ describe('stem attachment from Bravura anchors', () => {
         staveY: STAVE_Y,
       });
       expect(result.right).toBeCloseTo(100 + width, 10);
-      expect(result.left).toBeCloseTo(100 + width - INK.stem, 10);
+      expect(result.left).toBeCloseTo(100 + width - font.ink.stem, 10);
     }
   });
 
   it("puts a down stem's left edge on the notehead's left edge", () => {
     for (const position of POSITIONS) {
-      const result = stem({
+      const result = stem(font, {
         notehead: 'noteheadBlack',
         direction: 'down',
         noteX: 100,
@@ -58,7 +56,7 @@ describe('stem attachment from Bravura anchors', () => {
         staveY: STAVE_Y,
       });
       expect(result.left).toBeCloseTo(100, 10);
-      expect(result.right).toBeCloseTo(100 + INK.stem, 10);
+      expect(result.right).toBeCloseTo(100 + font.ink.stem, 10);
     }
   });
 
@@ -66,14 +64,14 @@ describe('stem attachment from Bravura anchors', () => {
     // Bravura puts both stem anchors a sixth of a space off centre, so the stem meets
     // the notehead's shoulder. Attaching at the centre is the plausible-looking mistake.
     const noteY = positionY(2, STAVE_Y);
-    const up = stem({
+    const up = stem(font, {
       notehead: 'noteheadBlack',
       direction: 'up',
       noteX: 0,
       position: 2,
       staveY: STAVE_Y,
     });
-    const down = stem({
+    const down = stem(font, {
       notehead: 'noteheadBlack',
       direction: 'down',
       noteX: 0,
@@ -82,20 +80,20 @@ describe('stem attachment from Bravura anchors', () => {
     });
     expect(up.attachY).toBeLessThan(noteY);
     expect(down.attachY).toBeGreaterThan(noteY);
-    expect(up.attachY).toBeCloseTo(noteY + anchor('noteheadBlack', 'stemUpSE').y, 10);
-    expect(down.attachY).toBeCloseTo(noteY + anchor('noteheadBlack', 'stemDownNW').y, 10);
+    expect(up.attachY).toBeCloseTo(noteY + font.anchor('noteheadBlack', 'stemUpSE').y, 10);
+    expect(down.attachY).toBeCloseTo(noteY + font.anchor('noteheadBlack', 'stemDownNW').y, 10);
   });
 
   it('refuses an anchor the font does not publish', () => {
     // A whole note has no stem anchors, because it has no stem. Silently reading zero
     // would put a stem at the glyph's origin, which looks very nearly right.
-    expect(hasAnchor('noteheadWhole', 'stemUpSE')).toBe(false);
-    expect(() => anchor('noteheadWhole', 'stemUpSE')).toThrow(/no stemUpSE anchor/);
+    expect(font.hasAnchor('noteheadWhole', 'stemUpSE')).toBe(false);
+    expect(() => font.anchor('noteheadWhole', 'stemUpSE')).toThrow(/no stemUpSE anchor/);
   });
 
   it('anchors a flag to the free end of the stem', () => {
-    expect(hasAnchor('flag8thUp', 'stemUpNW')).toBe(true);
-    expect(hasAnchor('flag16thDown', 'stemDownSW')).toBe(true);
+    expect(font.hasAnchor('flag8thUp', 'stemUpNW')).toBe(true);
+    expect(font.hasAnchor('flag16thDown', 'stemDownSW')).toBe(true);
   });
 });
 
@@ -109,7 +107,7 @@ describe('stem direction and length', () => {
   });
 
   it('runs three and a half spaces from the notehead', () => {
-    const result = stem({
+    const result = stem(font, {
       notehead: 'noteheadBlack',
       direction: 'down',
       noteX: 0,
@@ -122,7 +120,7 @@ describe('stem direction and length', () => {
   it('lengthens a stem so a note outside the staff still reaches the middle line', () => {
     // E3 sits five spaces below the staff; a standard stem would stop short of it.
     const position = 15;
-    const result = stem({
+    const result = stem(font, {
       notehead: 'noteheadBlack',
       direction: 'up',
       noteX: 0,

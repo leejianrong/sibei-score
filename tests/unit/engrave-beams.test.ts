@@ -1,6 +1,7 @@
 import type { BeamMember, StemDirection } from '@sibei/engrave';
 import {
   MAX_BEAM_GRADIENT,
+  musicFontNamed,
   PARTIAL_BEAM,
   STANDARD_STEM,
   applyBeam,
@@ -23,6 +24,7 @@ import { describe, expect, it } from 'vitest';
  * than merely at a consistent one.
  */
 
+const font = musicFontNamed();
 const STAVE_Y = 200;
 
 /** A beamable group at `positions`, spaced evenly, with a beam level each. */
@@ -33,7 +35,7 @@ function group(
 ): { members: BeamMember[]; direction: StemDirection } {
   const direction = groupStemDirection(positions);
   const members = positions.map((position, index) => ({
-    stem: stem({
+    stem: stem(font, {
       notehead: 'noteheadBlack',
       direction,
       noteX: 100 + index * spacing,

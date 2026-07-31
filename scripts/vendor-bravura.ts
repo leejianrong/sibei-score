@@ -49,7 +49,7 @@ const LOCAL_NAMES: Record<keyof typeof SOURCES, string> = {
   glyphNames: 'glyphnames.json',
 };
 
-const OUTPUT = resolve('packages/engrave/src/bravura.generated.ts');
+const OUTPUT = resolve('packages/engrave/src/fonts/bravura.generated.ts');
 
 /**
  * The glyphs the engraver draws. Everything else it needs — stems, beams, ledger and
@@ -214,30 +214,33 @@ function generate(sources: {
     };
   });
 
-  const anchorEntries = (anchors: Record<string, [number, number]>): string => {
+  const anchorEntries = (anchors: Record<string, [number, number]>, indent: number): string => {
     const keys = Object.keys(anchors).sort();
     if (keys.length === 0) return '{}';
+    const pad = ' '.repeat(indent + 2);
     const body = keys
-      .map((key) => `      ${key}: [${anchors[key]?.[0]}, ${anchors[key]?.[1]}],`)
+      .map((key) => `${pad}${key}: [${anchors[key]?.[0]}, ${anchors[key]?.[1]}],`)
       .join('\n');
-    return `{\n${body}\n    }`;
+    return `{\n${body}\n${' '.repeat(indent)}}`;
   };
 
   const glyphBody = glyphs
     .map(
-      (glyph) => `  ${glyph.name}: {
-    codepoint: '${glyph.codepoint}',
-    advance: ${glyph.advance},
-    bBoxSW: [${glyph.bbox.bBoxSW[0]}, ${glyph.bbox.bBoxSW[1]}],
-    bBoxNE: [${glyph.bbox.bBoxNE[0]}, ${glyph.bbox.bBoxNE[1]}],
-    anchors: ${anchorEntries(glyph.anchors)},
-    path:
-      '${glyph.path}',
-  },`,
+      (glyph) => `    ${glyph.name}: {
+      codepoint: '${glyph.codepoint}',
+      advance: ${glyph.advance},
+      bBoxSW: [${glyph.bbox.bBoxSW[0]}, ${glyph.bbox.bBoxSW[1]}],
+      bBoxNE: [${glyph.bbox.bBoxNE[0]}, ${glyph.bbox.bBoxNE[1]}],
+      anchors: ${anchorEntries(glyph.anchors, 6)},
+      path:
+        '${glyph.path}',
+    },`,
     )
     .join('\n');
 
-  return `/**
+  return `import type { MusicFontData } from '../font.js';
+
+/**
  * GENERATED FILE — do not edit. Regenerate with \`pnpm vendor:bravura\`.
  *
  * A slice of Bravura ${metadata.fontVersion}: the metrics the engraver anchors to, and
@@ -253,44 +256,23 @@ function generate(sources: {
  *   staff space is ${FONT_UNITS_PER_STAFF_SPACE} font units. The engraver places a
  *   glyph by transform rather than by rewriting its path, so the outline stays
  *   byte-identical to the font's and stays auditable.
+ *
+ * \`satisfies MusicFontData\` is load-bearing: it fails the build if this face is missing
+ * a glyph the engraver draws, which is what stops a second font being half a font.
  */
-
-export const BRAVURA_SOURCE = {
-  fontName: '${metadata.fontName}',
-  fontVersion: '${metadata.fontVersion}',
-  tag: '${BRAVURA_TAG}',
-} as const;
-
-/** Bravura's em is 1000 units, and SMuFL fixes a staff space at a quarter of the em. */
-export const FONT_UNITS_PER_STAFF_SPACE = ${FONT_UNITS_PER_STAFF_SPACE};
-
-/**
- * Bravura's \`engravingDefaults\`, in staff spaces. These are the thicknesses a
- * from-scratch engraver would otherwise have to invent, and inventing them is how
- * output starts looking subtly amateur (ADR-0030).
- */
-export const ENGRAVING_DEFAULTS = {
-${defaults.map(([key, value]) => `  ${key}: ${value},`).join('\n')}
-} as const;
-
-export interface BravuraGlyph {
-  /** SMuFL codepoint, for provenance rather than for drawing. */
-  readonly codepoint: string;
-  /** Advance width in staff spaces. */
-  readonly advance: number;
-  readonly bBoxSW: readonly [number, number];
-  readonly bBoxNE: readonly [number, number];
-  /** SMuFL attachment points, in staff spaces from the glyph's origin, y-up. */
-  readonly anchors: Readonly<Record<string, readonly [number, number]>>;
-  /** SVG path data in font units, y-up, verbatim from Bravura.svg. */
-  readonly path: string;
-}
-
-export type BravuraGlyphName = keyof typeof BRAVURA_GLYPHS;
-
-export const BRAVURA_GLYPHS = {
+export const BRAVURA = {
+  name: '${metadata.fontName}',
+  version: '${metadata.fontVersion}',
+  source: '${BRAVURA_TAG}',
+  /** Bravura's em is 1000 units, and SMuFL fixes a staff space at a quarter of the em. */
+  fontUnitsPerStaffSpace: ${FONT_UNITS_PER_STAFF_SPACE},
+  engravingDefaults: {
+${defaults.map(([key, value]) => `    ${key}: ${value},`).join('\n')}
+  },
+  glyphs: {
 ${glyphBody}
-} as const satisfies Record<string, BravuraGlyph>;
+  },
+} as const satisfies MusicFontData;
 `;
 }
 

@@ -18,8 +18,9 @@
  *   pnpm proof nasty-chart --systems        every system as its own image
  *   pnpm proof nasty-chart --census         what the SVG contains, vs the snapshot
  *   pnpm proof nasty-chart --pdf            proof the PDF itself, not just the SVG
- *   pnpm proof nasty-chart --bar 6 --engraver   the V1b engraver instead of VexFlow
+ *   pnpm proof nasty-chart --bar 6 --engraver   our engraver instead of VexFlow
  *   pnpm proof nasty-chart --bar 6 --compare    both, stacked, same crop and scale
+ *   pnpm proof nasty-chart --bar 6 --font jazz  our engraver in the handwritten face
  *
  * Every run prints a manifest of what it wrote and what each image shows, so the next
  * step — opening the right file — needs no guesswork.
@@ -29,7 +30,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
-import { BRAVURA_SOURCE, engravePage } from '@sibei/engrave';
+import type { MusicFontName } from '@sibei/engrave';
+import { MUSIC_FONT_NAMES, engravePage, musicFontNamed } from '@sibei/engrave';
 import { everyGlyphChart, beamingChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
@@ -381,9 +383,11 @@ interface Options {
   allSystems: boolean;
   census: boolean;
   pdf: boolean;
-  /** Which adapter draws: VexFlow, the V1b engraver, or both stacked. */
+  /** Which adapter draws: VexFlow, our engraver, or both stacked. */
   engraver: boolean;
   compare: boolean;
+  /** Which face our engraver draws in. Implies `--engraver`. */
+  font: MusicFontName;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -397,6 +401,7 @@ function parseArgs(argv: string[]): Options {
     pdf: false,
     engraver: false,
     compare: false,
+    font: 'normal',
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -423,6 +428,16 @@ function parseArgs(argv: string[]): Options {
       case '--compare':
         options.compare = true;
         break;
+      case '--font': {
+        const name = argv[(i += 1)];
+        if (!MUSIC_FONT_NAMES.includes(name as MusicFontName)) {
+          throw new Error(`unknown font: ${String(name)}\nknown: ${MUSIC_FONT_NAMES.join(', ')}`);
+        }
+        options.font = name as MusicFontName;
+        // Asking for a face is asking to see it.
+        options.engraver = true;
+        break;
+      }
       case '--paper':
         options.paper = argv[(i += 1)] as Paper;
         break;
@@ -451,10 +466,13 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
   writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.svg`), vexflow);
 
   // The engraver runs off the same layout, with no DOM in the way (ADR-0030).
+  const engravedFace = musicFontNamed(options.font).data;
   const engraved =
-    options.engraver || options.compare ? engravePage(result, 0, { staffLines: true }) : null;
+    options.engraver || options.compare
+      ? engravePage(result, 0, { staffLines: true, font: options.font })
+      : null;
   if (engraved !== null) {
-    writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.engraver.svg`), engraved.svg);
+    writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.engraver-${options.font}.svg`), engraved.svg);
   }
   const svg = options.engraver && engraved !== null ? engraved.svg : vexflow;
 
@@ -477,7 +495,7 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
         [
           { label: 'VexFlow 4.2.5', svg: vexflow },
           {
-            label: `sibei engraver (${BRAVURA_SOURCE.fontName} ${BRAVURA_SOURCE.fontVersion})`,
+            label: `sibei engraver (${engravedFace.name} ${engravedFace.version})`,
             svg: engraved.svg,
           },
         ],
@@ -494,12 +512,14 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
     }
 
     const { png, zoom } = rasterise(svg, crop);
-    const suffix = options.engraver ? '.engraver' : '';
+    const suffix = options.engraver ? `.engraver-${options.font}` : '';
     const file = `${fixture}.${crop.name}${suffix}.png`;
     writeFileSync(resolve(PROOF_DIR, file), png);
     manifest.images.push({
       file: `out/proof/${file}`,
-      shows: options.engraver ? `${crop.what} — engraved by the V1b spike` : crop.what,
+      shows: options.engraver
+        ? `${crop.what} — our engraver, ${engravedFace.name} ${engravedFace.version}`
+        : crop.what,
       zoom,
     });
   }
