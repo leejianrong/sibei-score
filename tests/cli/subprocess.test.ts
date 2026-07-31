@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -101,6 +101,16 @@ describe('the exit codes reach the shell (ADR-0008)', () => {
     expect((await sibei('nonsense')).code).toBe(1);
   });
 
+  it('1 on a flag with no value, rather than a stack trace', async () => {
+    // The argument parser can fail too, and what the shell sees when it does is the contract. This
+    // exited with node's unhandled-rejection code and printed a stack until V3d moved the parse
+    // inside the handler.
+    const result = await sibei('new', '--title');
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('--title needs a value');
+    expect(result.stderr).not.toContain('at parseFlags');
+  });
+
   it('2 on a validation failure', async () => {
     await sibei('new', '--id', 'subprocess-2', '--bars', '4');
     const result = await sibei('note', 'add', 'subprocess-2', 'bar1.beat1', '--pitch', 'H9', '--dur', '4');
@@ -150,6 +160,32 @@ describe('the exit codes reach the shell (ADR-0008)', () => {
   it('8 on an id that is taken', async () => {
     await sibei('new', '--id', 'subprocess-8', '--bars', '4');
     expect((await sibei('new', '--id', 'subprocess-8')).code).toBe(8);
+  });
+});
+
+describe('export, as a shell would run it (V3d)', () => {
+  it('writes a PDF the shell can see, and exits 0', async () => {
+    const id = 'subprocess-export';
+    expect((await sibei('new', '--id', id, '--title', 'Blue Bossa', '--bars', '4')).code).toBe(0);
+    expect((await sibei('note', 'add', id, 'bar1.beat1', '--pitch', 'C5', '--dur', '4')).code).toBe(0);
+
+    // Into the temp directory rather than the working one: the child has to run from the repo for
+    // the loader to resolve, and a test that drops a PDF in the repo is a test that leaves litter.
+    const result = await sibei('export', id, '-o', directory, '--json');
+    expect(result.code).toBe(0);
+
+    const { path, bytes } = JSON.parse(result.stdout) as { path: string; bytes: number };
+    expect(path).toBe(join(directory, 'Blue Bossa.pdf'));
+    expect(readFileSync(path).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(statSync(path).size).toBe(bytes);
+    // The bytes go in the file, never down the pipe.
+    expect(result.stdout).not.toContain('%PDF');
+  });
+
+  it('exits 2 for a paper this build cannot produce, and says what it can', async () => {
+    const result = await sibei('export', 'subprocess-export', '--paper', 'a5', '-o', directory);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('try a4 or letter');
   });
 });
 

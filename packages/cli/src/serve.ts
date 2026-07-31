@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createApi, openSqliteStore } from '@sibei/api';
+import { createApi, openDirectoryBlobStore, openSqliteStore } from '@sibei/api';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
 import type { Io } from './commands.js';
@@ -29,21 +29,39 @@ export function defaultDataPath(): string {
   return join(base, 'sibei', 'scores.db');
 }
 
+/**
+ * Where cached exports live: beside the library, because they are *of* the library.
+ *
+ * `packages/api` takes a port and never a path (ADR-0001, ADR-0006), so naming a directory is the
+ * caller's job and this is the caller. Without it `createApi` falls back to a process-lifetime
+ * `Map` and every restart re-renders every chart — correct, but a cache that never survives
+ * anything is not much of one.
+ */
+export function defaultBlobPath(databaseFile: string): string {
+  return join(dirname(databaseFile), 'blobs');
+}
+
 export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCode> {
   const port = optionalPort(flags, 'port') ?? DEFAULT_PORT;
   const filename = resolve(flags.options.get('data') ?? process.env.SIBEI_DATA ?? defaultDataPath());
   mkdirSync(dirname(filename), { recursive: true });
+  const blobDirectory = defaultBlobPath(filename);
 
   const store = openSqliteStore({ filename });
-  const api = createApi({ store });
+  const api = createApi({ store, blobs: openDirectoryBlobStore({ directory: blobDirectory }) });
   const bound = await api.listen(port);
 
   // The one place a store path is legitimately printed: the operator asked to start a server and
   // wants to know where their charts are. It never reaches a log line or a response body (ADR-0029).
   io.out(
     json
-      ? JSON.stringify({ listening: `http://127.0.0.1:${bound.port}`, data: filename })
-      : `sibei listening on http://127.0.0.1:${bound.port}\n  charts in ${filename}\n  stop with ctrl-c`,
+      ? JSON.stringify({
+          listening: `http://127.0.0.1:${bound.port}`,
+          data: filename,
+          blobs: blobDirectory,
+        })
+      : `sibei listening on http://127.0.0.1:${bound.port}\n  charts in ${filename}\n` +
+          `  cached exports in ${blobDirectory}\n  stop with ctrl-c`,
   );
 
   const stop = () => {

@@ -4,6 +4,11 @@
 # it, then run the same `note set` twice with a stale --if-version and watch the second fail with
 # exit code 4 and the current version.
 #
+# V3d adds the closing beat that finishes the story — `sibei export --pdf`, so the chart the demo
+# just authored comes out as a printable page. The file keeps its name, and the CI job that runs
+# it keeps its name too: the required status checks on `main` are matched by name, and renaming
+# one makes every PR unmergeable on a check that can never report.
+#
 # The suite covers all of this, but a demo that only works inside vitest is not a demo. This runs
 # the real binary against a real server over a real socket, and CI runs it on every PR.
 
@@ -61,4 +66,35 @@ fi
 echo
 echo '--- and the first edit survived, which is why the check exists'
 pnpm -s sibei show soul | grep -q 'n1 c5/8' || { echo 'FAIL: the surviving edit is missing' >&2; exit 1; }
+echo 'ok'
+
+echo
+echo '--- the closing beat (V3d): export the chart the CLI just authored'
+# -o takes a directory as readily as a file, and puts the chart's own name in it. The CLI renders
+# nothing: these bytes came off the API's export route (ADR-0002).
+pnpm -s sibei export soul --pdf -o "$work/"
+pdf="$work/Body and Soul.pdf"
+[ -s "$pdf" ] || { echo "FAIL: no PDF at $pdf" >&2; exit 1; }
+head -c 5 "$pdf" | grep -q '%PDF-' || { echo 'FAIL: that is not a PDF' >&2; exit 1; }
+
+echo
+echo '--- and the same request again, which the export cache serves from disk'
+pnpm -s sibei export soul -o "$work/again.pdf" --json
+cmp -s "$pdf" "$work/again.pdf" || { echo 'FAIL: the cached export differs from the rendered one' >&2; exit 1; }
+
+echo
+echo '--- a paper this build cannot produce is a refusal that lists what it can'
+set +e
+pnpm -s sibei export soul --paper a5 -o "$work/never.pdf"
+code=$?
+set -e
+echo "exit code: $code"
+if [ "$code" -ne 2 ]; then
+  echo "FAIL: an unsupported paper must exit 2, not $code" >&2
+  exit 1
+fi
+if [ -e "$work/never.pdf" ]; then
+  echo 'FAIL: a refused export wrote a file anyway' >&2
+  exit 1
+fi
 echo 'ok'
