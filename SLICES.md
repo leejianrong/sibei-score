@@ -145,7 +145,7 @@ a later slice whose position is chosen once this one has given a number (ADR-003
 
 1. SQLite store: `scores(id, owner, title, composer, key, updated_at, version, doc JSON)`
    behind a repository interface (ADR-0006). `owner` is always `local`.
-2. `schema_version` inside the document, plus the migration runner on read that does not
+2. `schemaVersion` inside the document, plus the migration runner on read that does not
    bump the score version (ADR-0028).
 3. Op log table, and the op applier as the only writer (ADR-0003).
 4. `/v1/` API: create, read, list, delete, and `POST /v1/scores/:id/ops` with
@@ -164,7 +164,7 @@ calls — then `sibei show` it and see the four-bar grid with addresses. Run the
 `note set` twice with a stale `--if-version` and watch the second fail with exit code 4
 and the current version.
 
-**Rests on assumptions:** Q77 (`schema_version`, forward-only migrations), Q79 (the op
+**Rests on assumptions:** Q77 (`schemaVersion`, forward-only migrations), Q79 (the op
 arbitrates), Q78 (Origin check adequate locally).
 
 ### Test plan
@@ -188,7 +188,7 @@ arbitrates), Q78 (Origin check adequate locally).
   genuinely swappable.
 - Every score row has a non-null `owner`, and every score query filters on it even
   though the value is always `local`.
-- A document at `schema_version` N-1 is migrated on read, used, written back at N, and
+- A document at `schemaVersion` N-1 is migrated on read, used, written back at N, and
   the score's `version` is unchanged.
 - A document from a newer schema version than the running code fails loudly.
 
@@ -206,6 +206,22 @@ arbitrates), Q78 (Origin check adequate locally).
 
 Joins V1's renderer to V2's store, so the product does something whole for the first
 time.
+
+> **Done, 2026-07-31**, as four sub-cards (KAN-506–509 under KAN-411). **Steps 4, 5 and 6
+> below were already built at V1** and the slice discovered it rather than rebuilding them:
+> `resolvePageSpec` had A4 and Letter with A4 default, `paginate()` already flowed onto
+> further pages, `buildHeader()` already emitted the title block, and the SVG snapshots were
+> already in the suite. What was actually missing was steps 1–3.
+>
+> Two things V1 had *written* but never *exercised* turned out to be where the risk was.
+> No fixture had ever spilled onto a second page — a full 32-bar chorus fits one A4 page
+> with room to spare — so the pagination branch was correct but unproven, and proving it
+> needed a 64-bar fixture. Looking at that second page found three defects the suite had no
+> opinion about, one of them a tie drawn through the key signature at bar 9 of the nasty
+> chart, wrong since V1.
+>
+> Q37 and Q81 both picked up dated amendments from contact with the code. Read the build
+> plan below as the plan it was.
 
 **Build plan**
 

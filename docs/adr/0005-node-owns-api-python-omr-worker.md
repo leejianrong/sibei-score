@@ -9,21 +9,25 @@
 **This decision stands and the reason for it survived the renderer change.** The Context
 below names VexFlow as the JavaScript renderer that forces a Node runtime. VexFlow is
 gone (ADR-0030), but `packages/engrave` is TypeScript and `packages/pdf` still renders
-server-side, so the constraint reads the same with the engine's name swapped. Two
-cross-references in the Context are wrong as written and are left as they are: the
-renderer decision is ADR-0014, not ADR-0011, and the layout engine is ADR-0015, not
-ADR-0012.
+server-side, so the constraint reads the same with the engine's name swapped.
+
+Two cross-references in the Context were also wrong as written, and were **corrected** on
+2026-07-31: the renderer decision is ADR-0014 (it said ADR-0011, which is staged chord
+recognition) and the layout engine is ADR-0015 (it said ADR-0012, which is the chord
+grammar). A broken pointer is not a decision, so repairing it makes this record more
+accurate rather than rewriting it. The ADR-0011 citation further down, for OCR error
+correction, was correct and is untouched.
 
 ## Context
 
 Two engine choices each brought a runtime. The OMR pipeline (ADR-0010) is built on
-oemer, which is Python, alongside a Python OCR model. The renderer (ADR-0011) is
+oemer, which is Python, alongside a Python OCR model. The renderer (ADR-0014) is
 VexFlow, which is JavaScript and must run server-side in Node to produce PDFs.
 Both runtimes are therefore required. One of them has to own the HTTP API and the
 score store; the other becomes subordinate.
 
 The deciding constraint turned out to be the layout engine. It must run in the
-browser (screen) *and* on the server (PDF), and it is ours either way (ADR-0012).
+browser (screen) *and* on the server (PDF), and it is ours either way (ADR-0015).
 
 ## Decision
 

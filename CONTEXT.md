@@ -195,10 +195,10 @@ in full: `docs/adr/`.
 | D56 | Ship in two milestones: v0.1 is the app without import, v0.2 adds import | Accepted | [ADR-0026](docs/adr/0026-two-milestones-v01-without-import.md) |
 | D57 | PaddleOCR for the chord band (chosen on its fine-tuning pipeline); `homr` rejected on AGPL, no coordinates, and no chord support | Accepted | [ADR-0027](docs/adr/0027-paddleocr-and-dependency-register.md) |
 | D58 | Every runtime dependency is permissively licensed and runs offline — register of record in the ADR | Accepted | [ADR-0027](docs/adr/0027-paddleocr-and-dependency-register.md) |
-| D59 | Score documents carry `schema_version`; forward-only migrations on read, and a newer version than the code is a hard error | Accepted | [ADR-0028](docs/adr/0028-score-document-schema-versioning.md) |
+| D59 | Score documents carry `schemaVersion`; forward-only migrations on read, and a newer version than the code is a hard error | Accepted | [ADR-0028](docs/adr/0028-score-document-schema-versioning.md) |
 | D60 | Local threat model: 127.0.0.1 bind, Origin validation, no wildcard CORS, uploads validated by decoding | Accepted | [ADR-0029](docs/adr/0029-local-http-threat-model.md) |
 | D61 | The core operation arbitrates when the two surfaces conflict — neither surface owns anything | Accepted | — (`QUESTIONS.md` Q79) |
-| D62 | Exports are cached in the `BlobStore` keyed by score version; no score *variant* is ever stored | Accepted | — (`QUESTIONS.md` Q81, `PLAN.md`) |
+| D62 | Exports are cached in the `BlobStore` keyed by everything that changes the bytes — version, document digest, instrument, paper, face, format — so invalidation is implicit and unwritten; no score *variant* is ever stored | Accepted | — (`QUESTIONS.md` Q81 as amended at V3a, `PLAN.md`) |
 | D50 | `REQS.md` is kept as a historical record with inline supersession markers; `CONTEXT.md` wins where they differ | Accepted | — (`QUESTIONS.md` Q70) |
 | D63 | The V1 gate ran and decided: **own the engraver**. Done at V1d — `packages/draw` and the `vexflow` dependency are gone, and `packages/engrave` is what ships | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
 | D64 | The engraver was sequenced spike-first: V1b proved the approach and produced the estimate, and the full replacement followed as V1c–V1d, before V2 | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |

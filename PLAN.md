@@ -120,8 +120,8 @@ The mechanisms being built. Each is a thing you build, not an intention.
 | P2 | Single write path: `POST /v1/scores/:id/ops` → validate → apply → append to op log → persist → broadcast. The op applier is the only writer | ADR-0002, ADR-0003 |
 | P3 | Optimistic concurrency: every write carries an expected version; a stale write returns 409 with the current version | ADR-0003 |
 | P4 | Undo by replay: replay the op log minus the last operation. No inverse operations | ADR-0003 |
-| P5 | Store: SQLite, score as a JSON document with `schema_version`, plus listing columns, behind a repository interface. Forward-only migrations on read | ADR-0006, ADR-0028 |
-| P6 | `BlobStore` interface over source images and cached exports, keyed by score version so a bump invalidates | ADR-0006, Q81 |
+| P5 | Store: SQLite, score as a JSON document with `schemaVersion`, plus listing columns, behind a repository interface. Forward-only migrations on read | ADR-0006, ADR-0028 |
+| P6 | `BlobStore` interface over source images and cached exports, keyed by everything that changes the bytes so a change invalidates implicitly | ADR-0006, Q81 |
 | P7 | Address resolver: `bar12.beat3` / `bar12.n3` / `note-17` → object. Onsets only; a miss errors with the bar's real onsets listed | ADR-0007 |
 | P8 | Chord grammar: parse and format root / quality / extensions / alterations / bass. Also the OCR corrector and the input validator | ADR-0012 |
 | P9 | Layout engine: model → engine-independent positions. Four-bar grid, broken at section boundaries; pickup outside the grid | ADR-0015 |
@@ -223,9 +223,11 @@ produces identical bytes. Regression tests snapshot the SVG rather than the PDF,
 PDF structure varies with library versions in ways that are noise (Q39).
 
 **Export caching.** An instrument part is a render-time view and no score variant is ever
-stored (ADR-0016), but the rendered artefact is cached in the `BlobStore` keyed by
-`(score version, format, instrument)`. A version bump invalidates the cache implicitly,
-so there is no invalidation logic to get wrong (Q81).
+stored (ADR-0016), but the rendered artefact is cached in the `BlobStore`. The key is
+everything that changes the bytes — the score's version, a digest of the document, the
+instrument, the paper, the face and the format — so a change invalidates implicitly and
+**there is no invalidation logic to get wrong** (Q81, amended at V3a; the digest is there
+because a reused score id restarts at version 1).
 
 **Offline is a tested property**, not a claim: weights are baked at build time with
 pinned checksums, and an import runs in a container with networking disabled as part of
@@ -280,7 +282,7 @@ Taken on your behalf. Each is one row in `QUESTIONS.md` and each is correctable.
 | Q46 / Q78 | No auth; localhost bind, Origin check, upload decoding | Adequate locally; says nothing about hosted |
 | Q49 | The CLI is the same binary pointed at a base URL with a token | Contained to CLI config |
 | Q56 | Non-chord text in the chord band is kept as a flagged annotation; chords outside the band are missed | Affects import fidelity on unusual charts |
-| Q77 | `schema_version` with forward-only migrations on read | Near-zero now, painful once charts exist |
+| Q77 | `schemaVersion` with forward-only migrations on read | Near-zero now, painful once charts exist |
 | Q79 | The core op arbitrates when the surfaces disagree | Shapes how every feature is designed |
 | Q80 | A failed import commits nothing and is retryable | Contained to the job runner |
 | Q74 | PaddleOCR over EasyOCR | Redoes stage 2's fine-tuning work if reversed later |
