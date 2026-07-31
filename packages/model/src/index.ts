@@ -6,3 +6,4 @@ export * from './ids.js';
 export * from './build.js';
 export * from './query.js';
 export * from './migrate.js';
+export * from './address.js';
