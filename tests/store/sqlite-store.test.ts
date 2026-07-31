@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LOCAL_OWNER, openSqliteStore } from '@sibei/api';
 import type { ScoreStore } from '@sibei/api';
-import { dur, makeBar, makeNote, makeScore } from '@sibei/model';
 import type { Score } from '@sibei/model';
+import { aScore, insert, update } from './helpers.js';
 
 /**
  * The store, against a real SQLite database (ADR-0006). The infra layer of the suite: this
@@ -44,26 +44,11 @@ function open(filename: string): ScoreStore {
   return store;
 }
 
-function aScore(id = 'score-1', title = 'Body and Soul'): Score {
-  const bar = makeBar({
-    id: 'bar-1',
-    number: 1,
-    items: [makeNote({ id: 'note-1', onset: 0, duration: dur(1), pitch: 'Eb5' })],
-  });
-  return makeScore({
-    id,
-    title,
-    composer: 'Johnny Green',
-    key: { tonic: 'D', alter: -1, mode: 'major' },
-    bars: [bar],
-  });
-}
-
 describe('round-tripping a score', () => {
   it('stores a document and reads back exactly what went in', () => {
     const store = inMemory();
     const score = aScore();
-    expect(store.insert(LOCAL_OWNER, score)).toMatchObject({ ok: true, version: 1 });
+    expect(insert(store, LOCAL_OWNER, score)).toMatchObject({ ok: true, version: 1 });
 
     const found = store.get(LOCAL_OWNER, 'score-1');
     expect(found?.version).toBe(1);
@@ -74,7 +59,7 @@ describe('round-tripping a score', () => {
 
   it('survives a reopen of the same file', () => {
     const filename = onDisk();
-    open(filename).insert(LOCAL_OWNER, aScore());
+    insert(open(filename), LOCAL_OWNER, aScore());
     expect(open(filename).get(LOCAL_OWNER, 'score-1')?.score).toEqual(aScore());
   });
 
@@ -84,8 +69,8 @@ describe('round-tripping a score', () => {
 
   it('refuses to insert the same id twice', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
-    expect(store.insert(LOCAL_OWNER, aScore('score-1', 'A Different Tune'))).toEqual({
+    insert(store, LOCAL_OWNER, aScore());
+    expect(insert(store, LOCAL_OWNER, aScore('score-1', 'A Different Tune'))).toEqual({
       ok: false,
       reason: 'already-exists',
     });
@@ -94,7 +79,7 @@ describe('round-tripping a score', () => {
 
   it('deletes', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
     expect(store.delete(LOCAL_OWNER, 'score-1')).toBe(true);
     expect(store.get(LOCAL_OWNER, 'score-1')).toBeNull();
     expect(store.delete(LOCAL_OWNER, 'score-1')).toBe(false);
@@ -105,7 +90,7 @@ describe('the listing columns', () => {
   it('are derived from the document, so they cannot drift from it', () => {
     const at = new Date('2026-07-31T09:15:30.500Z');
     const store = inMemory(() => at);
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
 
     expect(store.list(LOCAL_OWNER)).toEqual([
       {
@@ -121,9 +106,9 @@ describe('the listing columns', () => {
 
   it('follow the document when an update changes the metadata', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
     const renamed = { ...aScore(), meta: { ...aScore().meta, title: 'Soul and Body' } };
-    expect(store.update(LOCAL_OWNER, 'score-1', 1, renamed)).toMatchObject({ ok: true });
+    expect(update(store, LOCAL_OWNER, 'score-1', 1, renamed)).toMatchObject({ ok: true });
     expect(store.list(LOCAL_OWNER)[0]?.title).toBe('Soul and Body');
   });
 
@@ -140,7 +125,7 @@ describe('owner', () => {
    */
   it('scopes every read, even though the value is always local', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
 
     expect(store.get('someone-else', 'score-1')).toBeNull();
     expect(store.exists('someone-else', 'score-1')).toBe(false);
@@ -150,9 +135,9 @@ describe('owner', () => {
 
   it('scopes every write', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
 
-    expect(store.update('someone-else', 'score-1', 1, aScore())).toEqual({
+    expect(update(store, 'someone-else', 'score-1', 1, aScore())).toEqual({
       ok: false,
       reason: 'not-found',
     });
@@ -162,7 +147,7 @@ describe('owner', () => {
 
   it('is never null on a stored row', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
+    insert(store, LOCAL_OWNER, aScore());
     // Asserted through the port rather than by reading the column, because a caller who
     // cannot find a row by owner is the failure that matters.
     expect(store.exists(LOCAL_OWNER, 'score-1')).toBe(true);
@@ -172,8 +157,8 @@ describe('owner', () => {
 describe('the expected-version check (ADR-0003)', () => {
   it('bumps the version on a write that expected the current one', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
-    expect(store.update(LOCAL_OWNER, 'score-1', 1, aScore('score-1', 'Take Two'))).toMatchObject({
+    insert(store, LOCAL_OWNER, aScore());
+    expect(update(store, LOCAL_OWNER, 'score-1', 1, aScore('score-1', 'Take Two'))).toMatchObject({
       ok: true,
       version: 2,
     });
@@ -182,12 +167,12 @@ describe('the expected-version check (ADR-0003)', () => {
 
   it('rejects a stale write with the current version, and changes nothing', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
-    store.update(LOCAL_OWNER, 'score-1', 1, aScore('score-1', 'Take Two'));
+    insert(store, LOCAL_OWNER, aScore());
+    update(store, LOCAL_OWNER, 'score-1', 1, aScore('score-1', 'Take Two'));
 
     // A second client still holding version 1. No last-write-wins: it is told the version to
     // re-read at rather than quietly destroying the other party's edit.
-    expect(store.update(LOCAL_OWNER, 'score-1', 1, aScore('score-1', 'Clobbered'))).toEqual({
+    expect(update(store, LOCAL_OWNER, 'score-1', 1, aScore('score-1', 'Clobbered'))).toEqual({
       ok: false,
       reason: 'conflict',
       version: 2,
@@ -197,7 +182,7 @@ describe('the expected-version check (ADR-0003)', () => {
 
   it('tells a conflict apart from a missing score', () => {
     const store = inMemory();
-    expect(store.update(LOCAL_OWNER, 'score-404', 1, aScore('score-404'))).toEqual({
+    expect(update(store, LOCAL_OWNER, 'score-404', 1, aScore('score-404'))).toEqual({
       ok: false,
       reason: 'not-found',
     });
@@ -205,8 +190,8 @@ describe('the expected-version check (ADR-0003)', () => {
 
   it('rejects a write expecting a version that has never existed', () => {
     const store = inMemory();
-    store.insert(LOCAL_OWNER, aScore());
-    expect(store.update(LOCAL_OWNER, 'score-1', 99, aScore())).toEqual({
+    insert(store, LOCAL_OWNER, aScore());
+    expect(update(store, LOCAL_OWNER, 'score-1', 99, aScore())).toEqual({
       ok: false,
       reason: 'conflict',
       version: 1,
