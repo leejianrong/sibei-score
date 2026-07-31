@@ -71,6 +71,22 @@ jobs:
         working-directory: packages/api
       - run: pnpm run test:infra
 
+  # V2's demo, run the way a person would run it: start the server, author a chart from the CLI,
+  # then check the stale-version case exits 4. The suite covers this too, but a demo that only
+  # works inside vitest is not a demo.
+  demo:
+    name: the V2 demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: bash scripts/demo-v2.sh
+
   # The demo has to keep working: a chart that will not render is not a chart. The
   # rendered PDFs are uploaded so a reviewer can look at the engraving on a PR.
   render:

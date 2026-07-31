@@ -26,7 +26,11 @@ const FAST = [
   'tests/arch/**/*.test.ts',
 ];
 
-const INFRA = ['tests/store/**/*.test.ts'];
+const INFRA = [
+  'tests/store/**/*.test.ts',
+  'tests/api/**/*.test.ts',
+  'tests/cli/**/*.test.ts',
+];
 
 /** Rendering the nasty chart through the whole engraver is not instant. */
 const TIMEOUT = 30_000;
