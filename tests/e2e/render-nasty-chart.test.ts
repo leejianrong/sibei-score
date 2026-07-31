@@ -1,4 +1,4 @@
-import { barCountChart, nastyChart } from '@sibei/fixtures';
+import { nastyChart } from '@sibei/fixtures';
 import { layout } from '@sibei/layout';
 import { renderScoreToPdf } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -10,6 +10,9 @@ import { describe, expect, it } from 'vitest';
  * Since V1d this path goes through our own engraver rather than VexFlow (ADR-0030), and
  * reproducibility matters more rather than less: the engraver reaches no clock, no
  * counter and no DOM, so byte-identity is a property of the design and worth pinning.
+ *
+ * Page flow lives in `render-long-form.test.ts` from V3b, where there is a fixture long
+ * enough to have a second page rather than only a page setting that would refuse one.
  */
 
 describe('the nasty chart as a PDF', () => {
@@ -81,40 +84,5 @@ describe('the nasty chart as a PDF', () => {
     const a4Spec = layout(nastyChart(), { paper: 'a4' }).pageSpec;
     const letterSpec = layout(nastyChart(), { paper: 'letter' }).pageSpec;
     expect(a4Spec.widthPt).not.toBe(letterSpec.widthPt);
-  });
-});
-
-describe('page flow', () => {
-  it('starts a second page rather than overrunning the first', () => {
-    // Enough four-bar systems that no page setting could fit them on one sheet.
-    const result = layout(barCountChart(120, {}));
-
-    expect(result.pages.length).toBeGreaterThan(1);
-    expect(result.systemCount).toBe(30);
-    expect(result.pages.reduce((sum, page) => sum + page.systems.length, 0)).toBe(30);
-  });
-
-  it('keeps the four-bar grid intact across a page break', () => {
-    const result = layout(barCountChart(120, {}));
-    const counts = result.pages.flatMap((page) => page.systems.map((s) => s.bars.length));
-
-    expect(new Set(counts)).toEqual(new Set([4]));
-  });
-
-  it('holds every system inside the printable area', () => {
-    const result = layout(barCountChart(120, {}));
-    const spec = result.pageSpec;
-
-    for (const page of result.pages) {
-      for (const system of page.systems) {
-        expect(system.y).toBeGreaterThanOrEqual(spec.margin.top);
-        expect(system.y + system.height).toBeLessThanOrEqual(spec.height - spec.margin.bottom);
-      }
-      // Only the first page reserves room for the title block.
-      const first = page.systems[0];
-      if (page.index === 0) {
-        expect(first?.y).toBeGreaterThanOrEqual(spec.margin.top + spec.headerHeight);
-      }
-    }
   });
 });
