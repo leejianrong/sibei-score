@@ -34,6 +34,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
 
+  # The two suite layers as two jobs, so a red says which kind of thing broke. `fast` is the
+  # layer the pre-push hook already ran, so it is usually a formality; `infra` needs
+  # better-sqlite3's native binding, and a binding that fails to build should not look like a
+  # failing assertion.
+  # Named plainly `test` rather than `test (fast)` because `main`'s branch protection requires
+  # a check by that exact name, and renaming it makes every PR permanently unmergeable on a
+  # check that can never report. Change the name here and the required contexts together, or
+  # not at all.
   test:
     name: test
     runs-on: ubuntu-latest
@@ -45,7 +53,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - run: pnpm run test:fast
+
+  test-infra:
+    name: test (infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: check the native binding is actually there
+        run: node -e "new (require('better-sqlite3'))(':memory:').close()"
+        working-directory: packages/api
+      - run: pnpm run test:infra
 
   # The demo has to keep working: a chart that will not render is not a chart. The
   # rendered PDFs are uploaded so a reviewer can look at the engraving on a PR.

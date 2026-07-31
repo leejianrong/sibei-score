@@ -1,0 +1,19 @@
+{
+  "name": "@sibei/api",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "The server side: the store, the op log, and the HTTP API. Node-bound by design.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/model": "workspace:*",
+    "better-sqlite3": "13.0.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13"
+  }
+}

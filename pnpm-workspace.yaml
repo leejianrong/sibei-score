@@ -1,4 +1,11 @@
 packages:
   - packages/*
 allowBuilds:
+  # Compiles or fetches a native binding at install time. The one install-time code
+  # execution in the tree, and a deliberate exception to ADR-0027's preference for
+  # dependencies that never reach the network: the alternative, Node's built-in
+  # `node:sqlite`, still warns "experimental, might change at any time" on Node 24 and
+  # collapses every constraint into one error code. Neither is right under a store holding
+  # data ADR-0028 calls irreplaceable.
+  better-sqlite3: true
   esbuild: true
