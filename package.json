@@ -13,17 +13,21 @@
     "test:fast": "vitest run --project fast",
     "test:infra": "vitest run --project infra",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/engrave && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p packages/api && tsc --noEmit -p tests && tsc --noEmit -p scripts",
+    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/engrave && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p packages/api && tsc --noEmit -p packages/cli && tsc --noEmit -p tests && tsc --noEmit -p scripts",
     "check": "pnpm run typecheck && pnpm run test",
     "render": "tsx scripts/render-fixture.ts",
     "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
     "proof": "tsx scripts/proof.ts",
     "vendor:fonts": "tsx scripts/vendor-music-fonts.ts",
-    "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\""
+    "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
+    "sibei": "tsx packages/cli/src/bin.ts",
+    "serve": "tsx packages/cli/src/bin.ts serve",
+    "demo": "bash scripts/demo-v2.sh"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
     "@sibei/api": "workspace:*",
+    "@sibei/cli": "workspace:*",
     "@sibei/engrave": "workspace:*",
     "@sibei/fixtures": "workspace:*",
     "@sibei/layout": "workspace:*",

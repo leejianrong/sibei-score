@@ -7,15 +7,20 @@ stale — fix it.
 
 ## Build status, honestly
 
-**V1 and V1b–V1d are done, and V2 is in progress** (`SLICES.md`). What exists: the score
-model, the layout engine, **our own engraver**, the server-side PDF path, and — from V2a–V2c —
-**the store, the address resolver, the op log and the applier**. What does **not** exist yet:
-any HTTP API, CLI, browser UI, chord grammar, transposition, MusicXML codec, or import
-pipeline. Do not assume a module is there because a plan mentions it.
+**V1, V1b–V1d and V2 are done** (`SLICES.md`). What exists: the score model, the layout
+engine, **our own engraver**, the server-side PDF path, the store, the address resolver, the
+op log and applier, the `/v1/` API, and **the CLI with the text projection**. What does **not**
+exist yet: the browser UI, the chord grammar, transposition, the MusicXML codec, export from
+the store, and the whole import pipeline. Do not assume a module is there because a plan
+mentions it.
 
-**V2 is being built in five sub-slices**, the way V1 was cut into V1b–V1d, because one write
-path is nine build steps and 13 points. Board cards KAN-468 through KAN-472, under the
-KAN-410 umbrella:
+**V3 is next** — joining V1's renderer to V2's store, so the product does something whole for
+the first time. It is the first slice since V1d to touch `layout`, so `pnpm proof` matters
+again.
+
+**V2 was built in five sub-slices**, the way V1 was cut into V1b–V1d, because one write path is
+nine build steps and 13 points. Board cards KAN-468 through KAN-472, under the KAN-410
+umbrella:
 
 | | Delivers | State |
 |---|---|---|
@@ -23,10 +28,10 @@ KAN-410 umbrella:
 | V2b | The address resolver — `bar12.beat3`, `bar12.n3`, `note-17` | **done** |
 | V2c | The op log, and the applier as the only writer | **done** |
 | V2d | The `/v1/` API, the auth seam, and the Origin check | **done** |
-| V2e | The CLI, and the text projection — carries V2's demo | next |
+| V2e | The CLI, and the text projection — carries V2's demo | **done** |
 
-Nothing in V2 touches the renderer, so `pnpm proof` is not usually relevant to it. The
-moment a change reaches `layout` or `engrave`, look at the images anyway.
+Nothing in V2 touched the renderer, so `pnpm proof` was not relevant to any of it — the
+committed SVG snapshots never moved. That changes with V3.
 
 **VexFlow is gone.** The V1 gate judged its output good and went the other way anyway,
 because jazz typography is this product's differentiator rather than its polish and 4.2.5
@@ -46,10 +51,12 @@ render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
 pnpm check                 # typecheck every package, then both suite layers. The gate.
 pnpm typecheck             # each package under its own strict config
-pnpm test                  # vitest, both layers, 444 tests
+pnpm test                  # vitest, both layers, 518 tests
 pnpm test:fast             # the no-infra layer — what the pre-push hook runs
 pnpm test:infra            # the layer that needs a real store
 pnpm test:watch
+pnpm serve                 # run the local API on 127.0.0.1:4321
+pnpm sibei <verb>           # the CLI. `pnpm sibei --help` lists every verb
 pnpm render:nasty          # out/nasty-chart.pdf — the V1 demo
 pnpm render all            # every fixture
 pnpm vendor:fonts          # regenerate the vendored font slices (needs network)
@@ -177,11 +184,12 @@ packages/
   layout     score -> engine-independent positions: the four-bar grid
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM
-  api        the server side: the store, and from V2c the op log and the HTTP routes
+  api        the server side: the store, the op log and applier, the /v1/ HTTP routes
+  cli        the `sibei` binary — an HTTP client of the API, never a second write path
   fixtures   hand-authored scores, including the nasty test chart
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
-  store/                               needs a real store: the `infra` layer
+  store/  api/  cli/                   need a real store or socket: the `infra` layer
   snapshots/                           committed .svg files
 scripts/     development entry points, not product surface
 ```
@@ -262,9 +270,11 @@ bar, since ADR-0013 stores an invalid bar rather than refusing one.
 leaves open whether a rest takes a slot. It has to: a rest is a first-class object (Q35) and
 would otherwise be unreachable by position. The narrower reading is recovered by the `kind`
 argument — `resolveAddress(score, 'bar2.n2', 'note')` fails with `bar2.n2 is a rest, not a
-note` rather than quietly editing the wrong thing. When V2e builds the text projection, what it
-labels `nK` **must** match this, because ADR-0009's whole design principle is that the
-projection prints the addresses the CLI accepts.
+note` rather than quietly editing the wrong thing. The text projection labels `nK` the same way,
+which it must, because ADR-0009's whole design principle is that the projection prints the
+addresses the CLI accepts — and there is a test that walks every printed address back through
+the resolver and checks it lands on **the object printed beside it**, not merely that it
+resolves.
 
 ### The store, and the two things called a version
 
@@ -413,6 +423,61 @@ in** — ADR-0029's rule for later, kept true now by leaving nowhere to put them
 `message`, never its stack or its own fields, because an error out of the store carries the database
 path.
 
+### The CLI, and the text projection
+
+`packages/cli`. The CLI is an **HTTP client of the API** (ADR-0002) — never a second write path,
+which is the entire point. It holds no store and cannot reach one: with the server stopped, no
+verb it offers can change a score, and a test asserts exactly that.
+
+```sh
+pnpm serve                                  # or `sibei serve --port N --data PATH`
+pnpm sibei new --title "Body and Soul" --key Db --bars 32
+pnpm sibei note add <id> bar1.beat1 --pitch Db5 --dur 8
+pnpm sibei show <id>                        # the text projection
+pnpm sibei --help                           # every verb, the address forms, the exit codes
+```
+
+`--json` on every verb, and errors are JSON too when it is set — **flat**, so `currentVersion`
+and an address miss's `onsets` are one level down rather than three. **Exit codes are a
+contract** (ADR-0008): `0` ok, `1` usage, `2` validation, `3` bad address, `4` stale-version
+conflict, `5` not found, `6` no server, `7` refused, `8` already exists. Adding one is fine;
+changing what a number means breaks every script anybody wrote. They are tested through a real
+subprocess as well as in-process, because a number returned from a function is not the contract
+— a number the shell sees is.
+
+`sibei serve` is not in SLICES.md's V2 build plan. It had to exist anyway: V2's demo is "author a
+chart entirely from the CLI", and without it there is nothing for the CLI to talk to.
+
+**The projection is a contract** (`packages/model/src/projection.ts`, ADR-0009), not ad-hoc
+formatting — agents depend on the format, so it changes deliberately and has its own tests:
+
+```
+Body and Soul — Johnny Green — key Db, 4/4, 8 bars — Ballad
+  ! = needs review · 1 bar does not fill the meter
+
+ 1 |Ebm7  Ab7|         |         |         |
+   bar1   n1 db5/8  n2 eb5/8  n3 f5/4  n4 gb5/2
+   bar2!  n1 f5/4~  n2 r/4
+ 5 |         |         |         |         |
+
+Address: bar1.n2  or  bar1.beat1.5  or  note-2
+Onsets only: a beat with nothing on it is an error listing the bar's real onsets.
+```
+
+Four-bar rows, matching the printed layout — a line-per-bar format parses more easily and was
+rejected anyway, because the four-bar grouping is what a reader takes structure from. `~` marks a
+tie on the side it points; `(3)` a triplet member; `r` a rest; `!` anything flagged. Empty bars
+print no melody line, so a blank 32-bar chart stays under 700 characters — R2 is that an agent
+can read a chart *cheaply*.
+
+**It prints the addresses the CLI accepts, and the legend is built from a real object in the
+score.** That is the design principle the whole addressing scheme rests on: reading the
+projection is how an agent learns to write one. The `nK` labels here and `resolveAddress`
+therefore have to agree about everything, rests included.
+
+It is lossy on purpose — confidence, spelling pins, repeats, endings and annotations are not in
+it — so `sibei open` (the full structured dump) must stay the thing that carries them.
+
 ### Never measure text
 
 **Do not use `measureText` or anything that reaches `getBBox()`.** Only a real browser
@@ -448,9 +513,10 @@ is specific.
 
 - **The suite is two layers** (`vitest.config.ts`), split by what a test needs in order to run
   rather than by what it is about. `fast` is `unit`, `integration`, `e2e` and `arch` and needs
-  nothing installed; `infra` is `store` and needs better-sqlite3's native binding. **The
-  pre-push hook runs `fast` only** — a slow gate gets bypassed and then it protects nothing.
-  `pnpm test` and CI run both.
+  nothing installed (1.3s, 386 tests); `infra` is `store`, `api` and `cli`, and needs
+  better-sqlite3's native binding, a listening socket, and in one file a real subprocess.
+  **The pre-push hook runs `fast` only** — a slow gate gets bypassed and then it protects
+  nothing. `pnpm test` and CI run both.
 - **A new test directory must join a layer.** `tests/arch/suite-layers.test.ts` reads the
   config and fails if a directory belongs to neither, because the failure mode of a layered
   suite is a directory that silently never runs while the summary says green.
