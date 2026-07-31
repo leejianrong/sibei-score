@@ -39,6 +39,8 @@ export function units(staffSpaces: number): number {
  * Every glyph the engraver draws. A generated font module must supply all of them, which
  * is what stops a second face being half a face.
  */
+export type Digit = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+
 export type MusicGlyphName =
   | 'noteheadWhole'
   | 'noteheadHalf'
@@ -54,7 +56,17 @@ export type MusicGlyphName =
   | 'accidentalNatural'
   | 'accidentalSharp'
   | 'accidentalDoubleSharp'
-  | 'augmentationDot';
+  | 'augmentationDot'
+  | 'restWhole'
+  | 'restHalf'
+  | 'restQuarter'
+  | 'rest8th'
+  | 'rest16th'
+  | 'rest32nd'
+  | 'gClef'
+  | 'repeatDot'
+  | `timeSig${Digit}`
+  | `tuplet${Digit}`;
 
 /** Every `engravingDefaults` value the engraver reads, in staff spaces. */
 export interface EngravingDefaults {
@@ -64,6 +76,16 @@ export interface EngravingDefaults {
   readonly beamSpacing: number;
   readonly legerLineThickness: number;
   readonly legerLineExtension: number;
+  readonly thinBarlineThickness: number;
+  readonly thickBarlineThickness: number;
+  /** Gap between the two lines of a double or repeat barline. */
+  readonly barlineSeparation: number;
+  /** Gap between a repeat barline's thick line and its dots. */
+  readonly repeatBarlineDotSeparation: number;
+  readonly tieEndpointThickness: number;
+  readonly tieMidpointThickness: number;
+  readonly tupletBracketThickness: number;
+  readonly repeatEndingLineThickness: number;
 }
 
 export interface GlyphData {
@@ -105,6 +127,14 @@ export interface Ink {
   ledgerLine: number;
   /** How far a ledger line sticks out past the notehead, each side. */
   ledgerExtension: number;
+  thinBarline: number;
+  thickBarline: number;
+  barlineSeparation: number;
+  repeatDotSeparation: number;
+  tieEndpoint: number;
+  tieMidpoint: number;
+  tupletBracket: number;
+  endingLine: number;
 }
 
 export interface MusicFont {
@@ -114,6 +144,12 @@ export interface MusicFont {
   readonly beamPitch: number;
   /** A glyph's advance width, in layout units. */
   width(name: MusicGlyphName): number;
+  /**
+   * A glyph's ink box relative to its origin, in layout units and y-down. Used to centre
+   * a glyph on a line rather than guessing how far its baseline sits below one — the two
+   * faces disagree about that by a third of a staff space.
+   */
+  box(name: MusicGlyphName): { top: number; bottom: number; height: number };
   anchor(name: MusicGlyphName, anchorName: string): Point;
   hasAnchor(name: MusicGlyphName, anchorName: string): boolean;
   /** Place a glyph with its origin at (x, y). */
@@ -135,6 +171,14 @@ export function musicFont(data: MusicFontData): MusicFont {
     beamGap: units(defaults.beamSpacing),
     ledgerLine: units(defaults.legerLineThickness),
     ledgerExtension: units(defaults.legerLineExtension),
+    thinBarline: units(defaults.thinBarlineThickness),
+    thickBarline: units(defaults.thickBarlineThickness),
+    barlineSeparation: units(defaults.barlineSeparation),
+    repeatDotSeparation: units(defaults.repeatBarlineDotSeparation),
+    tieEndpoint: units(defaults.tieEndpointThickness),
+    tieMidpoint: units(defaults.tieMidpointThickness),
+    tupletBracket: units(defaults.tupletBracketThickness),
+    endingLine: units(defaults.repeatEndingLineThickness),
   };
 
   // The outlines are in the font's own units; ours are ten to the staff space.
@@ -147,6 +191,13 @@ export function musicFont(data: MusicFontData): MusicFont {
 
     width(name) {
       return units(data.glyphs[name].advance);
+    },
+
+    box(name) {
+      const glyph = data.glyphs[name];
+      const top = -units(glyph.bBoxNE[1]);
+      const bottom = -units(glyph.bBoxSW[1]);
+      return { top, bottom, height: bottom - top };
     },
 
     /**

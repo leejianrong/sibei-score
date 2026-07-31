@@ -1,9 +1,10 @@
-import { engravePage } from '@sibei/engrave';
-import { beamingChart, nastyChart } from '@sibei/fixtures';
+import { drawPage } from '@sibei/draw';
+import { ENGRAVED_ITEM_KINDS, engravePage } from '@sibei/engrave';
+import { beamingChart, everyGlyphChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutResult } from '@sibei/layout';
-import { layout } from '@sibei/layout';
+import { LAYOUT_BAR_ITEM_KINDS, layout } from '@sibei/layout';
 import { notesInReadingOrder } from '@sibei/model';
-import { renderLayoutToSvg } from '@sibei/pdf';
+import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -51,16 +52,17 @@ describe('the engraver behind the same seam', () => {
     expect(noteheads).toBe([...notesInReadingOrder(score)].length);
   });
 
-  it('counts every kind it does not draw, rather than dropping it silently', () => {
-    const { skipped } = engravePage(layout(nastyChart()), 0);
-    const kinds = skipped.map((entry) => entry.kind);
-    // The spike draws notes only; everything else the contract emits is a later slice.
-    expect(kinds).toContain('rest');
-    expect(kinds).toContain('chordSymbol');
-    expect(kinds).toContain('clef');
-    expect(kinds).toContain('endBarline');
-    expect(kinds).not.toContain('note');
-    for (const entry of skipped) expect(entry.count).toBeGreaterThan(0);
+  it('draws every kind the layout contract can emit, and skips none', () => {
+    // The same claim `tests/integration/glyph-coverage.test.ts` makes of the VexFlow
+    // adapter, asserted against the contract rather than against a remembered list.
+    expect([...ENGRAVED_ITEM_KINDS].sort()).toEqual([...LAYOUT_BAR_ITEM_KINDS].sort());
+
+    for (const score of [nastyChart(), everyGlyphChart()]) {
+      const result = layout(score);
+      for (const page of result.pages) {
+        expect(engravePage(result, page.index).skipped).toEqual([]);
+      }
+    }
   });
 
   it('is byte-identical run to run', () => {
@@ -85,13 +87,29 @@ describe('the engraver behind the same seam', () => {
   });
 });
 
+/**
+ * The VexFlow adapter, rendered directly rather than through `@sibei/pdf` — which now
+ * goes through the engraver, since the engraver is what ships. Keeping this route open
+ * is what lets `pnpm proof --compare` and the test below stay honest comparisons while
+ * `packages/draw` is still here to compare against.
+ */
+function vexflowSvg(result: LayoutResult): string {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>');
+  const globals = globalThis as Record<string, unknown>;
+  globals['window'] = dom.window;
+  globals['document'] = dom.window.document;
+  const host = dom.window.document.createElement('div');
+  dom.window.document.body.appendChild(host);
+  drawPage(result, 0, host);
+  return host.innerHTML;
+}
+
 describe('both adapters, one layout', () => {
   it('agrees with VexFlow on where every staff line sits', () => {
     // One LayoutResult, both renderers. Same object, so a disagreement here can only be
     // the adapters, which is exactly what the gate's side-by-side needs to be true.
     const result = layout(nastyChart());
-    const vexflow = renderLayoutToSvg(result)[0]?.svg;
-    if (vexflow === undefined) throw new Error('nothing rendered');
+    const vexflow = vexflowSvg(result);
 
     const ours = engravedStaffLines(engraved(result));
     const theirs = vexflowStaffLines(vexflow);

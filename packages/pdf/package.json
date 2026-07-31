@@ -3,22 +3,20 @@
   "version": "0.1.0-dev",
   "private": true,
   "type": "module",
-  "description": "Server-side render path: VexFlow to SVG in a headless DOM, then SVG to PDF with pinned metadata.",
+  "description": "Server-side render path: layout to SVG through the engraver, then SVG to PDF with pinned metadata.",
   "exports": {
     ".": "./src/index.ts"
   },
   "types": "./src/index.ts",
   "sideEffects": false,
   "dependencies": {
-    "@sibei/draw": "workspace:*",
+    "@sibei/engrave": "workspace:*",
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",
-    "jsdom": "26.1.0",
     "pdfkit": "0.19.1",
     "svg-to-pdfkit": "0.1.8"
   },
   "devDependencies": {
-    "@types/jsdom": "21.1.7",
     "@types/pdfkit": "0.17.4",
     "@types/svg-to-pdfkit": "0.1.4"
   }

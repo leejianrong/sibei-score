@@ -323,13 +323,20 @@ function rasterisePdf(pdfPath: string, outPath: string): string | null {
 function census(svg: string): Map<string, number> {
   const counts = new Map<string, number>();
   const bump = (key: string, by = 1): void => {
+    if (by === 0) return;
     counts.set(key, (counts.get(key) ?? 0) + by);
   };
 
+  // Both adapters label their output: VexFlow with `vf-`, ours with `se-`. A glyph
+  // carries its SMuFL name too, which is what makes a census of our output say
+  // "seventeen fewer flats" rather than "thirty fewer paths".
   for (const match of svg.matchAll(/class="(vf-[a-z]+)"/g)) bump(match[1] ?? '?');
+  for (const match of svg.matchAll(/class="se-glyph se-(\w+)"/g)) bump(`glyph ${match[1] ?? '?'}`);
+  for (const match of svg.matchAll(/class="(se-(?!glyph)[a-z]+)[ "]/g)) bump(match[1] ?? '?');
   bump('<path>', (svg.match(/<path/g) ?? []).length);
   bump('<text>', (svg.match(/<text/g) ?? []).length);
   bump('<rect>', (svg.match(/<rect/g) ?? []).length);
+  bump('<polygon>', (svg.match(/<polygon/g) ?? []).length);
   return counts;
 }
 

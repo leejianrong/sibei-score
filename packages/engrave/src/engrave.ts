@@ -1,17 +1,24 @@
 import type {
+  EndingItem,
   LayoutBar,
   LayoutBarItemKind,
   LayoutResult,
   LayoutSystem,
   NoteItem,
+  RestItem,
 } from '@sibei/layout';
-import type { TimeSignature } from '@sibei/model';
+import { LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
+import type { Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks } from '@sibei/model';
+import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
 import type { BeamMember } from './beams.js';
 import { applyBeam, beamElements, beamLine } from './beams.js';
 import type { MusicFont, MusicGlyphName } from './font.js';
+import { units } from './font.js';
 import type { MusicFontName } from './fonts/index.js';
 import { DEFAULT_MUSIC_FONT, musicFontNamed } from './fonts/index.js';
+import { restFor, restPosition } from './rests.js';
+import { clef, keySignature, timeSignature } from './signatures.js';
 import type { PlacedItem } from './spacing.js';
 import { ACCIDENTAL_GAP, accidentalGlyph, placeItems } from './spacing.js';
 import { ledgerLines, positionY, staffLines, staffPosition } from './staff.js';
@@ -30,47 +37,63 @@ import {
 } from './stems.js';
 import type { SvgElement } from './svg.js';
 import { el, serialise } from './svg.js';
+import type { TieEnd } from './ties.js';
+import { tie } from './ties.js';
+import { chordSymbol, headerText, rehearsalMark, text } from './text.js';
+import { tuplet } from './tuplets.js';
 
 /**
- * The engraver spike (ADR-0030): a second draw adapter, behind the same seam, that
- * engraves from Bravura's published metrics instead of through VexFlow.
+ * The engraver (ADR-0030): a draw adapter that engraves from a SMuFL font's published
+ * metrics instead of through VexFlow.
  *
- * It consumes the layout contract and nothing else, exactly as `@sibei/draw` does. It
- * differs from that adapter in one way worth noting beyond the obvious: it emits
- * **markup rather than DOM nodes**, so it needs no `document` and this package stays as
- * framework-free as `layout` and `model`.
+ * It consumes the layout contract and nothing else, exactly as `@sibei/draw` does, and it
+ * differs in two ways worth noting. It emits **markup rather than DOM nodes**, so it needs
+ * no `document` and this package stays as framework-free as `layout` and `model`. And the
+ * **face is an argument**, because a lead sheet is read in a handwritten Real Book face as
+ * often as an engraved one and that is the reader's choice per render.
  *
- * **Scope is one note and everything attached to it** — noteheads, stems, flags, ledger
- * lines, beams, accidentals, augmentation dots — plus the staff lines to read them
- * against. Everything else the contract can emit is counted and skipped, and the count
- * is returned rather than swallowed, so a proof image cannot quietly imply coverage the
- * spike does not have. Rests, ties, tuplet brackets, clefs, key and time signatures,
- * barlines and chord symbols are all a later slice (ADR-0030).
+ * Order of work inside a bar is load-bearing, and it is the lesson of V1's beaming bug:
+ * **all geometry, then all ink.** Nothing is emitted until every beam has been fitted and
+ * every stem end rewritten from it, so a note can never be asked twice whether it is
+ * beamed and answer differently.
  */
 
 export interface EngraveOptions {
   /**
-   * Which face to engrave in. A lead sheet is read in a handwritten Real Book face as
-   * often as an engraved one, and it is the reader's choice per render, not a build-time
-   * constant — so the font arrives here and is threaded through every geometry function
-   * rather than imported by them.
+   * Which face to engrave in. Threaded through every geometry function rather than
+   * imported by them, so a face is chosen per render.
    */
   font: MusicFontName;
-  /** Off for the side-by-side, where VexFlow's staff is already underneath. */
+  /** Off for the side-by-side, where the other adapter's staff is already underneath. */
   staffLines: boolean;
+  /** Chord symbol size, in layout units. */
+  chordFontSize: number;
+  barNumberFontSize: number;
+  rehearsalFontSize: number;
+  endingFontSize: number;
 }
 
-const DEFAULT_OPTIONS: EngraveOptions = { font: DEFAULT_MUSIC_FONT, staffLines: true };
+const DEFAULT_OPTIONS: EngraveOptions = {
+  font: DEFAULT_MUSIC_FONT,
+  staffLines: true,
+  chordFontSize: 14,
+  barNumberFontSize: 11,
+  rehearsalFontSize: 13,
+  endingFontSize: 11,
+};
 
 export interface EngravedPage {
   /** Standalone SVG markup, in the same coordinates and at the same size as `@sibei/draw`. */
   svg: string;
-  /** Item kinds the spike does not draw, and how many it passed over. */
+  /**
+   * Item kinds this adapter passed over. Empty now that it draws them all, and kept
+   * because an engraver that quietly drops a glyph is worse than one that says so.
+   */
   skipped: readonly { kind: LayoutBarItemKind; count: number }[];
 }
 
-/** Every kind this adapter draws. The rest are counted as skipped, by name. */
-export const ENGRAVED_ITEM_KINDS: readonly LayoutBarItemKind[] = ['note'];
+/** Every kind this adapter draws — which is every kind the contract can emit. */
+export const ENGRAVED_ITEM_KINDS: readonly LayoutBarItemKind[] = LAYOUT_BAR_ITEM_KINDS;
 
 export function engravePage(
   result: LayoutResult,
@@ -83,7 +106,8 @@ export function engravePage(
 
   const font = musicFontNamed(opts.font);
   const skipped = new Map<LayoutBarItemKind, number>();
-  const children: SvgElement[] = [];
+  const children: SvgElement[] = page.header.map(headerText);
+
   for (const system of page.systems) {
     children.push(...engraveSystem(font, system, result.time, opts, skipped));
   }
@@ -105,6 +129,20 @@ export function engravePage(
   };
 }
 
+// ---------------------------------------------------------------------------
+// A system
+// ---------------------------------------------------------------------------
+
+/** What a tie needs to know about a note, gathered as the bars are engraved. */
+type NoteAnchors = Map<Id, TieEnd>;
+
+interface Bands {
+  /** Top of the system's above-staff band, where marks and brackets live. */
+  top: number;
+  /** Where every chord symbol in this system puts its baseline. */
+  chordBaseline: number;
+}
+
 export function engraveSystem(
   font: MusicFont,
   system: LayoutSystem,
@@ -112,15 +150,38 @@ export function engraveSystem(
   options: EngraveOptions,
   skipped: Map<LayoutBarItemKind, number>,
 ): SvgElement[] {
+  // Only the head of a system gets an opening line: elsewhere the previous bar's closing
+  // barline is the junction, and two lines at one x would double it up. A system that
+  // opens on a repeat already has its own thick line there, and would double it the same
+  // way — visible immediately in the proof of bar 12.
+  const opensOnRepeat = system.bars[0]?.items.some((item) => item.kind === 'barline') ?? false;
+
   const children: SvgElement[] = [];
   if (options.staffLines) {
-    children.push(
-      ...staffLines(font, { x: system.x, width: system.width, staveY: system.staveY }),
-    );
+    children.push(...staffLines(font, { x: system.x, width: system.width, staveY: system.staveY }));
+    if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY));
   }
+
+  const bands: Bands = {
+    top: system.staveY - system.aboveStaff,
+    chordBaseline: system.staveY - system.chordBaselineOffset,
+  };
+
+  const anchors: NoteAnchors = new Map();
   for (const bar of system.bars) {
-    children.push(...engraveBar(font, bar, system.staveY, time, skipped));
+    children.push(...engraveBar(font, bar, system, time, options, bands, anchors, skipped));
   }
+
+  for (const layoutTie of system.ties) {
+    const curve = tie(font, {
+      from: layoutTie.fromNoteId === null ? null : (anchors.get(layoutTie.fromNoteId) ?? null),
+      to: layoutTie.toNoteId === null ? null : (anchors.get(layoutTie.toNoteId) ?? null),
+      systemLeft: system.x,
+      systemRight: system.x + system.width,
+    });
+    if (curve !== null) children.push(curve);
+  }
+
   return children;
 }
 
@@ -128,33 +189,118 @@ export function engraveSystem(
 // A bar
 // ---------------------------------------------------------------------------
 
-/** One note, with its geometry settled but nothing emitted yet. */
+/** One note or rest, with its geometry settled but nothing emitted yet. */
 interface EngravedNote {
-  item: NoteItem;
+  item: NoteItem | RestItem;
   x: number;
   position: number;
-  notehead: MusicGlyphName;
+  glyph: MusicGlyphName;
   levels: number;
-  /** Null for a whole note. */
+  /** Null for a whole note and for every rest. */
   stem: Stem | null;
 }
 
-/**
- * Geometry first, ink second — and the order is the lesson of V1's beaming bug, where
- * notes drew their own flags because the beams that would have suppressed them were
- * built afterwards. Here nothing is emitted until every beam has been fitted and every
- * stem end rewritten, so a beamed note cannot be asked twice what it is.
- */
 function engraveBar(
   font: MusicFont,
   bar: LayoutBar,
-  staveY: number,
+  system: LayoutSystem,
   time: TimeSignature,
+  options: EngraveOptions,
+  bands: Bands,
+  anchors: NoteAnchors,
   skipped: Map<LayoutBarItemKind, number>,
 ): SvgElement[] {
+  const staveY = system.staveY;
+  const before: SvgElement[] = [];
+  const after: SvgElement[] = [];
+
+  // The prefix is drawn inside the room layout allocated for it, left to right.
+  let prefixX = bar.x + units(0.6);
+
+  const chords: { anchorItemId: Id | null; text: string; plain: boolean }[] = [];
+  const tuplets: { actual: number; memberIds: Id[] }[] = [];
+  const endings: EndingItem[] = [];
+  let hasRehearsalMark = false;
+
   for (const item of bar.items) {
-    if (!ENGRAVED_ITEM_KINDS.includes(item.kind)) {
-      skipped.set(item.kind, (skipped.get(item.kind) ?? 0) + 1);
+    switch (item.kind) {
+      case 'clef':
+        before.push(clef(font, prefixX, staveY));
+        prefixX += font.width('gClef') + units(0.4);
+        break;
+
+      case 'keySignature': {
+        const drawn = keySignature(font, item.fifths, prefixX, staveY);
+        before.push(...drawn.elements);
+        prefixX += drawn.width + units(0.4);
+        break;
+      }
+
+      case 'timeSignature': {
+        const drawn = timeSignature(font, item.time, prefixX, staveY);
+        before.push(...drawn.elements);
+        prefixX += drawn.width;
+        break;
+      }
+
+      case 'barNumber':
+        before.push(
+          text({
+            text: item.text,
+            x: bar.x + units(0.2),
+            y: staveY - units(0.8),
+            size: options.barNumberFontSize,
+            align: 'left',
+            class: 'se-barnumber',
+          }),
+        );
+        break;
+
+      case 'rehearsalMark':
+        hasRehearsalMark = true;
+        before.push(
+          ...rehearsalMark(
+            item.text,
+            bar.x,
+            bands.top + options.rehearsalFontSize,
+            options.rehearsalFontSize,
+          ),
+        );
+        break;
+
+      case 'barline':
+        // After the clef and key signature, not before them: a repeat sign belongs to
+        // the music, and the prefix belongs to the system.
+        before.push(...startBarline(font, item.barline, bar.x + bar.prefixWidth, staveY));
+        break;
+
+      case 'endBarline':
+        after.push(...endBarline(font, item.barline, bar.x + bar.width, staveY));
+        break;
+
+      case 'ending':
+        endings.push(item);
+        break;
+
+      case 'chordSymbol':
+        chords.push({ anchorItemId: item.anchorItemId, text: item.text, plain: false });
+        break;
+
+      case 'annotation':
+        chords.push({ anchorItemId: item.anchorItemId, text: item.text, plain: true });
+        break;
+
+      case 'tupletBracket':
+        tuplets.push({ actual: item.actual, memberIds: item.memberIds });
+        break;
+
+      case 'note':
+      case 'rest':
+        // Placed together below, because where each one goes depends on all of them.
+        break;
+
+      default:
+        return exhausted(item);
     }
   }
 
@@ -163,22 +309,19 @@ function engraveBar(
   const beamed = new Set<PlacedItem>(groups.flat());
 
   const notes = new Map<PlacedItem, EngravedNote>();
-  for (const entry of placed) {
-    if (entry.item.kind !== 'note') continue;
-    notes.set(entry, engraveNote(font, entry.item, entry.x, staveY, null));
-  }
+  for (const entry of placed) notes.set(entry, engraveItem(font, entry, staveY, null));
 
   // A beamed group takes one stem direction, so its members' stems are rebuilt from the
   // group's decision before the beam is fitted to them.
   const beams: SvgElement[] = [];
+  const beamedIds = new Set<Id>();
   for (const group of groups) {
     const members: BeamMember[] = [];
-    const positions = group.map((entry) => notes.get(entry)?.position ?? 0);
-    const direction = groupStemDirection(positions);
+    const direction = groupStemDirection(group.map((entry) => notes.get(entry)?.position ?? 0));
     for (const entry of group) {
-      if (entry.item.kind !== 'note') continue;
-      const rebuilt = engraveNote(font, entry.item, entry.x, staveY, direction);
+      const rebuilt = engraveItem(font, entry, staveY, direction);
       notes.set(entry, rebuilt);
+      if (entry.item.kind === 'note') beamedIds.add(entry.item.noteId);
       if (rebuilt.stem !== null) {
         members.push({ stem: rebuilt.stem, position: rebuilt.position, levels: rebuilt.levels });
       }
@@ -190,34 +333,95 @@ function engraveBar(
   }
 
   const ink: SvgElement[] = [];
+  const byItemId = new Map<Id, EngravedNote>();
   for (const entry of placed) {
     const note = notes.get(entry);
-    if (note !== undefined) ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
+    if (note === undefined) continue;
+    byItemId.set(entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId, note);
+    if (entry.item.kind === 'note') {
+      anchors.set(entry.item.noteId, {
+        x: note.x,
+        noteheadWidth: font.width(note.glyph),
+        y: positionY(note.position, staveY),
+        stem: note.stem?.direction ?? null,
+      });
+    }
+    ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
   }
-  return [...ink, ...beams];
+
+  for (const spec of tuplets) {
+    const members = spec.memberIds
+      .map((id) => byItemId.get(id))
+      .filter((note): note is EngravedNote => note !== undefined);
+    const bracket = tupletBracket(font, members, spec.actual, beamedIds, staveY);
+    if (bracket !== null) after.push(...bracket);
+  }
+
+  // Both a rehearsal letter and an ending bracket want the top of the band. They share
+  // it happily until one bar carries both, which is a section that begins on a first
+  // ending — so that bar, and only that bar, drops its bracket clear of the box.
+  for (const item of endings) {
+    before.push(
+      ...ending(font, {
+        numbers: item.numbers,
+        role: item.role,
+        x: bar.x,
+        right: bar.x + bar.width,
+        y: bands.top + (hasRehearsalMark ? options.rehearsalFontSize * 2.2 : units(0.4)),
+        fontSize: options.endingFontSize,
+      }),
+    );
+  }
+
+  for (const chord of chords) {
+    const anchor = chord.anchorItemId === null ? undefined : byItemId.get(chord.anchorItemId);
+    before.push(
+      chordSymbol({
+        text: chord.text,
+        x: anchor?.x ?? bar.x + bar.prefixWidth + units(1),
+        y: bands.chordBaseline,
+        size: options.chordFontSize,
+        plain: chord.plain,
+      }),
+    );
+  }
+
+  void skipped;
+  return [...before, ...ink, ...beams, ...after];
 }
 
-/** `direction` is the beamed group's when there is one, and null when the note decides. */
-function engraveNote(
+function engraveItem(
   font: MusicFont,
-  item: NoteItem,
-  x: number,
+  entry: PlacedItem,
   staveY: number,
   direction: StemDirection | null,
 ): EngravedNote {
-  const notehead = noteheadFor(item.duration);
+  const { item } = entry;
+
+  if (item.kind === 'rest') {
+    return {
+      item,
+      x: entry.x,
+      position: restPosition(item.duration),
+      glyph: restFor(item.duration),
+      levels: 0,
+      stem: null,
+    };
+  }
+
+  const glyph = noteheadFor(item.duration);
   const position = staffPosition(item.pitch);
   return {
     item,
-    x,
+    x: entry.x,
     position,
-    notehead,
+    glyph,
     levels: beamCount(item.duration),
     stem: hasStem(item.duration)
       ? stem(font, {
-          notehead,
+          notehead: glyph,
           direction: direction ?? stemDirection(position),
-          noteX: x,
+          noteX: entry.x,
           position,
           staveY,
         })
@@ -232,30 +436,32 @@ function noteInk(
   isBeamed: boolean,
 ): SvgElement[] {
   const elements: SvgElement[] = [];
-  const noteY = positionY(note.position, staveY);
+  const y = positionY(note.position, staveY);
 
-  elements.push(
-    ...ledgerLines(font, {
-      noteX: note.x,
-      noteheadWidth: font.width(note.notehead),
-      position: note.position,
-      staveY,
-    }),
-  );
+  if (note.item.kind === 'note') {
+    elements.push(
+      ...ledgerLines(font, {
+        noteX: note.x,
+        noteheadWidth: font.width(note.glyph),
+        position: note.position,
+        staveY,
+      }),
+    );
 
-  if (note.item.accidentalGlyph !== null) {
-    // Spacing already reserved exactly this much room to the left of the notehead, so
-    // the accidental lands in it rather than on top of whatever came before.
-    const glyph = accidentalGlyph(note.item.accidentalGlyph);
-    elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), noteY));
+    if (note.item.accidentalGlyph !== null) {
+      // Spacing already reserved exactly this much room to the left of the notehead, so
+      // the accidental lands in it rather than on top of whatever came before.
+      const glyph = accidentalGlyph(note.item.accidentalGlyph);
+      elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), y));
+    }
   }
 
-  elements.push(font.element(note.notehead, note.x, noteY));
+  elements.push(font.element(note.glyph, note.x, y));
 
   for (const dot of dotPositions(
     font,
     note.item.duration,
-    note.notehead,
+    note.glyph,
     note.x,
     note.position,
     staveY,
@@ -278,6 +484,46 @@ function noteInk(
 }
 
 // ---------------------------------------------------------------------------
+// Tuplets
+// ---------------------------------------------------------------------------
+
+function tupletBracket(
+  font: MusicFont,
+  members: readonly EngravedNote[],
+  actual: number,
+  beamedIds: ReadonlySet<Id>,
+  staveY: number,
+): SvgElement[] | null {
+  const first = members[0];
+  const last = members[members.length - 1];
+  if (first === undefined || last === undefined) return null;
+
+  const direction = groupStemDirection(members.map((member) => member.position));
+  const away = direction === 'up' ? -1 : 1;
+
+  // The extreme the group's ink reaches on the bracket's side: a stem end, or a notehead
+  // for anything unstemmed.
+  let extentY = positionY(first.position, staveY);
+  for (const member of members) {
+    const edge = member.stem?.endY ?? positionY(member.position, staveY);
+    extentY = away === -1 ? Math.min(extentY, edge) : Math.max(extentY, edge);
+  }
+
+  const beamedThroughout = members.every(
+    (member) => member.item.kind === 'note' && beamedIds.has(member.item.noteId),
+  );
+
+  return tuplet(font, {
+    actual,
+    left: first.x,
+    right: last.x + font.width(last.glyph),
+    extentY,
+    direction,
+    beamed: beamedThroughout,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Beam grouping
 // ---------------------------------------------------------------------------
 
@@ -287,8 +533,8 @@ function noteInk(
  * (`vexBeamGroups`), because beam grouping is the adapter's by ADR-0014 and the two
  * adapters have to be comparable.
  *
- * A rest breaks a group, and so does a note too long to be beamed. Beams across rests
- * are a later slice.
+ * A rest breaks a group, and so does a note too long to be beamed. Beams across rests are
+ * a later slice.
  */
 function groupTicks(time: TimeSignature): number {
   const compound = time.beatValue === 8 && time.beats % 3 === 0;
@@ -323,4 +569,9 @@ function beamGroups(placed: readonly PlacedItem[], time: TimeSignature): PlacedI
   flush();
 
   return groups;
+}
+
+/** Makes an unhandled item kind a compile error, not a silently dropped glyph. */
+function exhausted(item: never): never {
+  throw new Error(`unhandled layout item kind: ${JSON.stringify(item)}`);
 }
