@@ -11,6 +11,7 @@
   "sideEffects": false,
   "dependencies": {
     "@sibei/model": "workspace:*",
+    "@sibei/pdf": "workspace:*",
     "better-sqlite3": "13.0.2"
   },
   "devDependencies": {

@@ -1,5 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Id } from '@sibei/model';
+import {
+  EXPORT_FORMATS,
+  EXPORT_INSTRUMENTS,
+  parseExportFormat,
+  parseExportInstrument,
+} from '../export/export.js';
+import type { Artefact, Exporter } from '../export/export.js';
 import type { Applier } from '../ops/applier.js';
 import type { Batch, Operation } from '../ops/operations.js';
 import type { Owner, ScoreLibrary, ScoreReader } from '../store/repository.js';
@@ -22,6 +29,8 @@ export interface RouteContext {
   reader: ScoreReader;
   library: ScoreLibrary;
   applier: Applier;
+  /** Reads a score and renders it. A read, and one that holds no writer (V3, Q81). */
+  exporter: Exporter;
   owner: Owner;
 }
 
@@ -79,6 +88,12 @@ export async function route(
     return methodNotAllowed(response, ['GET', 'DELETE']);
   }
 
+  const exportFor = match(path, /^\/v1\/scores\/([^/]+)\/export$/);
+  if (exportFor !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return await exportScore(request, response, context, exportFor);
+  }
+
   const opsFor = match(path, /^\/v1\/scores\/([^/]+)\/ops$/);
   if (opsFor !== null) {
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
@@ -88,6 +103,66 @@ export async function route(
   }
 
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));
+}
+
+/**
+ * `GET /v1/scores/:id/export?format=pdf` (ADR-0006, Q81).
+ *
+ * A read: the score comes through the `ScoreReader`, the bytes go through the `BlobStore`, and
+ * nothing about it touches the score's `version`. The cache key is `(score version, format,
+ * instrument)`, so an edit invalidates by bumping the version and there is no invalidation call
+ * for this handler to forget to make.
+ *
+ * The query surface is deliberately these two parameters and no more. A page size or a font face
+ * would change the bytes, and anything that changes the bytes has to be in the key — Q81 fixes
+ * the key at three components, so widening the query means going back to Q81 first.
+ */
+async function exportScore(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RouteContext,
+  scoreId: Id,
+): Promise<number> {
+  const query = queryOf(request);
+
+  const format = parseExportFormat(query.get('format'));
+  if (format === null) return send(response, unsupported('format', query.get('format'), EXPORT_FORMATS));
+
+  const instrument = parseExportInstrument(query.get('instrument'));
+  if (instrument === null) {
+    return send(response, unsupported('instrument', query.get('instrument'), EXPORT_INSTRUMENTS));
+  }
+
+  const outcome = await context.exporter.export(context.owner, scoreId, { format, instrument });
+  if (!outcome.ok) return send(response, noSuchScore(scoreId));
+  return sendArtefact(response, outcome.artefact);
+}
+
+/**
+ * 422 rather than 400: the request was perfectly readable, it asked for something this build
+ * cannot produce. The list of what it *can* comes along, the same way an address miss ships the
+ * bar's real onsets — an agent should branch on data rather than on prose (ADR-0008).
+ */
+function unsupported(what: string, requested: string | null, supported: readonly string[]): Problem {
+  const kind = `unsupported-${what}`;
+  return problem(
+    422,
+    kind,
+    `${JSON.stringify(requested ?? '')} is not an export ${what} this build can produce; try ${supported.join(' or ')}`,
+    { detail: { kind, requested, supported: [...supported] } },
+  );
+}
+
+function sendArtefact(response: ServerResponse, artefact: Artefact): number {
+  response.writeHead(200, {
+    'content-type': artefact.contentType,
+    'content-length': artefact.bytes.length,
+    // Sanitised at the source, because the stem is the chart's title and a title is user text.
+    'content-disposition': `attachment; filename="${artefact.filename}"`,
+    'x-content-type-options': 'nosniff',
+  });
+  response.end(artefact.bytes);
+  return 200;
 }
 
 function noSuchScore(scoreId: Id): Problem {
@@ -160,6 +235,13 @@ export function pathOf(request: IncomingMessage): string {
   const raw = request.url ?? '/';
   const query = raw.indexOf('?');
   return query === -1 ? raw : raw.slice(0, query);
+}
+
+/** The other half of the URL. Parsed here rather than in a handler, so routing sees only the path. */
+export function queryOf(request: IncomingMessage): URLSearchParams {
+  const raw = request.url ?? '/';
+  const query = raw.indexOf('?');
+  return new URLSearchParams(query === -1 ? '' : raw.slice(query + 1));
 }
 
 export function send(response: ServerResponse, outcome: Problem): number {

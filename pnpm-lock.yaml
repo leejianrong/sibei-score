@@ -62,6 +62,9 @@ importers:
       '@sibei/model':
         specifier: workspace:*
         version: link:../model
+      '@sibei/pdf':
+        specifier: workspace:*
+        version: link:../pdf
       better-sqlite3:
         specifier: 13.0.2
         version: 13.0.2
