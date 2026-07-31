@@ -1,5 +1,8 @@
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import type { BlobStore } from '../blob/blob-store.js';
+import { memoryBlobStore } from '../blob/memory-blob-store.js';
+import { createExporter } from '../export/export.js';
 import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
 import type { ScoreStore } from '../store/repository.js';
@@ -30,6 +33,12 @@ export interface ApiOptions {
   store: ScoreStore;
   /** Defaults to one built over the store. Injected so a test can watch what the applier is told. */
   applier?: Applier;
+  /**
+   * Where cached exports live (ADR-0006). Defaults to a process-lifetime `Map`, which is the
+   * honest default: a cache that outlives the process needs a directory, and a directory is the
+   * caller's to name — this package takes a port, never a path (ADR-0001).
+   */
+  blobs?: BlobStore;
   /** Defaults to resolving `local` (ADR-0029). */
   authenticate?: Authenticator;
   logger?: Logger;
@@ -50,6 +59,9 @@ export interface Api {
 export function createApi(options: ApiOptions): Api {
   const store = options.store;
   const applier = options.applier ?? createApplier(store);
+  // Narrowed on the way in: the exporter is handed the store as a `ScoreReader`, so the export
+  // path is a read by construction and not by intention (ADR-0003).
+  const exporter = createExporter(store, options.blobs ?? memoryBlobStore());
   const authenticate = options.authenticate ?? resolveLocalPrincipal;
   const logger = options.logger ?? consoleLogger;
 
@@ -92,6 +104,7 @@ export function createApi(options: ApiOptions): Api {
         reader: store,
         library: store,
         applier,
+        exporter,
         owner: principal.owner,
       });
     } catch (error) {
