@@ -5,6 +5,7 @@ import {
   accidentalGlyph,
   durationSpace,
   musicFontNamed,
+  musicLeft,
   noteheadFor,
   placeItems,
 } from '@sibei/engrave';
@@ -146,12 +147,22 @@ describe('a bar that does not fill the meter', () => {
 });
 
 describe('the bar box', () => {
-  it('starts the music clear of the barline and the prefix', () => {
+  it('starts the music clear of the barline, the prefix and any repeat sign', () => {
+    let repeats = 0;
     for (const bar of bars(nastyChart())) {
       const first = placeItems(font, bar)[0];
       if (first === undefined) continue;
-      expect(first.leftEdge).toBeCloseTo(bar.x + bar.prefixWidth + SPACING.leftPad, 6);
+      expect(first.leftEdge).toBeCloseTo(musicLeft(font, bar) + 0, 6);
+      // A repeat sign is the adapter's to make room for: layout's prefixWidth covers the
+      // clef, key and time signature and knows nothing about one.
+      if (bar.items.some((item) => item.kind === 'barline')) {
+        expect(first.leftEdge).toBeGreaterThan(bar.x + bar.prefixWidth + SPACING.leftPad);
+        repeats += 1;
+      } else {
+        expect(first.leftEdge).toBeCloseTo(bar.x + bar.prefixWidth + SPACING.leftPad, 6);
+      }
     }
+    expect(repeats).toBe(1);
   });
 
   it('keeps every note inside its own bar', () => {

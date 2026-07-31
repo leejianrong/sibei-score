@@ -6,6 +6,10 @@ import { describe, expect, it } from 'vitest';
 /**
  * The V1 exit condition, minus the part only a person can do: the fixture renders to a
  * PDF, laid out the way a chart should be, reproducibly (ADR-0014, ADR-0015, Q39).
+ *
+ * Since V1d this path goes through our own engraver rather than VexFlow (ADR-0030), and
+ * reproducibility matters more rather than less: the engraver reaches no clock, no
+ * counter and no DOM, so byte-identity is a property of the design and worth pinning.
  */
 
 describe('the nasty chart as a PDF', () => {
@@ -53,6 +57,18 @@ describe('the nasty chart as a PDF', () => {
     expect(pdf).toContain('sibei-score');
     // 1 January 1970: any real timestamp would break reproducibility.
     expect(pdf).toContain('D:19700101');
+  });
+
+  it('renders the same score in either face, and they differ', async () => {
+    // A lead sheet is read in a handwritten Real Book face as often as an engraved one,
+    // and it is the reader's choice per render (ADR-0030) — so both must reach the PDF.
+    const normal = await renderScoreToPdf(nastyChart(), {}, { font: 'normal' });
+    const jazz = await renderScoreToPdf(nastyChart(), {}, { font: 'jazz' });
+
+    expect(jazz.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(jazz.equals(normal)).toBe(false);
+    // Same layout, so the difference is the engraving rather than the page.
+    expect(Math.abs(jazz.length - normal.length) / normal.length).toBeLessThan(0.5);
   });
 
   it('differs between A4 and Letter, and both are valid', async () => {

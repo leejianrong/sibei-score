@@ -1,8 +1,22 @@
 # ADR-0014: VexFlow behind a draw seam, with a spike gate
 
-- **Status:** Accepted; amended by [ADR-0030](0030-own-the-engraver.md) after the gate ran
+- **Status:** Superseded as to the renderer by [ADR-0030](0030-own-the-engraver.md);
+  **the seam itself stands and is now the only adapter contract**
 - **Date:** 2026-07-30
 - **Deciders:** Jian (interview via `/grill-with-docs`)
+
+## Status update, 2026-07-31
+
+VexFlow is gone. The gate this ADR set ran (`docs/v1-render-gate.md`), decided against it
+(ADR-0030), and V1b–V1d replaced it; `packages/draw` and the `vexflow` dependency were
+removed once `packages/engrave` reached parity.
+
+**The part of this ADR that mattered turned out to be the seam, not the engine.** Because
+`layout` owned every position and the adapter owned every glyph, swapping the renderer
+touched no layout code, moved no note on the page, and left the committed SVG snapshots as
+the specification the replacement had to meet. That is what made a decision this ADR
+framed as "expensive to reverse" cost about a week. Everything below about the division of
+labour still holds, with one word changed: read "the adapter" for "VexFlow".
 
 ## Context
 

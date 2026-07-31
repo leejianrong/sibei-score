@@ -1,4 +1,5 @@
 import type { LayoutBar, NoteItem, RestItem } from '@sibei/layout';
+import { startBarlineWidth } from './barlines.js';
 import type { Duration } from '@sibei/model';
 import { TICKS_PER_QUARTER, durationTicks } from '@sibei/model';
 import type { MusicFont, MusicGlyphName } from './font.js';
@@ -127,6 +128,19 @@ function cellFor(font: MusicFont, item: NoteItem | RestItem): Cell {
   };
 }
 
+/**
+ * Where a bar's music can start: after its prefix, and after a repeat sign if it opens
+ * with one. Layout's `prefixWidth` covers the clef, key and time signature; the repeat is
+ * the adapter's to make room for.
+ */
+export function musicLeft(font: MusicFont, bar: LayoutBar): number {
+  let x = bar.x + bar.prefixWidth;
+  for (const item of bar.items) {
+    if (item.kind === 'barline') x += startBarlineWidth(font, item.barline);
+  }
+  return x + LEFT_PAD;
+}
+
 export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
   const cells: Cell[] = [];
   for (const item of bar.items) {
@@ -134,7 +148,7 @@ export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
   }
   if (cells.length === 0) return [];
 
-  const left = bar.x + bar.prefixWidth + LEFT_PAD;
+  const left = musicLeft(font, bar);
   const available = Math.max(bar.x + bar.width - RIGHT_PAD - left, 0);
 
   // Rigid first, then share what is left in proportion to what time asked for. A bar

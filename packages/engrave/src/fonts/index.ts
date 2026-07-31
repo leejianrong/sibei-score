@@ -1,6 +1,7 @@
 import type { MusicFont, MusicFontData } from '../font.js';
 import { musicFont } from '../font.js';
 import { BRAVURA } from './bravura.generated.js';
+import { PETALUMA } from './petaluma.generated.js';
 
 /**
  * The faces a score can be engraved in.
@@ -14,11 +15,16 @@ import { BRAVURA } from './bravura.generated.js';
  * PDF (`docs/v1-render-gate.md`).
  */
 
-export type MusicFontName = 'normal';
+export type MusicFontName = 'normal' | 'jazz';
 
-/** `normal` is Bravura, SMuFL's reference face, so it is the baseline. */
+/**
+ * `normal` is Bravura, SMuFL's reference face, so it is the baseline. `jazz` is Petaluma,
+ * Steinberg's handwritten face — the Real Book look, which for a jazz lead sheet is the
+ * point rather than the option (ADR-0030).
+ */
 const FACES: Readonly<Record<MusicFontName, MusicFontData>> = {
   normal: BRAVURA,
+  jazz: PETALUMA,
 };
 
 export const MUSIC_FONT_NAMES = Object.keys(FACES) as readonly MusicFontName[];
@@ -37,4 +43,4 @@ export function musicFontNamed(name: MusicFontName = DEFAULT_MUSIC_FONT): MusicF
   return font;
 }
 
-export { BRAVURA };
+export { BRAVURA, PETALUMA };

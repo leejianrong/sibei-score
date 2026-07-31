@@ -161,8 +161,8 @@ in full: `docs/adr/`.
 | D22 | Chord recognition staged: off-the-shelf OCR plus a grammar corrector first; fine-tuning is stage 2, kept only if the harness moves | Accepted | [ADR-0011](docs/adr/0011-staged-chord-recognition.md) |
 | D23 | Open chord grammar parsing to structure; unparseable text kept verbatim and flagged | Accepted | [ADR-0012](docs/adr/0012-open-chord-grammar.md) |
 | D24 | Metrically invalid bars are stored and flagged, never rejected or auto-repaired | Accepted | [ADR-0013](docs/adr/0013-store-and-flag-invalid-rhythm.md) |
-| D25 | VexFlow behind an explicit draw seam, with a spike gate on the nasty test chart | Accepted | [ADR-0014](docs/adr/0014-vexflow-behind-draw-seam.md) |
-| D26 | PDF via server-side VexFlow → SVG → PDF; deterministic, regression-tested on SVG snapshots | Accepted | [ADR-0014](docs/adr/0014-vexflow-behind-draw-seam.md) |
+| D25 | ~~VexFlow~~ **our own engraver** behind an explicit draw seam. The gate ran and went the other way; the seam is what made the swap cheap | Superseded | [ADR-0014](docs/adr/0014-vexflow-behind-draw-seam.md), [ADR-0030](docs/adr/0030-own-the-engraver.md) |
+| D26 | PDF via server-side layout → SVG → PDF; deterministic, regression-tested on SVG snapshots. No headless DOM since the engraver replaced VexFlow | Accepted | [ADR-0014](docs/adr/0014-vexflow-behind-draw-seam.md), [ADR-0030](docs/adr/0030-own-the-engraver.md) |
 | D27 | The layout engine is ours and engine-independent, shared verbatim by browser and server | Accepted | [ADR-0015](docs/adr/0015-four-bar-layout-engine.md) |
 | D28 | Four bars per line by default; a section boundary breaks the line | Accepted | [ADR-0015](docs/adr/0015-four-bar-layout-engine.md) |
 | D29 | The score always stores concert pitch | Accepted | [ADR-0016](docs/adr/0016-transposition-mutation-vs-part-view.md) |

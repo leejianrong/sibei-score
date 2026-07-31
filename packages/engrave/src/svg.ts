@@ -11,16 +11,12 @@
  * requirement (Q39), and floating-point tails are the usual way that breaks.
  */
 
-/**
- * No text node, because the engraver draws no text yet. When the title block and bar
- * numbers arrive they follow `packages/draw/src/text.ts`: placed with `text-anchor`,
- * never measured, because only a real browser implements `getBBox` and screen and print
- * cannot drift (ADR-0015).
- */
 export interface SvgElement {
   readonly name: string;
   readonly attrs: Readonly<Record<string, string | number>>;
   readonly children: readonly SvgElement[];
+  /** Mixed content, for `<text>`: literal strings and `<tspan>` runs. */
+  readonly text?: readonly (SvgElement | string)[];
 }
 
 export function el(
@@ -58,6 +54,25 @@ export function serialise(element: SvgElement): string {
     .map(([name, value]) => ` ${name}="${escape(attributeValue(value))}"`)
     .join('');
 
+  if (element.text !== undefined) {
+    const body = element.text
+      .map((part) => (typeof part === 'string' ? escape(part) : serialise(part)))
+      .join('');
+    return `<${element.name}${attrs}>${body}</${element.name}>`;
+  }
   if (element.children.length === 0) return `<${element.name}${attrs}/>`;
   return `<${element.name}${attrs}>${element.children.map(serialise).join('')}</${element.name}>`;
+}
+
+/**
+ * A text node. Page text — the title block, bar numbers, rehearsal marks, chord
+ * symbols — is written into the SVG with `text-anchor` and never measured, because
+ * `getBBox` exists only in a real browser and ADR-0015 requires that screen and print
+ * cannot drift (`packages/draw/src/text.ts` says the same for the other adapter).
+ */
+export function textEl(
+  attrs: Readonly<Record<string, string | number>>,
+  children: readonly (SvgElement | string)[],
+): SvgElement {
+  return { name: 'text', attrs, children: [], text: children };
 }
