@@ -4,6 +4,16 @@
 - **Date:** 2026-07-30
 - **Deciders:** Jian (interview via `/grill-with-docs`)
 
+## Status note, 2026-07-31
+
+**This decision stands and the reason for it survived the renderer change.** The Context
+below names VexFlow as the JavaScript renderer that forces a Node runtime. VexFlow is
+gone (ADR-0030), but `packages/engrave` is TypeScript and `packages/pdf` still renders
+server-side, so the constraint reads the same with the engine's name swapped. Two
+cross-references in the Context are wrong as written and are left as they are: the
+renderer decision is ADR-0014, not ADR-0011, and the layout engine is ADR-0015, not
+ADR-0012.
+
 ## Context
 
 Two engine choices each brought a runtime. The OMR pipeline (ADR-0010) is built on

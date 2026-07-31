@@ -125,8 +125,8 @@ The mechanisms being built. Each is a thing you build, not an intention.
 | P7 | Address resolver: `bar12.beat3` / `bar12.n3` / `note-17` → object. Onsets only; a miss errors with the bar's real onsets listed | ADR-0007 |
 | P8 | Chord grammar: parse and format root / quality / extensions / alterations / bass. Also the OCR corrector and the input validator | ADR-0012 |
 | P9 | Layout engine: model → engine-independent positions. Four-bar grid, broken at section boundaries; pickup outside the grid | ADR-0015 |
-| P10 | Draw adapter: layout positions → glyphs. VexFlow implementation, replaceable | ADR-0014 |
-| P11 | PDF path: server-side VexFlow → SVG → PDF, pinned metadata for reproducibility | ADR-0014 |
+| P10 | Draw adapter: layout positions → glyphs. Ours (`packages/engrave`), anchored off a SMuFL font's own metrics, in a `normal` or a `jazz` face at the reader's choice | ADR-0014, ADR-0030 |
+| P11 | PDF path: server-side engraver → SVG → PDF, no DOM, pinned metadata for reproducibility | ADR-0014, ADR-0030 |
 | P12 | Transposition engine: concert-key change as an op; instrument part as a render-time view. Key-signature-driven spelling with per-object pins | ADR-0016, ADR-0017 |
 | P13 | MusicXML codec, import and export only, never the runtime truth | ADR-0004 |
 | P14 | Text projection: four-bar grid plus per-bar melody with inline addresses and `!` review flags | ADR-0009 |
@@ -185,7 +185,8 @@ The mechanisms being built. Each is a thing you build, not an intention.
 **Module boundaries.** Four framework-free TypeScript packages — `model` (types,
 validation, metric validity), `music` (chord grammar, transposition, enharmonic
 spelling), `layout` (positions, four-bar grid), `codec` (MusicXML) — plus `api` (HTTP,
-store, ops, jobs), `draw` (VexFlow adapter), `cli`, and `ui` (Svelte). The first four
+store, ops, jobs), `engrave` (the draw adapter, ours), `pdf` (SVG → PDF), `cli`, and
+`ui` (Svelte). The first four
 must not import anything framework-specific or Node-specific, because `layout` and
 `model` run in the browser as well as the server (ADR-0005, ADR-0022). This is asserted
 by a dependency test, not by discipline.
@@ -202,10 +203,11 @@ beside it.
 and identical error messages. The resolver returns the bar's real onsets on a miss,
 which is what makes the strict rule usable rather than merely safe (ADR-0007).
 
-**The layout contract** is the seam that matters most for the renderer's replaceability:
-`layout(score, pageSpec) → {systems: [{bars: [{x, width, glyphs: [{kind, x, y, ...}]}]}]}`.
-The draw adapter consumes only that. Nothing in `layout` may reference VexFlow, and
-nothing in `draw` may make layout decisions (ADR-0014).
+**The layout contract** is the seam that matters most for the renderer's replaceability,
+and V1d proved it — swapping the renderer moved no note on the page (ADR-0030):
+`layout(score, pageSpec) → pages → systems → bars → items`. The draw adapter consumes
+only that. Nothing in `layout` may name a renderer or a glyph, and nothing in the adapter
+may make layout decisions (ADR-0014).
 
 **Worker contract.** The worker receives image bytes and returns a JSON document
 conforming to a schema owned by the TypeScript `model` package. It never touches the
@@ -249,8 +251,9 @@ through every version.
 
 Rendering is tested by SVG snapshot on a small set of fixture charts, with the nasty
 chart as the fixture of record. Snapshots catch unintended layout change; they do not
-judge whether the engraving looks good, which is what the ADR-0014 spike gate is for and
-which only a person can do.
+judge whether the engraving looks good, which only a person can do. The ADR-0014 spike
+gate did that once and decided it (ADR-0030); `pnpm proof` is how it is done from now on,
+after any change to `layout`, `engrave` or `pdf`.
 
 For v0.2, OMR accuracy is not a pass/fail test but a **tracked metric** from the
 evaluation harness, reported per run. The release gate is the human-time target
@@ -288,7 +291,7 @@ Taken on your behalf. Each is one row in `QUESTIONS.md` and each is correctable.
 | Risk | Revealed by |
 |------|-------------|
 | oemer's internal coordinates are private, unstable, or absent, breaking stage 3 as designed | **V9**, the first slice of v0.2, before anything is built on it |
-| VexFlow's output is not good enough for a chart on a stand | **V1**, the first slice of v0.1 — the spike gate is the slice's exit condition |
+| ~~VexFlow's output is not good enough for a chart on a stand~~ **Closed at V1.** The gate ran and found the output good; we own the engraver anyway, because jazz typography is the differentiator (ADR-0030) | **V1**, the first slice of v0.1 — the spike gate was the slice's exit condition |
 | CPU-only import is slow enough that the parse → fix → re-parse loop is impractical | **V9**, which measures wall-clock as a deliverable |
 | Off-the-shelf OCR on chord symbols is poor enough that stage 2 fine-tuning becomes mandatory rather than optional | **V12** and **V13**, since the harness lands before the chord pipeline |
 | Automatic preprocessing cannot cope with real phone photos, and there is no crop UI | **V12**'s real-photo control set, deliberately including bad photos |

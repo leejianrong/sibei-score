@@ -4,6 +4,15 @@
 - **Date:** 2026-07-30
 - **Deciders:** Jian (interview via `/grill-with-docs`)
 
+## Status note, 2026-07-31
+
+**This decision stands; the renderer it argues against has changed.** VexFlow is gone —
+ADR-0030 replaced it with our own engraver at V1d. Read the VexFlow mentions below as the
+argument they were: the objection was that the *chosen renderer* could not read MusicXML,
+and the answer was that no renderer reads the runtime truth directly. That answer is
+stronger now, not weaker — the engraver consumes the layout contract and never sees
+MusicXML at all.
+
 ## Context
 
 `REQS.md` calls for parsing into "a real interchange format rather than something
