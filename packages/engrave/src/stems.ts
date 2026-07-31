@@ -1,6 +1,6 @@
 import type { Duration } from '@sibei/model';
-import type { BravuraGlyphName } from './bravura.js';
-import { INK, anchor, glyphWidth, units } from './bravura.js';
+import type { MusicFont, MusicGlyphName } from './font.js';
+import { units } from './font.js';
 import { MIDDLE_LINE, positionY } from './staff.js';
 import type { SvgElement } from './svg.js';
 import { el } from './svg.js';
@@ -12,7 +12,9 @@ import { el } from './svg.js';
  * which a stem meets it — `stemUpSE` for the bottom-right corner of an upward stem,
  * `stemDownNW` for the top-left corner of a downward one. Reading those instead of
  * guessing "the right-hand edge, a bit above centre" is the whole of ADR-0030's first
- * build step, and it is why this file has no tuning constants in it.
+ * build step, and it is why this file has no tuning constants in it. It is also what
+ * lets a second face drop in: Bravura and Petaluma disagree about where a stem meets a
+ * notehead, and both are right about themselves.
  *
  * The stem's *length* is not in the font, because it is a matter of convention rather
  * than of the glyph. Two conventions, both Gould's: three and a half spaces as
@@ -24,7 +26,7 @@ export type StemDirection = 'up' | 'down';
 /** Gould: a stem is three and a half staff spaces long. */
 export const STANDARD_STEM = units(3.5);
 
-export function noteheadFor(duration: Duration): BravuraGlyphName {
+export function noteheadFor(duration: Duration): MusicGlyphName {
   if (duration.value === 1) return 'noteheadWhole';
   if (duration.value === 2) return 'noteheadHalf';
   return 'noteheadBlack';
@@ -79,10 +81,12 @@ export interface Stem {
   attachY: number;
   /** The free end. Beaming moves this; nothing else does. */
   endY: number;
+  /** Kept so `stemElement` can draw with the same face that positioned it. */
+  thickness: number;
 }
 
 export interface StemInput {
-  notehead: BravuraGlyphName;
+  notehead: MusicGlyphName;
   direction: StemDirection;
   /** Left edge of the notehead. */
   noteX: number;
@@ -100,33 +104,36 @@ export interface StemInput {
  * stem's width out of place, which looks like a slightly fat notehead rather than like
  * a bug — hence the unit test.
  */
-export function stem(input: StemInput): Stem {
+export function stem(font: MusicFont, input: StemInput): Stem {
   const noteY = positionY(input.position, input.staveY);
   const middleY = positionY(MIDDLE_LINE, input.staveY);
+  const thickness = font.ink.stem;
 
   if (input.direction === 'up') {
-    const point = anchor(input.notehead, 'stemUpSE');
+    const point = font.anchor(input.notehead, 'stemUpSE');
     const right = input.noteX + point.x;
     return {
       direction: 'up',
-      left: right - INK.stem,
+      left: right - thickness,
       right,
-      centre: right - INK.stem / 2,
+      centre: right - thickness / 2,
       attachY: noteY + point.y,
       // A note below the staff keeps its stem reaching the middle line.
       endY: Math.min(noteY - STANDARD_STEM, middleY),
+      thickness,
     };
   }
 
-  const point = anchor(input.notehead, 'stemDownNW');
+  const point = font.anchor(input.notehead, 'stemDownNW');
   const left = input.noteX + point.x;
   return {
     direction: 'down',
     left,
-    right: left + INK.stem,
-    centre: left + INK.stem / 2,
+    right: left + thickness,
+    centre: left + thickness / 2,
     attachY: noteY + point.y,
     endY: Math.max(noteY + STANDARD_STEM, middleY),
+    thickness,
   };
 }
 
@@ -137,7 +144,7 @@ export function stemElement(value: Stem): SvgElement {
     class: 'se-stem',
     x: value.left,
     y: top,
-    width: INK.stem,
+    width: value.thickness,
     height: bottom - top,
     fill: '#000000',
   });
@@ -148,7 +155,7 @@ export function stemElement(value: Stem): SvgElement {
  * point on the flag that the top-left corner of the stem meets, so the flag is placed
  * by putting that anchor where the stem ends rather than by nudging it into position.
  */
-export function flagFor(duration: Duration, direction: StemDirection): BravuraGlyphName | null {
+export function flagFor(duration: Duration, direction: StemDirection): MusicGlyphName | null {
   const count = beamCount(duration);
   const suffix = direction === 'up' ? 'Up' : 'Down';
   switch (count) {
@@ -165,31 +172,44 @@ export function flagFor(duration: Duration, direction: StemDirection): BravuraGl
 }
 
 /** Where a flag glyph's origin goes, so that its stem anchor lands on the stem's end. */
-export function flagOrigin(flag: BravuraGlyphName, value: Stem): { x: number; y: number } {
+export function flagOrigin(
+  font: MusicFont,
+  flag: MusicGlyphName,
+  value: Stem,
+): { x: number; y: number } {
   // Both anchors name the same thing from the flag's side: the corner of the stem's
   // free end that the flag joins. Up stems end top-left, down stems bottom-left.
-  const point = anchor(flag, value.direction === 'up' ? 'stemUpNW' : 'stemDownSW');
+  const point = font.anchor(flag, value.direction === 'up' ? 'stemUpNW' : 'stemDownSW');
   return { x: value.left - point.x, y: value.endY - point.y };
 }
+
+/** Distance between a notehead and its first dot, and between consecutive dots. */
+export const DOT_GAP = units(0.3);
 
 /**
  * An augmentation dot sits in the space after the notehead, and moves to the space
  * above when the note is on a line — a dot on a line is unreadable.
  */
 export function dotPositions(
+  font: MusicFont,
   duration: Duration,
-  notehead: BravuraGlyphName,
+  notehead: MusicGlyphName,
   noteX: number,
   position: number,
   staveY: number,
 ): { x: number; y: number }[] {
-  const gap = units(0.3);
-  const advance = glyphWidth('augmentationDot') + gap;
+  const advance = font.width('augmentationDot') + DOT_GAP;
   const onLine = position % 2 === 0;
   const y = positionY(onLine ? position - 1 : position, staveY);
-  const first = noteX + glyphWidth(notehead) + gap;
+  const first = noteX + font.width(notehead) + DOT_GAP;
   return Array.from({ length: duration.dots }, (_, index) => ({
     x: first + index * advance,
     y,
   }));
+}
+
+/** How much room a note's dots take to the right of its notehead. */
+export function dotsWidth(font: MusicFont, duration: Duration): number {
+  if (duration.dots === 0) return 0;
+  return duration.dots * (font.width('augmentationDot') + DOT_GAP);
 }
