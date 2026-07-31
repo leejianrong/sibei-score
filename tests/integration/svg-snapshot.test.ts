@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { everyGlyphChart, nastyChart } from '@sibei/fixtures';
+import { everyGlyphChart, longFormChart, nastyChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -45,6 +45,13 @@ describe('rendered SVG', () => {
 
   it('matches the committed snapshot for the every-glyph chart', () => {
     snapshotScore(everyGlyphChart(), 'every-glyph');
+  });
+
+  it('matches the committed snapshots for both pages of the long-form chart', () => {
+    // Two files, and the second one is the point: until V3b nothing in the repository
+    // recorded what a page with no title block looks like, so nothing could notice one
+    // growing a phantom header or dropping its top system off the paper.
+    snapshotScore(longFormChart(), 'long-form');
   });
 
   it('is identical when the same score is rendered twice', () => {

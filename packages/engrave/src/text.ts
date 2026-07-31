@@ -160,8 +160,16 @@ function superscript(value: string, size: number): SvgElement {
   };
 }
 
-/** A rehearsal letter, boxed the way a reader expects to find one. */
-export function rehearsalMark(value: string, x: number, y: number, size: number): SvgElement[] {
+/**
+ * A rehearsal letter, boxed the way a reader expects to find one.
+ *
+ * `top` is the top of the band layout reserved for the mark, not the letter's baseline:
+ * the padding around the letter is this function's invention, so it is this function that
+ * has to allow for it. Taking a baseline instead put the box's top edge `padY` above the
+ * band and so above the system — which page 1 hides inside the title block's reserved
+ * height, and page 2 puts in the top margin (V3b).
+ */
+export function rehearsalMark(value: string, x: number, top: number, size: number): SvgElement[] {
   const padX = size * 0.4;
   const padY = size * 0.28;
   // The box is sized from the font size and the letter count rather than from a
@@ -173,7 +181,7 @@ export function rehearsalMark(value: string, x: number, y: number, size: number)
     el('rect', {
       class: 'se-rehearsalbox',
       x,
-      y: y - size - padY,
+      y: top,
       width,
       height,
       fill: 'none',
@@ -183,7 +191,7 @@ export function rehearsalMark(value: string, x: number, y: number, size: number)
     text({
       text: value,
       x: x + width / 2,
-      y,
+      y: top + padY + size,
       size,
       align: 'center',
       weight: 'bold',

@@ -385,6 +385,16 @@ Recorded here so they don't get reopened later.
     text line.** Import attempts the title and composer with the same OCR used for chords,
     flagged low-confidence like anything else. All fields editable from both the UI and
     the CLI.
+  - **Amended 2026-07-31 (V3b), on the key:** the header prints **title, composer and the
+    style line only**. The key is not header text — it reaches the page as the **key
+    signature on the stave**, which is how a lead sheet states its key, and printing
+    "key Db" above a chart already showing five flats is redundant and un-idiomatic. The
+    assumption was written before there was an engraver to state it any other way. Nothing
+    else in the answer changes: the key is still metadata on the score, still derived into
+    the library's listing columns, and still editable from both surfaces with `meta set
+    --key`. `buildHeader` in `packages/layout/src/layout.ts` is the whole of the header, and
+    `tests/e2e/render-long-form.test.ts` holds it to those three roles and to two flats at
+    the head of every system on every page.
 - **Q38.** `P2` `ASSUMED` Page size and pagination. A4, Letter, or both? How many staff lines
   per page, and what happens to a chart that doesn't fit one page?
   - A (ASSUMED, correct if wrong): **A4 and Letter, A4 default.** A chart flows onto
