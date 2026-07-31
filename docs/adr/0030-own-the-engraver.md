@@ -7,9 +7,9 @@
 
 ## Status updates
 
-**2026-07-31 — V1b built, gate open.** The engraver spike is in `packages/engrave` and the
-side-by-side is `pnpm proof nasty-chart --bar 6 --compare`. Findings and the estimate:
-[`docs/v1b-engraver-spike.md`](../v1b-engraver-spike.md).
+**2026-07-31 — V1b run, gate passed.** The engraver spike is in `packages/engrave` and the
+side-by-side is `pnpm proof nasty-chart --bar 6 --compare`. Findings, the estimate and the
+gate outcome: [`docs/v1b-engraver-spike.md`](../v1b-engraver-spike.md).
 
 The assumption this ADR put on the spike held: **Bravura's published metadata is sufficient
 to anchor stems, flags and beams with no per-glyph tuning.** Two things came out
@@ -23,9 +23,26 @@ because neither changes the decision:
   framework-free in the sense `layout` and `model` are, and a future server-side render
   could drop jsdom.
 
-The exit condition — the approach confirmed, the anchoring design agreed, and a real
-estimate — is put to Jian as four questions at the end of that document. **The position of
-the full replacement in the slice order is still unscheduled until they are answered.**
+**The exit condition is met.** The approach is confirmed, the glyph-anchoring design is
+approved as built, and the estimate is **6.5–7.5 focused days to parity**. Gould's
+conservative beam slant is the house style rather than VexFlow's steeper one. The contract
+grew `LayoutBar.prefixWidth` at the same gate, so both adapters agree on where a bar's
+music starts.
+
+The review added one requirement that changes this ADR's shape, so it is recorded here
+rather than only in the spike document:
+
+- **The output must be renderable in a jazz face or a normal one, at the reader's choice.**
+  ADR-0030 named "a handwritten Real Book face" as the differentiator but assumed one font.
+  Steinberg's **Petaluma** is SIL OFL 1.1 and publishes the same SMuFL metadata shape, with
+  different numbers — which is the anchoring approach vindicated rather than threatened.
+  The cost is a font seam threaded through the geometry (half a day) and a font parser at
+  vendoring time, because Petaluma ships no SVG font. **The seam belongs at the start of
+  the replacement, not the end**, since it is mechanical while the engraver is small and
+  invasive once it is not.
+
+The position of the full replacement in the slice order is Jian's next call; the spike
+document carries the recommendation.
 
 ## Context
 

@@ -4,8 +4,9 @@ The exit condition for [ADR-0030](adr/0030-own-the-engraver.md): engrave one sys
 scratch off Bravura's own metrics, put it beside VexFlow's on the same layout, and come
 back with a real estimate.
 
-**Status: built, awaiting the gate decision.** What follows is the evidence and the
-estimate. The four questions at the end are Jian's to answer.
+**Status: gate passed, 2026-07-31.** The approach is confirmed and the anchoring design is
+approved. What follows is the evidence, the estimate, and — at the end — what Jian decided
+and the two requirements the review added.
 
 ## What to look at
 
@@ -138,21 +139,31 @@ reads first (stem direction, stem length, ledger lines, beam thickness and separ
 straight from the font or from a cited convention. The one thing that does look amateur is
 the spacing, which is the part deliberately not built.
 
-## The seam gap this surfaced
+## The seam gap this surfaced, and the contract change that closed it
 
 Within-bar spacing **is** the adapter's job, by the division of labour the layout contract
-itself states (`packages/layout/src/items.ts`, ADR-0014): layout hands over `bar.x` and
-`bar.width`, and the adapter decides where in that box each onset goes. So the spacing code
-is in the right package. `CLAUDE.md` had dropped "note spacing within the box" from its
-summary of that split; the code is right and the doc has been corrected.
+itself states (`packages/layout/src/items.ts`, ADR-0014): layout hands over the bar's box,
+and the adapter decides where in it each onset goes. So the spacing code is in the right
+package. `CLAUDE.md` had dropped "note spacing within the box" from its summary of that
+split; the code is right and the doc has been corrected.
 
-But **the prefix width is not published, and it has to be**. `layout/src/widths.ts`
+But **the prefix width was not published, and it had to be**. `layout/src/widths.ts`
 already computes how wide the clef, key signature and time signature are — it sizes every
-bar around them — and then keeps the number private. An adapter that wants to know where
-a bar's music starts must therefore guess it a second time. VexFlow guesses from its own
-glyph tables; the spike guesses from a copy of layout's own constants. That is why the two
-engravings disagree on where a bar's first notehead sits, and it is the one contract
-change this spike asks for. It is small: one number per `LayoutBar`.
+bar around them — and then kept the number private. An adapter that wants to know where a
+bar's *music* starts had to guess it a second time. It cannot be worked out from anything
+else, either: it is layout's own allocation, not a measurement of any font's glyphs.
+
+**Decided at the gate and done in this slice:** `LayoutBar.prefixWidth`, one number per
+bar, with `tests/unit/prefix-width.test.ts` behind it.
+
+Worth being precise about what that bought, because the picture barely moved: the spike
+had been guessing with a *copy of layout's own constants*, so the two agreed already by
+coincidence. What the change removes is the duplication — the next person to touch
+`widths.ts` no longer silently breaks an adapter. The residual gap against VexFlow is a
+different thing: VexFlow draws real clef and key-signature glyphs that are wider than
+layout's rough allocation, and adds its own formatter padding on top. Once our engraver
+draws those glyphs itself it will draw them *inside* the allocated width, so it will be
+self-consistent where VexFlow never was.
 
 ## The estimate
 
@@ -165,17 +176,18 @@ In units of "one spike":
 
 | Remaining work | Size | Notes |
 |---|---|---|
-| **Within-bar spacing engine** | 1.5–2 | Glyph-width aware, accidental allowance, minimum distances. The schedule risk, and the thing that decides whether the output looks professional |
+| **Within-bar spacing engine** | 1.5–2 | Glyph-width aware, accidental allowance, minimum distances. The schedule risk, the thing that decides whether the output looks professional, and the first thing the review asked for |
 | Chord symbols | 1 | Interlocks with V5's chord grammar (ADR-0012); needs text advance widths, since `measureText` is forbidden (ADR-0015) |
 | Rests, clefs, key and time signatures, barlines, voltas, tuplet brackets and digits | 1.5 | Mechanical and data-driven: more glyphs, more `engravingDefaults`, no new problems |
 | Ties and slurs | 0.5 | Bézier from `tieEndpointThickness` / `tieMidpointThickness`; half-ties across system breaks already exist in the contract |
 | Title block, bar numbers, rehearsal marks | 0.25 | `text.ts`'s `text-anchor` approach carries over unchanged |
 | Parity harness: census diff against the committed snapshots, switch the PDF path, retire the VexFlow adapter | 0.5 | The snapshots are the specification and already exist |
-| **Total** | **5–6** | |
+| Font seam, so a face is chosen per render rather than per build | 0.5 | Added at the gate. Cheap first, expensive last — see below |
+| Petaluma vendored and proofed as the jazz face | 1 | Needs a font parser at vendoring time, because Petaluma ships no SVG font |
+| **Total** | **6.5–7.5** | |
 
-**So: 5–6 focused days to parity, and two calendar weeks at this project's pace.** That is
-ADR-0030's "weeks rather than months", now with a basis under it. Two caveats on the
-number, both stated rather than hidden:
+**So: 6.5–7.5 focused days to parity.** That is ADR-0030's "weeks rather than months", now
+with a basis under it. Two caveats on the number, both stated rather than hidden:
 
 - **The risk moved.** It is no longer beams, it is spacing. Beams are bounded by published
   convention; spacing is a judgement problem with no single right answer, and it is the
@@ -202,19 +214,84 @@ single voice throughout (ADR-0021) means there is never a chord to stack within.
 - Everything in ADR-0030's exclusion list: rests, ties, tuplet brackets, accidental
   stacking, clefs, key and time signatures, barlines, chord symbols, within-bar spacing.
 
-## The gate: four questions
+## The gate outcome
 
-1. **Is the glyph-anchoring design approved?** Vendored Bravura slice, generated by a
-   script from the pinned release, outlines placed by transform, every metric read from
-   `engravingDefaults` and the glyphs' own anchors, no per-glyph tuning.
-2. **Is the estimate accepted at 5–6 focused days / ~2 weeks**, with spacing named as the
-   risk rather than beams?
-3. **Does the contract grow a published prefix width?** One number per `LayoutBar`. It
-   would let both adapters agree on where a bar's music starts.
-4. **Which beam slant is right for this product** — Gould's conservative table, which is
-   what the spike does, or VexFlow's steeper slant that follows the noteheads more
-   closely? Bar 6 shows the difference plainly, and it is a house-style decision rather
-   than a correctness one.
+Jian, 2026-07-31.
 
-Answering 1 and 2 closes ADR-0030's exit condition and sets the position of the full
-replacement in the slice order.
+| Question | Decision |
+|---|---|
+| Glyph-anchoring design | **Approved as built.** Vendored slice from the pinned release, outlines placed by transform, every metric from `engravingDefaults` and the glyphs' own anchors, no per-glyph tuning |
+| Beam slant | **Gould's conservative table**, which is what the spike does. The steeper VexFlow slant is not the house style |
+| Published prefix width | **Yes, one number per `LayoutBar`.** Done in this slice |
+| Estimate and sequencing | Time is not the constraint; a recommendation was asked for rather than a number accepted. See below |
+
+ADR-0030's exit condition is met: the approach is confirmed, the anchoring design is
+agreed, and the estimate has a basis under it.
+
+### Two requirements the review added
+
+**1. The sixteenths are too squished, and an accidental needs room of its own.** Which is
+the spacing finding above, confirmed by the first person to look at it who was not the
+author. It moves spacing from "the largest remaining item" to "the item the replacement
+starts with", and it adds a specific acceptance test: the natural in bar 6 must not touch
+the note before it.
+
+**2. The final output must be renderable in a jazz face or a normal one, at the reader's
+choice.** This is new, and it lands on the design that was just approved, so it is worth
+being precise about what it costs.
+
+It is feasible on the same terms. Steinberg publishes **Petaluma**, a handwritten SMuFL
+face, under SIL OFL 1.1, and its `petaluma_metadata.json` has exactly the shape the
+vendoring script already reads — the same six `engravingDefaults`, `stemUpSE` and
+`stemDownNW` on `noteheadBlack`, `stemUpNW` on the flags. The numbers differ from
+Bravura's, which is the point: Petaluma's `stemUpSE` is `[1.336, 0.288]` against Bravura's
+`[1.18, 0.168]`, so a hand-tuned offset would have been wrong for it and an anchor is
+right for both. The approach transfers unchanged.
+
+Two things it costs:
+
+- **Petaluma's redist ships no SVG font**, only OTF and WOFF, so its outlines cannot be
+  lifted the way Bravura's were. The vendoring script needs a font parser — `opentype.js`
+  or equivalent, a *vendoring-time* devDependency that never enters the product, so
+  ADR-0027's register is unaffected.
+- **The engraver currently reads one module-level font.** `INK` and the glyph table are
+  module constants that `staff.ts`, `stems.ts` and `beams.ts` import directly. Choosing a
+  face *per render* means threading a font object through about eight geometry signatures.
+  It is mechanical and small — half a day — but it is much cheaper before parity than
+  after, so it belongs at the **start** of the replacement rather than at the end.
+
+Note for the record: this requirement does not on its own force the replacement. VexFlow
+4.2.5 ships Petaluma glyph outlines too. What it cannot give is the rest of a Real Book
+page — `Δ`, `ø`, stacked alterations, parenthesised extensions, a handwritten face for the
+chord symbols and title — which is exactly what ADR-0030 called the differentiator.
+
+### Revised estimate
+
+Add half a day for the font seam and one day for Petaluma's vendoring and proofing, and
+subtract nothing: **6.5–7.5 focused days to parity with a working jazz/normal switch.**
+
+### Sequencing: the recommendation
+
+Time is not the constraint here, so the ordering question is not "what is cheapest" but
+"what retires the most uncertainty soonest". `SLICES.md` already establishes that V1b and
+V2 touch nothing in common and can run in either order.
+
+**Recommended: spacing next, as its own small slice, then V2, then the rest of parity.**
+
+- **Spacing next.** It is the only genuinely uncertain item left — everything else on the
+  table is mechanical, data-driven glyph work. It is also the thing the first reader who
+  was not the author objected to. A day and a half now, against an engraver that is 1,100
+  lines and still small enough to hold in one's head, retires the whole schedule risk.
+  Do the font seam in the same slice, for the same reason: it is half a day while the
+  geometry has eight signatures and considerably more once it has thirty.
+- **Then V2.** Nothing about the store, the op log or the API depends on the renderer, and
+  the product does not exist until a note can be edited (ADR-0026). Once spacing is proven,
+  the remaining engraver work is predictable enough to interleave or defer without risk.
+- **Then the rest of parity, and Petaluma.** Mechanical by then, and V5's chord grammar
+  will have arrived to make the chord-symbol typography worth doing properly rather than
+  twice.
+
+The alternative — all of parity before V2 — is defensible now that the estimate is real,
+and it has one genuine advantage: V4's browser UI would be built against the final
+renderer. It is not recommended only because it front-loads a week of glyph work whose
+outcome nobody is uncertain about.

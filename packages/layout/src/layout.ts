@@ -30,6 +30,11 @@ export interface LayoutBar {
   x: number;
   width: number;
   prefix: BarPrefix;
+  /**
+   * Room allocated to the clef, key signature and time signature, so an adapter knows
+   * where the bar's music starts without guessing it a second time (see `widths.ts`).
+   */
+  prefixWidth: number;
   /** Derived, carried through so consumers can flag rather than reject (ADR-0013). */
   metrics: BarMetrics;
   items: LayoutBarItem[];
@@ -220,6 +225,7 @@ function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
     x: entry.x,
     width: entry.width,
     prefix: entry.prefix,
+    prefixWidth: entry.prefixWidth,
     metrics: barMetrics(bar, score.meta.time),
     items: buildBarItems(score, bar, entry),
   };

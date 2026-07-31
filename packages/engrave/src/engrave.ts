@@ -5,7 +5,7 @@ import type {
   LayoutSystem,
   NoteItem,
 } from '@sibei/layout';
-import type { KeySignature, TimeSignature } from '@sibei/model';
+import type { TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks } from '@sibei/model';
 import type { BravuraGlyphName } from './bravura.js';
 import { glyphElement, glyphWidth } from './bravura.js';
@@ -76,7 +76,7 @@ export function engravePage(
   const skipped = new Map<LayoutBarItemKind, number>();
   const children: SvgElement[] = [];
   for (const system of page.systems) {
-    children.push(...engraveSystem(system, result.key, result.time, opts, skipped));
+    children.push(...engraveSystem(system, result.time, opts, skipped));
   }
 
   const svg = el(
@@ -98,7 +98,6 @@ export function engravePage(
 
 export function engraveSystem(
   system: LayoutSystem,
-  key: KeySignature,
   time: TimeSignature,
   options: EngraveOptions,
   skipped: Map<LayoutBarItemKind, number>,
@@ -110,7 +109,7 @@ export function engraveSystem(
     );
   }
   for (const bar of system.bars) {
-    children.push(...engraveBar(bar, system.staveY, key, time, skipped));
+    children.push(...engraveBar(bar, system.staveY, time, skipped));
   }
   return children;
 }
@@ -139,7 +138,6 @@ interface EngravedNote {
 function engraveBar(
   bar: LayoutBar,
   staveY: number,
-  key: KeySignature,
   time: TimeSignature,
   skipped: Map<LayoutBarItemKind, number>,
 ): SvgElement[] {
@@ -149,7 +147,7 @@ function engraveBar(
     }
   }
 
-  const placed = placeItems(bar, key);
+  const placed = placeItems(bar);
   const groups = beamGroups(placed, time);
   const beamed = new Set<PlacedItem>(groups.flat());
 
