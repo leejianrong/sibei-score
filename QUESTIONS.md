@@ -391,7 +391,7 @@ Recorded here so they don't get reopened later.
     text line.** Import attempts the title and composer with the same OCR used for chords,
     flagged low-confidence like anything else. All fields editable from both the UI and
     the CLI.
-  - **Amended 2026-07-31 (V3b), on the key:** the header prints **title, composer and the
+  - **Amended (V3b, 2026-07-31), on the key:** the header prints **title, composer and the
     style line only**. The key is not header text — it reaches the page as the **key
     signature on the stave**, which is how a lead sheet states its key, and printing
     "key Db" above a chart already showing five flats is redundant and un-idiomatic. The
