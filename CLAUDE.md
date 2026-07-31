@@ -22,8 +22,8 @@ KAN-410 umbrella:
 | V2a | The store, migrations on read, and the suite split | **done** |
 | V2b | The address resolver — `bar12.beat3`, `bar12.n3`, `note-17` | **done** |
 | V2c | The op log, and the applier as the only writer | **done** |
-| V2d | The `/v1/` API, the auth seam, and the Origin check | next |
-| V2e | The CLI, and the text projection — carries V2's demo | |
+| V2d | The `/v1/` API, the auth seam, and the Origin check | **done** |
+| V2e | The CLI, and the text projection — carries V2's demo | next |
 
 Nothing in V2 touches the renderer, so `pnpm proof` is not usually relevant to it. The
 moment a change reaches `layout` or `engrave`, look at the images anyway.
@@ -46,7 +46,7 @@ render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
 pnpm check                 # typecheck every package, then both suite layers. The gate.
 pnpm typecheck             # each package under its own strict config
-pnpm test                  # vitest, both layers, 354 tests
+pnpm test                  # vitest, both layers, 444 tests
 pnpm test:fast             # the no-infra layer — what the pre-push hook runs
 pnpm test:infra            # the layer that needs a real store
 pnpm test:watch
@@ -155,9 +155,9 @@ Breaking one of these breaks a decision of record.
 - `model`, `music`, `layout` and `codec` are plain TypeScript: **no framework, no Node
   APIs.** `layout` runs in the browser *and* server-side (ADR-0005, ADR-0022). Enforced by
   the compiler — those packages declare `"types": []` and no DOM lib — and by `tests/arch`.
-- **The op applier is the only thing that writes to the store** (ADR-0003). The seam is there
-  from V2a — `ScoreWriter` is a separate interface for exactly this reason — and the applier
-  that plugs into it arrives in *V2c*.
+- **The op applier is the only thing that writes to the store** (ADR-0003). `ScoreWriter` is a
+  separate interface for exactly this reason, and only the applier may name it — `tests/arch`
+  fails if anything else does, which is what kept it true when the HTTP layer arrived.
 - **Nothing outside `packages/api/src/store/sqlite-*.ts` may know SQLite exists** (ADR-0006).
   The port is the whole argument that hosting is a deployment change and not a rewrite.
 - **MusicXML is a codec at the edges only**, never the runtime truth (ADR-0004).
@@ -356,6 +356,63 @@ to a later slice. Two gaps worth knowing about: a score's bar count is fixed at 
 is no `bar.append` until V7 needs one), and deleting a score is *not* an operation — it destroys
 the log an entry would live in, so it is a library lifecycle call instead.
 
+### The `/v1/` API, and the boundary
+
+`packages/api/src/http/`. **The highest-value seam in the project** (PLAN.md): both surfaces go
+through it, and it is where "the UI and the CLI cannot disagree" is either true or false. Most
+behavioural tests belong here from V2 on — `tests/store/api.test.ts` drives a real socket, because
+calling a handler directly would skip the guards that are the point.
+
+```
+GET    /v1/health
+GET    /v1/scores            list, from the extracted columns
+POST   /v1/scores            create — a batch whose first op is score.create
+GET    /v1/scores/:id        the document, its version, its timestamp
+DELETE /v1/scores/:id        library lifecycle, not an operation
+POST   /v1/scores/:id/ops    one operation, or a transactional list
+```
+
+`/v1/` from the first commit (ADR-0022): breaking changes are allowed inside v1 until the hosted
+transition, then it freezes and goes additive-only.
+
+**Plain `node:http`, no framework.** Five routes and a JSON body parser is not a framework's worth
+of work, and ADR-0029's guards are worth *writing* rather than configuring — a misconfigured CORS
+default is exactly the failure this API cannot afford. Express stays a small change if the surface
+grows teeth.
+
+**Status codes carry meaning, and 409 carries a version.** 422 for an address miss or a validation
+failure (the request was fine, the content could not be applied); 400 only for a body that was not
+readable JSON; **409 with `currentVersion`** for a stale write, which is the thing ADR-0003 is
+about. Every error body is `{error: {kind, message, detail}}` where `detail` is the whole structured
+failure — an address miss ships the bar's real onsets, so an agent branches on data rather than
+parsing prose (ADR-0008).
+
+**`server.ts` is the only file holding the whole store**, and it narrows it immediately: the routes
+are typed to see a `ScoreReader` and a `ScoreLibrary` and nothing else. That is how V2c's single
+write path survived the arrival of an HTTP layer — a handler cannot reach a write even by mistake,
+and `tests/arch` fails if `routes.ts` so much as names `ScoreWriter`.
+
+**Three boundary rules, and they landed before the browser exists on purpose** (ADR-0029 is explicit
+that retrofitting them against a working client means loosening something to make it pass):
+
+- **Bind `127.0.0.1`, never `0.0.0.0`.** The host is not a parameter of `listen`, so nobody can pass
+  the wrong one — including a compose file, whose default would expose the port on the host network.
+- **Validate `Origin` on state-changing requests.** An *absent* Origin is allowed and that is not a
+  hole: a browser always sends one cross-origin, including on a form POST, so absence means the
+  caller is not a browser page — and the CLI is half the intended users.
+- **Validate `Host` on everything.** This goes one step past what the ADR spells out, in the same
+  direction: the Origin rule closes drive-by *writes*, but a rebound `GET` would still read the
+  library out and a browser sends no Origin on a simple cross-origin GET. Costs nothing, and cannot
+  inconvenience a real client, because a real client talks to localhost.
+
+No CORS headers are sent at all, wildcard least of all, and `tests/arch` greps the whole tree for
+one. The guards run **before** routing, so an unrouted path is not a way past them.
+
+Logs are JSON per line on stderr and deliberately have **no field a file path or a body could go
+in** — ADR-0029's rule for later, kept true now by leaving nowhere to put them. An error logs its
+`message`, never its stack or its own fields, because an error out of the store carries the database
+path.
+
 ### Never measure text
 
 **Do not use `measureText` or anything that reaches `getBBox()`.** Only a real browser
@@ -414,7 +471,7 @@ Not oversights. Each lands with the slice that needs it.
 |---|---|---|
 | Containerized test infra | probably never | V2a's answer turned out to be that SQLite needs no container: the `infra` layer runs against `:memory:` and temp files. Revisit only if something arrives that genuinely needs a daemon |
 | E2E that boots the stack | V4 | There is no stack to boot |
-| Health endpoint, structured logs | V2d | Still no server. It lands with the routes |
+| Health endpoint, structured logs | **done, V2d** | `GET /v1/health`, and JSON-per-line on stderr |
 | Deploy gating | never, as such | Local-only by decision (ADR-0001). V8 ships a container; there is no environment to deploy to |
 | Published docs site | undecided | ADRs already carry the "why". Revisit if the CLI reference outgrows a README |
 | Linter / formatter | undecided | `tsc` is strict and there is one author. Adding one now means reformatting the whole tree; ask first |
