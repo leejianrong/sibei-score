@@ -838,6 +838,22 @@ than assumed.
     implicitly, so there is no invalidation logic to get wrong. The two ADRs are
     reconciled by the distinction that matters: **no score variant is ever stored**, but a
     rendered artefact may be cached. Recorded in `PLAN.md` §Implementation decisions.
+  - **Amended (V3a, 2026-07-31):** the mechanism survived intact and the key grew. It is
+    `(score version, document digest, instrument, paper, font, format)`, scoped by score id.
+    Everything above still holds — generated on demand, cached, **no invalidation logic
+    anywhere** — under one rule that the original key did not quite satisfy: *anything that
+    changes the bytes is in the key.*
+    - **The digest closes a hole this answer had.** Deleting a score destroys its log, and
+      `score.create` takes a client-supplied id — so a new chart under a reused id starts
+      again at version 1, and id-plus-version is not unique over time. The second chart was
+      served the first one's PDF. Found by a test written against the literal key, not by
+      re-reading this answer. The digest adds no invalidation: it makes the key name the exact
+      bytes it stands for, and a serialisation change would cost a miss, never wrong bytes.
+    - **Paper and font are here for the reason `instrument` was in from the start** — a
+      component left out until something varies it makes that slice a cache-key migration.
+      This answer predates ADR-0030, which makes the engraved face the reader's choice *per
+      render* rather than a build-time constant; Q38 makes the paper one. An export endpoint
+      that could only emit A4-Bravura would have contradicted both.
 
 ## Coverage
 
