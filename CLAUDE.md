@@ -20,7 +20,7 @@ KAN-410 umbrella:
 | | Delivers | State |
 |---|---|---|
 | V2a | The store, migrations on read, and the suite split | **done** |
-| V2b | The address resolver — `bar12.beat3`, `bar12.n3`, `note-17` | next |
+| V2b | The address resolver — `bar12.beat3`, `bar12.n3`, `note-17` | **done** |
 | V2c | The op log, and the applier as the only writer | |
 | V2d | The `/v1/` API, the auth seam, and the Origin check | |
 | V2e | The CLI, and the text projection — carries V2's demo | |
@@ -233,6 +233,39 @@ which grows with the *root* of the duration rather than in proportion to it, and
 note's glyphs need whatever the tempo. Rigid glyph widths come out first and only the slack
 is shared by time. A bar that does not fill the meter gets only its share of the slack, so
 a short bar looks short rather than being justified into looking correct (ADR-0013).
+
+### Addressing (ADR-0007)
+
+`packages/model/src/address.ts`. Three forms, resolved server-side in one place so both
+surfaces get identical semantics *and* identical error messages:
+
+```
+bar12.beat3    a beat within a bar. 1-based, fractional (bar12.beat2.5). bar0 is the pickup
+bar12.n3       the third item in bar 12, by onset then by insertion order
+note-17        a stable id
+```
+
+**Onsets only, and the error lists what is there.** A beat that is not an onset is a failure
+carrying the bar's real onsets — `bar 12 has no note at beat 3; onsets are 1, 2.5, 4`. Never a
+snap to the nearest thing: snapping lets an agent edit the wrong note and never find out. The
+error is the feature.
+
+Failures are structured (`AddressFailure`) with `formatAddressFailure` as the only place the
+prose lives, because the API maps them to status codes, the CLI maps them to exit codes, and
+both must print the same words.
+
+Two entry points, and picking the wrong one is the easy mistake. `resolveAddress` is strict and
+is what `set` and `rm` want. `resolvePosition` accepts a beat with nothing on it, because for an
+`add` an empty beat is the entire point — and it will happily place a note past the end of the
+bar, since ADR-0013 stores an invalid bar rather than refusing one.
+
+**`nK` counts rests as well as notes.** ADR-0007 glosses it "the third note in bar 12", which
+leaves open whether a rest takes a slot. It has to: a rest is a first-class object (Q35) and
+would otherwise be unreachable by position. The narrower reading is recovered by the `kind`
+argument — `resolveAddress(score, 'bar2.n2', 'note')` fails with `bar2.n2 is a rest, not a
+note` rather than quietly editing the wrong thing. When V2e builds the text projection, what it
+labels `nK` **must** match this, because ADR-0009's whole design principle is that the
+projection prints the addresses the CLI accepts.
 
 ### The store, and the two things called a version
 
