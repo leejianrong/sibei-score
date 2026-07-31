@@ -145,7 +145,7 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     // anyway (Q39). One put across two exports is what proves the second one never rendered.
     expect(blobs.puts).toHaveLength(1);
     expect(blobs.gets).toHaveLength(2);
-    expect(blobs.puts[0]).toMatch(/^export:score-1:v2:[0-9a-f]{16}:concert:pdf$/);
+    expect(blobs.puts[0]).toMatch(/^export:score-1:v2:[0-9a-f]{16}:concert:a4:normal:pdf$/);
   });
 
   it('produces a different artefact after an edit, with no invalidation call anywhere', async () => {
@@ -194,6 +194,42 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     expect(second.bytes.equals(first.bytes)).toBe(false);
   });
 
+  it('caches each paper and each face on its own key, never serving one for another', async () => {
+    // The same class of bug as the id reuse above: a key that named fewer things than the render
+    // depended on would hand somebody a Letter request and an A4 page. Q38 wants both papers;
+    // ADR-0030 makes the face the reader's choice per render.
+    await aChart();
+    const variants = [
+      '?paper=a4&font=normal',
+      '?paper=letter&font=normal',
+      '?paper=a4&font=jazz',
+      '?paper=letter&font=jazz',
+    ];
+    const bytes = [];
+    for (const variant of variants) bytes.push((await download(`/v1/scores/score-1/export${variant}`)).bytes);
+
+    // Four renders, four keys, four distinct artefacts.
+    expect(blobs.puts).toHaveLength(4);
+    expect(new Set(blobs.puts).size).toBe(4);
+    expect(new Set(bytes.map((buffer) => buffer.toString('base64'))).size).toBe(4);
+
+    // And every one of them comes back from the cache as itself.
+    for (const [index, variant] of variants.entries()) {
+      const again = await download(`/v1/scores/score-1/export${variant}`);
+      expect(again.bytes.equals(bytes[index]!)).toBe(true);
+    }
+    expect(blobs.puts).toHaveLength(4);
+  });
+
+  it('defaults to A4 and the engraved face, and says so in the key', async () => {
+    await aChart();
+    const bare = await download('/v1/scores/score-1/export');
+    const spelled = await download('/v1/scores/score-1/export?paper=a4&font=normal');
+    // One put across both: the defaults resolve to the same key rather than a second one.
+    expect(blobs.puts).toHaveLength(1);
+    expect(spelled.bytes.equals(bare.bytes)).toBe(true);
+  });
+
   it('does not bump the score’s version, because generating an artefact is not an edit', async () => {
     await aChart();
     const before = await json('GET', '/v1/scores/score-1');
@@ -213,6 +249,26 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     await download('/v1/scores/score-1/export');
     const operations = store.operations('local', 'score-1');
     expect(operations.map((entry) => entry.operation.type)).toEqual(['score.create', 'note.add']);
+  });
+});
+
+describe('the page and the face are the reader’s choice (Q38, ADR-0030)', () => {
+  it('renders Letter differently from A4', async () => {
+    await aChart();
+    const a4 = await download('/v1/scores/score-1/export?paper=a4');
+    const letter = await download('/v1/scores/score-1/export?paper=letter');
+    expect(letter.status).toBe(200);
+    expect(letter.bytes.equals(a4.bytes)).toBe(false);
+  });
+
+  it('renders the handwritten face differently from the engraved one', async () => {
+    // A lead sheet is read in a Real Book face as often as an engraved one, so an export that
+    // could only emit Bravura would contradict ADR-0030 rather than merely miss a feature.
+    await aChart();
+    const normal = await download('/v1/scores/score-1/export?font=normal');
+    const jazz = await download('/v1/scores/score-1/export?font=jazz');
+    expect(jazz.status).toBe(200);
+    expect(jazz.bytes.equals(normal.bytes)).toBe(false);
   });
 });
 
@@ -236,6 +292,30 @@ describe('a format or an instrument this build cannot produce (ADR-0008)', () =>
     expect((await bad.json() as { error: { kind: string } }).error.kind).toBe('unsupported-instrument');
 
     expect((await download('/v1/scores/score-1/export?instrument=concert')).status).toBe(200);
+  });
+
+  it('422s an unknown paper rather than quietly handing back A4', async () => {
+    // A silent fallback is the same failure as an address snapping to the nearest note: the
+    // caller gets the wrong thing and never finds out.
+    await aChart();
+    const response = await fetch(`${base}/v1/scores/score-1/export?paper=a5`);
+    expect(response.status).toBe(422);
+    expect((await response.json() as { error: unknown }).error).toMatchObject({
+      kind: 'unsupported-paper',
+      detail: { kind: 'unsupported-paper', requested: 'a5', supported: ['a4', 'letter'] },
+    });
+    // And nothing was rendered or cached for it.
+    expect(blobs.puts).toEqual([]);
+  });
+
+  it('422s an unknown face and lists the two there are', async () => {
+    await aChart();
+    const response = await fetch(`${base}/v1/scores/score-1/export?font=comic`);
+    expect(response.status).toBe(422);
+    expect((await response.json() as { error: unknown }).error).toMatchObject({
+      kind: 'unsupported-font',
+      detail: { kind: 'unsupported-font', requested: 'comic', supported: ['normal', 'jazz'] },
+    });
   });
 
   it('refuses before it reads, so an unknown format on a missing score is still 422', async () => {

@@ -59,6 +59,12 @@ importers:
 
   packages/api:
     dependencies:
+      '@sibei/engrave':
+        specifier: workspace:*
+        version: link:../engrave
+      '@sibei/layout':
+        specifier: workspace:*
+        version: link:../layout
       '@sibei/model':
         specifier: workspace:*
         version: link:../model

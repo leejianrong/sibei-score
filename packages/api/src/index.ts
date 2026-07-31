@@ -9,14 +9,20 @@ export { openDirectoryBlobStore } from './blob/directory-blob-store.js';
 export type { DirectoryBlobStoreOptions } from './blob/directory-blob-store.js';
 
 export {
+  DEFAULT_FONT,
   DEFAULT_FORMAT,
   DEFAULT_INSTRUMENT,
+  DEFAULT_PAPER,
+  EXPORT_FONTS,
   EXPORT_FORMATS,
   EXPORT_INSTRUMENTS,
+  EXPORT_PAPERS,
   createExporter,
   exportBlobKey,
+  parseExportFont,
   parseExportFormat,
   parseExportInstrument,
+  parseExportPaper,
 } from './export/export.js';
 export type {
   Artefact,

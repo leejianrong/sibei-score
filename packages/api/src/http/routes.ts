@@ -1,10 +1,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Id } from '@sibei/model';
 import {
+  EXPORT_FONTS,
   EXPORT_FORMATS,
   EXPORT_INSTRUMENTS,
+  EXPORT_PAPERS,
+  parseExportFont,
   parseExportFormat,
   parseExportInstrument,
+  parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
 import type { Applier } from '../ops/applier.js';
@@ -106,16 +110,18 @@ export async function route(
 }
 
 /**
- * `GET /v1/scores/:id/export?format=pdf` (ADR-0006, Q81).
+ * `GET /v1/scores/:id/export?format=pdf&paper=a4&font=normal&instrument=concert` (ADR-0006, Q81).
  *
  * A read: the score comes through the `ScoreReader`, the bytes go through the `BlobStore`, and
- * nothing about it touches the score's `version`. The cache key is `(score version, format,
- * instrument)`, so an edit invalidates by bumping the version and there is no invalidation call
+ * nothing about it touches the score's `version`. Every parameter here is in the cache key, which
+ * is the rule the query surface is allowed to grow by — **anything that changes the bytes is in
+ * the key** — and an edit invalidates by bumping the version, so there is no invalidation call
  * for this handler to forget to make.
  *
- * The query surface is deliberately these two parameters and no more. A page size or a font face
- * would change the bytes, and anything that changes the bytes has to be in the key — Q81 fixes
- * the key at three components, so widening the query means going back to Q81 first.
+ * Every parameter has a default and **none of them falls back silently**. A `paper=a5` answered
+ * with an A4 page would be the same class of failure as an address snapping to the nearest note:
+ * the caller gets the wrong thing and never finds out. So an unrecognised value is a 422 carrying
+ * the list of what there is.
  */
 async function exportScore(
   request: IncomingMessage,
@@ -133,7 +139,18 @@ async function exportScore(
     return send(response, unsupported('instrument', query.get('instrument'), EXPORT_INSTRUMENTS));
   }
 
-  const outcome = await context.exporter.export(context.owner, scoreId, { format, instrument });
+  const paper = parseExportPaper(query.get('paper'));
+  if (paper === null) return send(response, unsupported('paper', query.get('paper'), EXPORT_PAPERS));
+
+  const font = parseExportFont(query.get('font'));
+  if (font === null) return send(response, unsupported('font', query.get('font'), EXPORT_FONTS));
+
+  const outcome = await context.exporter.export(context.owner, scoreId, {
+    format,
+    instrument,
+    paper,
+    font,
+  });
   if (!outcome.ok) return send(response, noSuchScore(scoreId));
   return sendArtefact(response, outcome.artefact);
 }
