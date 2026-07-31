@@ -108,8 +108,9 @@ in full: `docs/adr/`.
 | Term | Meaning |
 |---|---|
 | **Layout engine** | Ours. Turns the model into engine-independent positions, including the four-bar grid. Runs in the browser and on the server, same code. |
-| **Draw adapter** | The seam. Turns layout positions into glyphs. VexFlow is one implementation; ours is the intended one (ADR-0030). |
-| **Engraver** | Our own draw adapter, drawing glyphs from Bravura's outlines and metrics rather than delegating to VexFlow. Proved by V1b, built after. |
+| **Draw adapter** | The seam. Turns layout positions into glyphs. `packages/engrave` is the only implementation; VexFlow was the first and was removed at V1d (ADR-0030). |
+| **Engraver** | Our own draw adapter, `packages/engrave`. Draws every glyph from a SMuFL font's own outlines and published anchors, with no tuning constants and no font named in the code. Proved by V1b, built by V1c–V1d. |
+| **Face** | Which SMuFL font a render uses: `normal` is Bravura, `jazz` is Petaluma, the Real Book look. A render-time argument, never a build-time constant. |
 | **Four-bar grid** | Four bars per line, the jazz-chart convention. Default, broken by section boundaries. |
 | **System** | One rendered line of music. Usually four bars. |
 | **Nasty test chart** | The spike-gate fixture: four-bar grid, ties across barlines, triplets, a pickup, double barlines, `C7alt`, `F#m7b5`. |
@@ -199,8 +200,9 @@ in full: `docs/adr/`.
 | D61 | The core operation arbitrates when the two surfaces conflict — neither surface owns anything | Accepted | — (`QUESTIONS.md` Q79) |
 | D62 | Exports are cached in the `BlobStore` keyed by score version; no score *variant* is ever stored | Accepted | — (`QUESTIONS.md` Q81, `PLAN.md`) |
 | D50 | `REQS.md` is kept as a historical record with inline supersession markers; `CONTEXT.md` wins where they differ | Accepted | — (`QUESTIONS.md` Q70) |
-| D63 | The V1 gate ran and decided: **own the engraver**. VexFlow stays behind the seam, pinned to 4.2.5, until the replacement reaches parity | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
-| D64 | The engraver is sequenced spike-first: V1b proves the approach and produces the estimate; the full replacement is scheduled only after that | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
+| D63 | The V1 gate ran and decided: **own the engraver**. Done at V1d — `packages/draw` and the `vexflow` dependency are gone, and `packages/engrave` is what ships | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
+| D64 | The engraver was sequenced spike-first: V1b proved the approach and produced the estimate, and the full replacement followed as V1c–V1d, before V2 | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
+| D66 | The engraved face is the reader's choice per render — Bravura (`normal`) or Petaluma (`jazz`) — so no font is named in the engraver's code | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md), [ADR-0027](docs/adr/0027-paddleocr-and-dependency-register.md) |
 | D65 | The project is MIT licensed | Accepted | `LICENSE` |
 
 ### Not yet decided

@@ -7,9 +7,11 @@ on a later one. Requirements and shape parts are defined in `PLAN.md`; decisions
 Two milestones (ADR-0026). **v0.1** is the app without import — useful and shippable on
 its own. **v0.2** adds import onto a foundation already proven by use.
 
-Each milestone opens with its riskiest unknown. For v0.1 that is whether VexFlow can
-draw a chart worth printing; for v0.2, and for the project as a whole, it is whether
-oemer's pixel coordinates are reachable at all.
+Each milestone opens with its riskiest unknown. For v0.1 that was whether a
+general-purpose renderer could draw a chart worth printing — asked and answered at the V1
+gate, which found VexFlow's output good and decided to own the engraver regardless
+(ADR-0030). For v0.2, and for the project as a whole, it is whether oemer's pixel
+coordinates are reachable at all.
 
 ---
 
@@ -18,6 +20,11 @@ oemer's pixel coordinates are reachable at all.
 ## V1: The render gate
 
 **Delivers:** R3 (partial), and the exit condition for ADR-0014
+
+> **History, 2026-07-31.** This slice ran and its gate decided against VexFlow
+> (ADR-0030). `packages/draw` and the `vexflow` dependency were removed at V1d and the
+> adapter is now `packages/engrave`. The build plan below is kept as written because it
+> is the record of what V1 built — read it as history, not as instructions.
 
 The riskiest v0.1 mechanism, taken first. Everything visible in this product flows
 through the layout engine and the draw adapter, and if VexFlow's output is not good
@@ -74,6 +81,14 @@ shape, nothing else.
 ## V1b: The engraver spike
 
 **Delivers:** the exit condition for ADR-0030, and a real estimate for the rest
+
+> **History, 2026-07-31.** This slice ran, the gate passed, and the number it produced —
+> 6.5–7.5 focused days to parity — held. The full replacement followed as **V1c** (real
+> within-bar spacing and the font seam) and **V1d** (the rest of the glyph set, Petaluma
+> as the `jazz` face, `packages/pdf` pointed at the engraver, `packages/draw` and the
+> `vexflow` dependency deleted). Neither is written up below; the record is ADR-0030's
+> status updates and [`docs/v1b-engraver-spike.md`](docs/v1b-engraver-spike.md). Read
+> this slice as history, not as instructions.
 
 The gate decided we own the engraver (ADR-0030). This slice buys the evidence before the
 commitment, the same way V1 did: it does not replace anything, it proves the approach and
@@ -194,7 +209,7 @@ time.
 
 **Build plan**
 
-1. Wire `layout` and `draw` to scores loaded from the repository.
+1. Wire `layout` and `engrave` to scores loaded from the repository.
 2. `GET /v1/scores/:id/export?format=pdf`, streaming from the `BlobStore` (ADR-0006).
    Exports are **generated on demand and cached** in the `BlobStore` keyed by
    `(score version, format, instrument)`, so a version bump invalidates them implicitly.
@@ -279,8 +294,10 @@ a reload. The two surfaces visibly cannot disagree.
 1. `music` package: chord grammar — parse and format root, quality, extensions,
    alterations, bass (ADR-0012). Unparseable text is retained verbatim and flagged.
 2. `chord.set` and `chord.rm` ops, anchored to a beat within the bar (Q32).
-3. Chord rendering above the staff through the draw adapter, using VexFlow's
-   `ChordSymbol` for superscript extensions.
+3. Chord rendering above the staff through the engraver. Superscripted extensions
+   already ship — that was parity with what VexFlow did. What this slice adds is the
+   jazz typography ADR-0030 named as V5's: `Δ`, `ø`, stacked alterations, parenthesised
+   extensions, which need the grammar from step 1 to know what they are.
 4. Chord editing in the browser with grammar validation as you type; `sibei chord set`.
 5. Chords in the text projection as `Ebm7@1, Bb7@3`.
 
@@ -699,10 +716,11 @@ this is the slice that grows a crop UI. Q42 (the gate itself).
 
 - **V1, V1b and V9 are gates, not features.** Each has an explicit decision as its exit
   condition, and each precedes everything that depends on it.
-- **V1b does not block V2.** The engraver spike and the write path touch nothing in
-  common, so they can run in either order or in parallel. Only the full engraver
-  replacement competes for time with the rest of v0.1, which is why ADR-0030 leaves its
-  position unscheduled until V1b returns a number.
+- **V1b did not block V2.** The engraver spike and the write path touch nothing in
+  common, so they could run in either order. ADR-0030 left the full replacement's
+  position unscheduled until V1b returned a number; it returned one, and the replacement
+  ran immediately as V1c and V1d, before V2. V1's `packages/draw` is gone from that
+  point on — every slice after it engraves through `packages/engrave`.
 - **V5 pays for itself twice.** The chord grammar built for user input is the OCR
   corrector in V13, which is why it is not deferred to v0.2.
 - **V12 precedes V13** so the chord pipeline is measured as it is built. Reversing them
