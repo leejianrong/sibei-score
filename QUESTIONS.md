@@ -158,6 +158,12 @@ Recorded here so they don't get reopened later.
     `ChordSymbol` class that does jazz superscript extensions properly. What we own
     either way: the four-bar grid, justification policy, system/page breaking,
     headers, the model, editing and hit-testing.
+  - **Amended (ADR-0030, 2026-07-31):** the "for now" ran out. The gate rendered the
+    nasty chart, judged VexFlow's output good, and chose to own the engraver anyway —
+    jazz typography is this product's differentiator rather than its polish, and 4.2.5
+    is the end of a line 5.x cannot continue server-side. `packages/engrave` replaced it
+    over V1b–V1d and `packages/draw` and the `vexflow` dependency were deleted. The
+    answer above is left as recorded; it was right when it was made.
 - **Q13.** `P0` `ANSWERED` MusicXML is verbose and its chord symbol representation (`<harmony>`)
   is awkward. Do we hold our own internal model and treat MusicXML purely as an
   import and export format?
@@ -534,6 +540,12 @@ Arising from the round-1 answers.
   - A: **Node-side VexFlow → SVG → PDF.** Same VexFlow code runs server-side; screen
     and print share one layout path; output is deterministic and therefore
     regression-testable. Raises **Q59** (two backend runtimes).
+  - **Amended (ADR-0030, 2026-07-31):** the shape of this answer survived; only the
+    engine changed. It is Node-side **engraver** → SVG → PDF now, and determinism got
+    cheaper rather than harder: the engraver emits markup rather than DOM nodes, so
+    `packages/pdf` dropped jsdom and every music glyph is a `<path>` from the font's own
+    outline, with nothing embedded or subsetted. Byte-identity is a property of the
+    design now instead of something stripped out of a renderer's element ids.
 - **Q58.** `P1` `ANSWERED` Since VexFlow may be replaced by your own engraver later, is the
   renderer boundary an explicit interface — model → layout (systems, bars,
   positions) → draw primitives — so a replacement is contained to the draw layer?
@@ -542,6 +554,11 @@ Arising from the round-1 answers.
     grid) is ours and engine-independent; drawing goes through an adapter with a
     VexFlow implementation. Replacing VexFlow with a hand-rolled engraver touches
     only the draw adapter.
+  - **Amended (ADR-0030, 2026-07-31):** this is the answer in this file that paid off
+    most. The replacement happened, and it touched only the draw adapter exactly as
+    predicted — `layout` did not change and no note moved on the page. `packages/draw`
+    is gone; the seam it sat behind is now `packages/engrave` and is the only adapter
+    contract there is.
 
 ---
 
@@ -630,6 +647,14 @@ Arising from the round-1 answers.
     fails, replace the draw adapter only — layout, model and app untouched. Owning
     the engraver stays a live option, deliberately deferred until there is evidence
     it is needed.
+  - **Amended (ADR-0030, 2026-07-31):** the gate ran and the deferred option was taken.
+    Note *how* it resolved, because it is not the branch this answer anticipated: the
+    output did **not** fail — it was good, readable off a stand. The gate produced
+    evidence of a different kind, that jazz typography is the differentiator and that
+    4.2.5 is a dead branch, and the decision went the other way on that. The staging in
+    this answer is what made it cheap: `docs/v1-render-gate.md`, then
+    `docs/v1b-engraver-spike.md`, then V1c–V1d. Left as recorded — this is the decision
+    of the day, not the state of the code.
 
 ---
 

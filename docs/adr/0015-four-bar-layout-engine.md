@@ -4,6 +4,15 @@
 - **Date:** 2026-07-30
 - **Deciders:** Jian (interview via `/grill-with-docs`)
 
+## Status note, 2026-07-31
+
+**This decision stands, and its last consequence was cashed in.** VexFlow is gone
+(ADR-0030). "Replacing VexFlow touches only the draw adapter" was a prediction when it
+was written; V1d ran it and it held exactly — `layout` did not change and no note moved
+on the page. The two VexFlow mentions below read the same with "the renderer" in place of
+the name: no general-purpose engine supplies a four-bar-grid policy, so the layout engine
+is ours either way.
+
 ## Context
 
 `REQS.md` is emphatic: "One rendering convention matters more than the rest: four
