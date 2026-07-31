@@ -59,11 +59,37 @@ Two things that run at vendoring time and never ship, so neither enters this reg
 font; and SMuFL's `glyphnames.json`, which resolves glyph names to codepoints and is not
 redistributed.
 
+### Register note, 2026-07-31: the SQLite binding, and the one build script
+
+V2a gave the SQLite row a concrete driver: **`better-sqlite3` (MIT)**, offline, with Node's
+built-in `node:sqlite` as the fallback. It is the store's only dependency and the only thing
+`packages/api` declares.
+
+This is worth recording because it sits in **tension with the note above** — the one that
+prefers vendoring so `pnpm install` reaches the network never rather than once.
+`better-sqlite3` compiles or downloads a native binding at install time, which makes it the
+single install-time code execution in the tree, allowlisted explicitly in
+`pnpm-workspace.yaml` alongside esbuild's.
+
+The alternative was taken seriously and rejected on the merits rather than on habit.
+`node:sqlite` is zero dependencies and zero build scripts, and would have honoured the
+preference exactly. But on Node 24 it still emits `ExperimentalWarning: SQLite is an
+experimental feature and might change at any time`, and it collapses every constraint failure
+into one generic error code, so telling a unique violation from a check violation means
+matching on a message string. Neither is acceptable underneath a store holding the data
+ADR-0028 calls irreplaceable, and an experimental API is a poor foundation for the one thing in
+the app that must not lose anything.
+
+The reversal is cheap and deliberately so: ADR-0006's port means both files that know SQLite
+exists are in `packages/api/src/store/`, `tests/arch/store-seam.test.ts` keeps it that way, and
+swapping the driver is a change to one of them. Revisit when `node:sqlite` loses the warning.
+
 ## Alternatives considered
 
 | Option | Why not |
 |--------|---------|
 | EasyOCR | Easier to install, but a less accessible fine-tuning path — and fine-tuning is the whole of stage 2. |
+| `node:sqlite` instead of better-sqlite3 | Zero dependencies and no build script, which this ADR would otherwise prefer — but still flagged experimental on Node 24 and it has no per-constraint error codes. See the register note above. |
 | `homr` as base engine | **AGPL-3.0**, which avoiding was an explicit reason for rejecting Audiveris given the hosted future. Outputs **MusicXML only with no exposed coordinates**, so stage 3 could not work. And it covers only pitch and rhythm, "neglecting dynamics, articulation … and other musical symbols", so it contributes nothing to chord recognition. |
 | Tesseract | Weakest of the three on short, stylised, non-linguistic text, which is exactly what a chord symbol is. |
 

@@ -7,13 +7,16 @@
 #
 # Keep this fast. Nothing that needs a database, a browser or a network should ever be
 # added here — a slow pre-push hook gets bypassed, and then it protects nothing.
+#
+# From V2 the suite is two layers (vitest.config.ts) and this runs the FAST one only. The
+# infra layer is CI's job; `pnpm test:infra` runs it on demand.
 
 set -e
 
 echo '[pre-push] typecheck'
 pnpm run typecheck
 
-echo '[pre-push] test'
-pnpm test
+echo '[pre-push] test (fast layer)'
+pnpm run test:fast
 
 echo '[pre-push] ok'

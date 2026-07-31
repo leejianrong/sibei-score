@@ -7,10 +7,26 @@ stale — fix it.
 
 ## Build status, honestly
 
-**V1 and V1b–V1d are done** (`SLICES.md`). What exists: the score model, the layout
-engine, **our own engraver**, and the server-side PDF path. What does **not** exist yet:
-any store, HTTP API, CLI, browser UI, chord grammar, transposition, MusicXML codec, or
-import pipeline. Do not assume a module is there because a plan mentions it.
+**V1 and V1b–V1d are done, and V2 is in progress** (`SLICES.md`). What exists: the score
+model, the layout engine, **our own engraver**, the server-side PDF path, and — from V2a —
+**the store**. What does **not** exist yet: the op log or applier, any HTTP API, CLI,
+browser UI, chord grammar, transposition, MusicXML codec, or import pipeline. Do not assume
+a module is there because a plan mentions it.
+
+**V2 is being built in five sub-slices**, the way V1 was cut into V1b–V1d, because one write
+path is nine build steps and 13 points. Board cards KAN-468 through KAN-472, under the
+KAN-410 umbrella:
+
+| | Delivers | State |
+|---|---|---|
+| V2a | The store, migrations on read, and the suite split | **done** |
+| V2b | The address resolver — `bar12.beat3`, `bar12.n3`, `note-17` | next |
+| V2c | The op log, and the applier as the only writer | |
+| V2d | The `/v1/` API, the auth seam, and the Origin check | |
+| V2e | The CLI, and the text projection — carries V2's demo | |
+
+Nothing in V2 touches the renderer, so `pnpm proof` is not usually relevant to it. The
+moment a change reaches `layout` or `engrave`, look at the images anyway.
 
 **VexFlow is gone.** The V1 gate judged its output good and went the other way anyway,
 because jazz typography is this product's differentiator rather than its polish and 4.2.5
@@ -29,9 +45,11 @@ render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 
 ```sh
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
-pnpm check                 # typecheck every package, then the suite. The gate.
+pnpm check                 # typecheck every package, then both suite layers. The gate.
 pnpm typecheck             # each package under its own strict config
-pnpm test                  # vitest, 161 tests
+pnpm test                  # vitest, both layers, 211 tests
+pnpm test:fast             # the no-infra layer — what the pre-push hook runs
+pnpm test:infra            # the layer that needs a real store
 pnpm test:watch
 pnpm render:nasty          # out/nasty-chart.pdf — the V1 demo
 pnpm render all            # every fixture
@@ -43,7 +61,7 @@ pnpm hooks:install         # point git at .githooks (do this once per clone)
 
 Engraving defects are visual and the test suite does not catch them. 82 green tests and a
 passing snapshot coexisted happily with every beamed note drawing a stray flag *and* a
-doubled stem. Someone had to look. **After any change that touches `layout`, `draw` or
+doubled stem. Someone had to look. **After any change that touches `layout`, `engrave` or
 `pdf`, look at the result.**
 
 ```sh
@@ -138,7 +156,11 @@ Breaking one of these breaks a decision of record.
 - `model`, `music`, `layout` and `codec` are plain TypeScript: **no framework, no Node
   APIs.** `layout` runs in the browser *and* server-side (ADR-0005, ADR-0022). Enforced by
   the compiler — those packages declare `"types": []` and no DOM lib — and by `tests/arch`.
-- **The op applier is the only thing that writes to the store** (ADR-0003). *V2.*
+- **The op applier is the only thing that writes to the store** (ADR-0003). The seam is there
+  from V2a — `ScoreWriter` is a separate interface for exactly this reason — and the applier
+  that plugs into it arrives in *V2c*.
+- **Nothing outside `packages/api/src/store/sqlite-*.ts` may know SQLite exists** (ADR-0006).
+  The port is the whole argument that hosting is a deployment change and not a rewrite.
 - **MusicXML is a codec at the edges only**, never the runtime truth (ADR-0004).
 - **The adapter never makes layout decisions; `layout` never mentions a renderer**
   (ADR-0014). It is `packages/engrave` now, and the seam is why swapping the renderer
@@ -156,9 +178,12 @@ packages/
   layout     score -> engine-independent positions: the four-bar grid
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM
+  api        the server side: the store, and from V2c the op log and the HTTP routes
   fixtures   hand-authored scores, including the nasty test chart
 tests/
-  unit/  integration/  e2e/  arch/     snapshots/   committed .svg files
+  unit/  integration/  e2e/  arch/     no infra: the `fast` layer
+  store/                               needs a real store: the `infra` layer
+  snapshots/                           committed .svg files
 scripts/     development entry points, not product surface
 ```
 
@@ -209,6 +234,48 @@ note's glyphs need whatever the tempo. Rigid glyph widths come out first and onl
 is shared by time. A bar that does not fill the meter gets only its share of the slack, so
 a short bar looks short rather than being justified into looking correct (ADR-0013).
 
+### The store, and the two things called a version
+
+`packages/api` is the first package allowed to be impure. A score is a JSON document in one
+SQLite column with a few listing columns beside it, behind a port (ADR-0006):
+
+```
+scores(id, owner, title, composer, key, updated_at, version, doc)
+```
+
+`doc` is the truth. `title`, `composer` and `key` are derived from it on every write, so the
+library view can draw a list without deserialising every chart and cannot drift from what it
+lists. `owner` is always `local` and **every query filters on it anyway** — that is what makes
+the hosted transition a change to the auth seam rather than to every statement (R8).
+
+**Two files know SQLite exists**, `store/sqlite-store.ts` and `store/sqlite-schema.ts`, and
+`tests/arch/store-seam.test.ts` holds it to exactly those two. The driver is deliberately not
+a root dependency either, so a test cannot reach past the port to peer at a column — which is
+why the migration tests assert everything through it and are better tests for having had to.
+
+The port comes in halves on purpose. `ScoreReader` is reads and anything may hold one;
+`ScoreWriter` is writes and **only the op applier may hold one** (ADR-0003, V2c). Keeping the
+capability in its own type is what lets that be wired rather than merely intended.
+
+**Two versionings live here and they are not the same thing.** Confusing them is the trap:
+
+- **The document's** `schemaVersion` (ADR-0028) versions the JSON shape. Forward-only, pure
+  function per step, migrated in memory **on read** and written back at the current version. A
+  document from a *newer* version than the running code is a hard error, never a best-effort
+  read.
+- **The score's** `version` is optimistic concurrency (ADR-0003). A write carries the version
+  it expects; a stale one is refused along with the current version.
+
+The write-back therefore **must not touch the score's `version`** — a migration is not an
+edit, and bumping it would make a plain read look like somebody else's write. That is why
+there is a separate SQL statement for it with `version` conspicuously absent from the SET
+clause, and no general "update the document" statement that could do it by accident.
+
+The chain is a *parameter* of the store, not an import, so the write-back path is tested
+against a synthetic migration while `DOCUMENT_MIGRATIONS` is still empty. Every model change
+that alters the document shape owes a migration and a fixture. That is a standing tax and it
+is the point.
+
 ### Never measure text
 
 **Do not use `measureText` or anything that reaches `getBBox()`.** Only a real browser
@@ -242,10 +309,18 @@ need to, say so.
 Follow the test plan in `SLICES.md` for the slice you are on; it is written per slice and it
 is specific.
 
-- **Every layer is currently fast and needs no infra.** When V2 introduces SQLite, split the
-  suite so the no-infra layer stays runnable on its own, and keep the pre-push hook on the
-  fast layer only.
+- **The suite is two layers** (`vitest.config.ts`), split by what a test needs in order to run
+  rather than by what it is about. `fast` is `unit`, `integration`, `e2e` and `arch` and needs
+  nothing installed; `infra` is `store` and needs better-sqlite3's native binding. **The
+  pre-push hook runs `fast` only** — a slow gate gets bypassed and then it protects nothing.
+  `pnpm test` and CI run both.
+- **A new test directory must join a layer.** `tests/arch/suite-layers.test.ts` reads the
+  config and fails if a directory belongs to neither, because the failure mode of a layered
+  suite is a directory that silently never runs while the summary says green.
 - **Every bug and every flake becomes a test first**, then gets fixed.
+- **Prove a new guard by watching it fail.** A guard that has never gone red is a guard you are
+  guessing about. Break the thing it protects, check the failure names the right thing, restore
+  — and do it from a staged or committed tree, never against uncommitted work.
 - The highest-value seam is the HTTP API, because both surfaces go through it (`PLAN.md`).
   Most behavioural tests belong there from V2 on.
 - Snapshots catch unintended change. They do not judge whether the engraving looks *good* —
@@ -257,9 +332,9 @@ Not oversights. Each lands with the slice that needs it.
 
 | Gate | When | Why not now |
 |---|---|---|
-| Containerized test infra | V2 | Nothing needs a database yet |
+| Containerized test infra | probably never | V2a's answer turned out to be that SQLite needs no container: the `infra` layer runs against `:memory:` and temp files. Revisit only if something arrives that genuinely needs a daemon |
 | E2E that boots the stack | V4 | There is no stack to boot |
-| Health endpoint, structured logs | V2 | There is no server |
+| Health endpoint, structured logs | V2d | Still no server. It lands with the routes |
 | Deploy gating | never, as such | Local-only by decision (ADR-0001). V8 ships a container; there is no environment to deploy to |
 | Published docs site | undecided | ADRs already carry the "why". Revisit if the CLI reference outgrows a README |
 | Linter / formatter | undecided | `tsc` is strict and there is one author. Adding one now means reformatting the whole tree; ask first |
