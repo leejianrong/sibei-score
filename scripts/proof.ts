@@ -18,9 +18,8 @@
  *   pnpm proof nasty-chart --systems        every system as its own image
  *   pnpm proof nasty-chart --census         what the SVG contains, vs the snapshot
  *   pnpm proof nasty-chart --pdf            proof the PDF itself, not just the SVG
- *   pnpm proof nasty-chart --bar 6 --engraver   our engraver instead of VexFlow
- *   pnpm proof nasty-chart --bar 6 --compare    both, stacked, same crop and scale
- *   pnpm proof nasty-chart --bar 6 --font jazz  our engraver in the handwritten face
+ *   pnpm proof nasty-chart --bar 6 --compare    the committed snapshot, then this render
+ *   pnpm proof nasty-chart --bar 6 --font jazz  the handwritten face
  *
  * Every run prints a manifest of what it wrote and what each image shows, so the next
  * step — opening the right file — needs no guesswork.
@@ -146,7 +145,7 @@ function rasteriseMarkup(svg: string, zoom: number): Buffer {
 }
 
 // ---------------------------------------------------------------------------
-// Side by side: two engravings of the same layout, one image (ADR-0030, V1b)
+// Side by side: the committed snapshot above, this render below
 // ---------------------------------------------------------------------------
 
 /** Room above each panel for its label, in layout units. */
@@ -180,10 +179,14 @@ function panelContent(markup: string): string {
 /**
  * Stack two renderings of the same crop, labelled, at the same scale.
  *
- * Same layout, same crop rectangle, same zoom — so every difference in the image is a
- * difference in engraving, which is the only way this comparison means anything
- * (ADR-0030). A nested `<svg>` with its own viewBox does the framing, and clips to its
- * panel for free.
+ * Built for the V1b gate, where the two panels were VexFlow and the engraver. VexFlow is
+ * gone, and the tool kept its job by changing what it compares: the **committed
+ * snapshot** above, **this working tree's render** below. Same crop rectangle, same zoom,
+ * so every difference in the image is a change someone made — which is what you want to
+ * look at before accepting a snapshot that has moved. `--census` says *what* changed;
+ * this says what it looks like.
+ *
+ * A nested `<svg>` with its own viewBox does the framing, and clips to its panel free.
  */
 function comparison(panels: { label: string; svg: string }[], crop: Crop): string {
   const height = (crop.height + PANEL_LABEL) * panels.length;
@@ -345,13 +348,17 @@ function census(svg: string): Map<string, number> {
  * exactly the fixture's 15 beamed notes said what had changed and why, where the raw
  * snapshot diff said only "one very long line differs".
  */
+/** The committed snapshot for a fixture's first page, or null if there is none. */
+function snapshotOf(fixture: string): string | null {
+  const path = resolve(`tests/snapshots/${fixture}.page1.svg`);
+  return existsSync(path) ? readFileSync(path, 'utf8') : null;
+}
+
 function reportCensus(fixture: string, svg: string): void {
   const now = census(svg);
-  const snapshotPath = resolve(`tests/snapshots/${fixture}.page1.svg`);
-  const before = existsSync(snapshotPath)
-    ? census(readFileSync(snapshotPath, 'utf8'))
-    : new Map<string, number>();
-  const baseline = existsSync(snapshotPath);
+  const committed = snapshotOf(fixture);
+  const before = committed === null ? new Map<string, number>() : census(committed);
+  const baseline = committed !== null;
 
   const keys = [...new Set([...before.keys(), ...now.keys()])].sort();
   const width = Math.max(...keys.map((k) => k.length));
@@ -390,8 +397,7 @@ interface Options {
   allSystems: boolean;
   census: boolean;
   pdf: boolean;
-  /** Which adapter draws: VexFlow, our engraver, or both stacked. */
-  engraver: boolean;
+  /** Stack the committed snapshot above this render, for reading a snapshot that moved. */
   compare: boolean;
   /** Which face our engraver draws in. Implies `--engraver`. */
   font: MusicFontName;
@@ -406,7 +412,6 @@ function parseArgs(argv: string[]): Options {
     allSystems: false,
     census: false,
     pdf: false,
-    engraver: false,
     compare: false,
     font: 'normal',
   };
@@ -429,9 +434,6 @@ function parseArgs(argv: string[]): Options {
       case '--pdf':
         options.pdf = true;
         break;
-      case '--engraver':
-        options.engraver = true;
-        break;
       case '--compare':
         options.compare = true;
         break;
@@ -441,8 +443,6 @@ function parseArgs(argv: string[]): Options {
           throw new Error(`unknown font: ${String(name)}\nknown: ${MUSIC_FONT_NAMES.join(', ')}`);
         }
         options.font = name as MusicFontName;
-        // Asking for a face is asking to see it.
-        options.engraver = true;
         break;
       }
       case '--paper':
@@ -465,23 +465,14 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
 
   const score = build();
   const result = layout(score, { paper: options.paper });
-  const pages = renderScoreToSvg(score, { paper: options.paper });
-  const vexflow = pages[0]?.svg;
-  if (vexflow === undefined) throw new Error('nothing rendered');
+  const pages = renderScoreToSvg(score, { paper: options.paper }, { font: options.font });
+  const svg = pages[0]?.svg;
+  if (svg === undefined) throw new Error('nothing rendered');
 
   mkdirSync(PROOF_DIR, { recursive: true });
-  writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.svg`), vexflow);
+  writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.svg`), svg);
 
-  // The engraver runs off the same layout, with no DOM in the way (ADR-0030).
-  const engravedFace = musicFontNamed(options.font).data;
-  const engraved =
-    options.engraver || options.compare
-      ? engravePage(result, 0, { staffLines: true, font: options.font })
-      : null;
-  if (engraved !== null) {
-    writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.engraver-${options.font}.svg`), engraved.svg);
-  }
-  const svg = options.engraver && engraved !== null ? engraved.svg : vexflow;
+  const face = musicFontNamed(options.font).data;
 
   const crops: Crop[] = [];
   if (options.allSystems) {
@@ -496,50 +487,39 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
 
   const manifest: Manifest = { fixture, images: [] };
   for (const crop of crops) {
-    if (options.compare && engraved !== null) {
-      const zoom = clamp(TARGET_WIDTH / crop.width, 0.5, 8);
-      const markup = comparison(
-        [
-          { label: 'VexFlow 4.2.5', svg: vexflow },
-          {
-            label: `sibei engraver (${engravedFace.name} ${engravedFace.version})`,
-            svg: engraved.svg,
-          },
-        ],
-        crop,
-      );
-      const file = `${fixture}.${crop.name}.compare.png`;
-      writeFileSync(resolve(PROOF_DIR, file), rasteriseMarkup(markup, zoom));
-      manifest.images.push({
-        file: `out/proof/${file}`,
-        shows: `${crop.what} — VexFlow above, the engraver below, same layout and scale`,
-        zoom,
-      });
-      continue;
+    if (options.compare) {
+      const committed = snapshotOf(fixture);
+      if (committed === null) {
+        process.stdout.write(`\n  no committed snapshot for ${fixture}; nothing to compare\n`);
+      } else {
+        const zoom = clamp(TARGET_WIDTH / crop.width, 0.5, 8);
+        const markup = comparison(
+          [
+            { label: `committed snapshot`, svg: committed },
+            { label: `this render (${face.name} ${face.version})`, svg },
+          ],
+          crop,
+        );
+        const file = `${fixture}.${crop.name}.compare.png`;
+        writeFileSync(resolve(PROOF_DIR, file), rasteriseMarkup(markup, zoom));
+        manifest.images.push({
+          file: `out/proof/${file}`,
+          shows: `${crop.what} — the committed snapshot above, this render below`,
+          zoom,
+        });
+        continue;
+      }
     }
 
     const { png, zoom } = rasterise(svg, crop);
-    const suffix = options.engraver ? `.engraver-${options.font}` : '';
+    const suffix = options.font === 'normal' ? '' : `.${options.font}`;
     const file = `${fixture}.${crop.name}${suffix}.png`;
     writeFileSync(resolve(PROOF_DIR, file), png);
     manifest.images.push({
       file: `out/proof/${file}`,
-      shows: options.engraver
-        ? `${crop.what} — our engraver, ${engravedFace.name} ${engravedFace.version}`
-        : crop.what,
+      shows: `${crop.what} — ${face.name} ${face.version}`,
       zoom,
     });
-  }
-
-  if (engraved !== null && engraved.skipped.length > 0) {
-    // What the spike does not draw, counted rather than implied. A proof image of a
-    // partial engraver is misleading unless it says what is missing (ADR-0030).
-    const listed = engraved.skipped
-      .slice()
-      .sort((a, b) => b.count - a.count)
-      .map((entry) => `${entry.kind} x${entry.count}`)
-      .join(', ');
-    process.stdout.write(`\nthe engraver drew notes only; it passed over: ${listed}\n`);
   }
 
   if (options.pdf) {

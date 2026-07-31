@@ -22,15 +22,14 @@ const REPO = resolve(import.meta.dirname, '../..');
  * assumed.
  *
  * `engrave` is here because it turned out it could be: our own engraver emits SVG markup
- * rather than DOM nodes, so unlike `@sibei/draw` it needs no `document`, no jsdom and no
- * renderer. That is a property worth holding on to — it is what would let a future
- * server-side render drop a headless DOM entirely — so the same guards that keep `layout`
- * portable now apply to it.
+ * rather than DOM nodes, so it needs no `document`, no jsdom and no renderer. That is
+ * what let the server-side render path drop a headless DOM entirely (ADR-0030), so the
+ * same guards that keep `layout` portable now apply to it.
  */
 const FRAMEWORK_FREE = ['model', 'music', 'layout', 'codec', 'engrave'];
 
 /** Present in the repo but framework- or platform-bound by design. */
-const ALLOWED_TO_BE_IMPURE = ['draw', 'pdf', 'api', 'cli', 'ui'];
+const ALLOWED_TO_BE_IMPURE = ['pdf', 'api', 'cli', 'ui'];
 
 const FRAMEWORK_PACKAGES = [
   'svelte',
@@ -157,58 +156,57 @@ describe('the framework-free core', () => {
 
 describe('the draw seam', () => {
   const layoutFiles = sourceFiles(join(REPO, 'packages/layout/src'));
-  const drawFiles = sourceFiles(join(REPO, 'packages/draw/src'));
   const engraveFiles = sourceFiles(join(REPO, 'packages/engrave/src'));
 
-  /** Both adapters, so the seam is asserted per implementation rather than per package. */
-  const adapters: [string, string[]][] = [
-    ['draw', drawFiles],
-    ['engrave', engraveFiles],
-  ].filter((entry): entry is [string, string[]] => (entry[1] as string[]).length > 0);
+  it('has an adapter to check', () => {
+    expect(engraveFiles.length).toBeGreaterThan(0);
+  });
 
-  it('keeps VexFlow out of layout entirely (ADR-0014)', () => {
+  it('keeps a renderer out of layout entirely (ADR-0014)', () => {
     const offenders = layoutFiles.filter((file) => /vexflow|\bVex\b|\bVF\./i.test(codeOf(file)));
     expect(offenders).toEqual([]);
   });
 
-  it('has both adapters to check', () => {
-    expect(adapters.map(([name]) => name)).toEqual(['draw', 'engrave']);
+  it('keeps layout decisions out of the adapter: no grid, no pagination, no page spec', () => {
+    // The adapter is handed positions. If it started resolving them it would be
+    // deciding layout, which is the one thing ADR-0014 forbids it.
+    const offenders = engraveFiles.filter((file) =>
+      /\b(planSystems|allocateWidths|resolvePageSpec|systemVertical|resolveBarAccidentals)\b/.test(
+        codeOf(file),
+      ),
+    );
+    expect(offenders).toEqual([]);
   });
 
-  for (const [name, files] of adapters) {
-    it(`keeps layout decisions out of ${name}: no grid, no pagination, no page spec building`, () => {
-      // The adapter is handed positions. If it started resolving them it would be
-      // deciding layout, which is the one thing ADR-0014 forbids it.
-      const offenders = files.filter((file) =>
-        /\b(planSystems|allocateWidths|resolvePageSpec|systemVertical|resolveBarAccidentals)\b/.test(
-          codeOf(file),
-        ),
-      );
-      expect(offenders).toEqual([]);
-    });
+  it('keeps VexFlow out of the tree entirely (ADR-0030)', () => {
+    // It was pinned to a dead branch behind the seam and is now gone. The seam is what
+    // made both true, and this is what keeps it from creeping back.
+    const manifest = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declared = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
+    expect(declared.filter((dep) => dep.includes('vexflow'))).toEqual([]);
+    expect(exists(join(REPO, 'packages/draw'))).toBe(false);
 
-    it(`keeps Node out of ${name}, which runs in the browser too`, () => {
-      const offenders = files.flatMap((file) =>
-        importsOf(file)
-          .filter((specifier) => NODE_BUILTINS.has(specifier))
-          .map((specifier) => `${file}: ${specifier}`),
-      );
-      expect(offenders).toEqual([]);
-    });
-  }
-
-  it('keeps VexFlow out of the engraver, which is the whole point of it (ADR-0030)', () => {
     const offenders = engraveFiles.filter((file) => /vexflow|\bVex\b|\bVF\./i.test(codeOf(file)));
     expect(offenders).toEqual([]);
   });
 
-  it('keeps text measurement out of both adapters (ADR-0015)', () => {
+  it('keeps text measurement out of the adapter (ADR-0015)', () => {
     // `measureText` and `getBBox` only exist in a real browser, so using either would
     // put text in one place on screen and another in print.
-    const offenders = [...drawFiles, ...engraveFiles].filter((file) =>
-      /\b(measureText|getBBox)\b/.test(codeOf(file)),
-    );
+    const offenders = engraveFiles.filter((file) => /\b(measureText|getBBox)\b/.test(codeOf(file)));
     expect(offenders).toEqual([]);
+  });
+
+  it('keeps a DOM off the server render path, which the engraver is what allows', () => {
+    const manifest = JSON.parse(readFileSync(join(REPO, 'packages/pdf/package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declared = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
+    expect(declared.filter((dep) => dep.includes('jsdom'))).toEqual([]);
   });
 
   it('has a home for every impure package it declares', () => {

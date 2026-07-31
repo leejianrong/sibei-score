@@ -7,6 +7,34 @@
 
 ## Status updates
 
+**2026-07-31 — done. VexFlow is gone and the engraver is what ships.**
+
+V1c built real within-bar spacing and the font seam; V1d finished the glyph set, added
+Petaluma as the `jazz` face, pointed `packages/pdf` at the engraver and removed
+`packages/draw` and the `vexflow` dependency. The committed SVG snapshots are the
+engraver's now, refreshed after reading `pnpm proof --census` and looking at the images.
+
+Three things are worth recording against what this ADR predicted:
+
+- **The estimate held.** 6.5–7.5 focused days was the number; it came in at the low end.
+- **The risk was correctly reassigned.** Beams were an afternoon; spacing was the work,
+  and the single review comment on the spike was about spacing.
+- **The seam was the reason it was cheap.** Swapping the renderer touched no layout code
+  and moved no note on the page, because ADR-0014 had put every position above the bar in
+  `layout` and every glyph below it in the adapter. ADR-0014 now records that.
+
+Two things fell out that this ADR did not anticipate. The server render path **dropped
+jsdom**: the engraver emits markup, so a page render is a pure function from a
+`LayoutResult` to a string, and PDF byte-identity is a property of the design rather than
+of stripping a renderer's element ids. And the layout contract grew
+`LayoutBar.prefixWidth`, because both adapters needed to know where a bar's music starts
+and neither could work it out.
+
+What is *not* done, and is V5's rather than the engraver's: jazz chord-symbol typography —
+`Δ`, `ø`, stacked alterations, parenthesised extensions. The engraver sets a chord symbol
+with its extensions superscripted, which is parity with what VexFlow did. Being *better*
+than that needs the chord grammar (ADR-0012).
+
 **2026-07-31 — V1b run, gate passed.** The engraver spike is in `packages/engrave` and the
 side-by-side is `pnpm proof nasty-chart --bar 6 --compare`. Findings, the estimate and the
 gate outcome: [`docs/v1b-engraver-spike.md`](../v1b-engraver-spike.md).

@@ -11,9 +11,6 @@ importers:
       '@resvg/resvg-js':
         specifier: 2.6.2
         version: 2.6.2
-      '@sibei/draw':
-        specifier: workspace:*
-        version: link:packages/draw
       '@sibei/engrave':
         specifier: workspace:*
         version: link:packages/engrave
@@ -53,18 +50,6 @@ importers:
       vitest:
         specifier: 3.2.4
         version: 3.2.4(@types/node@22.13.1)(jsdom@26.1.0)(tsx@4.23.1)
-
-  packages/draw:
-    dependencies:
-      '@sibei/layout':
-        specifier: workspace:*
-        version: link:../layout
-      '@sibei/model':
-        specifier: workspace:*
-        version: link:../model
-      vexflow:
-        specifier: 4.2.5
-        version: 4.2.5
 
   packages/engrave:
     dependencies:
@@ -897,9 +882,6 @@ packages:
   unicode-trie@2.0.0:
     resolution: {integrity: sha512-x7bc76x0bm4prf1VLg79uhAzKw8DVboClSN5VxJuQ+LKDOVEW9CdH+VY7SP+vX7xCYQqzzgQpFqz15zeLvAtZQ==}
 
-  vexflow@4.2.5:
-    resolution: {integrity: sha512-+P+V2VWFyKcpW4Pwbs0p7nwICRQCzLWvkiPi4RpFlMXh/MRsiN1r7X6yvl1WauoJ4J6pVsnCzTAhC4m1ASlTng==}
-
   vite-node@3.2.4:
     resolution: {integrity: sha512-EbKSKh+bh1E1IFxeO0pg1n4dvoOTt0UDiXMd/qn++r98+jPO1xtJilvXldeuQ8giIB5IkpjCgMleHMNEsGH6pg==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
@@ -1673,8 +1655,6 @@ snapshots:
     dependencies:
       pako: 0.2.9
       tiny-inflate: 1.0.3
-
-  vexflow@4.2.5: {}
 
   vite-node@3.2.4(@types/node@22.13.1)(tsx@4.23.1):
     dependencies:

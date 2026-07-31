@@ -34,23 +34,30 @@ The dependency register of record:
 | onnxruntime | oemer's default inference engine | MIT | Yes | TensorFlow, which oemer also supports |
 | PaddleOCR | Chord-band text recognition | Apache-2.0 | Yes, weights baked in | EasyOCR, same interface shape |
 | OpenCV | Preprocessing: deskew, crop, contrast | Apache-2.0 | Yes | — |
-| VexFlow | Draw adapter | MIT | Yes | Own engraver (ADR-0014) |
-| Bravura | SMuFL music font. Via VexFlow, and since V1b also read directly — see the note below | SIL OFL | Yes | — |
+| Bravura | SMuFL music font, the `normal` face. Vendored metrics and outlines — see the note below | SIL OFL 1.1 | Yes | — |
+| Petaluma | SMuFL music font, the handwritten `jazz` face | SIL OFL 1.1 | Yes | Bravura |
 | SQLite | Store | Public domain | Yes | Postgres at hosting (ADR-0006) |
 | Svelte 5 + Vite | UI shell | MIT | Yes | Framework-free core makes it swappable (ADR-0022) |
 
-### Register note, 2026-07-31: Bravura is now vendored as well as bundled
+### Register note, 2026-07-31: VexFlow out, two fonts vendored in
 
-V1b's engraver reads Bravura's own published metrics rather than VexFlow's copy of them
-(ADR-0030). No new dependency: same font, same SIL OFL 1.1 licence, same offline story.
-What changed is the delivery route, and it changed in the direction this ADR prefers —
-`scripts/vendor-bravura.ts` generates a 12 KB checked-in slice of fifteen glyph outlines
-plus the `engravingDefaults` table from the pinned `bravura-1.392` release, so
-`pnpm install` reaches the network for it never rather than once. Attribution is in
-`packages/engrave/NOTICE.md`.
+**VexFlow has left the register.** ADR-0030 replaced it with our own engraver, and
+`packages/draw` and the `vexflow` dependency were removed at V1d. The register is one
+runtime dependency shorter, and the row it occupied listed "Own engraver" as its own
+fallback, which is now simply what is there.
 
-SMuFL's `glyphnames.json` is read at vendoring time to resolve glyph names to codepoints
-and is **not** redistributed, so it is not a dependency and does not enter this register.
+**jsdom has left the server render path** for the same reason. The engraver emits markup
+rather than DOM nodes, so `packages/pdf` no longer installs a headless DOM.
+
+**Both fonts are vendored, not bundled.** `scripts/vendor-music-fonts.ts` generates a
+checked-in slice of each — 43 glyph outlines plus the `engravingDefaults` table, from a
+pinned release — so `pnpm install` reaches the network for them never rather than once.
+That is the direction this ADR prefers. Attribution is in `packages/engrave/NOTICE.md`.
+
+Two things that run at vendoring time and never ship, so neither enters this register:
+`opentype.js` (MIT), which reads Petaluma's outlines because Petaluma publishes no SVG
+font; and SMuFL's `glyphnames.json`, which resolves glyph names to codepoints and is not
+redistributed.
 
 ## Alternatives considered
 

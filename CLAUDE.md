@@ -7,25 +7,23 @@ stale — fix it.
 
 ## Build status, honestly
 
-**V1 of 14 slices is done** (`SLICES.md`). What exists: the score model, the layout engine,
-the VexFlow draw adapter, and the server-side PDF path. What does **not** exist yet: any
-store, HTTP API, CLI, browser UI, chord grammar, transposition, MusicXML codec, or import
-pipeline. Do not assume a module is there because a plan mentions it.
+**V1 and V1b–V1d are done** (`SLICES.md`). What exists: the score model, the layout
+engine, **our own engraver**, and the server-side PDF path. What does **not** exist yet:
+any store, HTTP API, CLI, browser UI, chord grammar, transposition, MusicXML codec, or
+import pipeline. Do not assume a module is there because a plan mentions it.
 
-**The V1 gate has run and is closed.** The decision: **own the engraver** (ADR-0030). Not
-because VexFlow's output was bad — it was good — but because jazz typography is this
-product's differentiator, and 4.2.5 is the end of a line 5.x cannot continue server-side.
+**VexFlow is gone.** The V1 gate judged its output good and went the other way anyway,
+because jazz typography is this product's differentiator rather than its polish and 4.2.5
+was the end of a line 5.x cannot continue server-side (ADR-0030). `packages/engrave` now
+draws every glyph the layout contract can emit, in either of two faces, and
+`packages/draw` and the `vexflow` dependency have been removed. The reasoning is
+`docs/v1-render-gate.md` then `docs/v1b-engraver-spike.md`; the outcome is on ADR-0030.
 
-**V1b's gate has passed and V1c is done.** `packages/engrave` engraves noteheads, stems,
-flags, ledger lines, beams, accidentals and dots from Bravura's own metrics, behind the
-same seam as the VexFlow adapter, with real within-bar spacing and a font seam that lets a
-face be chosen per render. `pnpm proof nasty-chart --bar 6 --compare` is the demo. The
-gate outcome and the estimate are in `docs/v1b-engraver-spike.md`.
+**Two faces.** `normal` is Bravura, `jazz` is Petaluma — the Real Book look. It is a
+render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
+`renderScoreToPdf(score, {}, { font: 'jazz' })`.
 
-**V1d is what remains**: every glyph the contract can emit that the engraver does not draw
-yet, plus Petaluma as the jazz face, then retiring the VexFlow adapter. Until then the
-engraver is **not wired into the PDF path** — `pnpm render` still goes through VexFlow,
-unchanged, and the committed snapshots are still VexFlow's.
+**V2 is next**, and nothing about it touches the renderer.
 
 ## Commands
 
@@ -33,11 +31,11 @@ unchanged, and the committed snapshots are still VexFlow's.
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
 pnpm check                 # typecheck every package, then the suite. The gate.
 pnpm typecheck             # each package under its own strict config
-pnpm test                  # vitest, 147 tests
+pnpm test                  # vitest, 161 tests
 pnpm test:watch
 pnpm render:nasty          # out/nasty-chart.pdf — the V1 demo
 pnpm render all            # every fixture
-pnpm vendor:bravura        # regenerate the vendored Bravura slice (needs network)
+pnpm vendor:fonts          # regenerate the vendored font slices (needs network)
 pnpm hooks:install         # point git at .githooks (do this once per clone)
 ```
 
@@ -54,15 +52,18 @@ pnpm proof nasty-chart --systems      # every system as its own image
 pnpm proof nasty-chart --bar 6        # one bar, zoom chosen for you
 pnpm proof nasty-chart --system 2 --census
 pnpm proof nasty-chart --pdf          # proof the PDF itself, if a rasteriser is present
-pnpm proof nasty-chart --bar 6 --engraver   # our engraver instead of VexFlow
-pnpm proof nasty-chart --bar 6 --compare    # both, stacked, same crop and same scale
-pnpm proof nasty-chart --bar 6 --font normal  # pick the face; jazz lands with V1d
+pnpm proof nasty-chart --bar 6 --compare    # committed snapshot above, this render below
+pnpm proof nasty-chart --bar 6 --font jazz  # the handwritten face
 ```
 
-`--compare` is what the V1b gate looks at, and it earns its keep the same way `--census`
-does: same `LayoutResult`, same crop, same zoom, so every difference in the image is a
-difference in engraving. It found a stem pointing the wrong way on a note sitting on the
-middle line that twelve green tests had no opinion about.
+`--compare` earns its keep the same way `--census` does. It was built for the V1b gate to
+stack VexFlow against the engraver; VexFlow is gone and it kept its job by changing what
+it compares — the **committed snapshot** above, **your working tree** below, same crop and
+same zoom. Reach for it when a snapshot moves: `--census` tells you *what* changed, this
+tells you what it looks like. Between them they have caught a stem pointing the wrong way
+on a note sitting on the middle line, a repeat sign doubled under a system's opening
+barline, and an ending bracket sitting on top of a chord symbol — none of which any test
+had an opinion about.
 
 Crops are named after the music, not pixel coordinates: layout knows where every system
 and bar sits, so `--bar 11` is exact and the zoom lands at a readable size on its own.
@@ -139,7 +140,9 @@ Breaking one of these breaks a decision of record.
   the compiler — those packages declare `"types": []` and no DOM lib — and by `tests/arch`.
 - **The op applier is the only thing that writes to the store** (ADR-0003). *V2.*
 - **MusicXML is a codec at the edges only**, never the runtime truth (ADR-0004).
-- **`draw` never makes layout decisions; `layout` never mentions VexFlow** (ADR-0014).
+- **The adapter never makes layout decisions; `layout` never mentions a renderer**
+  (ADR-0014). It is `packages/engrave` now, and the seam is why swapping the renderer
+  moved no note on the page (ADR-0030).
 - **Metrically invalid bars are stored and flagged, never rejected** (ADR-0013). Nothing in
   the pipeline may repair or refuse a bar.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built
@@ -151,9 +154,8 @@ Breaking one of these breaks a decision of record.
 packages/
   model      score types, tick arithmetic, pitch, derived metric validity
   layout     score -> engine-independent positions: the four-bar grid
-  draw       layout positions -> glyphs, via VexFlow (pinned to 4.2.5, see below)
-  engrave    layout positions -> glyphs, ours, off Bravura's metrics. V1b spike
-  pdf        server-side render: headless DOM -> SVG -> PDF, metadata pinned
+  engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
+  pdf        server-side render: SVG -> PDF, metadata pinned. No DOM
   fixtures   hand-authored scores, including the nasty test chart
 tests/
   unit/  integration/  e2e/  arch/     snapshots/   committed .svg files
@@ -174,20 +176,24 @@ leave that last one out.
 If you find yourself computing a position *above* the bar in an adapter, it belongs in
 `layout`. If you find yourself naming a glyph in `layout`, it belongs in the adapter.
 
-Two adapters implement the seam now, and `tests/arch` holds both to it. `LayoutBar`
-publishes `prefixWidth` — the room the clef, key and time signature were allocated — so
-both agree on where a bar's *music* starts rather than each guessing.
+`LayoutBar` publishes `prefixWidth` — the room the clef, key and time signature were
+allocated — so an adapter knows where a bar's *music* starts rather than guessing. It was
+added when there were two adapters and they disagreed. A repeat sign is still the
+adapter's to make room for, which is the same gap one size smaller.
 
-### The engraver, and how Bravura gets in
+### The engraver, and how the fonts get in
 
 `packages/engrave` is framework-free like `layout` and `model`: it emits SVG **markup**
 rather than DOM nodes, so it needs no `document` and no jsdom. Keep it that way — a test
 deletes `globalThis.document` and renders anyway.
 
-Its metrics are vendored, not derived. `packages/engrave/src/fonts/*.generated.ts` is
-generated by `pnpm vendor:bravura` from a pinned release and is **not edited by hand**:
-glyph outlines plus `engravingDefaults`, cross-checked between the font's SMuFL metadata
-and its own outlines. Licensing is in `packages/engrave/NOTICE.md` (SIL OFL 1.1).
+Its metrics are vendored, not derived. `packages/engrave/src/fonts/*.generated.ts` are
+generated by `pnpm vendor:fonts` from pinned releases and are **not edited by hand**: 43
+glyph outlines plus `engravingDefaults` per face, each cross-checked against a second file
+of the same release before it is written. Bravura's outlines come from its own SVG font;
+Petaluma ships only OTF, so `opentype.js` reads it — a devDependency that runs at
+vendoring time and never ships. Licensing is in `packages/engrave/NOTICE.md` (SIL OFL 1.1
+for both).
 
 The rule that follows: **no tuning constants, and no font by name.** A stem's attachment
 comes from the notehead's `stemUpSE` anchor, a flag's from its `stemUpNW`, every thickness
@@ -203,26 +209,18 @@ note's glyphs need whatever the tempo. Rigid glyph widths come out first and onl
 is shared by time. A bar that does not fill the meter gets only its share of the slack, so
 a short bar looks short rather than being justified into looking correct (ADR-0013).
 
-### VexFlow is pinned to 4.2.5, and is on its way out
+### Never measure text
 
-Do not upgrade to 5.x, and do not invest in it either. 4.x draws every music glyph as a
-filled `<path>`; 5.x draws them as Bravura `<text>` measured through a canvas, which a
-headless DOM does not have. That breaks server-side rendering outright and would make
-byte-stable PDF output depend on font subsetting.
+**Do not use `measureText` or anything that reaches `getBBox()`.** Only a real browser
+implements them, so measuring would place text in one position on screen and another in
+print, and ADR-0015 requires those cannot drift. Place text with SVG `text-anchor`
+instead (`packages/engrave/src/text.ts`), and size a box from the font size and the
+character count rather than from a measurement. `tests/arch` enforces this.
 
-It stays in place behind the seam, unchanged, until our own engraver reaches parity
-(ADR-0030). Fix bugs in the adapter, but do not extend it — new engraving work belongs in
-`packages/engrave`. Reasoning in full: `docs/v1-render-gate.md`, then
-`docs/v1b-engraver-spike.md`.
-
-The committed SVG snapshots are the **specification** the new engraver has to meet, and
-`pnpm proof --census` is how you read the difference. That is the whole reason this
-replacement is affordable.
-
-For the same reason, **do not use `ctx.measureText` or anything that reaches `getBBox()`**
-in `draw`. Only a real browser implements it, so measuring would place text differently on
-screen and in print, and ADR-0015 requires those cannot drift. Place text with SVG
-`text-anchor` instead (`packages/draw/src/text.ts`).
+The same rule is why no music glyph is text: every one is a filled `<path>` taken from the
+font's own outline, so nothing is embedded, nothing is subsetted, and the PDF bytes are
+stable run to run. Keeping that property was a large part of why VexFlow 5 was never an
+option (`docs/v1-render-gate.md`).
 
 ## Workflow
 
@@ -265,5 +263,5 @@ Not oversights. Each lands with the slice that needs it.
 | Deploy gating | never, as such | Local-only by decision (ADR-0001). V8 ships a container; there is no environment to deploy to |
 | Published docs site | undecided | ADRs already carry the "why". Revisit if the CLI reference outgrows a README |
 | Linter / formatter | undecided | `tsc` is strict and there is one author. Adding one now means reformatting the whole tree; ask first |
-| Rests, clefs, key/time signatures, barlines, ties, chord symbols in the engraver | V1d | The gate passed and the estimate is real; V1d finishes the glyph set and retires `draw` (ADR-0030) |
-| The jazz face | V1d | The seam is built and Bravura sits behind it. Petaluma needs a font parser at vendoring time, because it ships no SVG font |
+| Jazz chord-symbol typography — `Δ`, `ø`, stacked alterations | V5 | The engraver superscripts a chord's extensions, which is parity. Being *better* needs the chord grammar (ADR-0012) |
+| Beams across rests, cross-beat groups | when a fixture needs one | Nothing in the corpus beams across a rest, and inventing the case would mean inventing the convention too |

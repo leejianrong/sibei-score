@@ -1,4 +1,4 @@
-import { HANDLED_ITEM_KINDS, styleForRole } from '@sibei/draw';
+import { ENGRAVED_ITEM_KINDS, styleForRole } from '@sibei/engrave';
 import { everyGlyphChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutBarItemKind, LayoutResult } from '@sibei/layout';
 import { LAYOUT_BAR_ITEM_KINDS, LAYOUT_TEXT_ROLES, layout } from '@sibei/layout';
@@ -7,12 +7,11 @@ import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
 
 /**
- * The draw adapter handles every kind the layout contract can emit, with nothing
- * silently dropped (ADR-0014). Asserted three ways: the declared sets agree, a fixture
- * actually emits all of them, and drawing that fixture raises nothing.
+ * The engraver handles every kind the layout contract can emit, with nothing silently
+ * dropped (ADR-0014). Asserted three ways: the declared sets agree, a fixture actually
+ * emits all of them, and drawing that fixture raises nothing.
  *
- * Drawing goes through `@sibei/pdf`, which owns the headless DOM the adapter needs.
- * That keeps the DOM plumbing in one place and exercises the real server path.
+ * Drawing goes through `@sibei/pdf`, which is the real server path.
  */
 
 function kindsEmittedBy(result: LayoutResult): Set<LayoutBarItemKind> {
@@ -33,7 +32,7 @@ function draw(score: Score): string[] {
 
 describe('the item-kind contract', () => {
   it('is handled in full by the adapter', () => {
-    expect([...HANDLED_ITEM_KINDS].sort()).toEqual([...LAYOUT_BAR_ITEM_KINDS].sort());
+    expect([...ENGRAVED_ITEM_KINDS].sort()).toEqual([...LAYOUT_BAR_ITEM_KINDS].sort());
   });
 
   it('lists every kind exactly once', () => {

@@ -1,10 +1,8 @@
-import { drawPage } from '@sibei/draw';
 import { ENGRAVED_ITEM_KINDS, engravePage } from '@sibei/engrave';
 import { beamingChart, everyGlyphChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutResult } from '@sibei/layout';
-import { LAYOUT_BAR_ITEM_KINDS, layout } from '@sibei/layout';
+import { LAYOUT_BAR_ITEM_KINDS, STAFF_SPACE, layout } from '@sibei/layout';
 import { notesInReadingOrder } from '@sibei/model';
-import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -27,13 +25,6 @@ function engravedStaffLines(svg: string): number[] {
   return [...svg.matchAll(/class="se-stafflines" x="[\d.]+" y="([\d.]+)" [^/]*height="([\d.]+)"/g)]
     .map((match) => Number(match[1]) + Number(match[2]) / 2)
     .map((y) => Number(y.toFixed(3)));
-}
-
-/** The y of every VexFlow staff line: it draws them as horizontal one-pixel paths. */
-function vexflowStaffLines(svg: string): number[] {
-  return [...svg.matchAll(/d="M[\d.]+ ([\d.]+)L[\d.]+ ([\d.]+)"/g)]
-    .filter((match) => match[1] === match[2])
-    .map((match) => Number(match[1]));
 }
 
 describe('the engraver behind the same seam', () => {
@@ -73,9 +64,9 @@ describe('the engraver behind the same seam', () => {
   });
 
   it('needs no DOM: the same call works with `document` undefined', () => {
-    // `@sibei/draw` cannot do this — VexFlow builds elements with the global document,
-    // which is why the PDF path installs jsdom. Worth pinning, because it is a real
-    // simplification the replacement buys and it would be easy to lose.
+    // The VexFlow adapter could not do this: it built elements with the global document,
+    // which is why the PDF path used to install jsdom. Worth pinning, because losing it
+    // would quietly put a headless DOM back on the server render path.
     const globals = globalThis as Record<string, unknown>;
     const saved = globals['document'];
     delete globals['document'];
@@ -87,38 +78,20 @@ describe('the engraver behind the same seam', () => {
   });
 });
 
-/**
- * The VexFlow adapter, rendered directly rather than through `@sibei/pdf` — which now
- * goes through the engraver, since the engraver is what ships. Keeping this route open
- * is what lets `pnpm proof --compare` and the test below stay honest comparisons while
- * `packages/draw` is still here to compare against.
- */
-function vexflowSvg(result: LayoutResult): string {
-  const dom = new JSDOM('<!doctype html><html><body></body></html>');
-  const globals = globalThis as Record<string, unknown>;
-  globals['window'] = dom.window;
-  globals['document'] = dom.window.document;
-  const host = dom.window.document.createElement('div');
-  dom.window.document.body.appendChild(host);
-  drawPage(result, 0, host);
-  return host.innerHTML;
-}
-
-describe('both adapters, one layout', () => {
-  it('agrees with VexFlow on where every staff line sits', () => {
-    // One LayoutResult, both renderers. Same object, so a disagreement here can only be
-    // the adapters, which is exactly what the gate's side-by-side needs to be true.
+describe('the staff, where layout said to put it', () => {
+  it('draws five lines a staff space apart, per system', () => {
     const result = layout(nastyChart());
-    const vexflow = vexflowSvg(result);
-
-    const ours = engravedStaffLines(engraved(result));
-    const theirs = vexflowStaffLines(vexflow);
-
-    // Five lines per system, and page 1 holds every system of this chart.
+    const lines = engravedStaffLines(engraved(result));
     const systems = result.pages[0]?.systems.length ?? 0;
     expect(systems).toBeGreaterThan(1);
-    expect(ours).toHaveLength(systems * 5);
-    expect(theirs).toEqual(expect.arrayContaining(ours));
+    expect(lines).toHaveLength(systems * 5);
+
+    for (let index = 0; index < lines.length; index += 5) {
+      const group = lines.slice(index, index + 5);
+      for (let line = 1; line < group.length; line += 1) {
+        expect((group[line] ?? 0) - (group[line - 1] ?? 0)).toBeCloseTo(STAFF_SPACE, 6);
+      }
+    }
   });
 
   it('puts the top staff line exactly where layout said the stave goes', () => {
