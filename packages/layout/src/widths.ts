@@ -20,6 +20,8 @@ export interface AllocatedBar {
   width: number;
   isPickup: boolean;
   prefix: BarPrefix;
+  /** Room this bar's clef, key signature and time signature were allocated. */
+  prefixWidth: number;
 }
 
 /** Rough widths in units, only ever used as allocation weights. */
@@ -34,6 +36,16 @@ const DOT_WIDTH = 6;
 const CHORD_CHARACTER_WIDTH = 7;
 const CHORD_GAP = 14;
 
+/**
+ * How much of a bar's box its clef, key signature and time signature take up.
+ *
+ * Published on every `AllocatedBar` and carried into the layout contract, because an
+ * adapter needs it to know where a bar's *music* starts and cannot work it out: it is
+ * layout's own allocation, not a measurement of any font's glyphs. Keeping it private
+ * meant each adapter guessed a second time and the two disagreed on the x of a bar's
+ * first notehead — which the V1b spike's side-by-side made obvious
+ * (`docs/v1b-engraver-spike.md`).
+ */
 function prefixWidth(score: Score, prefix: BarPrefix): number {
   let width = 0;
   if (prefix.clef) width += CLEF_WIDTH;
@@ -120,6 +132,7 @@ export function allocateWidths(
       width,
       isPickup: true,
       prefix,
+      prefixWidth: prefixWidth(score, prefix),
     });
     x += width;
     remaining -= width;
@@ -142,7 +155,15 @@ export function allocateWidths(
     const isLast = index === system.bars.length - 1;
     // The last bar absorbs rounding so a system's right edge lands exactly on the margin.
     const width = isLast ? left + available - x : (widths[index] ?? 0);
-    allocated.push({ bar, x, width, isPickup: false, prefix: prefixes[index] ?? noPrefix() });
+    const prefix = prefixes[index] ?? noPrefix();
+    allocated.push({
+      bar,
+      x,
+      width,
+      isPickup: false,
+      prefix,
+      prefixWidth: prefixWidth(score, prefix),
+    });
     x += width;
   }
 

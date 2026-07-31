@@ -18,6 +18,8 @@
  *   pnpm proof nasty-chart --systems        every system as its own image
  *   pnpm proof nasty-chart --census         what the SVG contains, vs the snapshot
  *   pnpm proof nasty-chart --pdf            proof the PDF itself, not just the SVG
+ *   pnpm proof nasty-chart --bar 6 --engraver   the V1b engraver instead of VexFlow
+ *   pnpm proof nasty-chart --bar 6 --compare    both, stacked, same crop and scale
  *
  * Every run prints a manifest of what it wrote and what each image shows, so the next
  * step — opening the right file — needs no guesswork.
@@ -27,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
+import { BRAVURA_SOURCE, engravePage } from '@sibei/engrave';
 import { everyGlyphChart, beamingChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
@@ -127,14 +130,83 @@ function rasterise(svg: string, crop: Crop): { png: Buffer; zoom: number } {
     .replace(/\swidth="[^"]*"/, ` width="${crop.width}"`)
     .replace(/\sheight="[^"]*"/, ` height="${crop.height}"`);
 
-  const png = new Resvg(framed, {
+  return { png: rasteriseMarkup(framed, zoom), zoom };
+}
+
+function rasteriseMarkup(svg: string, zoom: number): Buffer {
+  const png = new Resvg(svg, {
     background: 'white',
     fitTo: { mode: 'zoom', value: zoom },
   })
     .render()
     .asPng();
+  return Buffer.from(png);
+}
 
-  return { png: Buffer.from(png), zoom };
+// ---------------------------------------------------------------------------
+// Side by side: two engravings of the same layout, one image (ADR-0030, V1b)
+// ---------------------------------------------------------------------------
+
+/** Room above each panel for its label, in layout units. */
+const PANEL_LABEL = 26;
+
+/** Attributes on the root `<svg>` that describe the frame rather than the ink. */
+const FRAME_ATTRIBUTES = new Set(['xmlns', 'width', 'height', 'viewBox', 'version']);
+
+/**
+ * A document's ink, re-parented so it can be dropped into a nested `<svg>`.
+ *
+ * The root `<svg>` cannot simply be discarded. VexFlow puts `fill`, `stroke` and
+ * `stroke-width` on it and lets every element inherit them, so an inner fragment lifted
+ * out on its own loses every stem and barline — which is exactly what the first version
+ * of this function did, and the missing stems were visible in the proof image within a
+ * minute. Those attributes move to a wrapping `<g>` instead.
+ */
+function panelContent(markup: string): string {
+  const open = markup.indexOf('>');
+  const close = markup.lastIndexOf('</svg>');
+  if (open === -1 || close === -1) throw new Error('not an SVG document');
+
+  const inherited = [...markup.slice(0, open).matchAll(/([\w-]+)="([^"]*)"/g)]
+    .filter((match) => !FRAME_ATTRIBUTES.has(match[1] ?? ''))
+    .map((match) => ` ${match[1]}="${match[2]}"`)
+    .join('');
+
+  return `<g${inherited}>${markup.slice(open + 1, close)}</g>`;
+}
+
+/**
+ * Stack two renderings of the same crop, labelled, at the same scale.
+ *
+ * Same layout, same crop rectangle, same zoom — so every difference in the image is a
+ * difference in engraving, which is the only way this comparison means anything
+ * (ADR-0030). A nested `<svg>` with its own viewBox does the framing, and clips to its
+ * panel for free.
+ */
+function comparison(panels: { label: string; svg: string }[], crop: Crop): string {
+  const height = (crop.height + PANEL_LABEL) * panels.length;
+  // A one-bar crop is narrower than a sentence, so the label is sized to fit it rather
+  // than running off the edge. Half an em per character is close enough for a serif.
+  const longest = Math.max(...panels.map((panel) => panel.label.length));
+  const fontSize = clamp(crop.width / (longest * 0.55), 6, 16);
+
+  const body = panels.flatMap((panel, index) => {
+    const top = index * (crop.height + PANEL_LABEL);
+    return [
+      `<text x="6" y="${top + PANEL_LABEL - 8}" font-family="Times New Roman, serif" ` +
+        `font-size="${fontSize.toFixed(2)}" fill="#000000">${panel.label}</text>`,
+      `<line x1="0" y1="${top}" x2="${crop.width}" y2="${top}" stroke="#b0b0b0" stroke-width="0.6"/>`,
+      `<svg x="0" y="${top + PANEL_LABEL}" width="${crop.width}" height="${crop.height}" ` +
+        `viewBox="${crop.x} ${crop.y} ${crop.width} ${crop.height}">${panelContent(panel.svg)}</svg>`,
+    ];
+  });
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${crop.width} ${height}" ` +
+    `width="${crop.width}" height="${height}">` +
+    `<rect x="0" y="0" width="${crop.width}" height="${height}" fill="#ffffff"/>` +
+    `${body.join('')}</svg>`
+  );
 }
 
 function clamp(value: number, low: number, high: number): number {
@@ -309,6 +381,9 @@ interface Options {
   allSystems: boolean;
   census: boolean;
   pdf: boolean;
+  /** Which adapter draws: VexFlow, the V1b engraver, or both stacked. */
+  engraver: boolean;
+  compare: boolean;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -320,6 +395,8 @@ function parseArgs(argv: string[]): Options {
     allSystems: false,
     census: false,
     pdf: false,
+    engraver: false,
+    compare: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -339,6 +416,12 @@ function parseArgs(argv: string[]): Options {
         break;
       case '--pdf':
         options.pdf = true;
+        break;
+      case '--engraver':
+        options.engraver = true;
+        break;
+      case '--compare':
+        options.compare = true;
         break;
       case '--paper':
         options.paper = argv[(i += 1)] as Paper;
@@ -361,11 +444,19 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
   const score = build();
   const result = layout(score, { paper: options.paper });
   const pages = renderScoreToSvg(score, { paper: options.paper });
-  const svg = pages[0]?.svg;
-  if (svg === undefined) throw new Error('nothing rendered');
+  const vexflow = pages[0]?.svg;
+  if (vexflow === undefined) throw new Error('nothing rendered');
 
   mkdirSync(PROOF_DIR, { recursive: true });
-  writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.svg`), svg);
+  writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.svg`), vexflow);
+
+  // The engraver runs off the same layout, with no DOM in the way (ADR-0030).
+  const engraved =
+    options.engraver || options.compare ? engravePage(result, 0, { staffLines: true }) : null;
+  if (engraved !== null) {
+    writeFileSync(resolve(PROOF_DIR, `${fixture}.page1.engraver.svg`), engraved.svg);
+  }
+  const svg = options.engraver && engraved !== null ? engraved.svg : vexflow;
 
   const crops: Crop[] = [];
   if (options.allSystems) {
@@ -380,10 +471,48 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
 
   const manifest: Manifest = { fixture, images: [] };
   for (const crop of crops) {
+    if (options.compare && engraved !== null) {
+      const zoom = clamp(TARGET_WIDTH / crop.width, 0.5, 8);
+      const markup = comparison(
+        [
+          { label: 'VexFlow 4.2.5', svg: vexflow },
+          {
+            label: `sibei engraver (${BRAVURA_SOURCE.fontName} ${BRAVURA_SOURCE.fontVersion})`,
+            svg: engraved.svg,
+          },
+        ],
+        crop,
+      );
+      const file = `${fixture}.${crop.name}.compare.png`;
+      writeFileSync(resolve(PROOF_DIR, file), rasteriseMarkup(markup, zoom));
+      manifest.images.push({
+        file: `out/proof/${file}`,
+        shows: `${crop.what} — VexFlow above, the engraver below, same layout and scale`,
+        zoom,
+      });
+      continue;
+    }
+
     const { png, zoom } = rasterise(svg, crop);
-    const file = `${fixture}.${crop.name}.png`;
+    const suffix = options.engraver ? '.engraver' : '';
+    const file = `${fixture}.${crop.name}${suffix}.png`;
     writeFileSync(resolve(PROOF_DIR, file), png);
-    manifest.images.push({ file: `out/proof/${file}`, shows: crop.what, zoom });
+    manifest.images.push({
+      file: `out/proof/${file}`,
+      shows: options.engraver ? `${crop.what} — engraved by the V1b spike` : crop.what,
+      zoom,
+    });
+  }
+
+  if (engraved !== null && engraved.skipped.length > 0) {
+    // What the spike does not draw, counted rather than implied. A proof image of a
+    // partial engraver is misleading unless it says what is missing (ADR-0030).
+    const listed = engraved.skipped
+      .slice()
+      .sort((a, b) => b.count - a.count)
+      .map((entry) => `${entry.kind} x${entry.count}`)
+      .join(', ');
+    process.stdout.write(`\nthe engraver drew notes only; it passed over: ${listed}\n`);
   }
 
   if (options.pdf) {
