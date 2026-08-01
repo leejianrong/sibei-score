@@ -131,6 +131,19 @@ describe('exporting a chart as a PDF (V3, R0)', () => {
     expect(reply.headers.get('content-disposition')).toBe('attachment; filename="a b x y.pdf"');
   });
 
+  it('falls back to "score.pdf" for a chart created without a title', async () => {
+    // KAN-594 made an omitted title default to '' rather than to the word 'Untitled', so this is
+    // the ordinary case now rather than an edge one. Verified rather than assumed: an empty stem
+    // must not produce a `filename=".pdf"`, which is what a browser turns into a nameless download.
+    await json('POST', '/v1/scores', {
+      operation: { type: 'score.create', payload: { id: 'nameless', barCount: 2 } },
+    });
+    const reply = await download('/v1/scores/nameless/export');
+
+    expect(reply.status).toBe(200);
+    expect(reply.headers.get('content-disposition')).toBe('attachment; filename="score.pdf"');
+  });
+
   it('404s a score that is not there, in the shape every other route uses', async () => {
     const response = await fetch(`${base}/v1/scores/nope/export`);
     expect(response.status).toBe(404);

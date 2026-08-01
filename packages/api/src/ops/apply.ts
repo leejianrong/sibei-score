@@ -2,7 +2,7 @@ import {
   DEFAULT_KEY,
   DEFAULT_TIME,
   SCHEMA_VERSION,
-  isMetricallyValid,
+  barReview,
   makeBar,
   makeNote,
   makeRest,
@@ -21,7 +21,6 @@ import type {
   Id,
   KeySignature,
   Note,
-  Review,
   Score,
   TimeSignature,
 } from '@sibei/model';
@@ -149,8 +148,10 @@ function createScore(payload: ScoreCreatePayload): Applied {
     bars: bars.map((bar) => makeBar({ id: bar.id, number: bar.number })),
   });
 
-  // Every bar of a blank chart is empty, so every numbered bar is metrically short. ADR-0013
-  // says flag it, and the projection's `!` is how a reader is pointed at it.
+  // A blank chart now comes out with no flags on it, because an empty bar is not a review case
+  // (KAN-597): this used to leave every one of 32 bars flagged, which is a review signal firing on
+  // 100% of every new document. So for a blank head this is a no-op — and it stays anyway, because
+  // v0.2's import is one `score.create` (see above) and the bars it opens will hold notes.
   const flagged = reflagAllBars(score);
 
   return {
@@ -345,15 +346,20 @@ function reflagAllBars(score: Score): Score {
  * "stored and flagged": a bar that does not sum to the meter carries `metrically-invalid` in its
  * review, and one that does no longer carries it.
  *
- * Only that one reason is touched. v0.2 sets `low-confidence` and friends from the import
- * pipeline, and a rhythm edit has no business clearing those.
+ * The rule itself is `barReview` in `@sibei/model`, not a second copy of it here. That matters
+ * because as of KAN-597 the model **derives** this reason at read time in every consumer, and the
+ * stored copy this function writes is a write-through cache rather than the authority. Two
+ * implementations of one rule is how the authority and the cache came to disagree in the first
+ * place; borrowing the model's means the stored copy can only ever be out of date, never wrong in
+ * principle. Dropping the stored copy altogether is a document shape change owing a migration and a
+ * fixture (ADR-0028), so it is booked separately.
+ *
+ * Only the derivable reason is touched, which is `barReview`'s guarantee: v0.2 sets
+ * `low-confidence` and friends from the import pipeline, and a rhythm edit has no business
+ * clearing those.
  */
 function reflag(bar: Bar, time: TimeSignature): Bar {
-  const invalid = !isMetricallyValid(bar, time);
-  const others = bar.review.reasons.filter((reason) => reason !== 'metrically-invalid');
-  const reasons = invalid ? [...others, 'metrically-invalid' as const] : others;
-  const review: Review = { flagged: reasons.length > 0, reasons };
-  return { ...bar, review };
+  return { ...bar, review: barReview(bar, time) };
 }
 
 // ---------------------------------------------------------------------------

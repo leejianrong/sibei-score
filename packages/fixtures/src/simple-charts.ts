@@ -107,10 +107,11 @@ export function everyGlyphChart(): Score {
  * nothing at all. The corpus had no such fixture, which is why an untitled chart could
  * reserve an inch and a half for a header it never drew and nothing noticed (KAN-525).
  *
- * The empty title is deliberate rather than an omission: `makeScore` defaults a missing
- * one to 'Untitled', so this is the state a `meta.set --title ""` leaves behind and the
- * state a browser holds between creating a score and naming it — the first thing a new
- * V4 user will ever see rendered.
+ * The empty title is deliberate rather than an omission, and since KAN-594 it is also
+ * what `makeScore` defaults to — so this is the state a plain `sbscore new` produces, the
+ * state a `meta.set --title ""` leaves behind, and the state a browser holds between
+ * creating a score and naming it. It was the second and third of those when this fixture
+ * was written, because the default was then the word 'Untitled'.
  *
  * Eight bars, so it has a second system whose spacing is ordinary and can be compared
  * against the first. Bar 1 carries a rehearsal letter on purpose: with the band gone the

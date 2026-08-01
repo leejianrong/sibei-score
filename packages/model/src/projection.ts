@@ -1,7 +1,7 @@
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { orderedItems } from './address.js';
-import { NEEDS_REVIEW, reviewSummary } from './review.js';
+import { barReview, NEEDS_REVIEW, reviewSummary } from './review.js';
 import type { Bar, BarItem, Score, TimeSignature } from './score.js';
 
 /**
@@ -69,7 +69,11 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
 function header(score: Score): string {
   const { title, composer, key, time, style } = score.meta;
   const bars = score.bars.filter((bar) => bar.number !== 0).length;
-  const parts = [title];
+  // An unnamed chart is now the state a plain `sbscore new` leaves behind (KAN-594), so the title
+  // is omitted the way the composer and the style line already are, rather than printed as an empty
+  // cell that leaves a leading em-dash on the line. The header degrades to the key, meter and
+  // length, which is the same set the printed page shows when its title band collapses (KAN-525).
+  const parts = title === '' ? [] : [title];
   if (composer !== '') parts.push(composer);
   parts.push(`key ${formatKeySignature(key)}, ${time.beats}/${time.beatValue}, ${bars} bars`);
   if (style !== null && style !== '') parts.push(style);
@@ -140,7 +144,10 @@ function melodyLine(bar: Bar, time: TimeSignature): string | null {
   const items = orderedItems(bar);
   if (items.length === 0) return null;
 
-  const label = `bar${bar.number}${bar.review.flagged ? '!' : ''}`;
+  // `barReview`, not `bar.review`: the `!` and the header's count line must be the same fact, and
+  // reading the stored flag here made them two (KAN-597). The chord and item `!` below stay stored,
+  // because nothing can derive a chord's `unparsed-chord` or a note's `low-confidence`.
+  const label = `bar${bar.number}${barReview(bar, time).flagged ? '!' : ''}`;
   const parts = items.map((item, index) => `n${index + 1} ${describe(item, bar)}`);
   return `${label.padEnd(7)}${parts.join('  ')}`;
 }
