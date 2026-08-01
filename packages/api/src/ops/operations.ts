@@ -125,6 +125,40 @@ export interface StoredOperation {
 /** A list applied in one transaction: all of it, or none of it (ADR-0008). */
 export interface Batch {
   operations: readonly Operation[];
-  /** The version the client believes the score is at. Absent for a create. */
+  /**
+   * The version the client believes the score is at (ADR-0003).
+   *
+   * **Required for every batch that is not a create, and a batch without one is refused** — see
+   * `isCreateBatch`. This used to say only "absent for a create", which was the intent and was
+   * enforced by nothing: an edit that omitted it applied against whatever the score happened to be
+   * at, overwriting the last writer with no conflict and no signal (KAN-607). Optional in the type
+   * because the exemption is real and cannot be expressed in one: whether a batch is a create is
+   * decided by `operations[0].type`, which is data rather than something a type can discriminate on
+   * across the wire.
+   */
   expectedVersion?: number;
+}
+
+/**
+ * Whether this batch creates the score it is about, and is therefore the one kind of batch with no
+ * version to expect.
+ *
+ * **One expression, used twice**: it picks the applier's create-versus-mutate path *and* it decides
+ * the `expectedVersion` exemption. Two conditions saying the same thing in two places is how a
+ * later edit to one of them turns the exemption into a hole — this rule has to be that the exempt
+ * batch is exactly the batch that has nothing to be stale against.
+ *
+ * Only the *first* operation decides. A create further down a batch is not an exemption, and it is
+ * refused on its own account (`conflict-exists`, or `bad-first-operation` for the reverse case).
+ *
+ * A create that carries an `expectedVersion` anyway is **ignored rather than refused**, which is the
+ * one place this file tolerates a field going unused. It was weighed against this repo's habit of
+ * refusing anything it cannot honour (an unsupported `paper` is a 422, an address never snaps) and
+ * the cases are not alike: those change what the caller gets back, whereas a create is already
+ * guarded — by an id that is either taken or not — so the field is redundant rather than misleading.
+ * Refusing it would also make `POST /v1/scores` fail for a client that sent one field too many,
+ * which is a poor trade for a redundancy.
+ */
+export function isCreateBatch(batch: Batch): boolean {
+  return batch.operations[0]?.type === 'score.create';
 }

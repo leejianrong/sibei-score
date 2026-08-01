@@ -76,7 +76,17 @@ async function json(method: string, path: string, body?: unknown): Promise<Recor
 
 async function aChart(): Promise<void> {
   await json('POST', '/v1/scores', { operation: CREATE });
-  await json('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+  await edit(note('bar1.beat1', 'Eb5'));
+}
+
+/**
+ * An edit at whatever version the score is at now. Every write must name a version and one that does
+ * not is refused (ADR-0003, KAN-607) — an export is a read and none of this file is about the check,
+ * so the version is read rather than counted out by hand.
+ */
+async function edit(operation: Operation): Promise<Record<string, unknown>> {
+  const at = (await json('GET', '/v1/scores/score-1')).version as number;
+  return json('POST', '/v1/scores/score-1/ops', { operation, expectedVersion: at });
 }
 
 interface Download {
@@ -153,7 +163,7 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     await aChart();
     const before = await download('/v1/scores/score-1/export');
 
-    await json('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat3', 'G5') });
+    await edit(note('bar1.beat3', 'G5'));
 
     const after = await download('/v1/scores/score-1/export');
     expect(after.bytes.equals(before.bytes)).toBe(false);
@@ -168,7 +178,7 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     // The other half of "no invalidation logic": a key is not consumed by being superseded.
     await aChart();
     const first = await download('/v1/scores/score-1/export');
-    await json('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat3', 'G5') });
+    await edit(note('bar1.beat3', 'G5'));
     await download('/v1/scores/score-1/export');
 
     await json('DELETE', '/v1/scores/score-1');
@@ -189,7 +199,7 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
 
     await json('DELETE', '/v1/scores/score-1');
     await json('POST', '/v1/scores', { operation: CREATE });
-    await json('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'C4') });
+    await edit(note('bar1.beat1', 'C4'));
 
     const second = await download('/v1/scores/score-1/export');
     expect(second.bytes.equals(first.bytes)).toBe(false);

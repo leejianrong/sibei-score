@@ -59,7 +59,12 @@ export interface Client {
   read(id: string): Promise<{ score: Score; version: number; updatedAt: string }>;
   remove(id: string): Promise<void>;
   create(operations: Operation[]): Promise<ApplyWire>;
-  apply(id: string, operations: Operation[], expectedVersion?: number): Promise<ApplyWire>;
+  /**
+   * `expectedVersion` is **required**, not optional (ADR-0003, KAN-607). The server refuses a write
+   * without one, and the compiler refusing one here is what stops this client being the reason
+   * somebody rediscovers that at runtime.
+   */
+  apply(id: string, operations: Operation[], expectedVersion: number): Promise<ApplyWire>;
   exportScore(id: string, query: ExportQuery): Promise<Download>;
   health(): Promise<{ status: string; api: string }>;
 }
@@ -176,10 +181,7 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
     remove: (id) => call('DELETE', `/v1/scores/${encodeURIComponent(id)}`),
     create: (operations) => call('POST', '/v1/scores', { operations }),
     apply: (id, operations, expectedVersion) =>
-      call('POST', `/v1/scores/${encodeURIComponent(id)}/ops`, {
-        operations,
-        ...(expectedVersion === undefined ? {} : { expectedVersion }),
-      }),
+      call('POST', `/v1/scores/${encodeURIComponent(id)}/ops`, { operations, expectedVersion }),
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that
       // have to agree about what a default is, and the query is the export cache's key (Q81).

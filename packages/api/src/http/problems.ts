@@ -20,7 +20,17 @@ export interface Problem {
       message: string;
       /** The structured failure, verbatim. Whatever the resolver or applier knew, the client knows. */
       detail?: unknown;
-      /** Present on a 409 from a stale write: what to re-read at (ADR-0003). */
+      /**
+       * Present on a 409 from a stale write: what to re-read at (ADR-0003).
+       *
+       * **The same number is inside `detail` as `current`, and that overlap is deliberate** — it was
+       * looked at again for KAN-607 and kept. `detail` is the structured failure *verbatim*, so
+       * trimming a field out of it would make it a curated view and break the one rule it has; and
+       * this field is the promoted, named one the ADR promises, which the CLI reads and reports flat
+       * because `detail.detail.detail` was the bug that shape was introduced to fix. A client may
+       * read either, so dropping one would be a breaking change for no gain. `expected` stays inside
+       * `detail` alone: the client sent it and does not need it handed back.
+       */
       currentVersion?: number;
       /** 1-based position in a batch, when one operation of several was at fault. */
       operation?: number;
@@ -52,6 +62,13 @@ export function problemForOperationError(error: OperationError): Problem {
       return problem(409, failure.kind, error.message, base);
     case 'no-such-score':
       return problem(404, failure.kind, error.message, base);
+    // 422 and not 409, which is the one worth arguing (KAN-607). 409 means "you and the store
+    // disagree about the version, here is the current one" — but there is nothing to disagree with
+    // when no version was sent, and a client retrying a 409 would be retrying with a field it never
+    // filled in. It is not 400 either: the body was perfectly readable JSON. What is wrong is the
+    // *content* of a well-formed request, which is exactly what 422 means here already. And unlike
+    // the 409 it carries no `currentVersion`: see `missing-expected-version` in ops/errors.ts.
+    case 'missing-expected-version':
     case 'address':
     case 'validation':
     case 'unknown-operation':

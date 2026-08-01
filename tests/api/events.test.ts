@@ -176,6 +176,16 @@ async function aChart(id = 'score-1'): Promise<void> {
   });
 }
 
+/**
+ * An edit at whatever version the score is at now. Every write must name a version and one that does
+ * not is refused (ADR-0003, KAN-607); nothing in this file is about that, so it reads the version
+ * rather than counting the edits above it.
+ */
+async function edit(scoreId: string, operation: Operation): Promise<{ status: number; body: Record<string, unknown> }> {
+  const at = (await call('GET', `/v1/scores/${scoreId}`)).body.version as number;
+  return call('POST', `/v1/scores/${scoreId}/ops`, { operation, expectedVersion: at });
+}
+
 describe('the stream opens', () => {
   it('as an event stream that is never cached', async () => {
     await aChart();
@@ -190,7 +200,7 @@ describe('the stream opens', () => {
     // what makes that structural: the client does not have to remember to re-read, because opening
     // the connection hands it a version to compare against.
     await aChart();
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
 
     const stream = await openStream('/v1/scores/score-1/events');
     const [hello] = await stream.awaitEvents(1);
@@ -217,7 +227,7 @@ describe('an external change reaches an open stream (SLICES.md V4 step 5)', () =
     const stream = await openStream('/v1/scores/score-1/events');
     await stream.awaitEvents(1);
 
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
 
     const events = await stream.awaitEvents(2);
     expect(events[1]).toEqual({ type: 'changed', data: { scoreId: 'score-1', version: 2 } });
@@ -230,7 +240,7 @@ describe('an external change reaches an open stream (SLICES.md V4 step 5)', () =
     await aChart();
     const stream = await openStream('/v1/scores/score-1/events');
     await stream.awaitEvents(1);
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
     const events = await stream.awaitEvents(2);
     expect(Object.keys(events[1]?.data ?? {}).sort()).toEqual(['scoreId', 'version']);
   });
@@ -240,7 +250,7 @@ describe('an external change reaches an open stream (SLICES.md V4 step 5)', () =
     await aChart();
     const stream = await openStream('/v1/scores/score-1/events');
     await stream.awaitEvents(1);
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
 
     const events = await stream.awaitEvents(2);
     const reply = await call('GET', '/v1/scores/score-1');
@@ -253,7 +263,7 @@ describe('an external change reaches an open stream (SLICES.md V4 step 5)', () =
     const second = await openStream('/v1/scores/score-1/events');
     await Promise.all([first.awaitEvents(1), second.awaitEvents(1)]);
 
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
 
     const [a, b] = await Promise.all([first.awaitEvents(2), second.awaitEvents(2)]);
     expect(a[1]).toEqual(b[1]);
@@ -265,10 +275,10 @@ describe('an external change reaches an open stream (SLICES.md V4 step 5)', () =
     const stream = await openStream('/v1/scores/score-1/events');
     await stream.awaitEvents(1);
 
-    await call('POST', '/v1/scores/score-2/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-2', note('bar1.beat1', 'Eb5'));
     // A marker on the subscribed score, so this is a deterministic ordering assertion rather than
     // a sleep: if score-2's event had leaked it would already be sitting in front of this one.
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'F5') });
+    await edit('score-1', note('bar1.beat1', 'F5'));
 
     const events = await stream.awaitEvents(2);
     expect(events).toHaveLength(2);
@@ -296,7 +306,7 @@ describe('an external change reaches an open stream (SLICES.md V4 step 5)', () =
     await aChart();
     const stream = await openStream('/v1/scores/score-1/events');
     await stream.awaitEvents(1);
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
     await stream.awaitEvents(2);
 
     expect(stream.frames.join('\n')).not.toMatch(/^id:/m);
@@ -333,7 +343,7 @@ describe('the log stays narrow, and arrives when it is useful (ADR-0029)', () =>
     await aChart();
     const stream = await openStream('/v1/scores/score-1/events');
     await stream.awaitComment();
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
     await stream.awaitEvents(2);
     stream.close();
 
@@ -438,7 +448,7 @@ describe('connections do not leak', () => {
     // A live stream, so this waits on the publish actually happening rather than on a sleep.
     const watching = await openStream('/v1/scores/score-1/events');
     await watching.awaitEvents(1);
-    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await edit('score-1', note('bar1.beat1', 'Eb5'));
     await watching.awaitEvents(2);
 
     expect(errors).toEqual([]);
