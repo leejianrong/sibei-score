@@ -5,7 +5,8 @@
   "type": "module",
   "description": "The server side: the store, the op log, and the HTTP API. Node-bound by design.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./sqlite": "./src/sqlite.ts"
   },
   "types": "./src/index.ts",
   "sideEffects": false,

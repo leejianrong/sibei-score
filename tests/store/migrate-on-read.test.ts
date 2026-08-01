@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { LOCAL_OWNER, openSqliteStore } from '@sibei/api';
+import { LOCAL_OWNER } from '@sibei/api';
+import { openSqliteStore } from '@sibei/api/sqlite';
 import type { ScoreStore } from '@sibei/api';
 import {
   DocumentMigrationError,

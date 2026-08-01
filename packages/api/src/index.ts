@@ -1,7 +1,13 @@
+/**
+ * The package's surface, and everything on it runs with nothing installed.
+ *
+ * The SQLite adapter is deliberately **not** here — it lives at `@sibei/api/sqlite`, because it
+ * is the one thing in the package that loads a compiled native binding and this barrel is what
+ * a pure test reaches for. See `sqlite.ts` for the reasoning (ADR-0006, KAN-514), and
+ * `tests/arch/fast-layer-purity.test.ts` for the guard that keeps it true.
+ */
+
 export * from './store/repository.js';
-export { openSqliteStore } from './store/sqlite-store.js';
-export type { SqliteStoreOptions } from './store/sqlite-store.js';
-export { TABLE_SCHEMA_VERSION } from './store/sqlite-schema.js';
 
 export type { BlobKey, BlobStore } from './blob/blob-store.js';
 export { memoryBlobStore } from './blob/memory-blob-store.js';

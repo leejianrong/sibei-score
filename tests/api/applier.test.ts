@@ -1,11 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  LOCAL_OWNER,
-  OperationError,
-  createApplier,
-  openSqliteStore,
-  replay,
-} from '@sibei/api';
+import { LOCAL_OWNER, OperationError, createApplier, replay } from '@sibei/api';
+import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Applier, Operation, ScoreStore } from '@sibei/api';
 import { dur, notesOf } from '@sibei/model';
 
