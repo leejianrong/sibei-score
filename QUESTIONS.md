@@ -26,6 +26,15 @@ Recorded here so they don't get reopened later.
 - Ties and triplet brackets are in scope, detected and rendered.
   - Still true. Both are detected, and both carry confidence flags because they are
     among the harder marks for OMR (Q16).
+- **The CLI binary is `sbscore` (KAN-599, 2026-08-01).** The name `sibei` collided with an
+  unrelated product of the same author, `sibei-flow`, which had already set the convention:
+  `sbflow`, `sbflow_worker/`, `~/.config/sbflow/`. The repo keeps its `sibei-score` name — the
+  repo was never the collision — and everything user-facing takes the `sb` prefix, so the two
+  products are exactly parallel. Env vars are `SBSCORE_URL` and `SBSCORE_DATA`; the data
+  directory is `~/.local/share/sbscore`, adopting a pre-rename one once. **No verb and no exit
+  code changed** (ADR-0008 status note). Every answer below was written before that date and
+  says `sibei`; the answers are the record of how the project got here and are left as written,
+  so read the program's name as `sbscore` throughout.
 
 ## Product and scope
 

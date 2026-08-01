@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 function onDisk(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'sibei-migrate-'));
+  const directory = mkdtempSync(join(tmpdir(), 'sbscore-migrate-'));
   directories.push(directory);
   return join(directory, 'scores.db');
 }

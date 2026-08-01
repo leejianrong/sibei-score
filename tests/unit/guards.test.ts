@@ -44,7 +44,7 @@ describe('the Host check', () => {
   it.each([
     'evil.example',
     'evil.example:8080',
-    'sibei.localhost.evil.example',
+    'sbscore.localhost.evil.example',
     '127.0.0.1.evil.example',
     '0.0.0.0',
     '192.168.1.10:8080',

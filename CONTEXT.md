@@ -99,7 +99,7 @@ in full: `docs/adr/`.
 | **API** | The local HTTP API. The only writer, and the contract both clients share. |
 | **UI** | The browser app — Svelte 5 + Vite. A client. Holds no authoritative state. |
 | **Framework-free core** | The model, layout engine, chord grammar and operations are plain TypeScript with no framework dependency. The framework touches only the shell. |
-| **CLI** | The host-side binary, `sibei`. A client, on equal footing with the UI. |
+| **CLI** | The host-side binary, `sbscore`. A client, on equal footing with the UI. Named for the `sb<product>` convention `sibei-flow`'s `sbflow` already set; it was `sibei` until 2026-08-01 (D67). |
 | **Text projection** | The compact bar-by-bar text rendering of a score for agents. Prints the addresses the CLI accepts. |
 | **Parity** | The constraint that no capability exists on only one surface. Every feature is a core op with both a CLI verb and a UI control. |
 
@@ -172,7 +172,7 @@ in full: `docs/adr/`.
 | D32 | Enharmonic spelling follows the destination key signature, with a per-object pin as escape hatch | Accepted | [ADR-0017](docs/adr/0017-enharmonic-spelling-policy.md) |
 | D33 | Import is raster-only through one pipeline; no digital-PDF vector/text fast path | Accepted | [ADR-0018](docs/adr/0018-import-printed-raster-only.md) |
 | D34 | Printed and engraved charts only; handwritten manuscript out of scope | Accepted | [ADR-0018](docs/adr/0018-import-printed-raster-only.md) |
-| D35 | One chart may come from several images; automatic preprocessing only, no crop UI; `sibei new` creates a blank chart | Accepted | [ADR-0018](docs/adr/0018-import-printed-raster-only.md) |
+| D35 | One chart may come from several images; automatic preprocessing only, no crop UI; `sbscore new` creates a blank chart | Accepted | [ADR-0018](docs/adr/0018-import-printed-raster-only.md) |
 | D36 | Every parse is a draft; side-by-side source image and score with confidence highlighting is the primary import experience | Accepted | [ADR-0019](docs/adr/0019-parse-is-a-draft.md) |
 | D37 | The source image is kept permanently, enabling re-parse by a better engine later | Accepted | [ADR-0019](docs/adr/0019-parse-is-a-draft.md) |
 | D38 | Evaluation corpus is primarily synthetic (rendered MusicXML, degraded), plus a small real-photo control set | Accepted | [ADR-0020](docs/adr/0020-omr-evaluation-strategy.md) |
@@ -204,6 +204,7 @@ in full: `docs/adr/`.
 | D64 | The engraver was sequenced spike-first: V1b proved the approach and produced the estimate, and the full replacement followed as V1c–V1d, before V2 | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md) |
 | D66 | The engraved face is the reader's choice per render — Bravura (`normal`) or Petaluma (`jazz`) — so no font is named in the engraver's code | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md), [ADR-0027](docs/adr/0027-paddleocr-and-dependency-register.md) |
 | D65 | The project is MIT licensed | Accepted | `LICENSE` |
+| D67 | The CLI binary is **`sbscore`**, not `sibei` — the `sb<product>` convention `sibei-flow` set with `sbflow`. Env vars are `SBSCORE_URL` / `SBSCORE_DATA` and the data directory is `~/.local/share/sbscore`, adopting a pre-rename one once. The repo keeps its `sibei-score` name and no verb or exit code changed | Accepted | [ADR-0008](docs/adr/0008-imperative-cli-verbs-plus-batch.md) status note, 2026-08-01 |
 
 ### Not yet decided
 

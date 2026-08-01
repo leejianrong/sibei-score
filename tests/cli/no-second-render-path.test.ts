@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
  * The CLI asks the API for a PDF. It does not make one.
  *
  * V3d gives the CLI a verb that produces a printable page, and the obvious way to write it was to
- * call `renderScoreToPdf` on a document fetched with `sibei open`. That would have worked, and it
+ * call `renderScoreToPdf` on a document fetched with `sbscore open`. That would have worked, and it
  * would have quietly created the thing ADR-0002 exists to prevent: a second implementation of what
  * a chart looks like, in the client, free to drift from the one the browser will use. The same
  * argument as the single write path, one seam over — "the UI and the CLI cannot disagree" is worth

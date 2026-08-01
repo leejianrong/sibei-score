@@ -3,8 +3,8 @@
   "version": "0.1.0-dev",
   "private": true,
   "type": "module",
-  "description": "The sibei CLI: an HTTP client of the /v1/ API, usable by a human or an agent.",
-  "bin": { "sibei": "./src/bin.ts" },
+  "description": "The sbscore CLI: an HTTP client of the /v1/ API, usable by a human or an agent.",
+  "bin": { "sbscore": "./src/bin.ts" },
   "exports": {
     ".": "./src/index.ts"
   },

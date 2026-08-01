@@ -42,27 +42,27 @@ export interface RunOptions {
   cwd?: string;
 }
 
-const USAGE = `sibei — a jazz lead sheet, from the command line
+const USAGE = `sbscore — a jazz lead sheet, from the command line
 
-  sibei serve [--port N] [--data PATH]     run the local API
-  sibei new [--title T] [--composer C] [--key K] [--time 4/4]
-            [--bars N] [--pickup] [--id ID]
-  sibei list
-  sibei open <id>                          the full document, as JSON
-  sibei show <id>                          the text projection
-  sibei export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]
-  sibei rm <id>
-  sibei meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
-  sibei note add <id> <address> --pitch Eb5 --dur 8
-  sibei note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none]
-  sibei note rm  <id> <address>
-  sibei rest add <id> <address> --dur 4
-  sibei rest rm  <id> <address>
-  sibei batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore serve [--port N] [--data PATH]   run the local API
+  sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
+              [--bars N] [--pickup] [--id ID]
+  sbscore list
+  sbscore open <id>                        the full document, as JSON
+  sbscore show <id>                        the text projection
+  sbscore export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]
+  sbscore rm <id>
+  sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8
+  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none]
+  sbscore note rm  <id> <address>
+  sbscore rest add <id> <address> --dur 4
+  sbscore rest rm  <id> <address>
+  sbscore batch <id> --ops '[{"type":"note.add",...}]'
 
 Addresses (ADR-0007):  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
-  \`sibei show\` prints the addresses this CLI accepts, so you never have to guess one.
+  \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
 Export:  --pdf is the only format this build has, and it is the default.
   Without -o the file is written to the working directory, named after the chart's
@@ -70,7 +70,7 @@ Export:  --pdf is the only format this build has, and it is the default.
   directory to put that name in.
 
 Everywhere:  --json   machine-readable output
-             --url    the API base URL (or SIBEI_URL)
+             --url    the API base URL (or SBSCORE_URL)
 
 Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version conflict
              5 not found · 6 no server · 7 refused · 8 already exists
@@ -78,7 +78,7 @@ Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version
 
 export async function run(argv: readonly string[], options: RunOptions): Promise<ExitCode> {
   // `--json` comes off the raw arguments because **the parser itself can fail**, and everything
-  // that can fail belongs inside the try. `sibei new --title` with nothing after it used to throw
+  // that can fail belongs inside the try. `sbscore new --title` with nothing after it used to throw
   // out of `run` altogether: the shell got node's unhandled-rejection stack instead of a message
   // and a code, which is precisely the contract ADR-0008 is. Found by `-o` with no path after it.
   const json = argv.includes('--json');
@@ -105,14 +105,14 @@ export async function run(argv: readonly string[], options: RunOptions): Promise
                 ...(error.operation === undefined ? {} : { operation: error.operation }),
               },
             })
-          : `sibei: ${error.message}`,
+          : `sbscore: ${error.message}`,
       );
       return error.code;
     }
     options.io.err(
       json
         ? JSON.stringify({ error: { kind: 'internal', message: 'something went wrong' } })
-        : `sibei: something went wrong`,
+        : `sbscore: something went wrong`,
     );
     return EXIT.usage;
   }
@@ -122,7 +122,7 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
   const verb = flags.positional[0] ?? '';
   const client =
     options.client ??
-    createClient(flags.options.get('url') ?? process.env.SIBEI_URL ?? options.baseUrl);
+    createClient(flags.options.get('url') ?? process.env.SBSCORE_URL ?? options.baseUrl);
   const io = options.io;
 
   switch (verb) {
@@ -191,7 +191,7 @@ async function list(client: Client, io: Io, json: boolean): Promise<ExitCode> {
     return EXIT.ok;
   }
   if (scores.length === 0) {
-    io.out('no charts yet — try `sibei new --title "Body and Soul"`');
+    io.out('no charts yet — try `sbscore new --title "Body and Soul"`');
     return EXIT.ok;
   }
   for (const score of scores) {
@@ -218,7 +218,7 @@ async function show(flags: Flags, client: Client, io: Io, json: boolean): Promis
 }
 
 /**
- * `sibei export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]` (V3, R0).
+ * `sbscore export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]` (V3, R0).
  *
  * **The CLI renders nothing.** It asks the API for the bytes and writes them down — it imports no
  * `@sibei/pdf`, no `@sibei/layout` and no `@sibei/engrave`, and `tests/cli` asserts that. The
@@ -228,7 +228,7 @@ async function show(flags: Flags, client: Client, io: Io, json: boolean): Promis
  * verb exits 6 like every other one.
  *
  * `--pdf` is **optional and the default**, not required. Every export parameter is optional with a
- * default on the route it calls, and every other verb here treats a flag the same way — `sibei
+ * default on the route it calls, and every other verb here treats a flag the same way — `sbscore
  * export <id>` doing the one thing this build can do is the behaviour a caller expects. Naming it
  * explicitly stays available and stays meaningful when a second format arrives.
  *
@@ -432,7 +432,7 @@ function tieOf(flags: Flags): { tie?: string } {
   return { tie };
 }
 
-/** `Db`, `F#m`, `C` — the same spelling `formatKeySignature` prints and `sibei show` displays. */
+/** `Db`, `F#m`, `C` — the same spelling `formatKeySignature` prints and `sbscore show` displays. */
 function parseKey(spec: string): KeySignature {
   const match = /^([A-G])(bb|b|#|##)?(m)?$/.exec(spec.trim());
   if (match === null) {

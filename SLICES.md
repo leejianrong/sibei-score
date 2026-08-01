@@ -13,6 +13,12 @@ gate, which found VexFlow's output good and decided to own the engraver regardle
 (ADR-0030). For v0.2, and for the project as a whole, it is whether oemer's pixel
 coordinates are reachable at all.
 
+> **Note, 2026-08-01.** The CLI binary was renamed `sibei` -> `sbscore` (KAN-599, ADR-0008's
+> status note), so every command line below reads `sbscore`. Unlike the VexFlow correction
+> above, this changed nothing about any slice — not a verb, not an exit code, not a demo step
+> — so the command lines are corrected in place rather than annotated: a build plan is
+> instructions, and a reader who types the old name gets nothing.
+
 ---
 
 # v0.1 — the app without import
@@ -155,12 +161,12 @@ a later slice whose position is chosen once this one has given a number (ADR-003
 6. `batch` as a transactional op list.
 7. CLI skeleton: `new`, `list`, `open`, `rm`, `note add|set|rm`, `rest`, `--json`
    everywhere, and distinct exit codes for conflict, bad address, and validation failure.
-8. `sibei show`: the text projection (ADR-0009), printing the addresses it accepts.
+8. `sbscore show`: the text projection (ADR-0009), printing the addresses it accepts.
 9. Auth seam resolving `local`, plus the Origin check and the localhost bind before any
    browser client exists (ADR-0029).
 
-**Demo:** author a short chart entirely from the CLI — `sibei new`, several `note add`
-calls — then `sibei show` it and see the four-bar grid with addresses. Run the same
+**Demo:** author a short chart entirely from the CLI — `sbscore new`, several `note add`
+calls — then `sbscore show` it and see the four-bar grid with addresses. Run the same
 `note set` twice with a stale `--if-version` and watch the second fail with exit code 4
 and the current version.
 
@@ -170,7 +176,7 @@ arbitrates), Q78 (Origin check adequate locally).
 ### Test plan
 
 #### End-to-end
-- A chart authored entirely through CLI commands round-trips through `sibei show` with
+- A chart authored entirely through CLI commands round-trips through `sbscore show` with
   every note at the address it was created at.
 - A write with a stale expected version is rejected with the current version, and the
   score is unchanged.
@@ -232,13 +238,13 @@ time.
    This is what reconciles ADR-0016's "an instrument part stores nothing" with ADR-0006
    putting exported PDFs in the blob store: no *score variant* is ever stored, but a
    rendered artefact may be cached (Q81).
-3. `sibei export --pdf`.
+3. `sbscore export --pdf`.
 4. Page setup: A4 and Letter, A4 default, flowing to further pages (Q38).
 5. Chart metadata in the PDF header — title, composer, key, style line — and `meta set`
    on both surfaces (Q37).
 6. SVG snapshot regression tests wired into the suite.
 
-**Demo:** `sibei new`, edit a few notes from the CLI, `sibei export --pdf`, open the
+**Demo:** `sbscore new`, edit a few notes from the CLI, `sbscore export --pdf`, open the
 result. A chart you authored through an agent-shaped interface comes out as a printable
 page.
 
@@ -279,7 +285,7 @@ page.
    framework-free.
 
 **Demo:** open a chart in the browser, change a note's pitch by clicking and typing. Then
-in a terminal run `sibei note set` on the same chart and watch the browser update without
+in a terminal run `sbscore note set` on the same chart and watch the browser update without
 a reload. The two surfaces visibly cannot disagree.
 
 **Rests on assumptions:** none new.
@@ -287,7 +293,7 @@ a reload. The two surfaces visibly cannot disagree.
 ### Test plan
 
 #### End-to-end
-- Editing a note in the browser changes the stored score, and `sibei show` reflects it.
+- Editing a note in the browser changes the stored score, and `sbscore show` reflects it.
 - A CLI edit appears in an open browser view without a reload.
 - Two browser tabs on one score stay consistent after an edit in either.
 
@@ -314,7 +320,7 @@ a reload. The two surfaces visibly cannot disagree.
    already ship — that was parity with what VexFlow did. What this slice adds is the
    jazz typography ADR-0030 named as V5's: `Δ`, `ø`, stacked alterations, parenthesised
    extensions, which need the grammar from step 1 to know what they are.
-4. Chord editing in the browser with grammar validation as you type; `sibei chord set`.
+4. Chord editing in the browser with grammar validation as you type; `sbscore chord set`.
 5. Chords in the text projection as `Ebm7@1, Bb7@3`.
 
 **Demo:** type `F#m7b5` above bar 3 in the browser and see it engraved with a proper
@@ -357,7 +363,7 @@ correction depends on (ADR-0011), so its test suite is doing double duty.
    eb-alto (M6), eb-bari (M13), f-horn (P5), each changing written octave and key
    signature.
 4. Chord roots transpose with the written pitch on a part.
-5. `--spell` on note and chord ops; `sibei transpose --to`; `sibei export --for
+5. `--spell` on note and chord ops; `sbscore transpose --to`; `sbscore export --for
    bb-trumpet`.
 
 **Demo:** transpose a chart in C to Eb and see Bb and Ab in the melody, never A# or G#.
@@ -396,7 +402,7 @@ up, in the right key signature, with the chord symbols moved to match.
 2. Repeat barlines with 1st/2nd endings; double barlines; pickup identification.
 3. Section-driven line breaking wired into `layout` (ADR-0015) — the grid already
    supports it from V1, this connects it to real user-set sections.
-4. Structure panel in the browser; `sibei section set`, `sibei repeat set`.
+4. Structure panel in the browser; `sbscore section set`, `sbscore repeat set`.
 5. Rendering all barline kinds and endings in both screen and PDF.
 
 **Demo:** build a 32-bar AABA chart with a pickup, rehearsal letters and a repeated A
@@ -429,7 +435,7 @@ render correctly, and the pickup sits outside the grid.
 **Build plan**
 
 1. Undo and redo by replay of the op log minus the last operation (ADR-0003), exposed as
-   `sibei undo` / `redo` and ctrl-Z, with an agent `batch` undoing as one unit.
+   `sbscore undo` / `redo` and ctrl-Z, with an agent `batch` undoing as one unit.
 2. `codec` package: MusicXML export and import, single-voice lead sheets only (ADR-0004).
 3. Library polish: search, delete, and duplicate.
 4. Migration fixture test carrying a document through every schema version.
@@ -572,10 +578,10 @@ every non-import feature still works.
 4. Import as one op carrying the whole document (ADR-0003), so it is undoable and the
    replay property holds.
 5. Retain the source image in the `BlobStore` permanently (ADR-0019).
-6. `sibei import <file>...` and the library's import affordance.
+6. `sbscore import <file>...` and the library's import affordance.
 7. Title and composer OCR-attempted, flagged low-confidence (Q37).
 
-**Demo:** photograph a printed lead sheet, `sibei import` it, open it in the browser, and
+**Demo:** photograph a printed lead sheet, `sbscore import` it, open it in the browser, and
 export a PDF. A paper chart becomes a printable digital one, warts included.
 
 **Rests on assumptions:** Q27 (auto preprocessing only), Q28 (partial with flagged gaps),
@@ -698,11 +704,11 @@ coordinates.
 1. Split-pane score view: source image beside the rendered score, scrollable and
    zoomable (ADR-0019).
 2. Confidence highlighting and invalid-bar shading on the score surface.
-3. The `!` review flags in `sibei show`, so a human and an agent are pointed at the same
+3. The `!` review flags in `sbscore show`, so a human and an agent are pointed at the same
    places.
 4. A prompt when a score has no sections, since layout silently depends on them and
    import never detects them (ADR-0021, ADR-0015).
-5. `sibei reparse <id>` re-running the pipeline from the retained image.
+5. `sbscore reparse <id>` re-running the pipeline from the retained image.
 6. Run the human-time ship gate procedure from V12 and record the result.
 
 **Demo:** import a chart with a deliberately poor photo, then use the flags to correct it
@@ -718,10 +724,10 @@ this is the slice that grows a crop UI. Q42 (the gate itself).
   against the gate.
 - Every flagged object is reachable and correctable from both the browser and the CLI.
 - A score with no sections shows the prompt; adding sections changes the layout.
-- `sibei reparse` produces a fresh draft from the stored image without a new upload.
+- `sbscore reparse` produces a fresh draft from the stored image without a new upload.
 
 #### Integration
-- Flags shown in the browser and in `sibei show` are the same set for the same score.
+- Flags shown in the browser and in `sbscore show` are the same set for the same score.
 
 #### Unit
 - Flag aggregation per bar and per score, including a score with no flags.

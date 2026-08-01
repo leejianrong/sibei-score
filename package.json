@@ -20,7 +20,7 @@
     "proof": "tsx scripts/proof.ts",
     "vendor:fonts": "tsx scripts/vendor-music-fonts.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
-    "sibei": "tsx packages/cli/src/bin.ts",
+    "sbscore": "tsx packages/cli/src/bin.ts",
     "serve": "tsx packages/cli/src/bin.ts serve",
     "demo": "bash scripts/demo-v2.sh"
   },
