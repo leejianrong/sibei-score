@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OperationError, applyOperation, replay } from '@sibei/api';
 import type { Operation } from '@sibei/api';
-import { TICKS_PER_QUARTER, barMetrics, dur, formatPitch, notesOf } from '@sibei/model';
+import { TICKS_PER_QUARTER, barMetrics, dur, formatPitch, notesOf, reviewSummary } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -271,8 +271,20 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
     expect(score.bars[0]!.review).toEqual({ flagged: false, reasons: [] });
   });
 
-  it('flags every bar of a blank chart, because an empty bar is a short bar', () => {
-    expect(create().bars.every((bar) => bar.review.flagged)).toBe(true);
+  it('leaves a blank chart unflagged, because an empty bar is not a review case (KAN-597)', () => {
+    // `sbscore new --bars 32` used to store 32 bars all flagged `metrically-invalid`, so the very
+    // first thing anyone saw was a chart entirely in review. This is the stored half of that fix —
+    // the document itself is clean, so `sbscore open` and the projection cannot disagree about it.
+    const blank = create();
+    expect(blank.bars).not.toHaveLength(0);
+    expect(blank.bars.some((bar) => bar.review.flagged)).toBe(false);
+    expect(reviewSummary(blank).meterNote).toBeNull();
+  });
+
+  it('leaves an empty pickup unflagged too, since --pickup opens one', () => {
+    const withPickup = create({ pickup: true });
+    expect(withPickup.bars[0]!.number).toBe(0);
+    expect(withPickup.bars[0]!.review.flagged).toBe(false);
   });
 
   it('leaves a pickup unflagged when it is merely short, which is the point of one', () => {

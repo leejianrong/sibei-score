@@ -276,6 +276,21 @@ describe('the melody line', () => {
     expect(find(score, 'bar1')).toMatch(/^\s*bar1!/);
   });
 
+  it('derives that mark rather than reading the stored flag (KAN-597)', () => {
+    // One quarter in 4/4, and the document says nothing is wrong — which is exactly the state every
+    // hand-authored fixture and every imported chart is in, because only the applier stamps the
+    // flag. The `!` and the header's count line have to be the same fact, and reading the stored
+    // copy here made them two.
+    const unflagged = aBar([makeNote({ id: 'note-1', onset: 0, duration: dur(4), pitch: 'C5' })]);
+    expect(find(unflagged, 'bar1')).toMatch(/^\s*bar1!/);
+
+    // And the other direction: a stale stored flag on a bar that now fills the meter is dropped.
+    const stale = aBar([makeNote({ id: 'note-1', onset: 0, duration: dur(1), pitch: 'C5' })], {
+      review: { flagged: true, reasons: ['metrically-invalid'] },
+    });
+    expect(find(stale, 'bar1')).toMatch(/^\s*bar1\s/);
+  });
+
   it('prints nothing for an empty bar, so a blank chart stays compact', () => {
     // R2 is that an agent can read a chart cheaply. Thirty-two lines of nothing is the opposite.
     const blank = chart(
@@ -297,12 +312,13 @@ describe('the review legend', () => {
     ]);
     expect(projectScore(clean)).not.toContain('needs review');
 
+    // One quarter in 4/4, and no stored flag: the review state is derived from the bar's contents
+    // (KAN-597), so nothing here has to remember to stamp one.
     const flagged = chart([
       makeBar({
         id: 'bar-1',
         number: 1,
         items: [makeNote({ id: 'note-1', onset: 0, duration: dur(4), pitch: 'C5' })],
-        review: { flagged: true, reasons: ['metrically-invalid'] },
       }),
     ]);
     expect(projectScore(flagged)).toContain('! = needs review');
@@ -314,11 +330,31 @@ describe('the review legend', () => {
         id: 'bar-1',
         number: 1,
         items: [makeNote({ id: 'note-1', onset: 0, duration: dur(4), pitch: 'C5' })],
-        review: { flagged: true, reasons: ['metrically-invalid'] },
       }),
-      makeBar({ id: 'bar-2', number: 2, review: { flagged: true, reasons: ['metrically-invalid'] } }),
+      makeBar({
+        id: 'bar-2',
+        number: 2,
+        items: [makeNote({ id: 'note-2', onset: 0, duration: dur(2), pitch: 'D5' })],
+      }),
     ]);
     expect(projectScore(score)).toContain('2 bars do not fill the meter');
+  });
+
+  it('does not count an empty bar, so a blank chart reports nothing (KAN-597)', () => {
+    // A blank chart used to print `32 bars do not fill the meter` — a review signal firing on 100%
+    // of every new document. The second bar here holds nothing, so only the first is counted.
+    const score = chart([
+      makeBar({
+        id: 'bar-1',
+        number: 1,
+        items: [makeNote({ id: 'note-1', onset: 0, duration: dur(4), pitch: 'C5' })],
+      }),
+      makeBar({ id: 'bar-2', number: 2 }),
+    ]);
+    expect(projectScore(score)).toContain('1 bar does not fill the meter');
+
+    const blank = chart([makeBar({ id: 'bar-1', number: 1 })]);
+    expect(projectScore(blank)).not.toContain('needs review');
   });
 });
 

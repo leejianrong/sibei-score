@@ -1,7 +1,7 @@
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { orderedItems } from './address.js';
-import { NEEDS_REVIEW, reviewSummary } from './review.js';
+import { barReview, NEEDS_REVIEW, reviewSummary } from './review.js';
 import type { Bar, BarItem, Score, TimeSignature } from './score.js';
 
 /**
@@ -140,7 +140,10 @@ function melodyLine(bar: Bar, time: TimeSignature): string | null {
   const items = orderedItems(bar);
   if (items.length === 0) return null;
 
-  const label = `bar${bar.number}${bar.review.flagged ? '!' : ''}`;
+  // `barReview`, not `bar.review`: the `!` and the header's count line must be the same fact, and
+  // reading the stored flag here made them two (KAN-597). The chord and item `!` below stay stored,
+  // because nothing can derive a chord's `unparsed-chord` or a note's `low-confidence`.
+  const label = `bar${bar.number}${barReview(bar, time).flagged ? '!' : ''}`;
   const parts = items.map((item, index) => `n${index + 1} ${describe(item, bar)}`);
   return `${label.padEnd(7)}${parts.join('  ')}`;
 }
