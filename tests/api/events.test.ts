@@ -3,7 +3,7 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, silentLogger } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
-import type { Api, Logger, Operation, ScoreStore } from '@sibei/api';
+import type { Api, Logger, Operation, RequestLine, ScoreStore } from '@sibei/api';
 import { dur } from '@sibei/model';
 
 /**
@@ -23,17 +23,22 @@ let api: Api;
 let base: string;
 let port: number;
 let errors: string[];
+let lines: RequestLine[];
 
 /** Records what the server logged, so "nothing went wrong quietly" can be an assertion. */
-function recordingLogger(into: string[]): Logger {
-  return { request() {}, error: (message) => void into.push(message) };
+function recordingLogger(intoLines: RequestLine[], intoErrors: string[]): Logger {
+  return {
+    request: (line) => void intoLines.push(line),
+    error: (message) => void intoErrors.push(message),
+  };
 }
 
 beforeEach(async () => {
   store = openSqliteStore({ filename: ':memory:' });
   errors = [];
+  lines = [];
   // A heartbeat a test can watch. The product default is fifteen seconds.
-  api = createApi({ store, logger: recordingLogger(errors), heartbeatMs: 20 });
+  api = createApi({ store, logger: recordingLogger(lines, errors), heartbeatMs: 20 });
   ({ port } = await api.listen(0));
   base = `http://127.0.0.1:${port}`;
 });
@@ -309,6 +314,43 @@ describe('the heartbeat', () => {
   });
 });
 
+describe('the log stays narrow, and arrives when it is useful (ADR-0029)', () => {
+  it('logs the stream once, at open, while it is still open', async () => {
+    // A request that never ends would otherwise appear in no log for as long as it matters, and
+    // then arrive carrying a `durationMs` that measured the *connection* — a different quantity
+    // from every other line's, which is the server's own work. So the handler reports 200 as soon
+    // as the headers are written and the connection lives on behind it.
+    await aChart();
+    const stream = await openStream('/v1/scores/score-1/events');
+    await stream.awaitEvents(1);
+
+    const forTheStream = lines.filter((line) => line.path === '/v1/scores/score-1/events');
+    expect(forTheStream).toHaveLength(1);
+    expect(forTheStream[0]).toMatchObject({ method: 'GET', status: 200 });
+  });
+
+  it('logs it once and not again per event, or per heartbeat', async () => {
+    await aChart();
+    const stream = await openStream('/v1/scores/score-1/events');
+    await stream.awaitComment();
+    await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
+    await stream.awaitEvents(2);
+    stream.close();
+
+    expect(lines.filter((line) => line.path.endsWith('/events'))).toHaveLength(1);
+  });
+
+  it('puts no score id, no header and no body anywhere in an error line', async () => {
+    // `RequestLine` has nowhere to put them (asserted structurally in tests/arch), and the error
+    // channel gets a message only. Nothing about a stream widens either.
+    await aChart();
+    const stream = await openStream('/v1/scores/score-1/events');
+    await stream.awaitEvents(1);
+    stream.close();
+    expect(errors).toEqual([]);
+  });
+});
+
 describe('the boundary guards cover this path too (ADR-0029)', () => {
   it('refuses a foreign Host, which is what a rebound stream would look like', async () => {
     // checkHost fires on everything and runs before routing. Pinned on this path specifically,
@@ -380,10 +422,14 @@ describe('connections do not leak', () => {
     expect(errors).toEqual([]);
   });
 
-  it('drops the subscription when the client goes away', async () => {
-    // A stream that stayed subscribed would go on writing to a dead response for the life of the
-    // process. Over the wire the symptom is a subscriber error on the next publish, which the bus
-    // reports to the logger — so an empty error log after a write is the assertion.
+  it('goes on serving the streams that remain after one client leaves, quietly', async () => {
+    // A client vanishing must not cost the others their events, and must not put anything in the
+    // log — the bus reports a failing subscriber to the logger, so an empty error list after a
+    // write is a real assertion about a real failure mode.
+    //
+    // What this **cannot** see is the subscription itself: the abandoned stream's bus entry is not
+    // reachable from out here, and a leaked one is silent. That property is asserted where it is
+    // observable, in `tests/unit/change-events.test.ts`.
     await aChart();
     const abandoned = await openStream('/v1/scores/score-1/events');
     await abandoned.awaitEvents(1);

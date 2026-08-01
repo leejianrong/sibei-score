@@ -6,7 +6,13 @@ import {
   publishingApplier,
   publishingLibrary,
 } from '@sibei/api';
-import type { Applier, ApplyResult, ChangeEvent, ScoreLibrary } from '@sibei/api';
+import type {
+  Applier,
+  ApplyResult,
+  ChangeEvent,
+  ChangeSubscriber,
+  ScoreLibrary,
+} from '@sibei/api';
 
 /**
  * The change bus and the SSE framing, without a socket (V4a).
@@ -285,20 +291,26 @@ describe('the SSE stream', () => {
   });
 
   it('lets a disconnected client go, subscription and all', () => {
-    // The leak, stated directly. A stream that stayed subscribed after its client left would go on
-    // writing to a dead response for the life of the process, and there is no count of open
-    // connections anywhere else to notice it by.
+    // The leak, stated directly, and stated at the subscription rather than at the writes — the
+    // first version of this test asserted "nothing more is written after a disconnect" and passed
+    // with the `unsubscribe()` deleted, because the stream's own `closed` flag swallows the write.
+    // That is the shape of leak worth expecting: it does not fail, it accumulates. A subscription
+    // left in the bus stays there for the life of the process, one per connection ever opened, and
+    // nothing anywhere goes red.
     const bus = createChangeBus();
-    const streams = createEventStreams({ subscriber: bus });
+    const watched = countingSubscriber(bus);
+    const streams = createEventStreams({ subscriber: watched });
     const connection = fakeConnection();
 
     streams.open(connection.request, connection.response, 'local', 'score-1', 1);
-    expect(streams.openCount).toBe(1);
+    expect([streams.openCount, watched.subscribed]).toEqual([1, 1]);
 
     connection.disconnect();
 
     expect(streams.openCount).toBe(0);
+    expect(watched.unsubscribed).toBe(1);
     expect(connection.ended()).toBe(true);
+    // And, belt and braces, it writes nothing to the response it just ended.
     const before = connection.written.length;
     bus.publish('local', { kind: 'changed', scoreId: 'score-1', version: 2 });
     expect(connection.written).toHaveLength(before);
@@ -306,7 +318,8 @@ describe('the SSE stream', () => {
 
   it('ends every open stream on closeAll, which is what stops Api.close hanging', () => {
     const bus = createChangeBus();
-    const streams = createEventStreams({ subscriber: bus });
+    const watched = countingSubscriber(bus);
+    const streams = createEventStreams({ subscriber: watched });
     const first = fakeConnection();
     const second = fakeConnection();
 
@@ -317,6 +330,30 @@ describe('the SSE stream', () => {
     streams.closeAll();
 
     expect(streams.openCount).toBe(0);
+    expect(watched.unsubscribed).toBe(2);
     expect([first.ended(), second.ended()]).toEqual([true, true]);
   });
 });
+
+/** A subscriber that counts what was subscribed and what was let go of. */
+function countingSubscriber(
+  bus: ChangeSubscriber,
+): ChangeSubscriber & { subscribed: number; unsubscribed: number } {
+  const counts = { subscribed: 0, unsubscribed: 0 };
+  return {
+    get subscribed() {
+      return counts.subscribed;
+    },
+    get unsubscribed() {
+      return counts.unsubscribed;
+    },
+    subscribe(owner, scoreId, listener) {
+      counts.subscribed += 1;
+      const unsubscribe = bus.subscribe(owner, scoreId, listener);
+      return () => {
+        counts.unsubscribed += 1;
+        unsubscribe();
+      };
+    },
+  };
+}
