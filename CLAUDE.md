@@ -7,15 +7,36 @@ stale — fix it.
 
 ## Build status, honestly
 
-**V1, V1b–V1d, V2 and V3 are done** (`SLICES.md`). What exists: the score model, the layout
-engine, **our own engraver**, the server-side PDF path, the store, the address resolver, the
-op log and applier, the `/v1/` API, the CLI with the text projection, and **export from the
-store**. What does **not** exist yet: the browser UI, the chord grammar, transposition, the
+**V1, V1b–V1d, V2, V3 are done, and V4 is half done** (`SLICES.md`). What exists: the score
+model, the layout engine, **our own engraver**, the server-side PDF path, the store, the address
+resolver, the op log and applier, the `/v1/` API, the CLI with the text projection, **export from
+the store**, an **SSE change stream**, and **a browser that can open a chart and look at it**.
+What does **not** exist yet: editing from the browser, the chord grammar, transposition, the
 MusicXML codec, and the whole import pipeline. Do not assume a module is there because a plan
 mentions it.
 
-**V4 is next** — the browser. It is the first slice with a UI at all, and the first that can
-break "the two surfaces cannot disagree" by building a second way to do something.
+**V4 is in progress** — the browser. It is the first slice with a UI at all, and the first that
+can break "the two surfaces cannot disagree" by building a second way to do something. It was cut
+into four sub-cards (KAN-587–590 under KAN-412), and the cut is *not* SLICES.md's six steps:
+step 5 (SSE) turned out to be the one genuinely separable piece and went first, in parallel with
+the shell, while steps 1–4 are a vertical chain that resists parallelising.
+
+| | Delivers | State |
+|---|---|---|
+| V4a | `GET /v1/scores/:id/events`, the change bus | **done** |
+| V4b | The Svelte 5 shell, the library view, the score view — read-only | **done** |
+| V4c | Hit-testing, the inspector, and edits as ops | next |
+| V4d | SSE wired to the browser, the stack E2E, and V4's demo | after V4c |
+
+**V4b shipped read-only on purpose, so Q79 parity is knowingly unmet right now.**
+`score.create`, `meta.set`, `note.*` and `rest.*` all have a CLI verb and no UI control. That is
+booked debt, not an oversight: the UI's first write is V4c's whole subject, and splitting the
+first write across two cards is worse than a slice of debt. V4c closes it.
+
+**V4b is also where the design-first rule proved itself.** A UI card runs in two phases with the
+same agent — a self-contained HTML mockup published for approval, *then* implementation with real
+screenshots checked against it. Neither phase invented the other's job, and all seven mocked
+states matched. Do it that way.
 
 **V3 delivered R0, the first end-to-end path**, and it was cut into four sub-cards
 (KAN-506–509 under KAN-411). Half of what SLICES.md lists for V3 turned out to be **already
@@ -27,7 +48,7 @@ below are not the build plan's six steps:
 | V3a | The `BlobStore` port, `GET …/export?format=pdf`, the on-demand cache | **done** |
 | V3b | Pagination proven across a real page break, and the Q37 amendment | **done** |
 | V3c | The planning-corpus staleness sweep — VexFlow and `packages/draw` | **done** |
-| V3d | `sibei export --pdf`, and `serve` wiring the directory blob store | **done** |
+| V3d | `sbscore export --pdf`, and `serve` wiring the directory blob store | **done** |
 
 **V3b is why the proofing section below is not decoration.** It found three defects by looking
 at images, none of which any test had an opinion about — a rehearsal mark drawn in the paper
@@ -69,13 +90,15 @@ render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 ```sh
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
 pnpm check                 # typecheck every package, then both suite layers. The gate.
-pnpm typecheck             # each package under its own strict config
-pnpm test                  # vitest, both layers, 618 tests
+pnpm typecheck             # each package under its own strict config. `ui` goes via svelte-check
+pnpm test                  # vitest, both layers, 729 tests
 pnpm test:fast             # the no-infra layer — what the pre-push hook runs
 pnpm test:infra            # the layer that needs a real store
 pnpm test:watch
 pnpm serve                 # run the local API on 127.0.0.1:4321
-pnpm sibei <verb>           # the CLI. `pnpm sibei --help` lists every verb
+pnpm sbscore <verb>        # the CLI. `pnpm sbscore --help` lists every verb
+pnpm ui                    # the browser, on Vite. strictPort — it refuses rather than sliding
+pnpm ui:build              # build the browser bundle. Nothing serves it yet (see the table below)
 pnpm demo                  # V2's demo end to end, closing on an export. A CI job
 pnpm render:nasty          # out/render/nasty-chart/nasty-chart.pdf — the V1 demo
 pnpm render all            # every fixture
@@ -191,7 +214,7 @@ not background reading.
 | File | Role |
 |---|---|
 | `PLAN.md` | Scope, requirements R0–R9, mechanisms P1–P21, testing approach, assumed defaults |
-| `SLICES.md` | The 14 planned slices in build order, each with its own test plan. **It has no entry for V1c, V1d, V2a–V2e or V3a–V3d** — thirteen sub-slices that exist only on the board, in ADR status updates and in git. If you are on a sub-slice, its test plan is on its board card (KAN-515) |
+| `SLICES.md` | The 14 planned slices in build order, each with its own test plan. **It has no entry for V1c, V1d, V2a–V2e, V3a–V3d or V4a–V4d** — seventeen sub-slices that exist only on the board, in ADR status updates and in git. If you are on a sub-slice, its test plan is on its board card (KAN-515) |
 | `CONTEXT.md` | Glossary and the 66-decision register. **Use these terms exactly.** |
 | `docs/adr/` | 30 ADRs — the decisions themselves |
 | `QUESTIONS.md` | The Q&A audit trail behind them |
@@ -211,7 +234,17 @@ Breaking one of these breaks a decision of record.
   separate interface for exactly this reason, and only the applier may name it — `tests/arch`
   fails if anything else does, which is what kept it true when the HTTP layer arrived.
 - **Nothing outside `packages/api/src/store/sqlite-*.ts` may know SQLite exists** (ADR-0006).
-  The port is the whole argument that hosting is a deployment change and not a rewrite.
+  The port is the whole argument that hosting is a deployment change and not a rewrite. Since
+  V4a the barrel enforces it too: `@sibei/api` exports **the port only**, and the adapter is an
+  opt-in subpath, `@sibei/api/sqlite`. So the habitual import is the pure one.
+- **There is one render path, and each surface reaches it differently.** `layout` + `engrave` is
+  the only thing that turns a score into glyphs. The **server** goes through `@sibei/pdf`; the
+  **browser** composes `layout()` + `engravePage()` itself and **may never import `@sibei/pdf`**
+  (that would drag pdfkit and a `Buffer` into the bundle); the **CLI renders nothing at all** and
+  asks the API. Two `tests/arch` guards and one integration test hold this, and the integration
+  test is the interesting one: it asserts the browser's composition is **byte-identical** to
+  `renderScoreToSvg`'s across every fixture, paper and face. If it goes red, screen and print
+  have drifted (ADR-0014, ADR-0015).
 - **MusicXML is a codec at the edges only**, never the runtime truth (ADR-0004).
 - **The adapter never makes layout decisions; `layout` never mentions a renderer**
   (ADR-0014). It is `packages/engrave` now, and the seam is why swapping the renderer
@@ -219,7 +252,15 @@ Breaking one of these breaks a decision of record.
 - **Metrically invalid bars are stored and flagged, never rejected** (ADR-0013). Nothing in
   the pipeline may repair or refuse a bar.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built
-  (Q79). Parity between the two surfaces is a constraint, not an aspiration.
+  (Q79). Parity between the two surfaces is a constraint, not an aspiration. **V4b is a knowing,
+  temporary exception** — the browser is read-only until V4c — and it is recorded above rather
+  than left to be discovered.
+- **The two surfaces must not disagree about a user-facing *string* either.** The browser's
+  `CLI_BINARY` is asserted equal to the actual `bin` key in `packages/cli/package.json`. That
+  guard exists because it nearly failed for real: V4b and the `sibei` → `sbscore` rename were
+  built in parallel, the UI hardcoded the old name, and **no test on either side could catch it**
+  because they live in different directories. If two in-flight cards share a string rather than a
+  file, one of them owes a guard.
 
 ## Layout
 
@@ -229,10 +270,13 @@ packages/
   layout     score -> engine-independent positions: the four-bar grid
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM
-  api        the server side: the store, the op log and applier, the /v1/ routes, export
-  cli        the `sibei` binary — an HTTP client of the API, never a second write path
-  fixtures   hand-authored scores: the nasty test chart, every-glyph, and long-form —
-             64 bars, the only one that spills onto a second page
+  api        the server side: the store, the op log and applier, the /v1/ routes, export,
+             the change bus. `@sibei/api` is the port; `@sibei/api/sqlite` is the adapter
+  cli        the `sbscore` binary — an HTTP client of the API, never a second write path
+  ui         the browser: Svelte 5 + Vite. Renders through layout + engrave, never @sibei/pdf
+  fixtures   hand-authored scores: the nasty test chart, every-glyph, long-form —
+             64 bars, the only one that spills onto a second page — and untitled,
+             the only one whose title block emits nothing
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/                   need a real store or socket: the `infra` layer
@@ -246,7 +290,18 @@ scripts/     development entry points, not product surface
 
 Layout owns everything **above** the bar: which bars go on which line, where each bar box
 sits and how wide it is, how tall a system needs to be, page breaks, the title block, and
-which accidental each note draws. The adapter owns engraving **inside** a bar box: stem
+which accidental each note draws.
+
+**Page 1's title band is derived from the rows the header actually drew**, not reserved
+unconditionally (KAN-525). `buildHeader` emits a title only for a score that has one, a style line
+only for a score that has one, a composer only for a score that has one — so it may emit nothing,
+and it used to get an inch and a half of white anyway. Now `headerBand()` measures the ink: a chart
+with no title block starts at `margin.top`, **exactly as a continuation page already did**, which
+is the consistency that decided it over reserving a smaller band. `PageSpec.headerHeight` therefore
+now means "what a *full* block wants", and what a given page reserves is derived from it. A
+title-only chart sits 32 units higher than it used to; the `untitled` fixture is the case.
+
+The adapter owns engraving **inside** a bar box: stem
 direction, beam grouping, accidental stacking, tie curves, **and where in the box each
 onset sits** — the contract says so in `packages/layout/src/items.ts`, and this file used to
 leave that last one out.
@@ -479,11 +534,59 @@ GET    /v1/scores/:id        the document, its version, its timestamp
 DELETE /v1/scores/:id        library lifecycle, not an operation
 POST   /v1/scores/:id/ops    one operation, or a transactional list
 GET    /v1/scores/:id/export ?format=pdf&paper=a4|letter&font=normal|jazz&instrument=concert
+GET    /v1/scores/:id/events SSE: this score's changes (V4a)
 ```
 
 Every export parameter is optional and defaulted, and an unrecognised value is a **422 carrying
 the supported list** — never a silent fallback, which would hand somebody the wrong page and
 never say so.
+
+### The change stream, and the payload that is deliberately not the change
+
+`packages/api/src/events/` and `http/event-stream.ts` (V4a). An in-process bus, fanned out over
+SSE, so an open score view repaints when something *else* edited the chart.
+
+**The bus comes in `ChangePublisher` / `ChangeSubscriber` halves**, for the reason the store port
+does: `server.ts` holds both and hands the routes the subscriber alone, so a handler cannot
+announce a change any more than it can make one. And **the applier is *wrapped*, not plumbed
+into** — `publishingApplier(applier, publisher)` — which is why `applier.ts` is untouched and
+`one-writer.test.ts` still measures exactly what it measured before. A bus the writer had to hold
+would be a second reason for something to hold a `ScoreWriter`.
+
+**An event carries `{scoreId, version}` and nothing else.** `changed[]` exists on the applier's
+result and was deliberately left out: a client cannot repaint from a list of ids because it does
+not hold the new *content*, so it could never save the re-read — it could only invite a client to
+treat the stream as truth and be silently wrong forever after one missed event. So the contract is
+"this version exists now", and recovery is "re-read if that is not what I hold", which is
+idempotent and survives a missed event, a duplicate and a reconnection without any of them being a
+special case.
+
+**There is no replay, and the first frame is why that is safe.** No `id:` is emitted on any frame,
+because emitting one makes a browser send `Last-Event-ID` and a server that ignores it has made a
+promise it does not keep. Instead the stream **opens with a `changed` event carrying the current
+version**, so connecting *is* the catch-up and a reconnecting client cannot forget to re-read. That
+also leaves KAN-510 free to decide the op log's read shape rather than freezing one here.
+
+**A deletion is an event too** (`event: deleted`), published from a wrapper around `ScoreLibrary`.
+Not an op and it cannot be — deleting a score destroys the log an entry would live in — but it is
+as much an external change as an edit, and without it a browser holding a deleted chart waits
+forever.
+
+**`Api.close()` had to learn about streams.** `server.close()` waits for open connections and an
+SSE stream never finishes, so closing a server with one open hung forever. `closeAll()` ends what
+this module opened — not `closeAllConnections()`, which would also cut an unrelated in-flight
+request.
+
+**Why `checkOrigin` lets this GET past, and why that is not a hole.** The Origin guard fires on
+state-changing methods only (ADR-0029), and an `EventSource` GET is not one — so a hostile page
+*can* open this connection, because its `Host` is `127.0.0.1`, which is exactly what `checkHost`
+wants to see. It **cannot read a byte**, because no CORS headers are sent at all and the browser
+therefore refuses to hand the stream to the page. **That is a guard working by omission**, and the
+whole mechanism is one header nobody wrote — which is precisely the kind of thing somebody later
+"fixes" into a hole. A test pins it and `tests/arch` greps the tree for the header. Do not add one.
+What is *not* closed is a page holding connections open; that is resource exhaustion rather than
+ADR-0029's threat model, and it is booked as a cap (KAN-601) rather than paid for by widening the
+Origin rule.
 
 `/v1/` from the first commit (ADR-0022): breaking changes are allowed inside v1 until the hosted
 transition, then it freezes and goes additive-only.
@@ -533,18 +636,36 @@ which is the entire point. It holds no store and cannot reach one: with the serv
 verb it offers can change a score, and a test asserts exactly that.
 
 ```sh
-pnpm serve                                  # or `sibei serve --port N --data PATH`
-pnpm sibei new --title "Body and Soul" --key Db --bars 32
-pnpm sibei note add <id> bar1.beat1 --pitch Db5 --dur 8
-pnpm sibei show <id>                        # the text projection
-pnpm sibei export <id> -o out/              # the PDF. --paper, --font, -o a file or a directory
-pnpm sibei --help                           # every verb, the address forms, the exit codes
+pnpm serve                                  # or `sbscore serve --port N --data PATH`
+pnpm sbscore new --title "Body and Soul" --key Db --bars 32
+pnpm sbscore note add <id> bar1.beat1 --pitch Db5 --dur 8
+pnpm sbscore show <id>                      # the text projection
+pnpm sbscore export <id> -o out/            # the PDF. --paper, --font, -o a file or a directory
+pnpm sbscore --help                         # every verb, the address forms, the exit codes
 ```
 
-`sibei serve` hands the API a **directory blob store beside the sqlite file**, so the export
+`sbscore serve` hands the API a **directory blob store beside the sqlite file**, so the export
 cache survives a restart rather than living in a process-lifetime `Map`.
 
-**`sibei export` renders nothing.** It is an HTTP client like every other verb and holds no
+**The binary was `sibei` until 2026-08-01** (KAN-599, CONTEXT.md D67, and a status note on
+ADR-0008). It collided with an unrelated product of the same author, `sibei-flow`, which had
+already settled the convention: `sbflow`, `sbflow_worker/`, `~/.config/sbflow/`. So `sb<product>`
+is a family convention rather than an abbreviation invented here, and the repo keeps its
+`sibei-score` name — exactly parallel. **No verb and no exit code changed**, which is the part that
+mattered: those are the contract (ADR-0008), and the name is not. The env vars are `SBSCORE_URL`
+and `SBSCORE_DATA`; the ADRs still say `sibei` in their bodies and that is correct, because a dated
+decision records what was decided.
+
+The library lives at `${XDG_DATA_HOME:-~/.local/share}/sbscore/scores.db`, with the blob cache
+beside it. **A pre-rename library at the old path is adopted once**, by moving the whole directory,
+and only when the default path is in use — `--data` and `SBSCORE_DATA` name a path on purpose.
+Renaming the default without that would have orphaned a live library *silently*: the new path does
+not exist, so a fresh empty database appears beside a full one and nothing says so. It moves the
+directory in one `rename` rather than file by file because that is **atomic and cannot
+half-complete**, and because it carries SQLite's `-wal` and `-shm` sidecars, which hold committed
+data under WAL mode. A failed move raises rather than falling through to a fresh database.
+
+**`sbscore export` renders nothing.** It is an HTTP client like every other verb and holds no
 renderer — `tests/cli/no-second-render-path.test.ts` fails if `packages/cli` so much as imports
 `@sibei/pdf`, `@sibei/layout` or `@sibei/engrave`. One render path, the same way there is one
 write path.
@@ -570,7 +691,7 @@ Every `unsupported-<parameter>` the export route can answer with maps to `2`, **
 prefix** rather than a case per parameter, so a parameter added server-side lands on validation
 rather than silently on usage.
 
-`sibei serve` is not in SLICES.md's V2 build plan. It had to exist anyway: V2's demo is "author a
+`sbscore serve` is not in SLICES.md's V2 build plan. It had to exist anyway: V2's demo is "author a
 chart entirely from the CLI", and without it there is nothing for the CLI to talk to.
 
 **The projection is a contract** (`packages/model/src/projection.ts`, ADR-0009), not ad-hoc
@@ -600,8 +721,56 @@ score.** That is the design principle the whole addressing scheme rests on: read
 projection is how an agent learns to write one. The `nK` labels here and `resolveAddress`
 therefore have to agree about everything, rests included.
 
+**The review line is `reviewSummary(score)` in `packages/model/src/review.ts`, not a template
+literal inside the projection** (V4b). It moved out because the browser's score rail shows review
+state in the projection's own words, and two surfaces phrasing the same fact separately is the
+thing this architecture exists to prevent — a test asserts the projection's line *is* the summary's
+sentence. It also means KAN-597 (a blank chart reporting every bar as under-filled) is a one-file
+change rather than a hunt.
+
+The worked example above is checked, and it needed to be: the code printed `1 bar do not fill the
+meter` for a single bar, while this file's example already documented `does not`. **The doc was
+right and the code was wrong** — the less common direction, and nothing pinned the singular until
+V4b did. A deliberate change to an ADR-0009 contract, which is the only way that contract may
+change.
+
 It is lossy on purpose — confidence, spelling pins, repeats, endings and annotations are not in
-it — so `sibei open` (the full structured dump) must stay the thing that carries them.
+it — so `sbscore open` (the full structured dump) must stay the thing that carries them.
+
+### The browser
+
+`packages/ui`. Svelte 5 + Vite (ADR-0022), and **read-only until V4c**. A library view with search,
+and a score view. It is an HTTP client of `/v1/` exactly like the CLI (ADR-0002) — it holds no
+store, no applier and no renderer beyond `layout` + `engrave`.
+
+**It composes `layout()` + `engravePage()` itself, in six lines.** It does not call
+`renderScoreToSvg`, even though that function is pure and is precisely the composition it wants:
+`@sibei/pdf`'s only export entry re-exports `pdf.ts`, so importing it drags **pdfkit** and a
+`Buffer` into a browser bundle. Moving the pure half somewhere framework-free was considered and
+declined — a subpath export would make the "no `@sibei/pdf`" guard a *nuanced* answer instead of a
+flat no, and a guard you have to qualify is a guard that erodes. What holds the two together
+instead is an integration test asserting the UI's SVG is **byte-identical** to
+`renderScoreToSvg`'s across every fixture × paper × face.
+
+**The design came before the code, and that is the rule for UI work here.** Phase 1 is a
+self-contained HTML mockup published for approval — built around *real* engraver output, inlined,
+because a mockup of a notation app that fakes the notation cannot be judged. Phase 2 implements it
+and checks real screenshots against it. Three things the mockup found by looking, which no brief
+would have specified: page 1 of the nasty chart is ~40% white below the last system and **that
+whitespace is information** (it is where the chart stops on the page, so nothing crops it); an
+under-filled bar and a correct one **render identically**, so review state has to live in the
+chrome or it is invisible; and `GET /v1/scores` carries six fields and no review state, which is
+why the library is a list and not a gallery with badges.
+
+**The dev server proxies `/v1/`** so the UI is same-origin, which is what ADR-0029's guards
+require. `strictPort` is deliberate — it refuses an occupied port rather than sliding to the next
+one, because a silent port change is the kind of lie this repo dislikes.
+
+**`tsc -p` cannot read a `.svelte` file**, so this is the one package whose `typecheck` entry is
+`svelte-check`. It runs inside the existing `typecheck` job. Do not assume the root script is
+uniformly `tsc` — and note that `tests/arch/framework-free.test.ts` sweeps `.svelte` as well as
+`.ts` for the same reason: a guard on the UI reading only its `.ts` would be checking the quiet
+half of the package.
 
 ### Never measure text
 
@@ -659,11 +828,19 @@ is specific.
   rather than by what it is about. `fast` is `unit`, `integration`, `e2e` and `arch`; `infra` is
   `store`, `api` and `cli`, and needs better-sqlite3's native binding, a listening socket, and in
   one file a real subprocess. **The pre-push hook runs `fast` only** — a slow gate gets bypassed
-  and then it protects nothing. `pnpm test` and CI run both, 618 tests.
-  **The `fast` layer is not actually infra-free**, despite the split being defined that way:
-  `tests/unit/apply.test.ts` and friends import `@sibei/api`, which transitively loads the native
-  binding. Pre-existing and known (KAN-514) — do not treat the layer's stated purpose as a
-  property you can rely on until that card is decided.
+  and then it protects nothing. `pnpm test` and CI run both, 729 tests.
+- **The `fast` layer really is infra-free, and it is measured rather than intended** (KAN-514).
+  A `process.dlopen` trap in the layer's `setupFiles` fails any fast-layer test that loads a
+  native binding, naming the binding. Two things about it are worth knowing. It traps at **load**,
+  not at import, because better-sqlite3 binds lazily — on `new Database(...)`, not on `import` —
+  so the layer's property had actually been *true all along*, but true by an accident of a
+  dependency's internals rather than by anything holding it. And a static import-graph guard would
+  have been wrong in both directions at once: red on an import that never loaded, and silent on
+  every edge it failed to resolve.
+  The one test that must open a real store to prove the trap works **skips itself** when the
+  binding is absent, because on that machine the load it exists to intercept cannot happen. That
+  matters: without the skip, the guard would be exactly the red pre-push gate on an
+  unbuilt-binding machine that KAN-514 was filed to prevent.
 - **A new test directory must join a layer.** `tests/arch/suite-layers.test.ts` reads the
   config and fails if a directory belongs to neither, because the failure mode of a layered
   suite is a directory that silently never runs while the summary says green.
@@ -683,7 +860,10 @@ Not oversights. Each lands with the slice that needs it.
 | Gate | When | Why not now |
 |---|---|---|
 | Containerized test infra | probably never | V2a's answer turned out to be that SQLite needs no container: the `infra` layer runs against `:memory:` and temp files. Revisit only if something arrives that genuinely needs a daemon |
-| E2E that boots the stack | V4 | There is no stack to boot. `pnpm demo` is the closest thing: a real server, a real CLI, ending in a real PDF |
+| E2E that boots the stack | **V4d, and now due** | There is a stack to boot as of V4b. It must join the **infra** layer, not a seventh CI job — `vitest.config.ts` has said so in a comment since V2a. Whoever takes it decides Playwright-versus-simulation deliberately: the three tests SLICES.md asks for genuinely need a browser, and a jsdom simulation would pass while the product is broken |
+| A cap on concurrent event streams | when something needs one | A hostile page can hold streams open — it reads nothing (no CORS headers, so the browser refuses the page the bytes) but nothing limits the count. Resource exhaustion is outside ADR-0029's threat model, and the alternative fix (widening the Origin rule to cover GETs) would change an ADR's shape to buy it (KAN-601) |
+| Replay on the event stream | when undo needs it | No `id:` is emitted, so no `Last-Event-ID` is promised. Replay needs a read surface over the op log and KAN-510 has deliberately not decided its shape — the first frame carrying the current version makes replay unnecessary for correctness |
+| Anything serving the built browser | V4d or V8 | `pnpm ui:build` produces a bundle with no home. The dev server proxies `/v1/` to keep the UI same-origin, which is what ADR-0029's guards require; `sbscore serve` has no static path yet and inventing one was out of V4b's scope |
 | A cache-hit signal on the export response | when something needs one | `Artefact.cached` exists internally; no header carries it, so the CLI cannot report it. `/v1/` goes additive-only after the hosted transition, so the shape is worth deciding rather than defaulting (KAN-528) |
 | Eviction of cached artefacts | V8 | Superseded blobs accumulate. Correct by design — no `delete` on the port means nowhere to write invalidation logic — and eviction belongs with library lifecycle, where deleting a score should drop its blobs too (KAN-516) |
 | Health endpoint, structured logs | **done, V2d** | `GET /v1/health`, and JSON-per-line on stderr |
