@@ -11,7 +11,13 @@
 
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { everyGlyphChart, invalidBarChart, longFormChart, nastyChart } from '@sibei/fixtures';
+import {
+  everyGlyphChart,
+  invalidBarChart,
+  longFormChart,
+  nastyChart,
+  untitledChart,
+} from '@sibei/fixtures';
 import type { Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import { scoreMetrics } from '@sibei/model';
@@ -23,6 +29,7 @@ const FIXTURES: Record<string, () => Score> = {
   'every-glyph': everyGlyphChart,
   'invalid-bars': invalidBarChart,
   'long-form': longFormChart,
+  untitled: untitledChart,
 };
 
 /**

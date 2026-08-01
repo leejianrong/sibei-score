@@ -41,7 +41,11 @@ export interface PageSpecInput {
   /** Room a rehearsal letter occupies above the chord band. */
   rehearsalBand?: number;
   systemGap?: number;
-  /** Room reserved on page 1 for the title block. */
+  /**
+   * Room page 1 gives a **full** title block — a title, a style line and a composer. A
+   * score missing some of those gets a band derived from the rows it does draw, and one
+   * with no title block at all gets none (`headerBand` in `layout.ts`, KAN-525).
+   */
   headerHeight?: number;
   /**
    * Justification policy: how much of a system's width is shared equally between its
@@ -72,6 +76,7 @@ export interface PageSpec {
   /** The height of a system with nothing unusual in it. Systems may be taller. */
   systemHeight: number;
   systemGap: number;
+  /** What a full title block wants. What a given page reserves is derived from its rows. */
   headerHeight: number;
   titleSize: number;
   composerSize: number;

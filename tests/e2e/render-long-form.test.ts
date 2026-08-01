@@ -144,10 +144,15 @@ describe('page flow', () => {
         expect(system.y).toBeGreaterThanOrEqual(spec.margin.top);
         expect(system.y + system.height).toBeLessThanOrEqual(spec.height - spec.margin.bottom);
       }
-      // Only the first page reserves room for the title block.
+      // Only the first page reserves room for the title block, and only for the rows the
+      // block actually drew: `barCountChart` has a title and no composer, so its band is
+      // shorter than a full block's and the assertion is against its own ink (KAN-525).
       const first = page.systems[0];
       if (page.index === 0) {
-        expect(first?.y).toBeGreaterThanOrEqual(spec.margin.top + spec.headerHeight);
+        const lowest = Math.max(...page.header.map((text) => text.y));
+        expect(page.header.length).toBeGreaterThan(0);
+        expect(first?.y).toBeGreaterThan(lowest);
+        expect(first?.y).toBeLessThan(spec.margin.top + spec.headerHeight);
       }
     }
   });

@@ -103,6 +103,46 @@ export function everyGlyphChart(): Score {
 }
 
 /**
+ * A chart with no title, no composer and no style line, so page 1's title block emits
+ * nothing at all. The corpus had no such fixture, which is why an untitled chart could
+ * reserve an inch and a half for a header it never drew and nothing noticed (KAN-525).
+ *
+ * The empty title is deliberate rather than an omission: `makeScore` defaults a missing
+ * one to 'Untitled', so this is the state a `meta.set --title ""` leaves behind and the
+ * state a browser holds between creating a score and naming it — the first thing a new
+ * V4 user will ever see rendered.
+ *
+ * Eight bars, so it has a second system whose spacing is ordinary and can be compared
+ * against the first. Bar 1 carries a rehearsal letter on purpose: with the band gone the
+ * system sits at the top margin, and a rehearsal mark is the tallest ink above a staff —
+ * the exact shape of the defect V3b caught by eye, a mark drawn in the paper margin.
+ */
+export function untitledChart(): Score {
+  const ids = createIdFactory();
+  const beat = 480;
+
+  const bars = [1, 2, 3, 4, 5, 6, 7, 8].map((number) =>
+    new BarBuilder(ids, { number, ...(number === 8 ? { endBarline: 'final' as const } : {}) })
+      .chord(1, number % 2 === 1 ? 'Dm7' : 'G7', beat)
+      .note(number % 2 === 1 ? 'D5' : 'G4', dur(4))
+      .note('F5', dur(8))
+      .note('E5', dur(8))
+      .note('D5', dur(2))
+      .build(),
+  );
+
+  return makeScore({
+    id: 'score-untitled',
+    title: '',
+    bars,
+    sections: [
+      makeSection({ id: ids.next('section'), startBar: 1, letter: 'A' }),
+      makeSection({ id: ids.next('section'), startBar: 5, letter: 'B' }),
+    ],
+  });
+}
+
+/**
  * Beaming, isolated. Bar 1 is nothing but beamable groups; bar 2 holds a single
  * unbeamable eighth as the control.
  *

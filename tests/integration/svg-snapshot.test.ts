@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { everyGlyphChart, longFormChart, nastyChart } from '@sibei/fixtures';
+import { everyGlyphChart, longFormChart, nastyChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -52,6 +52,13 @@ describe('rendered SVG', () => {
     // recorded what a page with no title block looks like, so nothing could notice one
     // growing a phantom header or dropping its top system off the paper.
     snapshotScore(longFormChart(), 'long-form');
+  });
+
+  it('matches the committed snapshot for the untitled chart', () => {
+    // The page-1 counterpart of long-form's page 2: a first page with no title block on
+    // it, so a header band reappearing above the top system is something a file records
+    // rather than something only a person could notice (KAN-525).
+    snapshotScore(untitledChart(), 'untitled');
   });
 
   it('is identical when the same score is rendered twice', () => {
