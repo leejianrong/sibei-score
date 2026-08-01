@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createApi, openDirectoryBlobStore, openSqliteStore } from '@sibei/api';
+import { createApi, openDirectoryBlobStore } from '@sibei/api';
+import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
 import type { Io } from './commands.js';

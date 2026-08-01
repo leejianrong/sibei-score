@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApi, openSqliteStore, silentLogger } from '@sibei/api';
+import { createApi, silentLogger } from '@sibei/api';
+import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, ScoreStore } from '@sibei/api';
 import { EXIT, run } from '@sibei/cli';
 

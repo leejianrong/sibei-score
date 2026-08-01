@@ -1,6 +1,7 @@
 import { request as httpRequest } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApi, openSqliteStore, silentLogger } from '@sibei/api';
+import { createApi, silentLogger } from '@sibei/api';
+import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, Operation, ScoreStore } from '@sibei/api';
 import { dur } from '@sibei/model';
 
