@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The one package in the tree that is *allowed* a DOM. `model`, `layout` and `engrave`
+    // declare `"types": []` and no DOM lib precisely so that they cannot follow it here
+    // (ADR-0005, ADR-0022) — `tests/arch/framework-free.test.ts` holds them to it.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "svelte.config.js"]
+}

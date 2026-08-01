@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -48,13 +48,19 @@ const FRAMEWORK_PACKAGES = [
 
 const NODE_BUILTINS = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 
-function sourceFiles(directory: string): string[] {
+/**
+ * `.ts` by default. The extensions are a parameter because `packages/ui` keeps most of its code
+ * in `.svelte` files, and a guard on the UI that only read its `.ts` would be checking the
+ * quiet half of the package (V4b).
+ */
+function sourceFiles(directory: string, extensions: readonly string[] = ['.ts']): string[] {
   if (!exists(directory)) return [];
   const found: string[] = [];
   for (const entry of readdirSync(directory)) {
+    if (entry === 'node_modules') continue;
     const path = join(directory, entry);
-    if (statSync(path).isDirectory()) found.push(...sourceFiles(path));
-    else if (entry.endsWith('.ts')) found.push(path);
+    if (statSync(path).isDirectory()) found.push(...sourceFiles(path, extensions));
+    else if (extensions.some((extension) => entry.endsWith(extension))) found.push(path);
   }
   return found;
 }
@@ -215,5 +221,104 @@ describe('the draw seam', () => {
       if (!exists(path)) continue;
       expect(exists(join(path, 'package.json'))).toBe(true);
     }
+  });
+});
+
+/**
+ * The UI, added at V4b — and the first time the assertions above have run with a framework
+ * **actually in the tree**.
+ *
+ * That distinction is the whole content of SLICES.md's V4 step 6. "No import from the model or
+ * the layout engine reaches a framework package" was cheap to assert while no framework existed:
+ * every one of those `expect([]).toEqual([])` calls passed because there was nothing to find.
+ * Svelte is now a real dependency of a real package that imports `@sibei/layout` and
+ * `@sibei/engrave` directly, so the invariant is finally load-bearing rather than vacuous.
+ */
+describe('the browser, and the second render path (ADR-0002, ADR-0014, ADR-0022)', () => {
+  const UI = join(REPO, 'packages/ui');
+  const uiFiles = sourceFiles(join(UI, 'src'), ['.ts', '.svelte']);
+
+  /** What a renderer is made of. The UI may hold two of these and must not hold the third. */
+  const MAY_IMPORT = ['@sibei/layout', '@sibei/engrave'];
+  const MAY_NOT_IMPORT = ['@sibei/pdf'];
+
+  it('has ui source to check, in both of the languages it is written in', () => {
+    // Guards the guard twice over: an empty list would make everything below a tautology, and a
+    // `.ts`-only sweep would miss the components, which is where most of the package lives.
+    expect(uiFiles.length).toBeGreaterThan(0);
+    expect(uiFiles.filter((file) => file.endsWith('.svelte')).length).toBeGreaterThan(0);
+  });
+
+  it('really does have Svelte in it, which is what makes the assertions above mean something', () => {
+    const manifest = JSON.parse(readFileSync(join(UI, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const declared = Object.keys({ ...manifest.dependencies, ...manifest.devDependencies });
+    expect(declared).toContain('svelte');
+    expect(declared).toContain('vite');
+    // And Svelte is in FRAMEWORK_PACKAGES, so the loop over the framework-free packages is now
+    // looking for something that is genuinely there to be found.
+    expect(FRAMEWORK_PACKAGES).toContain('svelte');
+  });
+
+  it('renders through layout and engrave, the same two packages the PDF goes through', () => {
+    // The positive half. Without it, "the UI does not import @sibei/pdf" would be satisfied by a
+    // UI that renders nothing at all, which is the failure this whole seam is about.
+    const manifest = readFileSync(join(UI, 'package.json'), 'utf8');
+    for (const dependency of MAY_IMPORT) expect(manifest).toContain(dependency);
+    expect(uiFiles.filter((file) => codeOf(file).includes('engravePage'))).not.toEqual([]);
+    expect(uiFiles.filter((file) => codeOf(file).includes('layout('))).not.toEqual([]);
+  });
+
+  it('does not depend on @sibei/pdf, which would put pdfkit in a browser bundle', () => {
+    // The mirror of `tests/cli/no-second-render-path.test.ts`, and the asymmetry is deliberate:
+    // the CLI may reach for none of the three, because it asks the API for a PDF and renders
+    // nothing. The UI *must* render, so it holds layout and engrave and stops there.
+    const manifest = readFileSync(join(UI, 'package.json'), 'utf8');
+    for (const dependency of MAY_NOT_IMPORT) expect(manifest).not.toContain(dependency);
+  });
+
+  it('does not import @sibei/pdf anywhere in its source', () => {
+    const offenders = uiFiles
+      .filter((file) => MAY_NOT_IMPORT.some((name) => codeOf(file).includes(name)))
+      .map((file) => relative(REPO, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it('does not reach a PDF renderer by any other route', () => {
+    // The import is the obvious leak. A dynamic import, or `pdfkit` and `Buffer` arriving
+    // through something that re-exports them, is the subtle one.
+    const reach = /\b(renderScoreToPdf|renderScoreToSvg|pdfkit|PDFDocument)\b/;
+    const offenders = uiFiles
+      .filter((file) => reach.test(codeOf(file)))
+      .map((file) => relative(REPO, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it('never measures text, in the one package that has a DOM to measure with (ADR-0015)', () => {
+    // The engraver is already held to this, and it is framework-free so it could not have
+    // measured anything anyway. The UI is the first package where `measureText` and `getBBox`
+    // genuinely exist — so it is the first place the rule can actually be broken.
+    const offenders = uiFiles
+      .filter((file) => /\b(measureText|getBBox|getComputedTextLength)\b/.test(codeOf(file)))
+      .map((file) => relative(REPO, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it('holds no store, and reaches the server only over /v1/ (ADR-0002, ADR-0006)', () => {
+    const offenders = uiFiles
+      .filter((file) => /@sibei\/api|better-sqlite3|\bsqlite\b/i.test(codeOf(file)))
+      .map((file) => relative(REPO, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it('is typechecked, because a package the root script does not name is not checked', () => {
+    // `typecheck` names every package explicitly, so an unlisted one is silently unchecked —
+    // and `tsc -p` cannot read a `.svelte` file, so the UI's entry is svelte-check instead.
+    const root = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(root.scripts?.['typecheck']).toContain('@sibei/ui');
   });
 });
