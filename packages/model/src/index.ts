@@ -7,4 +7,5 @@ export * from './build.js';
 export * from './query.js';
 export * from './migrate.js';
 export * from './address.js';
+export * from './review.js';
 export * from './projection.js';

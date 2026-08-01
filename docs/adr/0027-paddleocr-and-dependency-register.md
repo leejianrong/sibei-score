@@ -84,6 +84,26 @@ The reversal is cheap and deliberately so: ADR-0006's port means both files that
 exists are in `packages/api/src/store/`, `tests/arch/store-seam.test.ts` keeps it that way, and
 swapping the driver is a change to one of them. Revisit when `node:sqlite` loses the warning.
 
+### Register note, 2026-08-01: the UI row gets concrete
+
+V4b turned the register's "Svelte 5 + Vite" row into installed versions: **svelte 5.56.8**, **vite
+7.3.6**, **@sveltejs/vite-plugin-svelte 6.2.4** and **svelte-check 4.7.4**, all MIT and all
+offline after install. Only `svelte` ships in the bundle; the other three are build and check
+tooling and never reach a page.
+
+Two things worth recording rather than leaving to be rediscovered.
+
+`svelte-check` is in the register because it is the UI's **entry in the root `typecheck` script**.
+`tsc -p` cannot read a `.svelte` file, so a UI checked with `tsc` would have had its components
+silently unchecked — which is the same failure the script's habit of naming every package
+explicitly exists to prevent. It runs inside the existing `typecheck` CI job; no seventh job.
+
+The row's stated fallback — "the framework-free core makes it swappable" — is now a fact rather
+than a claim. `packages/ui` imports `@sibei/layout` and `@sibei/engrave` directly and composes
+them in six lines, so what a framework swap would rewrite is `App.svelte` and four components,
+not the render path. `tests/arch/framework-free.test.ts` asserts it, and as of this slice it does
+so with Svelte genuinely in the tree instead of vacuously.
+
 ## Alternatives considered
 
 | Option | Why not |

@@ -1,7 +1,7 @@
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { orderedItems } from './address.js';
-import { invalidBars } from './metrics.js';
+import { NEEDS_REVIEW, reviewSummary } from './review.js';
 import type { Bar, BarItem, Score, TimeSignature } from './score.js';
 
 /**
@@ -39,11 +39,12 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   const perRow = options.barsPerRow ?? BARS_PER_ROW;
   const lines: string[] = [header(score)];
 
-  const flagged = invalidBars(score).length;
-  if (anythingFlagged(score)) {
-    lines.push(
-      `  ! = needs review${flagged > 0 ? ` · ${flagged} ${plural(flagged, 'bar')} do not fill the meter` : ''}`,
-    );
+  // The wording lives in `review.ts`, not here, because the score rail says the same sentence
+  // (V4b): the engraver draws no flag, so the chrome carries review state and must carry it in
+  // the projection's own vocabulary rather than inventing a second one.
+  const review = reviewSummary(score);
+  if (review.anythingFlagged) {
+    lines.push(`  ! = ${NEEDS_REVIEW}${review.meterNote === null ? '' : ` · ${review.meterNote}`}`);
   }
   lines.push('');
 
@@ -190,19 +191,6 @@ function legend(score: Score): string[] {
   ];
 }
 
-function anythingFlagged(score: Score): boolean {
-  return score.bars.some(
-    (bar) =>
-      bar.review.flagged ||
-      bar.items.some((item) => item.review.flagged) ||
-      bar.chords.some((chord) => chord.review.flagged),
-  );
-}
-
 function trim(beat: number): string {
   return Number(beat.toFixed(4)).toString();
-}
-
-function plural(count: number, word: string): string {
-  return count === 1 ? word : `${word}s`;
 }

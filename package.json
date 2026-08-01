@@ -13,7 +13,7 @@
     "test:fast": "vitest run --project fast",
     "test:infra": "vitest run --project infra",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/engrave && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p packages/api && tsc --noEmit -p packages/cli && tsc --noEmit -p tests && tsc --noEmit -p scripts",
+    "typecheck": "tsc --noEmit -p packages/model && tsc --noEmit -p packages/layout && tsc --noEmit -p packages/engrave && tsc --noEmit -p packages/fixtures && tsc --noEmit -p packages/pdf && tsc --noEmit -p packages/api && tsc --noEmit -p packages/cli && tsc --noEmit -p tests && tsc --noEmit -p scripts && pnpm --filter @sibei/ui run typecheck",
     "check": "pnpm run typecheck && pnpm run test",
     "render": "tsx scripts/render-fixture.ts",
     "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
@@ -22,6 +22,8 @@
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
     "sbscore": "tsx packages/cli/src/bin.ts",
     "serve": "tsx packages/cli/src/bin.ts serve",
+    "ui": "pnpm --filter @sibei/ui run dev",
+    "ui:build": "pnpm --filter @sibei/ui run build",
     "demo": "bash scripts/demo-v2.sh"
   },
   "devDependencies": {
@@ -33,6 +35,7 @@
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",
     "@sibei/pdf": "workspace:*",
+    "@sibei/ui": "workspace:*",
     "@types/jsdom": "21.1.7",
     "@types/node": "22.13.1",
     "@types/opentype.js": "^1.3.10",
