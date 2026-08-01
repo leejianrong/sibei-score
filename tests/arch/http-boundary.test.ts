@@ -15,6 +15,16 @@ const REPO = resolve(import.meta.dirname, '../..');
 
 const ROUTES = 'packages/api/src/http/routes.ts';
 const SERVER = 'packages/api/src/http/server.ts';
+const STREAM = 'packages/api/src/http/event-stream.ts';
+const BUS = 'packages/api/src/events/change-bus.ts';
+
+/**
+ * Declares the capability to announce a change, composes it, and re-exports the declaration. The
+ * barrel is on the list because it names the type without holding one — the same exemption
+ * `one-writer.test.ts` gets for free from `export *`, spelled out here rather than depending on
+ * which export syntax happens to be in use.
+ */
+const MAY_PUBLISH_A_CHANGE = [BUS, SERVER, 'packages/api/src/index.ts'];
 
 function sourceFiles(directory: string): string[] {
   if (!exists(directory)) return [];
@@ -97,6 +107,68 @@ describe('the routes cannot write (ADR-0003)', () => {
     const routeAt = server.indexOf('await route(');
     expect(guardAt).toBeGreaterThan(-1);
     expect(routeAt).toBeGreaterThan(guardAt);
+  });
+});
+
+describe('the change bus is narrowed the way the store is (V4a)', () => {
+  it('has the files it claims to have', () => {
+    for (const file of [STREAM, BUS]) expect(exists(join(REPO, file))).toBe(true);
+  });
+
+  it('keeps announcing a change on its own interface, separate from hearing one', () => {
+    const bus = codeOf(join(REPO, BUS));
+    expect(bus).toMatch(/interface ChangePublisher/);
+    expect(bus).toMatch(/interface ChangeSubscriber/);
+    // If `publish` migrated onto the subscriber, holding a subscriber would mean holding a
+    // publisher, and the narrowing below would be measuring nothing.
+    const subscriber = /interface ChangeSubscriber \{[\s\S]*?\n\}/.exec(bus)?.[0] ?? '';
+    expect(subscriber).toBeTruthy();
+    expect(subscriber).not.toMatch(/\bpublish\s*\(/);
+  });
+
+  it('lets nothing but the composition root and the bus itself name the publisher', () => {
+    // The same argument as `one-writer.test.ts`: a file that never names the type cannot be handed
+    // one, so checking who *could* publish is stronger than checking who does. A route handler
+    // that could announce a change it did not make is a second story about what happened.
+    const offenders = productFiles().filter(
+      (file) => !MAY_PUBLISH_A_CHANGE.includes(file) && /\bChangePublisher\b/.test(codeOf(join(REPO, file))),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('does not plumb the bus into the one file that may write', () => {
+    // Publication is a wrapper around the applier, not an argument to it, so this slice gives
+    // nothing a new reason to hold a `ScoreWriter` (ADR-0003).
+    const applier = codeOf(join(REPO, 'packages/api/src/ops/applier.ts'));
+    expect(applier).not.toMatch(/Change(Publisher|Bus|Event)/);
+  });
+
+  it('sends no CORS header on the stream, which is the whole of what stops a hostile page', () => {
+    // checkOrigin fires on state-changing methods only, so a page *can* open an EventSource here.
+    // It reads nothing because of a header that is absent — a security property made of an
+    // omission, which is why it is asserted twice: here, and over the wire in tests/api.
+    const stream = codeOf(join(REPO, STREAM));
+    expect(stream).toMatch(/text\/event-stream/);
+    expect(stream).not.toMatch(/access-control/i);
+  });
+
+  it('emits no id: field, so no client is promised a replay (KAN-510)', () => {
+    // A browser echoes `id:` back as Last-Event-ID on reconnect. Emitting one and ignoring it
+    // would be a promise this API does not keep, and keeping it needs a read surface over the op
+    // log that KAN-510 has deliberately not decided.
+    const stream = codeOf(join(REPO, STREAM));
+    expect(stream).not.toMatch(/`id:|'id:|"id:/);
+    expect(stream).not.toMatch(/last-event-id/i);
+  });
+
+  it('ends its streams before waiting on the server to close', () => {
+    // `server.close()` waits for open connections and an SSE stream never finishes, so the order
+    // here is the difference between a clean shutdown and a hang.
+    const server = codeOf(join(REPO, SERVER));
+    const closeAllAt = server.indexOf('events.closeAll()');
+    const serverCloseAt = server.indexOf('server.close(');
+    expect(closeAllAt).toBeGreaterThan(-1);
+    expect(serverCloseAt).toBeGreaterThan(closeAllAt);
   });
 });
 

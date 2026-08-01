@@ -14,6 +14,7 @@ import type { Artefact, Exporter } from '../export/export.js';
 import type { Applier } from '../ops/applier.js';
 import type { Batch, Operation } from '../ops/operations.js';
 import type { Owner, ScoreLibrary, ScoreReader } from '../store/repository.js';
+import type { EventStreams } from './event-stream.js';
 import { problem } from './problems.js';
 import type { Problem } from './problems.js';
 
@@ -35,6 +36,12 @@ export interface RouteContext {
   applier: Applier;
   /** Reads a score and renders it. A read, and one that holds no writer (V3, Q81). */
   exporter: Exporter;
+  /**
+   * Subscribing to a score's changes, and nothing else. The narrowing again (V4a): `server.ts`
+   * holds the whole change bus, and what arrives here can only *hear* a change — announcing one is
+   * a capability that belongs beside making one, which is to say not in this file.
+   */
+  events: EventStreams;
   owner: Owner;
 }
 
@@ -98,6 +105,12 @@ export async function route(
     return await exportScore(request, response, context, exportFor);
   }
 
+  const eventsFor = match(path, /^\/v1\/scores\/([^/]+)\/events$/);
+  if (eventsFor !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return openEventStream(request, response, context, eventsFor);
+  }
+
   const opsFor = match(path, /^\/v1\/scores\/([^/]+)\/ops$/);
   if (opsFor !== null) {
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
@@ -107,6 +120,39 @@ export async function route(
   }
 
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));
+}
+
+/**
+ * `GET /v1/scores/:id/events` — the change stream (V4a, SLICES.md V4 step 5).
+ *
+ * **Per score, not library-wide**, and that is the shape decision worth stating because `/v1/` goes
+ * additive-only after the hosted transition (ADR-0022). Three reasons, in order of weight:
+ *
+ *  - It is what the demo needs: a browser with one chart open, repainting when `sibei note set`
+ *    edits it. A library-wide stream would push every score's traffic at that client and leave it
+ *    to filter — which is a per-score stream, paid for and then reimplemented in the client.
+ *  - It fits the addressing the rest of the API already has. A score is a resource with an id, and
+ *    this is that resource's events, so it 404s and it scopes to an owner for the same reasons and
+ *    by the same code as `GET /v1/scores/:id` does.
+ *  - Additivity runs one way. A library-wide stream can be added later beside this one; a firehose
+ *    cannot be narrowed once something depends on it.
+ *
+ * A read, and one that cannot become anything else — this handler is on the same `ScoreReader` as
+ * every other read, and the only thing it can do with the bus is subscribe.
+ */
+function openEventStream(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RouteContext,
+  scoreId: Id,
+): number {
+  // The read serves two purposes and both are wanted: it 404s a score that is not there, rather
+  // than opening a stream that could never carry anything, and it supplies the version the stream's
+  // first frame announces. It also throws for a document this build cannot read (ADR-0028), which
+  // is the right answer — a stream over a document we would refuse to serve is worth nothing.
+  const record = context.reader.get(context.owner, scoreId);
+  if (record === null) return send(response, noSuchScore(scoreId));
+  return context.events.open(request, response, context.owner, scoreId, record.version);
 }
 
 /**
