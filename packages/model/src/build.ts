@@ -168,7 +168,17 @@ export interface ScoreInit {
 
 export function makeScore(init: ScoreInit): Score {
   const meta: ScoreMeta = {
-    title: init.title ?? 'Untitled',
+    // A missing title is the empty string, not the word 'Untitled' (KAN-594). Defaulting to a
+    // literal name destroyed the one fact only creation knows: the document is the truth
+    // (ADR-0028), so storing 'Untitled' leaves nothing able to tell a chart somebody *named*
+    // "Untitled" from a chart nobody has named. Both surfaces already depend on that distinction
+    // existing — the library draws an unnamed chart in italics with its id beside it, and page 1's
+    // title band collapses rather than reserving room for a row it never draws (KAN-525).
+    //
+    // It is defaulted here rather than in each client on purpose: a default every caller has to
+    // remember to send is a default the surfaces agree on only until one of them forgets (Q79).
+    // `composer` and `style` below already worked this way; `title` was the odd one out.
+    title: init.title ?? '',
     composer: init.composer ?? '',
     style: init.style ?? null,
     key: init.key ?? DEFAULT_KEY,

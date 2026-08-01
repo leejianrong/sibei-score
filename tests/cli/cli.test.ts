@@ -63,6 +63,25 @@ describe('the library verbs', () => {
     expect(json<{ scoreId: string }>(result.out).scoreId).toMatch(/^score-\d{14}$/);
   });
 
+  it('leaves a chart created without --title unnamed, end to end', async () => {
+    // KAN-594, and the reason it is asserted through the CLI rather than only on `makeScore`: the
+    // CLI omits `title` from the create payload when the flag is absent, so this path only reaches
+    // the model's default — and the model is where the default has to live, or the browser and the
+    // CLI agree about it for exactly as long as both remember to send the same thing (Q79).
+    //
+    // It also pins a behaviour change to a shipped verb, permitted inside v1 (ADR-0022): this used
+    // to produce a chart whose document said 'Untitled' and whose printed page said so too.
+    expect((await sbscore('new', '--id', 'nameless', '--bars', '4')).code).toBe(EXIT.ok);
+
+    const document = json<{ score: { meta: { title: string } } }>((await sbscore('open', 'nameless')).out);
+    expect(document.score.meta.title).toBe('');
+
+    // And the projection degrades to the key, meter and length rather than opening on a separator.
+    const shown = await sbscore('show', 'nameless');
+    expect(shown.out.split('\n')[0]).toBe('key C, 4/4, 4 bars');
+    expect(shown.out).not.toContain('Untitled');
+  });
+
   it('lists what is there, and says so plainly when nothing is', async () => {
     expect((await sbscore('list')).out).toContain('no charts yet');
     await aChart();
