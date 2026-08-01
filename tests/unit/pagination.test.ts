@@ -1,6 +1,7 @@
-import { barCountChart, longFormChart } from '@sibei/fixtures';
+import { barCountChart, longFormChart, untitledChart } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
+import type { Score } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -118,6 +119,80 @@ describe('the second page', () => {
         }
       }
     }
+  });
+});
+
+/**
+ * KAN-525. The band was `spec.headerHeight` whatever the score contained, but the title,
+ * the style line and the composer are each emitted only when the score carries one — so
+ * a chart with none of them printed its first system an inch and a half down the page
+ * under a title block that was never drawn. The band is derived from the emitted rows
+ * now, and these are the cases that pin what "derived" means.
+ */
+describe('the band page 1 reserves for its title block', () => {
+  const withMeta = (meta: Partial<Score['meta']>): Score => {
+    const base = untitledChart();
+    return { ...base, meta: { ...base.meta, ...meta } };
+  };
+
+  const firstSystemY = (score: Score): number => layout(score).pages[0]?.systems[0]?.y ?? -1;
+
+  it('reserves nothing at all when the header emits nothing', () => {
+    const result = layout(untitledChart());
+
+    expect(result.pages[0]?.header).toEqual([]);
+    expect(result.pages[0]?.systems[0]?.y).toBe(result.pageSpec.margin.top);
+  });
+
+  it('starts an untitled page 1 exactly where a continuation page starts', () => {
+    // The consistency that decided it: page 2 has behaved this way since V1, so an empty
+    // page 1 needed no new rule, only the same one.
+    const untitled = layout(untitledChart());
+    const continuation = layout(longFormChart()).pages[1];
+
+    expect(untitled.pages[0]?.systems[0]?.y).toBe(continuation?.systems[0]?.y);
+  });
+
+  it('leaves a full title block exactly the room it always had', () => {
+    // Every committed snapshot is of a chart carrying all three rows, so this is the
+    // assertion that says the fix moved nothing that was already right.
+    const result = layout(withMeta({ title: 'Body and Soul', composer: 'Johnny Green', style: 'Ballad' }));
+
+    expect(result.pages[0]?.header).toHaveLength(3);
+    expect(result.pages[0]?.systems[0]?.y).toBe(
+      result.pageSpec.margin.top + result.pageSpec.headerHeight,
+    );
+  });
+
+  it('gives a title-only chart a shorter band, the second row not being there', () => {
+    const margin = layout(untitledChart()).pageSpec.margin.top;
+    const titleOnly = firstSystemY(withMeta({ title: 'Body and Soul' }));
+    const full = firstSystemY(withMeta({ title: 'Body and Soul', composer: 'Johnny Green' }));
+
+    expect(titleOnly).toBeGreaterThan(margin);
+    expect(titleOnly).toBeLessThan(full);
+  });
+
+  it('clears the lowest baseline it drew by the same gap in every shape', () => {
+    // The property under the arithmetic: the band exists to clear the header's ink, so it
+    // is measured from the ink. Skipping a row costs that row's height and nothing else,
+    // and no shape gets a gap of its own invented for it.
+    const shapes: Partial<Score['meta']>[] = [
+      { title: 'T' },
+      { title: 'T', composer: 'C' },
+      { title: 'T', style: 'Ballad' },
+      { title: 'T', composer: 'C', style: 'Ballad' },
+      { composer: 'C' },
+      { style: 'Ballad' },
+    ];
+
+    const clearances = shapes.map((meta) => {
+      const page = layout(withMeta(meta)).pages[0];
+      const lowest = Math.max(...(page?.header ?? []).map((text) => text.y));
+      return (page?.systems[0]?.y ?? 0) - lowest;
+    });
+
+    expect(new Set(clearances), `clearances: ${clearances.join(', ')}`).toHaveProperty('size', 1);
   });
 });
 

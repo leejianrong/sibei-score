@@ -143,7 +143,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
 function paginate(score: Score, systems: LayoutSystem[], spec: PageSpec): LayoutPage[] {
   const pages: LayoutPage[] = [];
   let page = emptyPage(0, score, spec);
-  let y = spec.margin.top + spec.headerHeight;
+  let y = spec.margin.top + headerBand(page.header, spec);
 
   for (const system of systems) {
     const overflows = y + system.height > spec.height - spec.margin.bottom;
@@ -174,10 +174,44 @@ function emptyPage(index: number, score: Score, spec: PageSpec): LayoutPage {
   };
 }
 
+/** The style line and the composer share a row this far below the title's baseline. */
+const SUB_ROW_GAP = 32;
+
+/**
+ * How far below the top margin page 1's first system sits — derived from the ink the
+ * title block actually put on the page, not reserved unconditionally (KAN-525).
+ *
+ * `buildHeader` emits a title only for a score that has one, a style line only for a
+ * score that has one, and a composer only for a score that has one, so it may emit
+ * nothing at all. Reserving `spec.headerHeight` regardless printed an untitled,
+ * uncredited chart an inch and a half down the page under a title block that was never
+ * drawn — and a browser (V4) creates exactly that score every time somebody starts a
+ * chart before naming it.
+ *
+ * Three fixes were on the table: collapse the band whenever the header is empty, reserve
+ * something smaller so that typing a title later does not reflow the chart, or call the
+ * white space deliberate. Measuring the ink subsumes the first — with no header there is
+ * nothing to clear, so page 1 starts at `margin.top` exactly as a continuation page
+ * already does — and it needs no constant of its own to do it. The reflow worry behind
+ * the second is real, but it is a UI concern with a UI answer, and buying it with
+ * permanent white space on every untitled printout is the wrong trade.
+ *
+ * The clearance below the last baseline is derived rather than invented: `headerHeight`
+ * keeps its meaning as the room a *full* title block wants, so whatever it has left over
+ * once the full block's own rows are accounted for is the gap every header gets. Same
+ * rule as the engraver's — if the geometry is available, do not tune a number (ADR-0030).
+ */
+function headerBand(header: LayoutText[], spec: PageSpec): number {
+  if (header.length === 0) return 0;
+  const lowestBaseline = Math.max(...header.map((text) => text.y));
+  const clearance = spec.headerHeight - (spec.titleSize + SUB_ROW_GAP);
+  return Math.max(0, lowestBaseline - spec.margin.top + clearance);
+}
+
 function buildHeader(score: Score, spec: PageSpec): LayoutText[] {
   const texts: LayoutText[] = [];
   const titleBaseline = spec.margin.top + spec.titleSize;
-  const subBaseline = titleBaseline + 32;
+  const subBaseline = titleBaseline + SUB_ROW_GAP;
 
   if (score.meta.title !== '') {
     texts.push({

@@ -103,9 +103,17 @@ jobs:
       - run: pnpm render all
       - name: check every fixture produced a PDF
         run: |
-          for f in nasty-chart every-glyph invalid-bars long-form; do
-            test -s "out/render/$f/$f.pdf" || {
-              echo "missing or empty: out/render/$f/$f.pdf"; exit 1; }
+          # Derived from what `render all` wrote, not restated here. A hardcoded list
+          # silently stops covering the fixture added after it, which is what happened to
+          # `untitled` (KAN-525) — same principle as the export route deriving its
+          # supported-paper list rather than quoting one.
+          shopt -s nullglob
+          dirs=(out/render/*/)
+          test "${#dirs[@]}" -gt 0 || { echo "pnpm render all wrote nothing"; exit 1; }
+          for d in "${dirs[@]}"; do
+            f=$(basename "$d")
+            test -s "$d$f.pdf" || { echo "missing or empty: $d$f.pdf"; exit 1; }
+            echo "ok: $d$f.pdf"
           done
           # long-form is the only fixture that paginates, so it is the only one whose second
           # page can regress to nothing. Cheap to assert, and it would have caught the V3b

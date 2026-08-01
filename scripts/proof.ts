@@ -45,6 +45,7 @@ import {
   invalidBarChart,
   longFormChart,
   nastyChart,
+  untitledChart,
 } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
@@ -57,6 +58,7 @@ const FIXTURES: Record<string, () => Score> = {
   beaming: beamingChart,
   'invalid-bars': invalidBarChart,
   'long-form': longFormChart,
+  untitled: untitledChart,
 };
 
 const PROOF_DIR = resolve('out/proof');
