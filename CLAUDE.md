@@ -77,7 +77,7 @@ pnpm test:watch
 pnpm serve                 # run the local API on 127.0.0.1:4321
 pnpm sibei <verb>           # the CLI. `pnpm sibei --help` lists every verb
 pnpm demo                  # V2's demo end to end, closing on an export. A CI job
-pnpm render:nasty          # out/nasty-chart.pdf — the V1 demo
+pnpm render:nasty          # out/render/nasty-chart/nasty-chart.pdf — the V1 demo
 pnpm render all            # every fixture
 pnpm vendor:fonts          # regenerate the vendored font slices (needs network)
 pnpm hooks:install         # point git at .githooks (do this once per clone)
@@ -113,6 +113,24 @@ Crops are named after the music, not pixel coordinates: layout knows where every
 and bar sits, so `--bar 11` is exact and the zoom lands at a readable size on its own.
 Each run prints a manifest of what it wrote and what each image shows, so **read those
 files** — that is the point of the tool.
+
+**Where the output goes.** `out/` is gitignored in full and is entirely regenerable — a
+directory per fixture, so one chart's artefacts sit together:
+
+```
+out/render/nasty-chart/nasty-chart.pdf   page1.svg          # pnpm render
+out/proof/nasty-chart/page1.png  bar6.compare.png  bar6.jazz.png    # pnpm proof
+out/proof/manifest.json                  # one per run, spanning every fixture in it
+```
+
+The PDF keeps the fixture's name because it is the thing you open or attach; everything else
+drops it, because the directory already said it.
+
+**A fixture's directory is emptied at the start of its run**, so what is in it is exactly what
+the last run produced — which is the only thing that makes the manifest trustworthy. Without
+that, a file whose name no longer matches anything the tool emits sits there looking current
+forever: `nasty-chart.page1.engraver-normal.svg` outlived the two-adapter era by three slices,
+because the naming died with `packages/draw` and the file did not.
 
 **Crops are page-aware, and were not always.** A crop carries the page its music is on, so
 `--bar 41` on a two-page chart renders page 2 and cuts from page 2. Until V3b it carried a
@@ -154,8 +172,8 @@ SVG proof stands in for the engraving and only the conversion goes unseen.
 The older single-file previewer is still there for ad-hoc use:
 
 ```sh
-pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 2
-pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 4 --crop 60,150,900,200
+pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 2
+pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 4 --crop 60,150,900,200
 ```
 
 Refresh SVG snapshots **deliberately**, never to make a red test go green without reading

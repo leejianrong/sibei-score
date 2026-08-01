@@ -9,7 +9,7 @@
  * API and the CLI, which arrive in V2 and V3.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { everyGlyphChart, invalidBarChart, longFormChart, nastyChart } from '@sibei/fixtures';
 import type { Paper } from '@sibei/layout';
@@ -24,6 +24,12 @@ const FIXTURES: Record<string, () => Score> = {
   'invalid-bars': invalidBarChart,
   'long-form': longFormChart,
 };
+
+/**
+ * One directory per fixture under here, so a chart's PDF and its pages sit together and
+ * `out/` does not become a flat pile that nothing owns. `out/` is gitignored in full.
+ */
+const RENDER_DIR = resolve('out/render');
 
 async function main(argv: string[]): Promise<number> {
   const requested = argv[0] ?? 'nasty-chart';
@@ -40,14 +46,11 @@ async function main(argv: string[]): Promise<number> {
 
   const paperIndex = argv.indexOf('--paper');
   const paper = (paperIndex === -1 ? 'a4' : argv[paperIndex + 1]) as Paper;
-  const outDir = resolve('out');
-  await mkdir(outDir, { recursive: true });
-
-  for (const name of names) await render(name, paper, outDir);
+  for (const name of names) await render(name, paper);
   return 0;
 }
 
-async function render(name: string, paper: Paper, outDir: string): Promise<void> {
+async function render(name: string, paper: Paper): Promise<void> {
   const build = FIXTURES[name];
   if (build === undefined) throw new Error(`unknown fixture: ${name}`);
   const score = build();
@@ -55,10 +58,19 @@ async function render(name: string, paper: Paper, outDir: string): Promise<void>
   const pages = renderScoreToSvg(score, { paper });
   const pdf = await renderScoreToPdf(score, { paper });
 
+  // A directory per fixture, emptied first. Emptying is the point: a chart that used to
+  // paginate onto three pages and now fits two would otherwise leave `page3.svg` behind
+  // looking current, and nothing would ever say so.
+  const outDir = resolve(RENDER_DIR, name);
+  await rm(outDir, { recursive: true, force: true });
+  await mkdir(outDir, { recursive: true });
+
+  // The PDF keeps the fixture's name because it is the thing you open, attach or hand to
+  // somebody; the SVG pages drop it because the directory already said it.
   const pdfPath = resolve(outDir, `${name}.pdf`);
   await writeFile(pdfPath, pdf);
   for (const page of pages) {
-    await writeFile(resolve(outDir, `${name}.page${page.index + 1}.svg`), page.svg);
+    await writeFile(resolve(outDir, `page${page.index + 1}.svg`), page.svg);
   }
 
   const invalid = scoreMetrics(score).filter((m) => !m.valid);
