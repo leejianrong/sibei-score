@@ -25,6 +25,14 @@ import { NATIVE_BINDING_REFUSED, isTheTestRunnersOwn, packageOf } from '../no-na
  *     tried only against a stand-in is a guard you are guessing about.
  *  3. `@sibei/api` loads clean, which is the thing the split was for and holds whether or not a
  *     trap exists.
+ *
+ * **This file must survive the machine it is a promise to.** The second leg reaches the real
+ * driver, and on a machine whose binding never built that reach fails for a reason of its own
+ * before the trap can see it — which would make this guard the exact thing the card was written
+ * about: a red pre-push gate on the one machine that cannot fix it. So that leg states its
+ * precondition and skips when it is absent. Every other assertion here is binding-free by
+ * construction, and on that machine the third leg is what still proves the split — which it can,
+ * because proving the split never needed the driver.
  */
 
 const REPO = resolve(import.meta.dirname, '../..');
@@ -51,7 +59,7 @@ describe('the fast layer loads no native binding (KAN-514)', () => {
     expect(setupFilesOf('infra')).toEqual([]);
   });
 
-  it('refuses the real driver at the moment it reaches for its binding', () => {
+  it('refuses the real driver at the moment it reaches for its binding', (context) => {
     // better-sqlite3 loads its `.node` lazily — on `new Database(...)`, not on import — which is
     // the only reason the pre-split fast layer got away with importing it at all. So the trap has
     // to be exercised where the load actually happens, and this is that place.
@@ -62,7 +70,23 @@ describe('the fast layer loads no native binding (KAN-514)', () => {
       refusal = error;
     }
     expect(refusal, 'the fast layer opened a SQLite store').toBeInstanceOf(Error);
-    expect((refusal as { code?: string }).code).toBe(NATIVE_BINDING_REFUSED);
+    const code = (refusal as { code?: string }).code;
+
+    // The precondition, asked of the driver rather than restated. `getBinding` looks for a
+    // prebuild, falls back to a node-gyp output path, and `require`s whichever it settled on —
+    // so with neither present it raises MODULE_NOT_FOUND from its own resolution and never
+    // reaches `process.dlopen`. That is not the trap failing. It is a machine on which the load
+    // this leg exists to intercept cannot happen, so the layer's property holds here for free
+    // and there is nothing left to demonstrate. Skipping is the honest report; failing would
+    // make this guard the red pre-push gate that KAN-514 is about.
+    if (code === 'MODULE_NOT_FOUND') {
+      context.skip('better-sqlite3 has no binding on this machine, so there is none to refuse');
+      return;
+    }
+
+    expect(code, `unexpected failure opening a store: ${String(refusal)}`).toBe(
+      NATIVE_BINDING_REFUSED,
+    );
     // The report names the binding, because "something native loaded" is not actionable.
     expect((refusal as Error).message).toMatch(/\.node\b/);
   });
@@ -71,6 +95,11 @@ describe('the fast layer loads no native binding (KAN-514)', () => {
     // The property the split exists for, and the reason the three fast-layer tests that import
     // the package are allowed to stay where they belong. If the barrel ever re-exports the
     // adapter again this rejects, under the trap the first assertion proved is live.
+    //
+    // Nothing here touches a binding, which is why this is the assertion that keeps working on a
+    // machine where the driver never built and the leg above it skips. That it carries the claim
+    // alone in that case is fine: the claim is about what `@sibei/api` pulls in, and that is what
+    // it measures.
     return expect(import('@sibei/api')).resolves.toBeDefined();
   });
 

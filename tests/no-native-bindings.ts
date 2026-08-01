@@ -13,15 +13,22 @@
  * dependency's internals, one version bump or one eager driver away from being false, and
  * nothing anywhere would have said so. So it is measured instead.
  *
- * **Where it is measured, and why there.** Every path Node has for loading a `.node` file ends at
- * `process.dlopen`. Trapping it catches the act itself rather than a proxy for it, at the moment
- * it happens, in the worker running the test. A static walk of each test file's import graph
- * would have to resolve every edge correctly to mean anything, and would pass quietly on the
- * edges it failed to follow — and it would have missed this one anyway, since the offending
- * import was real and the load was lazy.
+ * **The lazy binding is the whole argument for trapping the load rather than the import**, and it
+ * is the reason this is a runtime trap and not a walk of each test file's import graph. Such a
+ * walk would have flagged `apply.test.ts` for an import that was real and a load that never
+ * happened, and gone quiet on any edge it failed to resolve — wrong in both directions at once.
+ * What the layer promises is that nothing *loads*, so the load is the event to watch, and every
+ * path Node has to a `.node` file ends at `process.dlopen`. Trapping there catches the act itself
+ * rather than a proxy for it, in the worker running the test, at the moment it happens.
  *
  * The refusal names the binding, because "something native loaded" is not actionable, and the
  * stack above it names the test that asked for it.
+ *
+ * **This file sits directly in `tests/` on purpose.** `tests/arch/suite-layers.test.ts` requires
+ * every *directory* under `tests/` to belong to a layer, so a `tests/setup/` would have to be
+ * declared as a third one — a directory holding no tests, named in the split, for a file that is
+ * not a test. A file at the root is invisible to that enumeration, which is correct here rather
+ * than merely convenient: it is the layer's machinery, not a corner of the layer.
  */
 
 /**
