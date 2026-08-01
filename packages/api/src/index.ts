@@ -46,8 +46,26 @@ export type { Applied } from './ops/apply.js';
 export { createApplier } from './ops/applier.js';
 export type { Applier, ApplyResult } from './ops/applier.js';
 
+export {
+  createChangeBus,
+  publishingApplier,
+  publishingLibrary,
+} from './events/change-bus.js';
+export type {
+  ChangeBus,
+  ChangeBusOptions,
+  ChangeEvent,
+  ChangeListener,
+  ChangePublisher,
+  ChangeSubscriber,
+  ScoreChanged,
+  ScoreDeleted,
+} from './events/change-bus.js';
+
 export { createApi } from './http/server.js';
 export type { Api, ApiOptions } from './http/server.js';
+export { DEFAULT_HEARTBEAT_MS, createEventStreams } from './http/event-stream.js';
+export type { EventStreamOptions, EventStreams } from './http/event-stream.js';
 export {
   LOOPBACK,
   checkHost,

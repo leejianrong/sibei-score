@@ -2,10 +2,12 @@ import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { BlobStore } from '../blob/blob-store.js';
 import { memoryBlobStore } from '../blob/memory-blob-store.js';
+import { createChangeBus, publishingApplier, publishingLibrary } from '../events/change-bus.js';
 import { createExporter } from '../export/export.js';
 import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
 import type { ScoreStore } from '../store/repository.js';
+import { createEventStreams } from './event-stream.js';
 import { LOOPBACK, checkHost, checkOrigin, resolveLocalPrincipal } from './guards.js';
 import type { Authenticator } from './guards.js';
 import { problem, problemForUnknown } from './problems.js';
@@ -42,6 +44,11 @@ export interface ApiOptions {
   /** Defaults to resolving `local` (ADR-0029). */
   authenticate?: Authenticator;
   logger?: Logger;
+  /**
+   * How often an idle event stream writes its keep-alive comment. Defaults to
+   * `DEFAULT_HEARTBEAT_MS`; injected because a test cannot wait fifteen seconds to watch one.
+   */
+  heartbeatMs?: number;
 }
 
 export interface Api {
@@ -58,12 +65,30 @@ export interface Api {
 
 export function createApi(options: ApiOptions): Api {
   const store = options.store;
-  const applier = options.applier ?? createApplier(store);
+  const authenticate = options.authenticate ?? resolveLocalPrincipal;
+  const logger = options.logger ?? consoleLogger;
+
+  // The change bus (V4a). This file is the only one holding both halves of it, exactly as it is the
+  // only one holding both halves of the store — the mutating paths get the publisher by being
+  // wrapped in it, the routes get the subscriber, and neither can reach the other's capability.
+  const bus = createChangeBus({
+    onError: (error) => logger.error('an event subscriber failed', error),
+  });
+
+  // Wrapped rather than plumbed in, so `applier.ts` stays the only consumer of a `ScoreWriter`
+  // (ADR-0003) and an injected test applier announces its writes like the real one does.
+  const applier = publishingApplier(options.applier ?? createApplier(store), bus);
+  // Deleting a score is not an operation and never goes near the applier, but it is every bit as
+  // much an external change to a browser holding that chart open.
+  const library = publishingLibrary(store, bus);
+  const events = createEventStreams({
+    subscriber: bus,
+    ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
+  });
+
   // Narrowed on the way in: the exporter is handed the store as a `ScoreReader`, so the export
   // path is a read by construction and not by intention (ADR-0003).
   const exporter = createExporter(store, options.blobs ?? memoryBlobStore());
-  const authenticate = options.authenticate ?? resolveLocalPrincipal;
-  const logger = options.logger ?? consoleLogger;
 
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
@@ -102,9 +127,10 @@ export function createApi(options: ApiOptions): Api {
       // so no handler can reach a write path (ADR-0003).
       return await route(request, response, {
         reader: store,
-        library: store,
+        library,
         applier,
         exporter,
+        events,
         owner: principal.owner,
       });
     } catch (error) {
@@ -131,6 +157,12 @@ export function createApi(options: ApiOptions): Api {
       });
     },
     close() {
+      // **Ending the streams first is load-bearing, not tidiness.** `server.close()` stops
+      // accepting and then waits for open connections to finish, and an SSE stream never finishes —
+      // so before V4a this line hung forever the moment anything had subscribed. Closing what this
+      // server opened, rather than reaching for `closeAllConnections()`, leaves an ordinary
+      // in-flight request to complete the way it always did.
+      events.closeAll();
       return new Promise((resolve) => server.close(() => resolve()));
     },
   };
