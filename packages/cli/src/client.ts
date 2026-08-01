@@ -119,8 +119,8 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
       throw new CliError(
         EXIT.noServer,
         'no-server',
-        `cannot reach the sibei server at ${baseUrl}. Start it with \`sibei serve\`, or point this ` +
-          `at a running one with --url or SIBEI_URL.`,
+        `cannot reach the sbscore server at ${baseUrl}. Start it with \`sbscore serve\`, or point this ` +
+          `at a running one with --url or SBSCORE_URL.`,
         { detail: error instanceof Error ? error.message : undefined },
       );
     }

@@ -66,7 +66,7 @@ export function resolveWithin(directory: string, name: string): string {
  * - `--out` naming a file writes exactly there. The user typed a path; it is theirs.
  * - `--out` naming a directory (an existing one, or one written with a trailing separator) puts the
  *   server's suggested name inside it.
- * - no `--out` at all is the same case with the working directory, which is what `sibei export`
+ * - no `--out` at all is the same case with the working directory, which is what `sbscore export`
  *   with nothing else on the line does — and the help text says so, because a program that writes
  *   a file somewhere the caller has to guess is a program nobody trusts.
  */

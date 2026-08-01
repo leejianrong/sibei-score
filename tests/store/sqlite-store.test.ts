@@ -34,7 +34,7 @@ function inMemory(now?: () => Date): ScoreStore {
 }
 
 function onDisk(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'sibei-store-'));
+  const directory = mkdtempSync(join(tmpdir(), 'sbscore-store-'));
   directories.push(directory);
   return join(directory, 'scores.db');
 }

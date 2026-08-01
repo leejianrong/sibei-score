@@ -160,19 +160,22 @@ The mechanisms being built. Each is a thing you build, not an intention.
 
 **Non-UI**
 
+The binary is `sbscore`; it was `sibei` until 2026-08-01 (KAN-599, ADR-0008's status note). Only
+the name moved — every verb and every exit code below means what it meant.
+
 | Affordance | Kind | Wires to |
 |------------|------|----------|
-| `sibei new` / `list` / `open` / `rm` | CLI command | scores API |
-| `sibei show [--json]` | CLI command | P14 text projection |
-| `sibei note add\|set\|rm`, `rest`, `tie`, `tuplet` | CLI command | ops API |
-| `sibei chord set\|rm` | CLI command | P8, ops API |
-| `sibei section set`, `repeat set`, `meta set` | CLI command | ops API |
-| `sibei transpose --to` | CLI command | P12 |
-| `sibei export --pdf\|--musicxml [--for <instrument>]` | CLI command | P11, P12, P13 |
-| `sibei batch` | CLI command | transactional op list |
-| `sibei undo` / `redo` | CLI command | P4 |
-| `sibei import <file>...` (v0.2) | CLI command | P16 job, then polls |
-| `sibei reparse <id>` (v0.2) | CLI command | P6 stored image → P16 |
+| `sbscore new` / `list` / `open` / `rm` | CLI command | scores API |
+| `sbscore show [--json]` | CLI command | P14 text projection |
+| `sbscore note add\|set\|rm`, `rest`, `tie`, `tuplet` | CLI command | ops API |
+| `sbscore chord set\|rm` | CLI command | P8, ops API |
+| `sbscore section set`, `repeat set`, `meta set` | CLI command | ops API |
+| `sbscore transpose --to` | CLI command | P12 |
+| `sbscore export --pdf\|--musicxml [--for <instrument>]` | CLI command | P11, P12, P13 |
+| `sbscore batch` | CLI command | transactional op list |
+| `sbscore undo` / `redo` | CLI command | P4 |
+| `sbscore import <file>...` (v0.2) | CLI command | P16 job, then polls |
+| `sbscore reparse <id>` (v0.2) | CLI command | P6 stored image → P16 |
 | Op applier | Handler | the only writer, P2 |
 | Score repository | Store | P5 |
 | Migration runner | Store | P5, on read |
