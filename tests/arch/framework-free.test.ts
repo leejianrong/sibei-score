@@ -321,4 +321,41 @@ describe('the browser, and the second render path (ADR-0002, ADR-0014, ADR-0022)
     };
     expect(root.scripts?.['typecheck']).toContain('@sibei/ui');
   });
+
+  /**
+   * This slice is read-only, so the library's empty state and its permanent footer point at the
+   * terminal instead of offering a "New chart" button. That makes the browser a place the CLI's
+   * name is *printed*, and therefore a place it can be wrong.
+   *
+   * It was wrong. KAN-599 renamed the binary to `sbscore` while this card was in flight, and
+   * `packages/ui/src/lib/branding.ts` was in neither PR's diff — so the browser told people to run
+   * `sibei new`, a program that no longer existed. Neither suite could see it: the rename's tests
+   * live in `tests/cli`, this card's in `tests/unit` and `tests/integration`, and nothing read both
+   * sides. It is "the two surfaces cannot disagree" in miniature, and it would have shipped.
+   *
+   * A constant that merely *happens* to match is exactly the situation that produced the bug, so
+   * the fix is not the new string — it is this: the browser's name for the binary is compared
+   * against the `bin` key the binary is actually installed under. The next rename, scope included
+   * (KAN-600), then cannot go half-done quietly.
+   */
+  it('names the CLI binary the CLI actually installs (D67, KAN-599)', () => {
+    const cli = JSON.parse(readFileSync(join(REPO, 'packages/cli/package.json'), 'utf8')) as {
+      bin?: Record<string, string>;
+    };
+    const installed = Object.keys(cli.bin ?? {});
+
+    // Guards the guard: one `bin` key, or "the" binary is not a thing to compare against.
+    expect(installed).toHaveLength(1);
+
+    const branding = readFileSync(join(UI, 'src/lib/branding.ts'), 'utf8');
+    const declared = /export const CLI_BINARY = '([^']+)'/.exec(branding)?.[1];
+
+    // Named separately from the assertion so a failure reads as the mismatch it is, rather than
+    // as a regex that stopped matching.
+    expect(declared, 'packages/ui/src/lib/branding.ts must export a literal CLI_BINARY').toBeDefined();
+    expect(
+      declared,
+      `the browser prints \`${declared} …\` but packages/cli installs \`${installed[0]}\``,
+    ).toBe(installed[0]);
+  });
 });

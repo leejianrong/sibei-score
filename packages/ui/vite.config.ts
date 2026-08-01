@@ -13,10 +13,11 @@ import { defineConfig } from 'vite';
  * the guards had to land *before* a working client existed, or they would get loosened to make
  * one pass; this is the first client, and nothing was loosened.
  *
- * `SIBEI_API` overrides the target for a server started on another port
- * (`sibei serve --port N`).
+ * `SBSCORE_API` overrides the target for a server started on another port
+ * (`sbscore serve --port N`). The prefix matches `SBSCORE_URL` and `SBSCORE_DATA` on the CLI
+ * (D67) — a dev-server variable in a different family would be one more thing to remember.
  */
-const API = process.env['SIBEI_API'] ?? 'http://127.0.0.1:4321';
+const API = process.env['SBSCORE_API'] ?? 'http://127.0.0.1:4321';
 
 /** Loopback, and never `0.0.0.0`, for the same reason the API binds loopback (ADR-0029). */
 const HOST = '127.0.0.1';

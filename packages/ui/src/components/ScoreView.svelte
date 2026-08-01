@@ -311,7 +311,7 @@
   }
 
   /* the review block carries what the engraving cannot say, in the same words
-     `sibei show` prints (ADR-0009) */
+     `sbscore show` prints (ADR-0009) */
   .review-ok {
     color: var(--ink-soft);
     font-size: 12px;
