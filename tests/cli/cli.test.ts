@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApi, silentLogger } from '@sibei/api';
+import { createApi } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
-import type { Api, ScoreStore } from '@sibei/api';
+import type { Api, RequestLine, ScoreStore } from '@sibei/api';
 import { EXIT, run } from '@sibei/cli';
 
 /**
@@ -18,10 +18,16 @@ let api: Api;
 let baseUrl: string;
 let out: string[];
 let err: string[];
+/** Every request the server saw, so "which calls did the CLI make" can be an assertion. */
+let requests: RequestLine[];
 
 beforeEach(async () => {
   store = openSqliteStore({ filename: ':memory:' });
-  api = createApi({ store, logger: silentLogger });
+  requests = [];
+  api = createApi({
+    store,
+    logger: { request: (line) => void requests.push(line), error: () => {} },
+  });
   const { port } = await api.listen(0);
   baseUrl = `http://127.0.0.1:${port}`;
   out = [];
@@ -37,6 +43,7 @@ afterEach(async () => {
 async function sbscore(...argv: string[]): Promise<{ code: number; out: string; err: string }> {
   out = [];
   err = [];
+  requests = [];
   const code = await run(argv, {
     baseUrl,
     io: { out: (text) => out.push(text), err: (text) => err.push(text) },
@@ -152,6 +159,47 @@ describe('editing', () => {
     await aChart();
     await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'G5', '--dur', '1', '--tie', 'start');
     expect((await sbscore('show', 'soul')).out).toContain('n1 g5/1~');
+  });
+});
+
+describe('a write always names the version it expects (ADR-0003, KAN-607)', () => {
+  it('reads the version first when --if-version is absent, instead of writing blind', async () => {
+    // The server refuses a write that names no version, and `--if-version` is optional — so absence
+    // has to mean read-modify-write rather than "apply against whatever it is now". The GET is how
+    // that is visible from out here: no read, and the POST could only have omitted the field.
+    await aChart();
+    const result = await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'Db5', '--dur', '4');
+    expect(result.code).toBe(EXIT.ok);
+    expect(requests.map((line) => `${line.method} ${line.path} ${line.status}`)).toEqual([
+      'GET /v1/scores/soul 200',
+      'POST /v1/scores/soul/ops 200',
+    ]);
+  });
+
+  it('takes the caller at their word when --if-version is given, and reads nothing', async () => {
+    await aChart();
+    const result = await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'Db5', '--dur', '4', '--if-version', '1');
+    expect(result.code).toBe(EXIT.ok);
+    expect(requests.map((line) => line.method)).toEqual(['POST']);
+  });
+
+  it('still reports a score that is not there as 5, wherever it noticed', async () => {
+    // The read now happens first, so this exit code comes off the GET rather than the POST. Same
+    // number, same message, and it is the number that is the contract (ADR-0008).
+    const result = await sbscore('note', 'add', 'nope', 'bar1.beat1', '--pitch', 'Db5', '--dur', '4');
+    expect(result.code).toBe(EXIT.notFound);
+    expect(result.err).toContain('there is no score with the id "nope"');
+  });
+
+  it('batch names one too, so the transactional verb is not the blind one', async () => {
+    await aChart();
+    const ops = JSON.stringify([
+      { type: 'note.add', target: 'bar1.beat1', payload: { pitch: 'Db5', duration: { value: 8, dots: 0 } } },
+      { type: 'meta.set', payload: { style: 'Ballad' } },
+    ]);
+    const result = await sbscore('batch', 'soul', '--ops', ops);
+    expect(result.code).toBe(EXIT.ok);
+    expect(requests.map((line) => line.method)).toEqual(['GET', 'POST']);
   });
 });
 
@@ -383,6 +431,10 @@ describe('help', () => {
     expect(result.out).toContain('bar12.n3');
     expect(result.out).toContain('note-17');
     expect(result.out).toContain('4 stale-version conflict');
+    // --if-version was undocumented until KAN-607, while the demo used it and the exit code it
+    // produces was already in the list above. It is the only way to pin a version, so it is part of
+    // the same contract.
+    expect(result.out).toContain('--if-version N');
   });
 
   it('lists every verb, and says where an export lands when -o is absent', async () => {

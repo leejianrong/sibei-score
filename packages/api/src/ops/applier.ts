@@ -1,7 +1,7 @@
 import type { Id, Score } from '@sibei/model';
 import { applyOperation } from './apply.js';
 import { OperationError } from './errors.js';
-import { OPERATION_VERSION } from './operations.js';
+import { OPERATION_VERSION, isCreateBatch } from './operations.js';
 import type { Batch, Operation, StoredOperation } from './operations.js';
 import type { Owner, ScoreReader, ScoreWriter } from '../store/repository.js';
 
@@ -50,10 +50,14 @@ export function createApplier(
         });
       }
 
-      const creating = batch.operations[0]?.type === 'score.create';
-      return creating
-        ? create(store, owner, batch, now)
-        : mutate(store, owner, requireId(scoreId), batch, now);
+      if (isCreateBatch(batch)) return create(store, owner, batch, now);
+
+      // Both questions are about the batch itself, so both are asked before the store is touched:
+      // the answer to "is this a write I can even attempt" must not depend on which ids happen to
+      // exist. It also means neither refusal can report on a score's existence.
+      const id = requireId(scoreId);
+      const expected = requireExpectedVersion(batch);
+      return mutate(store, owner, id, batch, expected, now);
     },
   };
 }
@@ -67,6 +71,33 @@ function requireId(scoreId: Id | null): Id {
     });
   }
   return scoreId;
+}
+
+/**
+ * ADR-0003's third mechanism, **wired rather than intended** (KAN-607).
+ *
+ * The ADR is unambiguous — "every write carries the version the client expects" — and until now
+ * nothing enforced it: an edit that named no version was applied against whatever the score was at,
+ * which is last-write-wins, the policy the ADR explicitly rejects because it "silently destroys the
+ * other party's edit — much worse when the other party is an agent working unattended". The other
+ * two mechanisms are facts of the wiring (there is no second write path; only this file writes), and
+ * this one was a convention both clients happened to follow. That made it true by luck up to the
+ * slice where a human first clicks a button that writes.
+ *
+ * It is refused here rather than at the HTTP boundary because *this* is the single write path. A
+ * check in `routes.ts` would protect one caller and leave the next one — an importer, a second
+ * surface, a script — to remember. Nothing narrower than the writer holds for everything that
+ * writes.
+ *
+ * Breaking a shipped request shape is permitted inside v1 until the hosted transition (ADR-0022),
+ * and this is the cheap moment to do it: one client (the CLI) and one read-only client (the
+ * browser).
+ */
+function requireExpectedVersion(batch: Batch): number {
+  if (batch.expectedVersion === undefined) {
+    throw new OperationError({ kind: 'missing-expected-version' });
+  }
+  return batch.expectedVersion;
 }
 
 function create(
@@ -96,6 +127,8 @@ function mutate(
   owner: Owner,
   scoreId: Id,
   batch: Batch,
+  /** Never optional, which is the fix: there is no longer a fallback to fall through to. */
+  expected: number,
   now: () => Date,
 ): ApplyResult {
   const current = store.get(owner, scoreId);
@@ -104,7 +137,6 @@ function mutate(
   // The version is checked here for a clear early error *and* again inside the commit statement,
   // which is the one that actually decides. Only the second is atomic; this one exists so the
   // common case reports the conflict without a wasted apply.
-  const expected = batch.expectedVersion ?? current.version;
   if (expected !== current.version) {
     throw new OperationError({
       kind: 'stale-version',

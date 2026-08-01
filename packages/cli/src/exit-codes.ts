@@ -51,6 +51,10 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'unknown-operation':
     case 'bad-target':
     case 'bad-first-operation':
+    // 2 and not 4 (KAN-607). 4 means "somebody else edited it, re-read and retry", and a script
+    // branching on 4 will retry — which is exactly the wrong response to a request that named no
+    // version, because retrying it unchanged cannot ever succeed. This is a malformed write.
+    case 'missing-expected-version':
     case 'malformed-json':
     case 'body-too-large':
       return EXIT.validation;

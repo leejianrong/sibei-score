@@ -101,8 +101,20 @@ const note = (target: string, pitch: string): Operation => ({
 
 async function aChart(): Promise<number> {
   await call('POST', '/v1/scores', { operation: CREATE });
-  const reply = await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat1', 'Eb5') });
-  return reply.body.version as number;
+  return (await edit({ operation: note('bar1.beat1', 'Eb5') })).body.version as number;
+}
+
+/**
+ * An edit at whatever version the score is at now.
+ *
+ * Every write must name a version and one that does not is refused (ADR-0003, KAN-607), so a test
+ * whose subject is something else still has to name one. Read rather than hardcoded, so these tests
+ * do not have to count the writes above them — the ones that are *about* the version pass it
+ * explicitly, which is the whole of what they assert.
+ */
+async function edit(body: Record<string, unknown>, scoreId = 'score-1'): Promise<Reply> {
+  const at = (await call('GET', `/v1/scores/${scoreId}`)).body.version as number;
+  return call('POST', `/v1/scores/${scoreId}/ops`, { ...body, expectedVersion: at });
 }
 
 describe('health', () => {
@@ -151,7 +163,11 @@ describe('the library', () => {
   it('404s a read, a delete and an ops post for a score that is not there', async () => {
     expect((await call('GET', '/v1/scores/nope')).status).toBe(404);
     expect((await call('DELETE', '/v1/scores/nope')).status).toBe(404);
-    const reply = await call('POST', '/v1/scores/nope/ops', { operation: note('bar1.beat1', 'C5') });
+    // With a version, because a batch that names none is refused before the store is consulted.
+    const reply = await call('POST', '/v1/scores/nope/ops', {
+      operation: note('bar1.beat1', 'C5'),
+      expectedVersion: 1,
+    });
     expect(reply.status).toBe(404);
     expect((reply.body.error as { kind: string }).kind).toBe('no-such-score');
   });
@@ -202,10 +218,94 @@ describe('a stale write is 409 with the current version (ADR-0003)', () => {
   });
 });
 
+describe('a write that names no version is refused (ADR-0003, KAN-607)', () => {
+  it('refuses an edit that carries no expectedVersion, rather than applying it blind', async () => {
+    // The bug this describe block was written for: this used to answer 200 and bump the version,
+    // overwriting whatever the last writer did with no conflict and no signal. Optimistic
+    // concurrency was opt-in on the wire, held up by client discipline alone.
+    const version = await aChart();
+    const before = await call('GET', '/v1/scores/score-1');
+
+    const reply = await call('POST', '/v1/scores/score-1/ops', {
+      operation: note('bar1.beat2', 'F5'),
+    });
+
+    expect(reply.status).toBe(422);
+    expect(reply.body.error).toMatchObject({
+      kind: 'missing-expected-version',
+      detail: { kind: 'missing-expected-version' },
+    });
+    // And nothing landed: same version, same document.
+    const after = await call('GET', '/v1/scores/score-1');
+    expect(after.body).toEqual(before.body);
+    expect(after.body.version).toBe(version);
+  });
+
+  it('does not hand back the current version, because that would be a blind write in two hops', async () => {
+    // A 409 carries `currentVersion` so a client that *did* read can retry. This refusal must not:
+    // echoing the number back would let a client satisfy the check without ever reading the score,
+    // which is the blind write again with an extra round trip.
+    await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/ops', {
+      operation: note('bar1.beat2', 'F5'),
+    });
+    expect(reply.body.error).not.toHaveProperty('currentVersion');
+  });
+
+  it('refuses before it looks the score up, so the answer does not depend on the store', async () => {
+    // A batch's shape is a property of the request. Answering 404 first would make the refusal
+    // depend on which ids happen to exist, and would tell an unauthenticated caller which do.
+    const reply = await call('POST', '/v1/scores/nope/ops', { operation: note('bar1.beat1', 'C5') });
+    expect(reply.status).toBe(422);
+    expect((reply.body.error as { kind: string }).kind).toBe('missing-expected-version');
+  });
+
+  it('still reports an empty batch as an empty batch', async () => {
+    // Order matters between the two batch-shape checks: `{}` is not a write missing a version, it
+    // is not a write at all.
+    await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/ops', {});
+    expect(reply.status).toBe(422);
+    expect((reply.body.error as { kind: string }).kind).toBe('validation');
+  });
+
+  it('exempts a create, which has no version to expect', async () => {
+    // The rule is about the batch's *contents*, not the endpoint: a create legitimately has nothing
+    // to expect, and `POST /v1/scores` is how every chart in the system comes into existence.
+    expect((await call('POST', '/v1/scores', { operation: CREATE })).status).toBe(201);
+  });
+
+  it('exempts a batch that opens with a create and goes on editing', async () => {
+    const reply = await call('POST', '/v1/scores', {
+      operations: [CREATE, note('bar1.beat1', 'Eb5')],
+    });
+    expect(reply.status).toBe(201);
+    expect(reply.body.version).toBe(1);
+  });
+
+  it('is not dodged by putting a create anywhere but first', async () => {
+    // Only the *first* operation decides, so a create further down does not buy an exemption — and
+    // a create over a score that exists is `conflict-exists` on its own account.
+    const version = await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/ops', {
+      operations: [note('bar1.beat2', 'F5'), CREATE],
+    });
+    expect(reply.status).toBe(422);
+    expect((reply.body.error as { kind: string }).kind).toBe('missing-expected-version');
+
+    const named = await call('POST', '/v1/scores/score-1/ops', {
+      operations: [note('bar1.beat2', 'F5'), CREATE],
+      expectedVersion: version,
+    });
+    expect(named.status).toBe(409);
+    expect((named.body.error as { kind: string }).kind).toBe('conflict-exists');
+  });
+});
+
 describe('errors are machine-readable (ADR-0008)', () => {
   it('422s a bad address and brings the bar’s real onsets with it', async () => {
     await aChart();
-    const reply = await call('POST', '/v1/scores/score-1/ops', {
+    const reply = await edit({
       operation: { type: 'note.set', target: 'bar1.beat3', payload: { pitch: 'C5' } },
     });
     expect(reply.status).toBe(422);
@@ -219,18 +319,14 @@ describe('errors are machine-readable (ADR-0008)', () => {
 
   it('422s a validation failure', async () => {
     await aChart();
-    const reply = await call('POST', '/v1/scores/score-1/ops', {
-      operation: note('bar1.beat2', 'H9'),
-    });
+    const reply = await edit({ operation: note('bar1.beat2', 'H9') });
     expect(reply.status).toBe(422);
     expect(reply.body.error).toMatchObject({ kind: 'validation' });
   });
 
   it('422s a verb it does not know, by name', async () => {
     await aChart();
-    const reply = await call('POST', '/v1/scores/score-1/ops', {
-      operation: { type: 'note.transmogrify' } as unknown as Operation,
-    });
+    const reply = await edit({ operation: { type: 'note.transmogrify' } as unknown as Operation });
     expect(reply.status).toBe(422);
     expect(reply.body.error).toMatchObject({
       kind: 'unknown-operation',
@@ -240,9 +336,7 @@ describe('errors are machine-readable (ADR-0008)', () => {
 
   it('says which operation of a batch failed', async () => {
     await aChart();
-    const reply = await call('POST', '/v1/scores/score-1/ops', {
-      operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'C5')],
-    });
+    const reply = await edit({ operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'C5')] });
     expect(reply.status).toBe(422);
     expect(reply.body.error).toMatchObject({ operation: 2 });
   });
@@ -273,7 +367,10 @@ describe('errors are machine-readable (ADR-0008)', () => {
   it('never puts a stack trace or a host path in a response', async () => {
     const replies = [
       await call('GET', '/v1/nonsense'),
-      await call('POST', '/v1/scores/nope/ops', { operation: note('bar1.beat1', 'C5') }),
+      await call('POST', '/v1/scores/nope/ops', {
+        operation: note('bar1.beat1', 'C5'),
+        expectedVersion: 1,
+      }),
       await call('POST', '/v1/scores', { operation: { type: 'nope' } as unknown as Operation }),
     ];
     for (const reply of replies) {
@@ -286,7 +383,7 @@ describe('errors are machine-readable (ADR-0008)', () => {
 describe('a batch is transactional over HTTP too (ADR-0008)', () => {
   it('applies all of a good batch as one version bump', async () => {
     const version = await aChart();
-    const reply = await call('POST', '/v1/scores/score-1/ops', {
+    const reply = await edit({
       operations: [note('bar1.beat2', 'F5'), note('bar1.beat3', 'G5'), note('bar1.beat4', 'Ab5')],
     });
     expect(reply.body.version).toBe(version + 1);
@@ -297,7 +394,7 @@ describe('a batch is transactional over HTTP too (ADR-0008)', () => {
     await aChart();
     const before = await call('GET', '/v1/scores/score-1');
 
-    await call('POST', '/v1/scores/score-1/ops', {
+    await edit({
       operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'C5'), note('bar1.beat3', 'G5')],
     });
 
@@ -309,10 +406,10 @@ describe('a batch is transactional over HTTP too (ADR-0008)', () => {
     // One code path, so the two cannot drift — which is the sort of divergence that only shows up
     // in the case nobody tested.
     await aChart();
-    const single = await call('POST', '/v1/scores/score-1/ops', { operation: note('bar1.beat2', 'F5') });
+    const single = await edit({ operation: note('bar1.beat2', 'F5') });
     await call('DELETE', '/v1/scores/score-1');
     await aChart();
-    const batched = await call('POST', '/v1/scores/score-1/ops', { operations: [note('bar1.beat2', 'F5')] });
+    const batched = await edit({ operations: [note('bar1.beat2', 'F5')] });
     expect(batched.body).toEqual(single.body);
   });
 });

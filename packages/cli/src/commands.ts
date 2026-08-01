@@ -69,6 +69,12 @@ Export:  --pdf is the only format this build has, and it is the default.
   title — "Body and Soul" becomes ./Body and Soul.pdf. -o takes a file path, or a
   directory to put that name in.
 
+Concurrency (ADR-0003):  --if-version N   on any verb that writes
+  Every write names the version it expects. With the flag you pin one you read earlier
+  and get exit 4 if somebody moved it since — which is the only way to be sure what you
+  are overwriting. Without it the CLI reads the current version first, so an edit is
+  read-modify-write and never a blind overwrite.
+
 Everywhere:  --json   machine-readable output
              --url    the API base URL (or SBSCORE_URL)
 
@@ -394,7 +400,19 @@ async function batch(flags: Flags, client: Client, io: Io, json: boolean): Promi
   return submit(flags, client, io, json, id, operations);
 }
 
-/** Post the operations, with `--if-version` as the expected version (ADR-0003). */
+/**
+ * Post the operations, with `--if-version` as the expected version (ADR-0003).
+ *
+ * **Without the flag the CLI reads the version rather than omitting it** (KAN-607). Every write must
+ * name a version, so "I did not pin one" cannot mean "apply blind" — it means read-modify-write, and
+ * the race window shrinks from unbounded to the millisecond between this GET and the POST. The cost
+ * is one extra round trip to localhost per edit, which does not touch ADR-0008's argument for
+ * imperative verbs: that was about the *agent's* context cost, and this read never enters it.
+ *
+ * `--if-version` keeps its meaning exactly — pin a version you read earlier, and get exit 4 if
+ * somebody moved it. Which is the only way to be sure of what you are overwriting, and is what the
+ * demo shows.
+ */
 async function submit(
   flags: Flags,
   client: Client,
@@ -403,7 +421,8 @@ async function submit(
   id: string,
   operations: Operation[],
 ): Promise<ExitCode> {
-  const expected = optionalNumber(flags, 'if-version');
+  const pinned = optionalNumber(flags, 'if-version');
+  const expected = pinned ?? (await client.read(id)).version;
   const result = await client.apply(id, operations, expected);
   io.out(
     json

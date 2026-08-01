@@ -28,6 +28,14 @@ export type OperationFailure =
    * other party is an agent working unattended.
    */
   | { kind: 'stale-version'; expected: number; current: number }
+  /**
+   * A write that named no version at all (ADR-0003, KAN-607). Distinct from `stale-version`, and
+   * deliberately so: that one is a client that read and lost a race, this one is a client that never
+   * established what it was editing. It carries no fields — in particular **not** the current
+   * version, because handing it over would let a client satisfy the check by echoing a number back,
+   * which is the blind write again with an extra round trip.
+   */
+  | { kind: 'missing-expected-version' }
   /** A create must be the first operation on a score, and only a create may be. */
   | { kind: 'bad-first-operation'; detail: string };
 
@@ -67,6 +75,11 @@ function body(failure: OperationFailure): string {
       return (
         `the score is at version ${failure.current}, not ${failure.expected}. ` +
         `Re-read it and retry.`
+      );
+    case 'missing-expected-version':
+      return (
+        `a write must name the version it expects: re-read the score and send expectedVersion. ` +
+        `Only a score.create may omit it.`
       );
     case 'bad-first-operation':
       return failure.detail;

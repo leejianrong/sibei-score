@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { LOCAL_OWNER, OperationError, createApplier, replay } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
-import type { Applier, Operation, ScoreStore } from '@sibei/api';
+import type { Applier, ApplyResult, Operation, ScoreStore } from '@sibei/api';
 import { dur, notesOf } from '@sibei/model';
 
 /**
@@ -15,14 +15,35 @@ import { dur, notesOf } from '@sibei/model';
 
 const stores: ScoreStore[] = [];
 
+/** What `fresh()` and `authorAChart()` hand back: a store and the one thing allowed to write to it. */
+interface Fixture {
+  store: ScoreStore;
+  applier: Applier;
+}
+
 afterEach(() => {
   while (stores.length > 0) stores.pop()?.close();
 });
 
-function fresh(): { store: ScoreStore; applier: Applier } {
+function fresh(): Fixture {
   const store = openSqliteStore({ filename: ':memory:' });
   stores.push(store);
   return { store, applier: createApplier(store) };
+}
+
+/**
+ * An apply at the version the score is actually at.
+ *
+ * Every write must name a version and a batch without one is refused (ADR-0003, KAN-607), so a
+ * write in a test that is *about* something else has to name one too. Reading it rather than
+ * hardcoding a number keeps each test asserting its own subject instead of counting the applies
+ * above it — the tests below that are about the version itself pass one explicitly.
+ */
+function edit({ store, applier }: Fixture, ...operations: Operation[]): ApplyResult {
+  return applier.apply(LOCAL_OWNER, 'score-1', {
+    operations,
+    expectedVersion: store.get(LOCAL_OWNER, 'score-1')!.version,
+  });
 }
 
 const CREATE: Operation = {
@@ -36,13 +57,13 @@ const note = (target: string, pitch: string): Operation => ({
   payload: { pitch, duration: dur(4) },
 });
 
-function authorAChart(): { store: ScoreStore; applier: Applier } {
-  const { store, applier } = fresh();
-  applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-  applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat1', 'Eb5')] });
-  applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat2', 'F5')] });
-  applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat3', 'G5')] });
-  return { store, applier };
+function authorAChart(): Fixture {
+  const context = fresh();
+  context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+  edit(context, note('bar1.beat1', 'Eb5'));
+  edit(context, note('bar1.beat2', 'F5'));
+  edit(context, note('bar1.beat3', 'G5'));
+  return context;
 }
 
 describe('applying', () => {
@@ -75,21 +96,22 @@ describe('applying', () => {
   });
 
   it('bumps the version once per apply, whatever the batch length', () => {
-    const { store, applier } = fresh();
-    applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    const result = applier.apply(LOCAL_OWNER, 'score-1', {
-      operations: [note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'), note('bar1.beat3', 'G5')],
-    });
+    const context = fresh();
+    context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const result = edit(
+      context,
+      note('bar1.beat1', 'Eb5'),
+      note('bar1.beat2', 'F5'),
+      note('bar1.beat3', 'G5'),
+    );
     expect(result.version).toBe(2);
-    expect(store.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
+    expect(context.store.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
   });
 
   it('reports every id a batch touched', () => {
-    const { applier } = fresh();
-    applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    const result = applier.apply(LOCAL_OWNER, 'score-1', {
-      operations: [note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5')],
-    });
+    const context = fresh();
+    context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const result = edit(context, note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'));
     expect(result.changed).toEqual(['note-1', 'note-2']);
   });
 
@@ -101,9 +123,14 @@ describe('applying', () => {
   });
 
   it('refuses a mutation of a score that is not there', () => {
+    // With a version, because a batch that names none is refused before the store is consulted at
+    // all — and the point of this test is the 404, not that refusal.
     const { applier } = fresh();
     expect(() =>
-      applier.apply(LOCAL_OWNER, 'score-404', { operations: [note('bar1.beat1', 'Eb5')] }),
+      applier.apply(LOCAL_OWNER, 'score-404', {
+        operations: [note('bar1.beat1', 'Eb5')],
+        expectedVersion: 1,
+      }),
     ).toThrow('there is no score with the id "score-404"');
   });
 
@@ -141,15 +168,13 @@ describe('the op log', () => {
   });
 
   it('groups a batch into one undoable unit, and a lone operation into a unit of one', () => {
-    const { store, applier } = fresh();
-    applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    applier.apply(LOCAL_OWNER, 'score-1', {
-      operations: [note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5')],
-    });
-    applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat3', 'G5')] });
+    const context = fresh();
+    context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    edit(context, note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'));
+    edit(context, note('bar1.beat3', 'G5'));
 
     // Three applies, four operations, three batches — the second batch holding two of them.
-    expect(store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.batch)).toEqual([
+    expect(context.store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.batch)).toEqual([
       1, 2, 2, 3,
     ]);
   });
@@ -183,27 +208,27 @@ describe('replaying the log from empty reproduces the document exactly', () => {
   });
 
   it('holds after edits and removals, not just additions', () => {
-    const { store, applier } = authorAChart();
-    applier.apply(LOCAL_OWNER, 'score-1', {
-      operations: [
-        { type: 'note.set', target: 'bar1.n2', payload: { pitch: 'Gb5', duration: dur(8) } },
-        { type: 'note.rm', target: 'bar1.n1' },
-        { type: 'rest.add', target: 'bar1.beat1', payload: { duration: dur(4) } },
-        { type: 'meta.set', payload: { composer: 'Johnny Green', style: 'Ballad' } },
-      ],
-    });
+    const context = authorAChart();
+    edit(
+      context,
+      { type: 'note.set', target: 'bar1.n2', payload: { pitch: 'Gb5', duration: dur(8) } },
+      { type: 'note.rm', target: 'bar1.n1' },
+      { type: 'rest.add', target: 'bar1.beat1', payload: { duration: dur(4) } },
+      { type: 'meta.set', payload: { composer: 'Johnny Green', style: 'Ballad' } },
+    );
 
-    const stored = store.get(LOCAL_OWNER, 'score-1')!.score;
-    const log = store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.operation);
+    const stored = context.store.get(LOCAL_OWNER, 'score-1')!.score;
+    const log = context.store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.operation);
+    // Replay walks the *operations*, which never carried a version: the batch's expectedVersion is
+    // not part of an operation's shape, so nothing about this check reaches the log (ADR-0028).
     expect(replay(log)).toEqual(stored);
   });
 
   it('holds through a rejected write, because a rejected write logs nothing', () => {
-    const { store, applier } = authorAChart();
-    expect(() =>
-      applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat1', 'C5')] }),
-    ).toThrow(/already has a note/);
+    const context = authorAChart();
+    expect(() => edit(context, note('bar1.beat1', 'C5'))).toThrow(/already has a note/);
 
+    const { store } = context;
     const stored = store.get(LOCAL_OWNER, 'score-1')!.score;
     const log = store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.operation);
     expect(log).toHaveLength(4);
@@ -270,28 +295,69 @@ describe('the expected-version check (ADR-0003)', () => {
     expect(notes[0]?.pitch).toMatchObject({ step: 'D', alter: -1 });
   });
 
-  it('treats an absent expected version as "whatever it is now"', () => {
-    // The CLI's --if-version is optional; without it a write is a plain last-read-wins for one
-    // client, which is right for a single-user tool driving itself.
-    const { applier } = authorAChart();
-    expect(applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat4', 'Ab5')] }).version).toBe(5);
+  /**
+   * This block used to hold a test called *"treats an absent expected version as whatever it is
+   * now"*, justified as "a plain last-read-wins for one client, which is right for a single-user
+   * tool driving itself". That is the policy ADR-0003 names and rejects, and it was reached by
+   * omitting a field rather than by asking for it — so the applier's default was the one thing the
+   * ADR says must never happen. The tests below are what replaced it (KAN-607).
+   */
+  it('refuses a write that names no version, rather than applying it against the current one', () => {
+    const context = authorAChart();
+    const before = context.store.get(LOCAL_OWNER, 'score-1')!;
+
+    try {
+      context.applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat4', 'Ab5')] });
+      expect.unreachable('a write that names no version must not be applied');
+    } catch (error) {
+      expect((error as OperationError).failure).toEqual({ kind: 'missing-expected-version' });
+      expect((error as OperationError).message).toMatch(/must name the version it expects/);
+    }
+
+    const after = context.store.get(LOCAL_OWNER, 'score-1')!;
+    expect(after.version).toBe(before.version);
+    expect(after.score).toEqual(before.score);
+    expect(context.store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
+  });
+
+  it('refuses it before reading the score, so the refusal cannot depend on the store', () => {
+    const { applier } = fresh();
+    expect(() =>
+      applier.apply(LOCAL_OWNER, 'score-404', { operations: [note('bar1.beat1', 'Eb5')] }),
+    ).toThrow(/must name the version it expects/);
+  });
+
+  it('needs none for a create, which has nothing to be stale against', () => {
+    // The exemption is the batch's *contents*, not the caller: `isCreateBatch` decides both this and
+    // which path the applier takes, so the exempt batch is exactly the one with no current version.
+    const { applier } = fresh();
+    expect(applier.apply(LOCAL_OWNER, null, { operations: [CREATE] }).version).toBe(1);
+  });
+
+  it('needs none for a create that goes on to edit what it just created', () => {
+    const { applier } = fresh();
+    const result = applier.apply(LOCAL_OWNER, null, {
+      operations: [CREATE, note('bar1.beat1', 'Eb5')],
+    });
+    expect(result.version).toBe(1);
+    expect(result.changed).toEqual(['score-1', 'note-1']);
   });
 });
 
 describe('a batch is transactional (ADR-0008)', () => {
   it('applies none of its operations when one is invalid', () => {
-    const { store, applier } = authorAChart();
+    const context = authorAChart();
+    const { store } = context;
     const before = store.get(LOCAL_OWNER, 'score-1')!;
 
     expect(() =>
-      applier.apply(LOCAL_OWNER, 'score-1', {
-        operations: [
-          note('bar1.beat4', 'Ab5'), // fine
-          note('bar2.beat1', 'Bb5'), // fine
-          note('bar1.beat1', 'C5'), // occupied — the batch dies here
-          note('bar2.beat2', 'C6'), // never reached
-        ],
-      }),
+      edit(
+        context,
+        note('bar1.beat4', 'Ab5'), // fine
+        note('bar2.beat1', 'Bb5'), // fine
+        note('bar1.beat1', 'C5'), // occupied — the batch dies here
+        note('bar2.beat2', 'C6'), // never reached
+      ),
     ).toThrow(/already has a note/);
 
     const after = store.get(LOCAL_OWNER, 'score-1')!;
@@ -302,11 +368,9 @@ describe('a batch is transactional (ADR-0008)', () => {
   });
 
   it('says which operation in the batch failed', () => {
-    const { applier } = authorAChart();
+    const context = authorAChart();
     try {
-      applier.apply(LOCAL_OWNER, 'score-1', {
-        operations: [note('bar1.beat4', 'Ab5'), note('bar1.beat1', 'C5')],
-      });
+      edit(context, note('bar1.beat4', 'Ab5'), note('bar1.beat1', 'C5'));
       expect.unreachable();
     } catch (error) {
       // 1-based in the message, 0-based in the structure. An agent needs to know which one.
@@ -316,37 +380,34 @@ describe('a batch is transactional (ADR-0008)', () => {
   });
 
   it('does not number the operation when the batch is a single one', () => {
-    const { applier } = authorAChart();
-    expect(() =>
-      applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat1', 'C5')] }),
-    ).not.toThrow(/^operation 1:/);
+    const context = authorAChart();
+    expect(() => edit(context, note('bar1.beat1', 'C5'))).not.toThrow(/^operation 1:/);
   });
 
   it('applies all of them when all of them are valid, as one version bump', () => {
-    const { store, applier } = authorAChart();
-    const result = applier.apply(LOCAL_OWNER, 'score-1', {
-      operations: [
-        note('bar1.beat4', 'Ab5'),
-        note('bar2.beat1', 'Bb5'),
-        { type: 'meta.set', payload: { style: 'Medium swing' } },
-      ],
-    });
+    const context = authorAChart();
+    const result = edit(
+      context,
+      note('bar1.beat4', 'Ab5'),
+      note('bar2.beat1', 'Bb5'),
+      { type: 'meta.set', payload: { style: 'Medium swing' } },
+    );
     expect(result.version).toBe(5);
-    const score = store.get(LOCAL_OWNER, 'score-1')!.score;
+    const score = context.store.get(LOCAL_OWNER, 'score-1')!.score;
     expect(score.bars[0]!.items).toHaveLength(4);
     expect(score.meta.style).toBe('Medium swing');
   });
 
   it('lets an operation later in the batch build on one earlier in it', () => {
     // Within a batch the fold is sequential, so adding a note and then editing it works.
-    const { store, applier } = authorAChart();
-    applier.apply(LOCAL_OWNER, 'score-1', {
-      operations: [
-        note('bar2.beat1', 'Bb5'),
-        { type: 'note.set', target: 'bar2.beat1', payload: { duration: dur(2) } },
-      ],
+    const context = authorAChart();
+    edit(context, note('bar2.beat1', 'Bb5'), {
+      type: 'note.set',
+      target: 'bar2.beat1',
+      payload: { duration: dur(2) },
     });
-    expect(notesOf(store.get(LOCAL_OWNER, 'score-1')!.score.bars[1]!)[0]!.duration).toEqual(dur(2));
+    const bar = context.store.get(LOCAL_OWNER, 'score-1')!.score.bars[1]!;
+    expect(notesOf(bar)[0]!.duration).toEqual(dur(2));
   });
 
   it('rolls back a stale batch without logging any of it', () => {
@@ -370,24 +431,27 @@ describe('a commit is one transaction', () => {
     // Provoked without a fault-injection seam: the second operation carries a field the applier
     // tolerates (it copies only the fields it knows) but JSON cannot serialise, so the first
     // append succeeds and the second throws mid-transaction.
-    const { store, applier } = authorAChart();
+    const context = authorAChart();
+    const { store } = context;
     const before = store.get(LOCAL_OWNER, 'score-1')!;
 
     const circular: { self?: unknown } = {};
     circular.self = circular;
 
     expect(() =>
-      applier.apply(LOCAL_OWNER, 'score-1', {
-        operations: [
-          { type: 'note.set', target: 'bar1.n1', payload: { duration: dur(2) } },
-          {
-            type: 'note.set',
-            target: 'bar1.n2',
-            payload: { duration: dur(2), junk: circular } as never,
-          },
-        ],
-      }),
-    ).toThrow();
+      edit(
+        context,
+        { type: 'note.set', target: 'bar1.n1', payload: { duration: dur(2) } },
+        {
+          type: 'note.set',
+          target: 'bar1.n2',
+          payload: { duration: dur(2), junk: circular } as never,
+        },
+      ),
+    )
+      // Named rather than a bare `toThrow()`. A bare one passed for the wrong reason the moment a
+      // write without a version started throwing, and the batch never reached the store at all.
+      .toThrow(/circular|convert/i);
 
     const after = store.get(LOCAL_OWNER, 'score-1')!;
     expect(after.version).toBe(before.version);
