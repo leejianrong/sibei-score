@@ -3,8 +3,8 @@
  * PDF viewer. A development aid only: nothing in the product depends on it, and it is
  * deliberately not part of the render path.
  *
- *   pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 2
- *   pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 4 --crop 60,180,1000,180
+ *   pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 2
+ *   pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 4 --crop 60,180,1000,180
  */
 
 import { readFile, writeFile } from 'node:fs/promises';

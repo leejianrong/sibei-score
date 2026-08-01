@@ -47,7 +47,7 @@ pnpm hooks:install      # once per clone: points git at .githooks
 pnpm check              # typecheck every package, then the whole suite
 pnpm test               # vitest
 pnpm typecheck          # each package under its own strict config
-pnpm render:nasty       # out/nasty-chart.pdf and its SVG pages
+pnpm render:nasty       # out/render/nasty-chart/ — the PDF and its SVG pages
 pnpm render all         # every fixture
 pnpm render nasty-chart --paper letter
 ```
@@ -92,8 +92,8 @@ SVG proof stands in for the engraving and only the conversion goes unseen.
 There is also a plain single-file previewer for ad-hoc use:
 
 ```sh
-pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 2
-pnpm tsx scripts/preview.ts out/nasty-chart.page1.svg 4 --crop 60,150,900,200
+pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 2
+pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 4 --crop 60,150,900,200
 ```
 
 Snapshots are real `.svg` files under `tests/snapshots`, so a failing diff can be opened

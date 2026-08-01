@@ -103,9 +103,15 @@ jobs:
       - run: pnpm render all
       - name: check every fixture produced a PDF
         run: |
-          for f in nasty-chart every-glyph invalid-bars; do
-            test -s "out/$f.pdf" || { echo "missing or empty: out/$f.pdf"; exit 1; }
+          for f in nasty-chart every-glyph invalid-bars long-form; do
+            test -s "out/render/$f/$f.pdf" || {
+              echo "missing or empty: out/render/$f/$f.pdf"; exit 1; }
           done
+          # long-form is the only fixture that paginates, so it is the only one whose second
+          # page can regress to nothing. Cheap to assert, and it would have caught the V3b
+          # crop bug from the other side.
+          test -s "out/render/long-form/page2.svg" || {
+            echo "long-form no longer produces a second page"; exit 1; }
       - uses: actions/upload-artifact@v7
         with:
           name: rendered-charts

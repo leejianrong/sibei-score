@@ -26,7 +26,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import type { MusicFontName } from '@sibei/engrave';
@@ -52,6 +60,23 @@ const FIXTURES: Record<string, () => Score> = {
 };
 
 const PROOF_DIR = resolve('out/proof');
+
+/**
+ * A directory per fixture, and it is **emptied at the start of that fixture's run**.
+ *
+ * Emptying is deliberate rather than tidy-minded: without it, a file whose name no longer
+ * matches anything the tool produces sits there looking current forever. That is how
+ * `nasty-chart.page1.engraver-normal.svg` outlived the two-adapter era by three slices — the
+ * naming died with `packages/draw` and the file did not. The property worth having is that
+ * **what is in a fixture's directory is exactly what the last run put there**, which is also
+ * the only thing that makes the manifest trustworthy.
+ */
+function fixtureDir(fixture: string): string {
+  const dir = resolve(PROOF_DIR, fixture);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 /** Wide enough to read a semiquaver beam, small enough that a reader keeps the detail. */
 const TARGET_WIDTH = 1500;
@@ -496,9 +521,10 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
     return page.svg;
   };
 
-  mkdirSync(PROOF_DIR, { recursive: true });
+  const outDir = fixtureDir(fixture);
+  const rel = (file: string): string => `out/proof/${fixture}/${file}`;
   for (const page of pages) {
-    writeFileSync(resolve(PROOF_DIR, `${fixture}.page${page.index + 1}.svg`), page.svg);
+    writeFileSync(resolve(outDir, `page${page.index + 1}.svg`), page.svg);
   }
 
   const face = musicFontNamed(options.font).data;
@@ -531,10 +557,10 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
           ],
           crop,
         );
-        const file = `${fixture}.${crop.name}.compare.png`;
-        writeFileSync(resolve(PROOF_DIR, file), rasteriseMarkup(markup, zoom));
+        const file = `${crop.name}.compare.png`;
+        writeFileSync(resolve(outDir, file), rasteriseMarkup(markup, zoom));
         manifest.images.push({
-          file: `out/proof/${file}`,
+          file: rel(file),
           shows: `${crop.what} — the committed snapshot above, this render below`,
           zoom,
         });
@@ -544,19 +570,19 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
 
     const { png, zoom } = rasterise(markupFor(crop), crop);
     const suffix = options.font === 'normal' ? '' : `.${options.font}`;
-    const file = `${fixture}.${crop.name}${suffix}.png`;
-    writeFileSync(resolve(PROOF_DIR, file), png);
+    const file = `${crop.name}${suffix}.png`;
+    writeFileSync(resolve(outDir, file), png);
     manifest.images.push({
-      file: `out/proof/${file}`,
+      file: rel(file),
       shows: `${crop.what} — ${face.name} ${face.version}`,
       zoom,
     });
   }
 
   if (options.pdf) {
-    const pdfPath = resolve(PROOF_DIR, `${fixture}.pdf`);
+    const pdfPath = resolve(outDir, `${fixture}.pdf`);
     writeFileSync(pdfPath, await renderScoreToPdf(score, { paper: options.paper }));
-    const pngPath = resolve(PROOF_DIR, `${fixture}.pdf-page1.png`);
+    const pngPath = resolve(outDir, 'pdf-page1.png');
     const used = rasterisePdf(pdfPath, pngPath);
     if (used === null) {
       process.stdout.write(
@@ -572,7 +598,7 @@ async function proof(fixture: string, options: Options): Promise<Manifest> {
       );
     } else {
       manifest.images.push({
-        file: `out/proof/${fixture}.pdf-page1.png`,
+        file: rel('pdf-page1.png'),
         shows: `page 1 of the PDF itself, rasterised by ${used}`,
         zoom: 1,
       });
