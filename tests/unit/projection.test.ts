@@ -43,6 +43,13 @@ describe('the header', () => {
     expect(lines(score)[0]).toBe('Body and Soul — Johnny Green — key C, 4/4, 0 bars');
   });
 
+  it('omits the title when the chart has none, rather than printing an empty cell', () => {
+    // A deliberate change to an ADR-0009 contract, forced by KAN-594: an unnamed chart is now what
+    // a plain `sbscore new` produces, so this line had to stop opening with a dangling em-dash.
+    const score = chart([makeBar({ id: 'bar-1', number: 1 })], { title: '', composer: 'Johnny Green' });
+    expect(lines(score)[0]).toBe('Johnny Green — key C, 4/4, 1 bars');
+  });
+
   it('includes the style line when there is one', () => {
     expect(lines(chart([], { style: 'Ballad' }))[0]).toMatch(/— Ballad$/);
   });
