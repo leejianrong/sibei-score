@@ -10,6 +10,9 @@ import {
   isMetricallyValid,
   makeBar,
   makeNote,
+  makeRest,
+  makeScore,
+  scoreMetrics,
   TICKS_PER_QUARTER,
 } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
@@ -95,9 +98,55 @@ describe('the pickup', () => {
     expect(metrics.valid).toBe(true);
   });
 
-  it('is invalid when empty or overfull', () => {
-    expect(isMetricallyValid(makeBar({ id: 'bar-0', number: 0 }), FOUR_FOUR)).toBe(false);
+  it('is invalid when overfull, but not when empty (KAN-597)', () => {
     expect(isMetricallyValid(barOf([dur(1), dur(4)], 0), FOUR_FOUR)).toBe(false);
+
+    // Bar 0 used to require `actual > 0`, on the reasoning that a pickup exists in order to hold
+    // something. `sbscore new --pickup` defeats that: it opens an empty bar 0, so an empty pickup
+    // is a starting state rather than a broken document — and the empty rule is now one rule for
+    // every bar.
+    const empty = makeBar({ id: 'bar-0', number: 0 });
+    expect(barMetrics(empty, FOUR_FOUR).status).toBe('empty');
+    expect(isMetricallyValid(empty, FOUR_FOUR)).toBe(true);
+  });
+});
+
+describe('an empty bar', () => {
+  /**
+   * KAN-597. An empty bar has its own status and is *not* a review case: it is the absence of a
+   * rhythm rather than a rhythm the system disagrees with, and a blank 32-bar chart is the normal
+   * starting state of every chart. ADR-0013 is untouched — the bar is still stored exactly as
+   * written, and nothing here repairs or refuses anything.
+   */
+  it('is its own status rather than the smallest case of under', () => {
+    const metrics = barMetrics(makeBar({ id: 'bar-1', number: 1 }), FOUR_FOUR);
+    expect(metrics.status).toBe('empty');
+    expect(metrics.actual).toBe(0);
+    expect(metrics.valid).toBe(true);
+  });
+
+  it('stops being empty the moment it holds anything, rest included', () => {
+    // The other half of the decision: "empty" must not become a way to hide a short bar. A rest is
+    // a first-class object (Q35) and it is a rhythm, so a bar holding one is under-filled and said
+    // to be.
+    const withRest = makeBar({
+      id: 'bar-1',
+      number: 1,
+      items: [makeRest({ id: 'rest-1', onset: 0, duration: dur(4) })],
+    });
+    expect(barMetrics(withRest, FOUR_FOUR).status).toBe('under');
+    expect(barMetrics(withRest, FOUR_FOUR).valid).toBe(false);
+  });
+
+  it('is not counted among the bars a reader is pointed at', () => {
+    const score = makeScore({
+      id: 'score-blank',
+      bars: Array.from({ length: 8 }, (_unused, index) =>
+        makeBar({ id: `bar-${index + 1}`, number: index + 1 }),
+      ),
+    });
+    expect(invalidBars(score)).toEqual([]);
+    expect(scoreMetrics(score).every((m) => m.status === 'empty')).toBe(true);
   });
 });
 

@@ -144,13 +144,19 @@
 
       <div class="group">
         <h3>Review</h3>
+        <!-- `anythingFlagged` is the model's single answer, and until KAN-597 it was not: it read
+             the *stored* `bar.review.flagged` while the two lines below derived the same fact from
+             the bar's contents, so this branch printed "Nothing flagged." over a chart with two
+             invalid bars. Every chart authored through the API was right — the applier stamps the
+             flag on write — so it was correct exactly where anyone looked. Nothing about the branch
+             changes; the answer it asks for does. -->
         {#if review === null || !review.anythingFlagged}
           <p class="review-ok">Nothing flagged.</p>
         {:else}
           <!-- The wording is the model's, not this component's: `reviewSummary` is what the text
                projection prints too, so the two surfaces cannot describe the same chart in two
-               vocabularies — and KAN-597's change to how a blank chart reports lands here for
-               free. -->
+               vocabularies. A blank chart now reports nothing, which is why the first thing a new
+               user sees is no longer a chart entirely in review. -->
           <div class="review-flag">
             <span class="bang">!</span>{review.meterNote ?? NEEDS_REVIEW}
             {#if review.invalidBars.length > 0}
