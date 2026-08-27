@@ -1,7 +1,7 @@
 import { engravePage } from '@sibei/engrave';
 import type { MusicFontName } from '@sibei/engrave';
 import { layout } from '@sibei/layout';
-import type { PageSpecInput } from '@sibei/layout';
+import type { LayoutPage, PageSpecInput } from '@sibei/layout';
 import type { Score } from '@sibei/model';
 
 /**
@@ -35,6 +35,12 @@ export interface RenderedPage {
   svg: string;
   widthPt: number;
   heightPt: number;
+  /**
+   * This page's own geometry, verbatim from `layout()`. Hit-testing (V4c) reuses it rather than
+   * running `layout()` a second time — the note it finds under a click is positioned from the
+   * exact object the SVG above was drawn from, not a recomputation that could drift from it.
+   */
+  layout: LayoutPage;
 }
 
 export function renderScorePages(
@@ -48,5 +54,6 @@ export function renderScorePages(
     svg: engravePage(result, page.index, options).svg,
     widthPt: page.widthPt,
     heightPt: page.heightPt,
+    layout: page,
   }));
 }

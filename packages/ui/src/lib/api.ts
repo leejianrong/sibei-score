@@ -2,7 +2,7 @@ import { MUSIC_FONT_NAMES } from '@sibei/engrave';
 import type { MusicFontName } from '@sibei/engrave';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
-import type { Id, Score } from '@sibei/model';
+import type { AccidentalDisplay, Duration, Id, Score } from '@sibei/model';
 
 /**
  * The UI's whole relationship with the server: an HTTP client of `/v1/` (ADR-0002). It holds no
@@ -44,21 +44,23 @@ export interface ScoreRecord {
 
 /**
  * Every error body the API emits is `{error: {kind, message, detail}}` (ADR-0008), so the client
- * carries the structured half through rather than flattening it to a sentence. Nothing in this
- * slice branches on `detail` yet — editing is V4c — but throwing it away here is how a later
- * card ends up parsing prose.
+ * carries the structured half through rather than flattening it to a sentence. `currentVersion`
+ * is promoted the same way the API promotes it (`packages/api/src/http/problems.ts`): present
+ * only on a 409 from a stale write, and it is what to re-read at (ADR-0003).
  */
 export class ApiError extends Error {
   readonly status: number;
   readonly kind: string;
   readonly detail: unknown;
+  readonly currentVersion: number | undefined;
 
-  constructor(status: number, kind: string, message: string, detail: unknown) {
+  constructor(status: number, kind: string, message: string, detail: unknown, currentVersion?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.kind = kind;
     this.detail = detail;
+    this.currentVersion = currentVersion;
   }
 }
 
@@ -78,6 +80,48 @@ export async function listScores(): Promise<ScoreListing[]> {
 
 export async function getScore(id: Id): Promise<ScoreRecord> {
   return await getJson<ScoreRecord>(`${V1}/scores/${encodeURIComponent(id)}`);
+}
+
+/**
+ * The write side (V4c). Declared here rather than imported from `@sibei/api`'s
+ * `packages/api/src/ops/operations.ts` — the same reason `ScoreListing` and `ScoreRecord` above
+ * are the wire shape rather than an import: `@sibei/api` also holds the store and the applier,
+ * and a browser bundle has no business resolving that package even for a type
+ * (`tests/arch/framework-free.test.ts` bans the string `@sibei/api` from this package outright).
+ * `Duration` and `AccidentalDisplay` come from `@sibei/model` instead, which the UI already
+ * depends on and which is framework-free by the same rule.
+ *
+ * **Deliberately only the two verbs the inspector needs.** `note.add`, `rest.add` on their own
+ * and `meta.set` exist on the server and have no UI control yet — that is V4b's booked debt
+ * (Q79), not a gap this file is meant to close.
+ */
+export interface NoteSetPayload {
+  pitch?: string;
+  duration?: Duration;
+  accidental?: AccidentalDisplay;
+}
+
+export interface RestAddPayload {
+  duration: Duration;
+}
+
+export type Operation =
+  | { type: 'note.set'; target: string; payload: NoteSetPayload }
+  | { type: 'rest.add'; target: string; payload: RestAddPayload }
+  | { type: 'rest.rm'; target: string };
+
+export interface Batch {
+  operations: readonly Operation[];
+  expectedVersion: number;
+}
+
+/**
+ * `POST /v1/scores/:id/ops`. The response body (`ApplyResult`) is deliberately not read for its
+ * content — same reasoning as the SSE event payload (`changed[]` names ids, never values) — so
+ * the caller's job after this resolves is to re-`getScore`, never to trust what came back here.
+ */
+export async function submitOps(id: Id, batch: Batch): Promise<void> {
+  await postJson(`${V1}/scores/${encodeURIComponent(id)}/ops`, batch);
 }
 
 export interface ExportChoice {
@@ -126,6 +170,22 @@ async function getJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+
+  if (!response.ok) throw await failureFrom(response);
+  return (await response.json()) as T;
+}
+
 /**
  * An `ApiError` when the API answered, an `OfflineError` when something else did.
  *
@@ -141,7 +201,7 @@ async function getJson<T>(path: string): Promise<T> {
  * from the API. A 4xx is left alone, because those are answers.
  */
 interface ErrorBody {
-  error?: { kind?: string; message?: string; detail?: unknown };
+  error?: { kind?: string; message?: string; detail?: unknown; currentVersion?: number };
 }
 
 async function failureFrom(response: Response): Promise<ApiError | OfflineError> {
@@ -163,5 +223,6 @@ async function failureFrom(response: Response): Promise<ApiError | OfflineError>
     envelope.kind ?? 'unknown',
     envelope.message ?? `the server answered ${response.status}`,
     envelope.detail,
+    envelope.currentVersion,
   );
 }

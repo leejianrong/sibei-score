@@ -10,5 +10,6 @@
 export * from './api.js';
 export * from './branding.js';
 export * from './format.js';
+export * from './hit-test.js';
 export * from './render.js';
 export * from './routing.js';

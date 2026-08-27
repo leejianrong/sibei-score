@@ -11,15 +11,46 @@
    * The markup goes in with `{@html}` because the engraver emits **markup**, not DOM nodes
    * (ADR-0030) — the same string the server hands to pdfkit, byte for byte, and there is a test
    * that says so.
+   *
+   * **Hit-testing (V4c) reads the click, not the markup.** A click on `.sheet` is converted from
+   * screen pixels into that page's own `viewBox` units — plain arithmetic against
+   * `getBoundingClientRect()`, never `getBBox` or `measureText` (ADR-0015) — and handed to the
+   * caller, which owns every musical decision about what the point landed on. This component
+   * never looks inside `page.svg` to answer that.
+   *
+   * The selection box is drawn as a sibling overlay, positioned in percentage space over the
+   * same sheet, so it can never edit — and can never desync from — the engraver's own markup.
    */
+  import type { ItemBox } from '../lib/hit-test.js';
   import type { RenderedPage } from '../lib/render.js';
+
+  export interface Point {
+    x: number;
+    y: number;
+  }
 
   interface Props {
     pages: readonly RenderedPage[];
+    /** Which item is selected, and its box in that page's layout units. */
+    selection?: { pageIndex: number; box: ItemBox } | null;
+    /** A click on a sheet, translated into that page's own layout units. */
+    onselect?: (pageIndex: number, point: Point) => void;
   }
 
-  const { pages }: Props = $props();
+  const { pages, selection = null, onselect }: Props = $props();
   const multi = $derived(pages.length > 1);
+
+  function handleClick(index: number, event: MouseEvent): void {
+    if (onselect === undefined) return;
+    const page = pages[index];
+    if (page === undefined) return;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    onselect(index, {
+      x: ((event.clientX - rect.left) / rect.width) * page.layout.width,
+      y: ((event.clientY - rect.top) / rect.height) * page.layout.height,
+    });
+  }
 </script>
 
 <div class="sheets">
@@ -34,7 +65,27 @@
             <span class="n">{index + 1}</span><span class="of">of {pages.length}</span>
           </div>
         {/if}
-        <div class="sheet">{@html page.svg}</div>
+        <!-- A spatial hit-test over engraved positions, not a control with a keyboard
+             equivalent — there is nothing at a fixed tab-stop to select this way. Selecting a
+             note by keyboard is a later card's scope, not this one's. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="sheet"
+          aria-label="Sheet music, page {index + 1}"
+          onclick={(event) => handleClick(index, event)}
+        >
+          {@html page.svg}
+          {#if selection !== null && selection.pageIndex === index}
+            <div
+              class="hit selected"
+              style="left: {(selection.box.x / page.layout.width) * 100}%;
+                top: {(selection.box.y / page.layout.height) * 100}%;
+                width: {(selection.box.width / page.layout.width) * 100}%;
+                height: {(selection.box.height / page.layout.height) * 100}%;"
+            ></div>
+          {/if}
+        </div>
       </div>
     </div>
   {/each}
@@ -62,15 +113,31 @@
   }
 
   .sheet {
+    position: relative;
     background: var(--paper);
     box-shadow: var(--sheet-shadow);
     outline: 1px solid var(--sheet-edge);
     outline-offset: -1px;
+    cursor: pointer;
   }
   .sheet :global(svg) {
     display: block;
     width: 100%;
     height: auto;
+    pointer-events: none;
+  }
+
+  /* Positioned in percentage space over the sheet, so it tracks zoom without its own math and
+     can never touch the engraver's own markup underneath it. */
+  .hit {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 2px;
+  }
+  .hit.selected {
+    background: var(--accent-wash);
+    outline: 1.5px solid var(--accent);
+    outline-offset: -1.5px;
   }
 
   .gutter {
