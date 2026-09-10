@@ -25,7 +25,8 @@
     "ui": "pnpm --filter @sibei/ui run dev",
     "ui:build": "pnpm --filter @sibei/ui run build",
     "demo": "bash scripts/demo-v2.sh",
-    "demo:v4": "bash scripts/demo-v4.sh"
+    "demo:v4": "bash scripts/demo-v4.sh",
+    "screenshots": "tsx scripts/screenshots.ts"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",

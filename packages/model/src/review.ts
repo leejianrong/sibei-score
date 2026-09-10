@@ -89,7 +89,8 @@ export function reviewSummary(score: Score): ReviewSummary {
 /**
  * The verb agrees with the count. It did not before: the projection pluralised the noun and left
  * `do` alone, so one short bar produced "1 bar do not fill the meter". No test pinned it and
- * CLAUDE.md's own worked example already prints the grammatical form — so the doc was right, the
+ * the projection's own worked example (`agent_docs/surfaces.md`) already prints the grammatical
+ * form — so the doc was right, the
  * code was wrong, and the divergence survived because the singular case never appeared in a
  * fixture. It is fixed here rather than papered over, because the score rail now reads this
  * sentence aloud in the chrome (V4b) and a projection contract is worth being able to quote.

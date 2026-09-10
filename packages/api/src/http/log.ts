@@ -1,6 +1,6 @@
 /**
- * Structured logs. CLAUDE.md listed a health endpoint and these as due "when there is a server",
- * and now there is one.
+ * Structured logs. `agent_docs/history.md` listed a health endpoint and these as due "when there
+ * is a server", and now there is one.
  *
  * Deliberately narrow. ADR-0029's rule for later is that **no image bytes and no file paths** reach
  * a log, and the cheapest way to keep that true is for the log line to have no field they could go

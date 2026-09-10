@@ -14,7 +14,7 @@ import { type Browser, chromium } from 'playwright';
  *   `sbscore serve`  →  the API + SQLite + the change bus, exactly as `pnpm serve` starts it
  *   `vite`           →  the dev server that proxies `/v1` and serves the Svelte app
  *   chromium         →  a real browser, because a jsdom simulation would pass while the product is
- *                       broken (CLAUDE.md is explicit about this — the three tests here genuinely
+ *                       broken (`agent_docs/testing.md` is explicit about this — the three tests genuinely
  *                       need a browser, which is why V4d chose Playwright over a fake)
  *
  * It lives in the **infra** layer (`vitest.config.ts`), not a seventh CI job — the layer already

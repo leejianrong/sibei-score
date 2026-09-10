@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
  * Two layers, split by what a test needs in order to run rather than by what it is about.
  *
  * Until V2 the whole suite was uniformly infra-free and this file was ten lines. SQLite
- * arrives with the store, so the split arrives with it — CLAUDE.md has carried this as V2's
+ * arrives with the store, so the split arrives with it — AGENTS.md has carried this as V2's
  * due bill since V1.
  *
  *   fast   No infra, and **no native binding** — enforced, not intended: `setupFiles` traps
