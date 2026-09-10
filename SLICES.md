@@ -371,6 +371,18 @@ correction depends on (ADR-0011), so its test suite is doing double duty.
 
 **Delivers:** R4
 
+> **Done, 2026-09-10**, as five sub-slices V6a–e landed as separate PRs the way V2–V5 were. V6a: the
+> enharmonic spelling engine (`model/spelling.ts`), pure and framework-free. V6b: the `transpose` op
+> and `sbscore transpose --to`. V6c: instrument parts as a render-time view — `writtenPart` and the
+> five instruments, reusing the export cache key's reserved `instrument` dimension (V3/Q81), plus
+> `export --for`. V6d: `--spell` pins on notes and chords, which gave `Chord` a `spellingPinned`
+> field — the **first real schema migration** (v1→v2, ADR-0028), and it reworked the two migration
+> test suites that had been rehearsing a synthetic one. V6e: the browser controls — a Transpose
+> action, a Part picker that previews the written part on the sheet (read-only, since a part is not
+> the concert truth), and a spelling-pin toggle in both inspectors. `writtenPart` moved from
+> `packages/api` to `packages/music` at V6e so the browser could render a part without importing the
+> server. Read the build plan below as the plan it was.
+
 **Build plan**
 
 1. Enharmonic spelling engine: key-signature-driven, with per-object pins that survive

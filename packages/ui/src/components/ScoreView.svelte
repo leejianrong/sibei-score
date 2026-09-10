@@ -22,18 +22,21 @@
   import type { MusicFontName } from '@sibei/engrave';
   import type { Paper } from '@sibei/layout';
   import { formatKeySignature, formatPitch, NEEDS_REVIEW, reviewSummary } from '@sibei/model';
-  import type { Id, Score } from '@sibei/model';
+  import type { Id, KeySignature, Score } from '@sibei/model';
+  import { writtenPart } from '@sibei/music';
   import {
     ApiError,
     exportRoute,
     exportUrl,
     FONTS,
     getScore,
+    INSTRUMENTS,
     OfflineError,
     PAPERS,
     submitOps,
   } from '../lib/api.js';
-  import type { Operation } from '../lib/api.js';
+  import type { ExportInstrument, Operation } from '../lib/api.js';
+  import { TARGET_KEYS, keyEquals } from '../lib/keys.js';
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
@@ -77,6 +80,31 @@
   let font = $state<MusicFontName>(DEFAULT_MUSIC_FONT);
   let zoom = $state(100);
 
+  // The instrument part on view (V6e). `concert` is the stored score; a transposing instrument is a
+  // render-time view (ADR-0016) — the sheet shows the written part and the same choice drives the
+  // export URL, but the part is a preview only: it is not the concert truth, so editing is off while
+  // one is shown (a click on the written B♭ Tenor pitch would otherwise submit it as concert).
+  let instrument = $state<ExportInstrument>('concert');
+  const editable = $derived(instrument === 'concert');
+
+  // The score actually rendered: the stored one for the concert view, its written part otherwise.
+  // `writtenPart` is a pure transform (@sibei/music), the same one the server runs before an export,
+  // so the sheet on screen and the exported part are the one render (ADR-0016).
+  const renderScore = $derived.by(() =>
+    score === null ? null : instrument === 'concert' ? score : writtenPart(score, instrument),
+  );
+
+  // The transpose target (V6e). Seeded to the chart's current key and snapped back to it after every
+  // change, so the picker always opens on "where the chart is now" and the button is a no-op until
+  // the reader moves it somewhere else.
+  let transposeIndex = $state(0);
+  const currentKeyIndex = $derived(
+    score === null ? -1 : TARGET_KEYS.findIndex((option) => keyEquals(option.key, score!.meta.key)),
+  );
+  $effect(() => {
+    if (currentKeyIndex !== -1) transposeIndex = currentKeyIndex;
+  });
+
   // Selection (V4c). The id is the whole of it — everything the inspector shows is looked up
   // fresh from the current render each time, never cached at selection time, so a reload never
   // leaves it holding a stale copy of what it is inspecting.
@@ -109,11 +137,11 @@
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    score === null ? [] : renderScorePages(score, { paper }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper }, { font }),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
-  const route = $derived(exportRoute({ paper, font }));
+  const route = $derived(exportRoute({ paper, font, instrument }));
 
   // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
   // own geometry functions with it rather than a second copy of them (../lib/hit-test.js).
@@ -127,7 +155,8 @@
   });
 
   const selection = $derived.by((): Selection | null => {
-    if (located === null) return null;
+    // A part is a preview, not the editable truth, so nothing is selectable while one is shown.
+    if (!editable || located === null) return null;
     const { item } = located;
     if (item.kind === 'note') {
       return {
@@ -137,10 +166,34 @@
         duration: item.duration,
         accidental: item.accidental,
         tie: item.tie,
+        // The pin is not a layout property (it changes no ink), so it is read from the model note.
+        spellingPinned: notePinned(item.noteId),
       };
     }
     return { kind: 'rest', id: item.restId, duration: item.duration };
   });
+
+  /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
+  function notePinned(noteId: Id): boolean {
+    if (score === null) return false;
+    for (const bar of score.bars) {
+      for (const barItem of bar.items) {
+        if (barItem.id === noteId && barItem.kind === 'note') return barItem.spellingPinned;
+      }
+    }
+    return false;
+  }
+
+  /** A chord's spelling pin, looked up from the stored score by id (the seed for the chord inspector). */
+  function chordPinned(chordId: Id): boolean {
+    if (score === null) return false;
+    for (const bar of score.bars) {
+      for (const chord of bar.chords) {
+        if (chord.id === chordId) return chord.spellingPinned;
+      }
+    }
+    return false;
+  }
 
   const selectionOverlay = $derived.by(() => {
     if (selectedId === null || selectedPage === null) return null;
@@ -160,10 +213,17 @@
   });
 
   const chordSelection = $derived.by((): ChordSelection | null => {
-    if (chordSel === null) return null;
+    if (!editable || chordSel === null) return null;
     // A chord edited away elsewhere leaves nothing to inspect: hide rather than dangle.
     if (chordSel.mode === 'edit' && selectedChordBox === null) return null;
-    return { addr: chordSel.addr, mode: chordSel.mode, text: chordSel.seedText, barNumber: chordSel.barNumber, beat: chordSel.beat };
+    return {
+      addr: chordSel.addr,
+      mode: chordSel.mode,
+      text: chordSel.seedText,
+      barNumber: chordSel.barNumber,
+      beat: chordSel.beat,
+      spellingPinned: chordSel.chordId === null ? false : chordPinned(chordSel.chordId),
+    };
   });
 
   const chordOverlay = $derived.by(() => {
@@ -217,7 +277,9 @@
    * second control for it.
    */
   function handleSheetClick(pageIndex: number, point: Point): void {
-    if (saving) return;
+    // A part view is read-only: its notes are written pitches, and an edit there would be submitted
+    // against the concert score at the wrong pitch. So a click does nothing until you are on concert.
+    if (saving || !editable) return;
     const page = pages[pageIndex];
     if (page === undefined) return;
     conflict = false;
@@ -266,7 +328,7 @@
 
   /** The pointer moved over a sheet: light the add-a-chord marker if it is in an empty band beat. */
   function handleSheetHover(pageIndex: number, point: Point | null): void {
-    if (point === null || saving || score === null) {
+    if (point === null || saving || score === null || !editable) {
       hoverSlot = null;
       return;
     }
@@ -284,9 +346,22 @@
     hoverSlot = slot === null ? null : { pageIndex, box: slot };
   }
 
-  async function handleChordSave(text: string): Promise<void> {
+  async function handleChordSave(text: string, spellingPinned: boolean): Promise<void> {
     if (score === null || chordSel === null) return;
-    await runOps([{ type: 'chord.set', target: chordSel.addr, payload: { text } }]);
+    await runOps([{ type: 'chord.set', target: chordSel.addr, payload: { text, spellingPinned } }]);
+  }
+
+  /**
+   * Transpose the whole chart into a new concert key (V6e, ADR-0016). Unlike Face, Paper and Part —
+   * which only change what is drawn — this is a **mutation**: it posts a `transpose` op to the one
+   * write path and re-reads, so the version bumps and it is undoable later like any edit. A no-op
+   * when the target is the key the chart is already in.
+   */
+  async function handleTranspose(): Promise<void> {
+    const target = TARGET_KEYS[transposeIndex];
+    if (score === null || target === undefined || keyEquals(target.key, score.meta.key)) return;
+    deselect();
+    await runOps([{ type: 'transpose', payload: { to: target.key } }]);
   }
 
   async function handleChordRemove(): Promise<void> {
@@ -452,6 +527,34 @@
       </div>
 
       <div class="group control-row">
+        <h3>Transpose</h3>
+        <div class="transpose-row">
+          <select
+            class="key-select"
+            aria-label="Transpose to key"
+            value={transposeIndex}
+            onchange={(event) => (transposeIndex = Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each TARGET_KEYS as option, index (option.label)}
+              <option value={index}>{option.label}</option>
+            {/each}
+          </select>
+          <button
+            type="button"
+            class="transpose-btn"
+            disabled={saving || transposeIndex === currentKeyIndex}
+            onclick={handleTranspose}
+          >
+            {saving ? 'Working…' : 'Transpose'}
+          </button>
+        </div>
+        <p class="control-note">
+          Changes the chart's concert key — the melody and chords move together. A logged, undoable
+          edit, not a view: the version bumps.
+        </p>
+      </div>
+
+      <div class="group control-row">
         <h3>Face</h3>
         <SegmentedControl
           label="Music face"
@@ -478,8 +581,37 @@
       </div>
 
       <div class="group">
+        <h3>Part</h3>
+        <select
+          class="part-select"
+          aria-label="Instrument part"
+          value={instrument}
+          onchange={(event) => (instrument = (event.currentTarget as HTMLSelectElement).value as ExportInstrument)}
+        >
+          {#each INSTRUMENTS as option (option.value)}
+            <option value={option.value}>{option.label} — {option.hint}</option>
+          {/each}
+        </select>
+        {#if !editable}
+          <!-- The part is drawn from the concert score by the same transform the export runs, so it
+               is a true preview — but a preview, so the sheet says so and editing is off. -->
+          <p class="control-note preview-note">
+            Previewing the {INSTRUMENTS.find((o) => o.value === instrument)?.label} part — a view,
+            nothing stored. Switch to <b>Concert score</b> to edit.
+          </p>
+        {:else}
+          <p class="control-note">
+            A written part for a transposing instrument — a render-time view (ADR-0016). The concert
+            chart is unchanged.
+          </p>
+        {/if}
+      </div>
+
+      <div class="group">
         <h3>Export</h3>
-        <a class="export" href={exportUrl(score.id, { paper, font })} download>Export PDF</a>
+        <a class="export" href={exportUrl(score.id, { paper, font, instrument })} download>
+          Export {editable ? 'PDF' : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
+        </a>
         <!-- The route, not the instance: the id is already in the facts above, and a
              40-character id wraps this column into nonsense. -->
         <p class="url">
@@ -526,7 +658,10 @@
     <div class="stage" style="--sheet-w: {(SHEET_WIDTH * zoom) / 100}px">
       <div class="stage-inner">
         <div class="stage-bar">
-          <span>{pages.length} {pages.length === 1 ? 'page' : 'pages'}</span>
+          <span>
+            {pages.length} {pages.length === 1 ? 'page' : 'pages'}
+            {#if !editable}· <span class="part-flag">{INSTRUMENTS.find((o) => o.value === instrument)?.label} part</span>{/if}
+          </span>
           <div class="zoom" role="group" aria-label="Zoom">
             <button
               aria-label="Zoom out"
@@ -686,6 +821,63 @@
     color: var(--ink-faint);
     line-height: 1.5;
     margin: 0;
+  }
+  .preview-note {
+    color: var(--flag);
+  }
+  .preview-note b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* Transpose (V6e). A key picker and a committing button — deliberately not a segmented control,
+     because it is an action that writes, not a render toggle you flip and forget. */
+  .transpose-row {
+    display: flex;
+    gap: 8px;
+  }
+  .key-select,
+  .part-select {
+    flex: 1;
+    min-width: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    padding: 7px 9px;
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .key-select:focus,
+  .part-select:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+  .transpose-btn {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: 0;
+    padding: 7px 12px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .transpose-btn:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  .transpose-btn:disabled {
+    background: var(--panel-2);
+    color: var(--ink-faint);
+    border: 1px solid var(--rule);
+    cursor: default;
+  }
+
+  .part-flag {
+    color: var(--flag);
+    font-weight: 600;
   }
 
   .export {

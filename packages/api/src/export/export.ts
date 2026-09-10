@@ -7,8 +7,8 @@ import type { Id, Score } from '@sibei/model';
 import { renderScoreToPdf } from '@sibei/pdf';
 import type { BlobKey, BlobStore } from '../blob/blob-store.js';
 import type { Owner, ScoreReader, ScoreRecord } from '../store/repository.js';
-import { PART_INSTRUMENTS, partLabel, writtenPart } from './part.js';
-import type { PartInstrument } from './part.js';
+import { PART_INSTRUMENTS, partLabel, writtenPart } from '@sibei/music';
+import type { PartInstrument } from '@sibei/music';
 
 /**
  * Export from the store (V3, R0) — the first path that runs a stored chart all the way to a

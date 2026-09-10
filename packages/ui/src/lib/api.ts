@@ -2,7 +2,7 @@ import { MUSIC_FONT_NAMES } from '@sibei/engrave';
 import type { MusicFontName } from '@sibei/engrave';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
-import type { AccidentalDisplay, Duration, Id, Score } from '@sibei/model';
+import type { AccidentalDisplay, Duration, Id, KeySignature, Score } from '@sibei/model';
 
 /**
  * The UI's whole relationship with the server: an HTTP client of `/v1/` (ADR-0002). It holds no
@@ -100,6 +100,8 @@ export interface NoteSetPayload {
   pitch?: string;
   duration?: Duration;
   accidental?: AccidentalDisplay;
+  /** Pin the spelling so it survives a transpose (ADR-0017). V6e. */
+  spellingPinned?: boolean;
 }
 
 export interface RestAddPayload {
@@ -108,6 +110,13 @@ export interface RestAddPayload {
 
 export interface ChordSetPayload {
   text: string;
+  /** Pin the root's spelling so it survives a transpose (ADR-0017). V6e. */
+  spellingPinned?: boolean;
+}
+
+/** The concert key to transpose the whole chart into — a mutation, logged and undoable (ADR-0016). */
+export interface TransposePayload {
+  to: KeySignature;
 }
 
 export type Operation =
@@ -115,7 +124,8 @@ export type Operation =
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
-  | { type: 'chord.rm'; target: string };
+  | { type: 'chord.rm'; target: string }
+  | { type: 'transpose'; payload: TransposePayload };
 
 export interface Batch {
   operations: readonly Operation[];
@@ -131,29 +141,68 @@ export async function submitOps(id: Id, batch: Batch): Promise<void> {
   await postJson(`${V1}/scores/${encodeURIComponent(id)}/ops`, batch);
 }
 
+/**
+ * The instrument a part is written for (V6e, ADR-0016). Declared here as the **wire** value the
+ * export route accepts, for the same reason `ScoreListing` is: `@sibei/api` owns the real
+ * `PART_INSTRUMENTS`, and a browser bundle may not resolve that package (`tests/arch`). A name this
+ * list carries that the server does not is a 422, the same no-fallback bargain the paper and face
+ * make.
+ */
+export type ExportInstrument =
+  | 'concert'
+  | 'bb-trumpet'
+  | 'bb-tenor'
+  | 'eb-alto'
+  | 'eb-bari'
+  | 'f-horn';
+
+export interface InstrumentOption {
+  value: ExportInstrument;
+  label: string;
+  /** The written transposition, for the reader who does not carry the intervals in their head. */
+  hint: string;
+}
+
+/** `concert` first — the identity, and the default. The five transposing parts follow (ADR-0016). */
+export const INSTRUMENTS: readonly InstrumentOption[] = [
+  { value: 'concert', label: 'Concert score', hint: 'as stored' },
+  { value: 'bb-trumpet', label: 'B♭ Trumpet', hint: 'written a major 2nd up' },
+  { value: 'bb-tenor', label: 'B♭ Tenor', hint: 'written a major 9th up' },
+  { value: 'eb-alto', label: 'E♭ Alto', hint: 'written a major 6th up' },
+  { value: 'eb-bari', label: 'E♭ Bari', hint: 'written a major 13th up' },
+  { value: 'f-horn', label: 'F Horn', hint: 'written a perfect 5th up' },
+];
+
 export interface ExportChoice {
   paper: Paper;
   font: MusicFontName;
+  instrument: ExportInstrument;
+}
+
+/** The instrument goes on the query only when it is not the default, the way the CLI sends it. */
+function instrumentQuery(instrument: ExportInstrument): string {
+  return instrument === 'concert' ? '' : `&instrument=${instrument}`;
 }
 
 /**
  * The export route for a chart, with the reader's current choices in it.
  *
- * The face and the paper are render-time arguments (ADR-0030, Q38) and the server puts both in
- * the cache key, so the same two switches drive the sheet on screen and the bytes that come back
- * from here. That is the point of showing this string in the rail: the page you are looking at
- * and the file you are about to download are one choice, not two settings.
+ * The face and the paper are render-time arguments (ADR-0030, Q38) and the server puts them in
+ * the cache key, so the same switches drive the sheet on screen and the bytes that come back from
+ * here. The instrument is a third such argument (ADR-0016): a part is a render-time view, so it
+ * belongs beside them and not on a write. That is the point of showing this string in the rail:
+ * the page you are looking at and the file you are about to download are one choice, not two.
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
-  const query = new URLSearchParams({ format: 'pdf', paper: choice.paper, font: choice.font });
-  return `${V1}/scores/${encodeURIComponent(id)}/export?${query.toString()}`;
+  const base = new URLSearchParams({ format: 'pdf', paper: choice.paper, font: choice.font });
+  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}`;
 }
 
 /** The route without an id, which is what the rail prints. A concrete id wraps the column. */
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=pdf&paper=${choice.paper}&font=${choice.font}`,
+    query: `?format=pdf&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}`,
   };
 }
 

@@ -1,16 +1,21 @@
 import { transposePitch, transposeSpelling } from '@sibei/model';
 import type { Interval, KeySignature, Score } from '@sibei/model';
-import { transposeChordText } from '@sibei/music';
+import { transposeChordText } from './transpose.js';
 
 /**
  * Instrument parts as a **render-time view** (ADR-0016). The score always stores concert pitch; a
- * part is how that same sounding music is written down for a transposing instrument, produced here
- * at export time and never stored. So `writtenPart` is a pure `Score -> Score` transform the export
- * path runs just before rendering — the stored document is untouched, which is the whole point of
- * parts being views rather than the stored variants they are so often mistaken for.
+ * part is how that same sounding music is written down for a transposing instrument, produced at
+ * render time and never stored. So `writtenPart` is a pure `Score -> Score` transform — the stored
+ * document is untouched, which is the whole point of parts being views rather than the stored
+ * variants they are so often mistaken for.
+ *
+ * It lives in `music` rather than the server, next to the chord-symbol transposition it depends on,
+ * because both render surfaces need it: `@sibei/api`'s export path runs it before rendering a PDF,
+ * and the browser runs it to preview a part on screen (V6e) — and the browser may not resolve
+ * `@sibei/api`. Framework-free like the rest of `music`, for the same reason.
  *
  * This is the other half of V6, the mirror of the `transpose` *op*: transpose mutates the concert
- * key, a part re-writes without mutating. Both share V6a's spelling engine and V6b's chord-symbol
+ * key, a part re-writes without mutating. Both share the spelling engine and the chord-symbol
  * transposition, so the arithmetic lives in one place and only the "stored vs. viewed" decision
  * differs.
  */

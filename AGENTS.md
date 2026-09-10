@@ -8,20 +8,20 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V5 are done; V6 (transpose and parts) is under way.** `SLICES.md` is the plan of record and
+**V1–V6 are done; V7 (structure and page) is next.** `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
 the op log and applier, the `/v1/` API, the CLI with its text projection, export from the store, an
 SSE change stream, a browser that opens a chart, edits it, and repaints live when something else
 does, from V5 the chord grammar (`packages/music`: parse, format, the OCR corrector), the
 `chord.set`/`chord.rm` ops, jazz chord typography through the engraver (`Δ`, `ø`, stacked
-alterations), and chord editing on both surfaces, and — from V6 so far — the enharmonic spelling
-engine (`model/spelling.ts`), the `transpose` op with `sbscore transpose --to`, and instrument
-parts as a render-time export view (`api/export/part.ts`, `sbscore export --for bb-trumpet`), and
-per-object spelling **pins** on notes and chords (`--spell`, honoured through transposition and
-parts; chords gained a `spellingPinned` field at schema v2, ADR-0028). Not built yet: the browser
-controls for transpose, part export and `--spell` (V6e), the MusicXML codec, and the whole import
-pipeline. Don't assume a module exists because a plan mentions it.
+alterations), and chord editing on both surfaces, and from V6 the enharmonic spelling engine
+(`model/spelling.ts`), the `transpose` op, instrument parts as a render-time view
+(`music/part.ts` — the browser previews them too), per-object spelling **pins** on notes and chords
+(`spellingPinned`, schema v2), and all three on both surfaces (`sbscore transpose --to`,
+`export --for`, `--spell`, and their browser controls in the score view). Not built yet: the
+MusicXML codec and the whole import pipeline. Don't assume a module exists because a plan mentions
+it.
 
 ## Layout
 
@@ -88,9 +88,9 @@ Breaking one of these breaks a decision of record. Ask before deviating from any
 - **Never `measureText` or `getBBox()`** — they exist only in a real browser and would drift
   screen from print (ADR-0015). Place text with SVG `text-anchor`. See `agent_docs/architecture.md`.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built (Q79).
-  Knowing exceptions with a CLI verb and no UI control yet: `score.create` and `meta.set`, and —
-  in flight through V6 — `transpose`, part export (`export --for`), and `--spell` pins, whose
-  browser controls land in V6e.
+  The one remaining knowing exception: `score.create` and `meta.set` have a CLI verb and no UI
+  control yet. (V6's `transpose`, part export and `--spell` pins closed the gap they opened —
+  each has a control in the score view.)
 - **The two surfaces must not disagree about a user-facing *string* either.** The browser's
   `CLI_BINARY` is asserted equal to the `bin` key in `packages/cli/package.json`. If two in-flight
   cards share a string rather than a file, one of them owes a guard.
