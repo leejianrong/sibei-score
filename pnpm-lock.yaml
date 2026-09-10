@@ -168,6 +168,9 @@ importers:
       '@sibei/model':
         specifier: workspace:*
         version: link:../model
+      '@sibei/music':
+        specifier: workspace:*
+        version: link:../music
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: 6.2.4

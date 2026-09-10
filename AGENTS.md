@@ -8,19 +8,22 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V4 are done; V5 (chords) is next.** `SLICES.md` is the plan of record and carries per-slice
-history; `agent_docs/history.md` records how each slice was actually cut. What exists: the score
-model, the layout engine, our own engraver, the server-side PDF path, the store, the op log and
-applier, the `/v1/` API, the CLI with its text projection, export from the store, an SSE change
-stream, and a browser that opens a chart, edits it, and repaints live when something else does.
-Not built yet: the chord grammar, transposition, the MusicXML codec, and the whole import
-pipeline. Don't assume a module exists because a plan mentions it.
+**V1–V5 are done; V6 (transpose and parts) is next.** `SLICES.md` is the plan of record and
+carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
+exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
+the op log and applier, the `/v1/` API, the CLI with its text projection, export from the store, an
+SSE change stream, a browser that opens a chart, edits it, and repaints live when something else
+does, and — from V5 — the chord grammar (`packages/music`: parse, format, the OCR corrector), the
+`chord.set`/`chord.rm` ops, jazz chord typography through the engraver (`Δ`, `ø`, stacked
+alterations), and chord editing on both surfaces. Not built yet: transposition, the MusicXML codec,
+and the whole import pipeline. Don't assume a module exists because a plan mentions it.
 
 ## Layout
 
 ```
 packages/
   model      score types, tick arithmetic, pitch, derived metric validity
+  music      the chord grammar: parse/format chord symbols to structure, and the OCR corrector
   layout     score -> engine-independent positions: the four-bar grid
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM

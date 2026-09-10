@@ -91,9 +91,10 @@ export async function getScore(id: Id): Promise<ScoreRecord> {
  * `Duration` and `AccidentalDisplay` come from `@sibei/model` instead, which the UI already
  * depends on and which is framework-free by the same rule.
  *
- * **Deliberately only the two verbs the inspector needs.** `note.add`, `rest.add` on their own
- * and `meta.set` exist on the server and have no UI control yet — that is V4b's booked debt
- * (Q79), not a gap this file is meant to close.
+ * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
+ * adds `chord.set` and `chord.rm` for the chord inspector. `note.add` on its own, `score.create`
+ * and `meta.set` exist on the server and have no UI control yet — that is booked debt (Q79), not a
+ * gap this file is meant to close.
  */
 export interface NoteSetPayload {
   pitch?: string;
@@ -105,10 +106,16 @@ export interface RestAddPayload {
   duration: Duration;
 }
 
+export interface ChordSetPayload {
+  text: string;
+}
+
 export type Operation =
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
-  | { type: 'rest.rm'; target: string };
+  | { type: 'rest.rm'; target: string }
+  | { type: 'chord.set'; target: string; payload: ChordSetPayload }
+  | { type: 'chord.rm'; target: string };
 
 export interface Batch {
   operations: readonly Operation[];
