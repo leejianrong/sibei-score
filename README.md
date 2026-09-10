@@ -1,140 +1,103 @@
 # sibei-score
 
-A local-only jazz lead sheet notation app. Single staff, chord symbols above it, four
-bars to a line, printable from a music stand — reachable equally from a browser and a
-CLI (`PLAN.md`).
+A local-only jazz lead sheet notation app: a single staff with chord symbols above it, four bars
+to a line, the way a Real Book prints it — authored and edited **equally from a browser and a
+command line**, and exported as a print-ready PDF.
 
-Status: **V1 done, V1b next** (`SLICES.md`). The render path exists; there is no store, no
-API, no CLI and no UI yet. The V1 gate decided we own the engraver (ADR-0030), so VexFlow
-is a starting position rather than the destination.
+> **Status:** in development, local-only by design (ADR-0001). The score model, layout engine,
+> engraver, PDF export, store, `/v1/` API, CLI, and an editing browser with live updates are all
+> built (V1–V4). Chords, transposition, and photo import are planned — see [`SLICES.md`](SLICES.md).
 
-MIT licensed — see `LICENSE`.
+<p align="center">
+  <img src="docs/assets/nasty-chart.svg" alt="A lead sheet engraved by sibei-score: four bars to a line, chord symbols above the staff, ties, triplets and a pickup" width="620">
+  <br>
+  <em>The <code>nasty-chart</code> fixture, rendered by the built-in engraver — ties across barlines, triplets, a pickup, and dense chord symbols.</em>
+</p>
 
-## Reading order
+## Why
 
-| File | What it is |
-|---|---|
-| `PLAN.md` | Scope, requirements, mechanisms, testing approach, assumed defaults |
-| `SLICES.md` | The 14 build slices in order |
-| `CONTEXT.md` | Glossary and the 62-decision register — these terms are used exactly |
-| `docs/adr/` | 29 ADRs, the decisions themselves |
-| `QUESTIONS.md` | The question-and-answer audit trail behind them |
+Jazz lead sheets have a specific look, and general-purpose engravers don't quite land it. So
+sibei-score owns its engraver (two faces: Bravura for engraved, Petaluma for the handwritten Real
+Book look), and it treats **agent-friendliness as a first-class constraint**: every edit is an
+operation with both a CLI verb and a browser control, addressable as `bar12.beat3`, and a chart
+projects to a compact text form an agent can read cheaply. The browser and the CLI are two clients
+of one API, so they cannot disagree about a chart.
 
-## Layout
-
+```mermaid
+flowchart LR
+  CLI["sbscore CLI"] -->|/v1/ HTTP| API
+  UI["browser (Svelte)"] -->|/v1/ HTTP| API
+  subgraph server ["one API — packages/api"]
+    API["routes"] --> Applier["op applier<br/>(the only writer)"]
+    Applier --> Store[("SQLite")]
+    API --> Render["layout + engrave"]
+  end
+  Render --> PDF["PDF export"]
+  Render -.composed in the browser.-> UI
 ```
-packages/
-  model      score types, tick arithmetic, pitch, derived metric validity
-  layout     score -> engine-independent positions: the four-bar grid
-  draw       layout positions -> glyphs, via VexFlow
-  pdf        server-side render: headless DOM -> SVG -> PDF, metadata pinned
-  fixtures   hand-authored scores, including the nasty test chart
-tests/
-  unit  integration  e2e  arch      snapshots/  committed SVG
-scripts/     development entry points, not product surface
-```
 
-`model` and `layout` are plain TypeScript with no framework and no Node APIs, because
-they run in the browser as well as on the server (ADR-0005, ADR-0022). That is enforced
-by the compiler — those packages declare `"types": []` and no DOM lib — and by
-`tests/arch`, which also checks the import graph and the declared dependencies.
+## Quick start
 
-## Commands
+Requires Node ≥ 22 and [pnpm](https://pnpm.io).
 
 ```sh
 pnpm install
-pnpm hooks:install      # once per clone: points git at .githooks
-pnpm check              # typecheck every package, then the whole suite
-pnpm test               # vitest
-pnpm typecheck          # each package under its own strict config
-pnpm render:nasty       # out/render/nasty-chart/ — the PDF and its SVG pages
-pnpm render all         # every fixture
-pnpm render nasty-chart --paper letter
+pnpm serve                 # starts the local API on 127.0.0.1:4321 (leave it running)
 ```
 
-## Proofing
-
-Engraving defects are visual, and a green test suite does not catch them — so looking is
-part of the loop, and `pnpm proof` makes it cheap and aimed.
+Then, in another terminal, author a chart entirely from the CLI:
 
 ```sh
-pnpm proof                            # every fixture, whole pages
-pnpm proof nasty-chart --systems      # every system as its own image
-pnpm proof nasty-chart --bar 6        # one bar, zoom chosen for you
-pnpm proof nasty-chart --census       # what the SVG contains, vs the snapshot
+pnpm sbscore new --id soul --title "Body and Soul" --composer "Johnny Green" --key Db --bars 8
+pnpm sbscore note add soul bar1.beat1 --pitch Db5 --dur 8
+pnpm sbscore note add soul bar1.beat2 --pitch F5  --dur 4
+pnpm sbscore show soul                       # the text projection: a four-bar grid with addresses
+pnpm sbscore export soul -o .                # writes ./Body and Soul.pdf
 ```
 
-Crops are named after the music rather than pixel coordinates: layout knows where every
-system and bar sits, so `--bar 11` is exact. `--census` counts the SVG's elements and
-diffs them against the committed snapshot, which turns "one very long line differs" into
-something you can read:
-
-```
-vf-stem     73  58  -15
-<path>     344 314  -30
-```
-
-Proofing the PDF needs an external rasteriser. None is committed because ADR-0027 keeps
-the dependency register permissive and the capable ones are mostly copyleft — a tool you
-look at output with is a separate program, not part of the product, but it does not belong
-in the lockfile either. Any one of these works, and `pnpm proof --pdf` finds it:
+Or open it in the browser and edit it there:
 
 ```sh
-uv tool install --with pillow pypdfium2   # no root; PDFium, BSD/Apache
-sudo apt install poppler-utils            # pdftoppm; GPL
-sudo apt install mupdf-tools              # mutool; AGPL
+pnpm ui                    # Vite dev server on 127.0.0.1:5173 (proxies /v1 to the API)
+# visit http://127.0.0.1:5173/#/score/soul, click a note, change its pitch — the store updates,
+# and any other open tab (or `sbscore show`) reflects it without a reload.
 ```
 
-With none installed, `--pdf` says so and carries on. Little is lost: the PDF is a
-conversion of exactly the SVG geometry and an e2e test pins it to identical bytes, so the
-SVG proof stands in for the engraving and only the conversion goes unseen.
+## Usage
 
-There is also a plain single-file previewer for ad-hoc use:
+Everything is an **operation** through the `/v1/` API, addressed three ways (ADR-0007):
 
-```sh
-pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 2
-pnpm tsx scripts/preview.ts out/render/nasty-chart/page1.svg 4 --crop 60,150,900,200
+```
+bar12.beat3    a beat within a bar (1-based, fractional: bar12.beat2.5; bar0 is the pickup)
+bar12.n3       the third item in bar 12
+note-17        a stable id
 ```
 
-Snapshots are real `.svg` files under `tests/snapshots`, so a failing diff can be opened
-in a browser. Refresh them deliberately:
+A beat with nothing on it is an *error* that lists the bar's real onsets, never a snap to the
+nearest note — the error is the feature. `sbscore --help` lists every verb, the address forms, and
+the exit codes (which are a contract). The two live surfaces:
 
-```sh
-UPDATE_SNAPSHOTS=1 pnpm test
-```
+- **CLI** — `sbscore new | show | open | export | note add|set|rm | rest add|rm | meta set | list | rm`.
+  `--json` on every verb for machine-readable output.
+- **Browser** — a library view with search and a score view that renders through the *same* layout
+  and engrave packages the PDF does, edits notes and rests, and repaints live when the chart changes
+  elsewhere.
 
-## Gates
+## Repository
 
-`main` is protected: PR-only, CI green before merge, no direct pushes.
+This is a pnpm workspace. The map, the exact commands, and the invariants an agent (or a
+contributor) must not break live in **[`AGENTS.md`](AGENTS.md)** (loaded automatically by
+Claude Code via `CLAUDE.md`), with depth under [`agent_docs/`](agent_docs/). The project was fully
+planned before any code; those decisions of record are the planning corpus:
 
-| Where | What runs |
+| File | What it is |
 |---|---|
-| Pre-push hook | `pnpm typecheck` and `pnpm test` — the cheap checks, so a push rarely lands red |
-| CI, per PR | the same two as parallel jobs, plus rendering every fixture and a secret scan |
+| [`PLAN.md`](PLAN.md) | Scope, requirements R0–R9, mechanisms, testing approach, assumed defaults |
+| [`SLICES.md`](SLICES.md) | The 14 build slices in order, each with its own test plan |
+| [`CONTEXT.md`](CONTEXT.md) | Glossary and the decision register — these terms are used exactly |
+| [`docs/adr/`](docs/adr/) | The ADRs, the decisions themselves |
+| [`QUESTIONS.md`](QUESTIONS.md) | The question-and-answer audit trail behind them |
 
-CI uploads the rendered PDFs as a build artifact, so a change to the engraving can be
-looked at on the pull request rather than taken on trust. `git push --no-verify` skips the
-local hook for a scoped push; CI is still the backstop. Contributor conventions and the
-invariants an agent must not break are in `CLAUDE.md`.
+## License
 
-## Invariants
-
-These are decisions of record, not preferences. Breaking one means revisiting an ADR.
-
-- `model`, `music`, `layout` and `codec` are plain TypeScript: no framework, no Node
-  APIs. `layout` runs in the browser **and** server-side (ADR-0005, ADR-0022).
-- The op applier is the only thing that writes to the store (ADR-0003). *V2.*
-- MusicXML is a codec at the edges, never the runtime truth (ADR-0004).
-- `draw` never makes layout decisions; `layout` never mentions VexFlow (ADR-0014).
-- Metrically invalid bars are stored and flagged, never rejected (ADR-0013).
-
-## The layout seam
-
-`layout(score, pageSpec) -> pages -> systems -> bars -> items`.
-
-Layout owns everything above the bar: which bars go on which line, where each bar box
-sits and how wide it is, how tall a system needs to be, page breaks, the title block,
-and which accidental each note draws. The draw adapter owns engraving inside a bar box:
-stem direction, beam grouping, accidental stacking, tie curves. That split is what makes
-the renderer replaceable, and `tests/integration/glyph-coverage.test.ts` asserts the
-adapter handles every item kind the contract can emit.
+MIT — see [`LICENSE`](LICENSE).
