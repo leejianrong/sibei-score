@@ -183,4 +183,24 @@ describe('barlines', () => {
       expect(Number(element.attrs['height'])).toBeCloseTo(height, 6);
     }
   });
+
+  it('draws every closing-barline kind as a distinct glyph (the V7 unit case)', () => {
+    // A reader must be able to tell a section close (double), a chart end (final), and a
+    // repeat (repeat-end) apart from a plain barline and from each other. A signature over
+    // how many lines and dots each draws, and their widths, has to be different for each.
+    const signature = (kind: 'single' | 'double' | 'final' | 'repeat-end'): string => {
+      const elements = endBarline(font, kind, RIGHT, STAVE_Y);
+      const lines = elements.filter((e) => e.name === 'rect');
+      const dots = elements.filter((e) => String(e.attrs['class']).includes('repeatDot'));
+      const widths = lines.map((e) => Number(e.attrs['width']).toFixed(4)).join('|');
+      return `${lines.length}L ${dots.length}D ${widths}`;
+    };
+    const signatures = (['single', 'double', 'final', 'repeat-end'] as const).map(signature);
+    expect(new Set(signatures).size).toBe(signatures.length);
+  });
+
+  it('draws the two opening-barline kinds distinctly — nothing, or a repeat', () => {
+    expect(startBarline(font, 'none', 0, STAVE_Y)).toEqual([]);
+    expect(startBarline(font, 'repeat-start', 0, STAVE_Y).length).toBeGreaterThan(0);
+  });
 });

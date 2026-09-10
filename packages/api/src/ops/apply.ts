@@ -25,11 +25,15 @@ import type {
   BarItem,
   Chord,
   Duration,
+  EndBarline,
+  Ending,
+  EndingRole,
   Id,
   KeySignature,
   Note,
   Review,
   Score,
+  StartBarline,
   TimeSignature,
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
@@ -38,6 +42,8 @@ import type {
   ChordSetPayload,
   MetaSetPayload,
   NoteAddPayload,
+  BarlineSetPayload,
+  EndingSetPayload,
   NoteSetPayload,
   Operation,
   RestAddPayload,
@@ -127,6 +133,12 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setSection(score, operation.target, operation.payload);
     case 'section.rm':
       return removeSection(score, operation.target);
+    case 'barline.set':
+      return setBarline(score, operation.target, operation.payload);
+    case 'ending.set':
+      return setEnding(score, operation.target, operation.payload);
+    case 'ending.rm':
+      return removeEnding(score, operation.target);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.
@@ -502,6 +514,114 @@ function removeSection(score: Score, target: string): Applied {
     operation: { type: 'section.rm', target },
     changed: [existing.id],
   };
+}
+
+// ---------------------------------------------------------------------------
+// barline.set, ending.set, ending.rm
+// ---------------------------------------------------------------------------
+
+const START_BARLINES: readonly StartBarline[] = ['none', 'repeat-start'];
+const END_BARLINES: readonly EndBarline[] = ['single', 'double', 'final', 'repeat-end'];
+const ENDING_ROLES: readonly EndingRole[] = ['start', 'continue', 'stop', 'start-stop'];
+
+/**
+ * Set a bar's opening and/or closing barline (V7, ADR-0021). Barline type is hand-set, never
+ * detected (D48), and this is where it is set — a double bar to close a section, a `repeat-start` /
+ * `repeat-end` pair around one. At least one of `start`/`end` must be given; a set that changes
+ * neither is refused rather than logged as a no-op. Barlines do not touch rhythm, so `mapBar`'s
+ * reflag is a harmless write-through — kept for the invariant that every bar rewrite reflags.
+ */
+function setBarline(score: Score, target: string, payload: BarlineSetPayload): Applied {
+  const bar = resolveBar(score, target);
+  if (payload.start === undefined && payload.end === undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'barline.set needs a --start or an --end (or both); it changed nothing',
+    });
+  }
+  const start = payload.start === undefined ? bar.startBarline : validStartBarline(payload.start);
+  const end = payload.end === undefined ? bar.endBarline : validEndBarline(payload.end);
+
+  return {
+    score: mapBar(score, bar.id, (b) => ({ ...b, startBarline: start, endBarline: end })),
+    operation: { type: 'barline.set', target, payload },
+    changed: [bar.id],
+  };
+}
+
+/**
+ * Set a bar's 1st/2nd-ending bracket (V7, ADR-0021). A multi-bar ending is one `start`, any number
+ * of `continue`, and one `stop`, each set on its own bar — the model carries the bracket as a field
+ * per bar and the engraver draws it that way, so the op stays per bar rather than inventing a span.
+ */
+function setEnding(score: Score, target: string, payload: EndingSetPayload): Applied {
+  const bar = resolveBar(score, target);
+  const ending = validEnding(payload);
+
+  return {
+    score: mapBar(score, bar.id, (b) => ({ ...b, ending })),
+    operation: { type: 'ending.set', target, payload },
+    changed: [bar.id],
+  };
+}
+
+function removeEnding(score: Score, target: string): Applied {
+  const bar = resolveBar(score, target);
+  if (bar.ending === null) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar ${bar.number} carries no ending, so there is nothing to remove`,
+    });
+  }
+
+  return {
+    score: mapBar(score, bar.id, (b) => ({ ...b, ending: null })),
+    operation: { type: 'ending.rm', target },
+    changed: [bar.id],
+  };
+}
+
+function validStartBarline(value: unknown): StartBarline {
+  if (typeof value !== 'string' || !START_BARLINES.includes(value as StartBarline)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `an opening barline is one of ${START_BARLINES.join(', ')}, not ${JSON.stringify(value)}`,
+    });
+  }
+  return value as StartBarline;
+}
+
+function validEndBarline(value: unknown): EndBarline {
+  if (typeof value !== 'string' || !END_BARLINES.includes(value as EndBarline)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a closing barline is one of ${END_BARLINES.join(', ')}, not ${JSON.stringify(value)}`,
+    });
+  }
+  return value as EndBarline;
+}
+
+function validEnding(payload: EndingSetPayload): Ending {
+  const { numbers, role } = payload;
+  if (
+    !Array.isArray(numbers) ||
+    numbers.length === 0 ||
+    !numbers.every((n) => Number.isInteger(n) && n >= 1)
+  ) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'an ending covers one or more pass numbers, e.g. --numbers 1 or --numbers 1,2',
+    });
+  }
+  if (typeof role !== 'string' || !ENDING_ROLES.includes(role as EndingRole)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `an ending role is one of ${ENDING_ROLES.join(', ')}, not ${JSON.stringify(role)}`,
+    });
+  }
+  // Normalise the numbers: sorted and de-duplicated, so `2,1` and `1,1,2` both store as `[1, 2]`.
+  const unique = [...new Set(numbers)].sort((a, b) => a - b);
+  return { numbers: unique, role: role as EndingRole };
 }
 
 /**

@@ -1,8 +1,11 @@
 import type {
   AccidentalDisplay,
   Duration,
+  EndBarline,
+  EndingRole,
   Id,
   KeySignature,
+  StartBarline,
   TieRole,
   TimeSignature,
 } from '@sibei/model';
@@ -138,10 +141,40 @@ export interface SectionSetPayload {
 export type SectionRmPayload = Record<string, never>;
 
 /**
+ * Set a bar's barlines (V7, ADR-0021). The target is a whole-bar address (`bar11`). A bar carries an
+ * opening barline (`none` or a `repeat-start`) and a closing one (`single`, `double`, `final` or a
+ * `repeat-end`); this sets either or both. At least one must be given — an empty set changes nothing.
+ *
+ * Barline *type* is hand-set, never detected (ADR-0021, D48): import yields single barlines, and a
+ * double bar closing a section or a repeat around one is added here. A repeat pair is two of these,
+ * which the CLI's `repeat set` batches into one undoable unit.
+ */
+export interface BarlineSetPayload {
+  start?: StartBarline;
+  end?: EndBarline;
+}
+
+/**
+ * Set a bar's 1st/2nd-ending bracket (V7, ADR-0021). The target is a whole-bar address. `numbers`
+ * are the pass numbers the bracket covers (`[1]`, `[2]`, `[1, 2]`); `role` says how the bracket runs
+ * through this bar — `start` opens it with a down-hook and the number, `stop` closes it, `start-stop`
+ * is a bracket that opens and closes on one bar, and `continue` is a middle bar under an unbroken
+ * bracket. A multi-bar ending is one `start`, zero or more `continue`, and one `stop`, set per bar,
+ * matching how the model carries the bracket (a field on each bar) and how the engraver draws it.
+ */
+export interface EndingSetPayload {
+  numbers: number[];
+  role: EndingRole;
+}
+
+/** Clear a bar's ending bracket. A no-op target (no ending there) is refused. */
+export type EndingRmPayload = Record<string, never>;
+
+/**
  * The verbs implemented so far. V2 built the note and rest verbs; V5 added `chord.set` and
- * `chord.rm`; V6 added `transpose`; V7 adds `section.set` and `section.rm` (this slice), with the
- * barline and ending verbs following in the same milestone. `repeat`, `tie`, `tuplet` and `undo`
- * each belong to a later slice and building them here would be doing that slice's work early.
+ * `chord.rm`; V6 added `transpose`; V7 adds `section.set`/`section.rm` and the barline and ending
+ * verbs — `barline.set`, `ending.set` and `ending.rm`. `tie`, `tuplet` and `undo` each belong to a
+ * later slice and building them here would be doing that slice's work early.
  */
 export type Operation =
   | { type: 'score.create'; payload: ScoreCreatePayload }
@@ -155,7 +188,10 @@ export type Operation =
   | { type: 'chord.rm'; target: string }
   | { type: 'transpose'; payload: TransposePayload }
   | { type: 'section.set'; target: string; payload: SectionSetPayload }
-  | { type: 'section.rm'; target: string; payload?: SectionRmPayload };
+  | { type: 'section.rm'; target: string; payload?: SectionRmPayload }
+  | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
+  | { type: 'ending.set'; target: string; payload: EndingSetPayload }
+  | { type: 'ending.rm'; target: string; payload?: EndingRmPayload };
 
 export type OperationType = Operation['type'];
 
@@ -172,6 +208,9 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'transpose',
   'section.set',
   'section.rm',
+  'barline.set',
+  'ending.set',
+  'ending.rm',
 ];
 
 /** An operation as it sits in the log: normalised, sequenced, and grouped into its batch. */

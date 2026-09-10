@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { everyGlyphChart, longFormChart, nastyChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, everyGlyphChart, longFormChart, nastyChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -52,6 +52,13 @@ describe('rendered SVG', () => {
     // recorded what a page with no title block looks like, so nothing could notice one
     // growing a phantom header or dropping its top system off the paper.
     snapshotScore(longFormChart(), 'long-form');
+  });
+
+  it('matches the committed snapshot for the AABA chart', () => {
+    // The V7 structure demo: a pickup, four rehearsal-lettered sections, a repeat around the
+    // first A with 1st/2nd endings, a double bar and a final bar. This is where the barline and
+    // ending glyphs are recorded under real user-set structure, so a change to any of them shows.
+    snapshotScore(aabaChart(), 'aaba-chart');
   });
 
   it('matches the committed snapshot for the untitled chart', () => {
