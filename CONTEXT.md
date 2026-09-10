@@ -42,7 +42,7 @@ in full: `docs/adr/`.
 
 | Term | Meaning |
 |---|---|
-| **Address** | How an operation names its target. Three forms, all accepted: `bar12.beat3` (beat position), `bar12.n3` (ordinal — third note in bar 12), `note-17` (stable ID). |
+| **Address** | How an operation names its target. Four forms, all accepted: `bar12` (a whole bar — structure attaches here), `bar12.beat3` (beat position), `bar12.n3` (ordinal — third note in bar 12), `note-17` (stable ID). |
 | **Stable ID** | An app-owned identifier on every model object. Internal; does not survive MusicXML export. |
 | **Onset-only rule** | An address naming a position that is not an onset is an error, and the error lists the real onsets in that bar. Never snapped to the nearest. |
 

@@ -1,7 +1,7 @@
 import { statSync, writeFileSync } from 'node:fs';
 import { projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
-import type { MetaSetPayload, Operation, ScoreCreatePayload } from '@sibei/api';
+import type { MetaSetPayload, Operation, ScoreCreatePayload, SectionSetPayload } from '@sibei/api';
 import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
 import { CliError, createClient } from './client.js';
@@ -62,9 +62,11 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore chord set <id> <address> --text F#m7b5 [--spell]
   sbscore chord rm  <id> <address>
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
+  sbscore section set <id> <bar> [--letter A] [--name Bridge]   a section boundary (ADR-0021)
+  sbscore section rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
 
-Addresses (ADR-0007):  bar12.beat3  ·  bar12.n3  ·  note-17
+Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
@@ -161,6 +163,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return chord(flags, client, io, json);
     case 'transpose':
       return transpose(flags, client, io, json);
+    case 'section':
+      return section(flags, client, io, json);
     case 'batch':
       return batch(flags, client, io, json);
     case 'health': {
@@ -431,6 +435,36 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
   const id = requiredPositional(flags, 1, 'a score id', 'transpose');
   const to = parseKey(required(flags, 'to', 'transpose'));
   return submit(flags, client, io, json, id, [{ type: 'transpose', payload: { to } } as Operation]);
+}
+
+/**
+ * `sbscore section set <id> <bar> [--letter A] [--name Bridge]` and `section rm <id> <bar>`
+ * (V7, ADR-0021). The address is a whole bar — `bar5`, `bar17` — because a section attaches to the
+ * bar it begins on, not to a beat within one. `set` is an upsert: the same verb creates the section
+ * and later edits its letter or name. Omitting a flag leaves that field as it was; `--letter=` (an
+ * empty value) clears it.
+ *
+ * A section with no letter or name is still a section: its start bar forces a line break in the
+ * four-bar grid (ADR-0015). Sections are supported and hand-added, never detected (ADR-0021), which
+ * is exactly what this verb is for.
+ */
+async function section(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `section ${sub}`);
+  const target = requiredPositional(flags, 3, 'a bar address like bar5', `section ${sub}`);
+
+  if (sub === 'set') {
+    const payload: SectionSetPayload = {};
+    const letter = flags.options.get('letter');
+    if (letter !== undefined) payload.letter = letter;
+    const name = flags.options.get('name');
+    if (name !== undefined) payload.name = name;
+    return submit(flags, client, io, json, id, [{ type: 'section.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'section.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'section takes set or rm');
 }
 
 /**

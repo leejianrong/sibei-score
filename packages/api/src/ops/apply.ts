@@ -8,11 +8,14 @@ import {
   makeNote,
   makeRest,
   makeScore,
+  makeSection,
   nextId,
   noReview,
   parsePitch,
   resolveAddress,
+  resolveBar,
   resolvePosition,
+  sectionStartingAt,
   keyInterval,
   transposePitch,
   AddressError,
@@ -39,6 +42,7 @@ import type {
   Operation,
   RestAddPayload,
   ScoreCreatePayload,
+  SectionSetPayload,
   TransposePayload,
 } from './operations.js';
 
@@ -119,6 +123,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return removeChord(score, operation.target);
     case 'transpose':
       return transpose(score, operation.payload);
+    case 'section.set':
+      return setSection(score, operation.target, operation.payload);
+    case 'section.rm':
+      return removeSection(score, operation.target);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.
@@ -435,6 +443,79 @@ function transpose(score: Score, payload: TransposePayload): Applied {
     operation: { type: 'transpose', payload: { to } },
     changed: changed.length > 0 ? changed : [score.id],
   };
+}
+
+// ---------------------------------------------------------------------------
+// section.set, section.rm
+// ---------------------------------------------------------------------------
+
+/**
+ * Upsert the section that begins on a bar (V7, ADR-0021). An upsert like `chord.set`: a bar begins
+ * at most one section, so setting one replaces the section already starting there — keeping its id
+ * — rather than stacking a second. The target is a whole-bar address (`bar5`), resolved by
+ * `resolveBar`, so a rehearsal letter attaches to a *bar number* and survives notes being inserted
+ * before it — bar numbers do not shift when a bar's contents change.
+ *
+ * `letter` and `name` are stored verbatim (trimmed). Omitting one on an upsert keeps the section's
+ * existing value; passing `null` clears it. Nothing here is recorded but the id — a section carries
+ * no derived state, and `startBar` is the target the log already holds.
+ *
+ * Sections do not touch rhythm, so no bar is reflagged. They live in `score.sections`, kept in
+ * start-bar order so readers (layout's line breaker, `sectionStartingAt`) see them the way a chart
+ * is read.
+ */
+function setSection(score: Score, target: string, payload: SectionSetPayload): Applied {
+  const bar = resolveBar(score, target);
+  const existing = sectionStartingAt(score, bar.number);
+  const id = existing?.id ?? nextId(score, 'section');
+
+  const section = makeSection({
+    id,
+    startBar: bar.number,
+    letter: payload.letter === undefined ? (existing?.letter ?? null) : validLabel(payload.letter, 'letter'),
+    name: payload.name === undefined ? (existing?.name ?? null) : validLabel(payload.name, 'name'),
+  });
+
+  const sections = [...score.sections.filter((other) => other.id !== id), section].sort(
+    (a, b) => a.startBar - b.startBar,
+  );
+
+  return {
+    score: { ...score, sections },
+    operation: { type: 'section.set', target, payload: { ...payload, id } },
+    changed: [id],
+  };
+}
+
+function removeSection(score: Score, target: string): Applied {
+  const bar = resolveBar(score, target);
+  const existing = sectionStartingAt(score, bar.number);
+  if (existing === null) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar ${bar.number} begins no section, so there is nothing to remove`,
+    });
+  }
+
+  return {
+    score: { ...score, sections: score.sections.filter((other) => other.id !== existing.id) },
+    operation: { type: 'section.rm', target },
+    changed: [existing.id],
+  };
+}
+
+/**
+ * A rehearsal letter or section name, stored verbatim like chord text. A blank string is not a
+ * label — it is `null` (cleared) — so a caller cannot store an invisible section marker. Anything
+ * non-blank is kept as typed; the model judges nothing about what a letter "should" be (ADR-0021).
+ */
+function validLabel(value: unknown, field: 'letter' | 'name'): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') {
+    throw new OperationError({ kind: 'validation', detail: `a section ${field} is text or null` });
+  }
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 function validChordText(text: unknown): string {
