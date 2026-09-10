@@ -16,10 +16,16 @@ import { parseChord } from './parse.js';
  * is re-emitted through `formatChord`, so it is written in the grammar's one canonical spelling —
  * the price of transposing structure rather than juggling substrings.
  *
- * Chords carry no spelling pin yet, so every root respells by the key; the per-chord override is a
- * document-shape change that arrives with its migration in a later slice (ADR-0017, ADR-0028).
+ * `pinned` is the chord's `spellingPinned` flag: when set, the root and bass keep their spelled
+ * interval instead of being re-spelled by the key (ADR-0017) — the escape hatch for a chromatic
+ * chord the key would spell against its function.
  */
-export function transposeChordText(text: string, interval: Interval, key: KeySignature): string {
+export function transposeChordText(
+  text: string,
+  interval: Interval,
+  key: KeySignature,
+  pinned = false,
+): string {
   const parsed = parseChord(text);
   if (parsed === null || parsed.kind === 'no-chord') return text;
   const s = parsed.structure;
@@ -27,8 +33,8 @@ export function transposeChordText(text: string, interval: Interval, key: KeySig
     kind: 'chord',
     structure: {
       ...s,
-      root: transposeSpelling(s.root, interval, key),
-      bass: s.bass === null ? null : transposeSpelling(s.bass, interval, key),
+      root: transposeSpelling(s.root, interval, key, pinned),
+      bass: s.bass === null ? null : transposeSpelling(s.bass, interval, key, pinned),
     },
   });
 }

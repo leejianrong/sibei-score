@@ -86,4 +86,24 @@ describe('sbscore transpose', () => {
     const result = await sbscore('transpose', 'tune');
     expect(result.code).toBe(EXIT.usage);
   });
+
+  it('honours --spell pins across a transposition (ADR-0017)', async () => {
+    // The pinned-spelling-survives-transposition e2e, driven end to end from the CLI.
+    await sbscore('new', '--id', 'pinned', '--key', 'C', '--bars', '2');
+    await sbscore('note', 'add', 'pinned', 'bar1.beat1', '--pitch', 'G#4', '--dur', '4', '--spell');
+    await sbscore('note', 'add', 'pinned', 'bar1.beat2', '--pitch', 'G#4', '--dur', '4');
+    await sbscore('chord', 'set', 'pinned', 'bar1.beat1', '--text', 'G#7', '--spell');
+    await sbscore('chord', 'set', 'pinned', 'bar1.beat3', '--text', 'G#7');
+
+    expect((await sbscore('transpose', 'pinned', '--to', 'Eb')).code).toBe(EXIT.ok);
+
+    const document = json<Document>((await sbscore('open', 'pinned')).out);
+    const bar1 = document.score.bars.find((b) => b.number === 1)!;
+    const pitches = bar1.items
+      .filter((i) => i.kind === 'note')
+      .map((i) => `${i.pitch!.step}${i.pitch!.alter === -1 ? 'b' : i.pitch!.alter === 1 ? '#' : ''}${i.pitch!.octave}`);
+    // The pin keeps the sharp reading; the unpinned twin is re-spelled flat by the key.
+    expect(pitches).toEqual(['B4', 'Cb5']);
+    expect(bar1.chords.map((c) => c.text)).toEqual(['B7', 'Cb7']);
+  });
 });

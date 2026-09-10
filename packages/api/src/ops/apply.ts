@@ -360,7 +360,10 @@ function setChord(score: Score, target: string, payload: ChordSetPayload): Appli
   const existing = position.bar.chords.find((chord) => chord.onset === position.onset);
   const id = existing?.id ?? nextId(score, 'chord');
 
-  const chord = makeChord({ id, onset: position.onset, text, review: chordReview(text) });
+  // An upsert keeps the pin it does not touch: re-typing the text without `--spell` leaves an
+  // existing pin as it was, and `--spell` sets it either way (ADR-0017).
+  const spellingPinned = payload.spellingPinned ?? existing?.spellingPinned ?? false;
+  const chord = makeChord({ id, onset: position.onset, text, spellingPinned, review: chordReview(text) });
 
   return {
     score: mapBar(score, position.bar.id, (bar) => ({
@@ -418,7 +421,7 @@ function transpose(score: Score, payload: TransposePayload): Applied {
       return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned) };
     });
     const chords = bar.chords.map((chord) => {
-      const moved = transposeChordText(chord.text, interval, to);
+      const moved = transposeChordText(chord.text, interval, to, chord.spellingPinned);
       if (moved === chord.text) return chord;
       changed.push(chord.id);
       return { ...chord, text: moved };
