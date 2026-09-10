@@ -88,7 +88,10 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
         ? { ...item, pitch: transposePitch(item.pitch, interval, key, item.spellingPinned) }
         : item,
     ),
-    chords: bar.chords.map((chord) => ({ ...chord, text: transposeChordText(chord.text, interval, key) })),
+    chords: bar.chords.map((chord) => ({
+      ...chord,
+      text: transposeChordText(chord.text, interval, key, chord.spellingPinned),
+    })),
   }));
 
   return { ...score, meta: { ...score.meta, key }, bars };

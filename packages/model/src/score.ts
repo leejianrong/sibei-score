@@ -6,8 +6,13 @@
  * and on the server (ADR-0005, ADR-0022).
  */
 
-/** Bumped by any change to the document shape, with a forward-only migration (ADR-0028). */
-export const SCHEMA_VERSION = 1;
+/**
+ * Bumped by any change to the document shape, with a forward-only migration (ADR-0028).
+ *
+ * v2 (V6d) gave `Chord` a `spellingPinned` flag, backfilled `false` onto every chord written
+ * before it — the first real shape change since the first commit.
+ */
+export const SCHEMA_VERSION = 2;
 
 /**
  * An app-owned stable identifier, e.g. `note-17` (ADR-0007). Internal: it does not
@@ -142,6 +147,14 @@ export interface Chord {
   id: Id;
   onset: number;
   text: string;
+  /**
+   * An explicit spelling that survives transposition (ADR-0017), the chord counterpart of a note's
+   * `spellingPinned`. When set, the root (and any slash bass) keep their spelled interval under
+   * transposition and part rendering rather than being re-spelled by the destination key — the
+   * escape hatch for a chromatic chord the key signature would spell against its function. Added at
+   * schema v2 (V6d), backfilled `false` onto every chord written before it.
+   */
+  spellingPinned: boolean;
   confidence: Confidence;
   review: Review;
 }

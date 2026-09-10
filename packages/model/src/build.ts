@@ -89,6 +89,7 @@ export interface ChordInit {
   id: Id;
   onset: number;
   text: string;
+  spellingPinned?: boolean;
   confidence?: Chord['confidence'];
   review?: Review;
 }
@@ -98,6 +99,7 @@ export function makeChord(init: ChordInit): Chord {
     id: init.id,
     onset: init.onset,
     text: init.text,
+    spellingPinned: init.spellingPinned ?? false,
     confidence: init.confidence ?? null,
     review: init.review ?? noReview(),
   };

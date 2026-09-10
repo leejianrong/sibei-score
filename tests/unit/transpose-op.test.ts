@@ -138,6 +138,20 @@ describe('pins survive transposition (ADR-0017)', () => {
     expect(formatPitch(noteAt(moved, 1, 0).pitch)).toBe('B4');
     expect(formatPitch(noteAt(moved, 1, Q).pitch)).toBe('Cb5');
   });
+
+  it('keeps a pinned chord root on its interval spelling', () => {
+    // A pinned G#7 (a secondary dominant spelled sharp) transposed C -> Eb rides the interval to
+    // B7; unpinned, the flat key writes the same root as its flat-six, Cb7.
+    let score: Score | null = null;
+    const apply = (op: Operation): void => {
+      score = applyOperation(score, op).score;
+    };
+    apply({ type: 'score.create', payload: { id: 'p', barCount: 2, key: { tonic: 'C', alter: 0, mode: 'major' } } });
+    apply({ type: 'chord.set', target: 'bar1.beat1', payload: { text: 'G#7', spellingPinned: true } });
+    apply({ type: 'chord.set', target: 'bar1.beat3', payload: { text: 'G#7' } });
+    const moved = applyOperation(score!, transpose(EB)).score;
+    expect(chordTextsOf(moved, 1)).toEqual(['B7', 'Cb7']);
+  });
 });
 
 describe('transpose is a mutation on the one write path (ADR-0003)', () => {

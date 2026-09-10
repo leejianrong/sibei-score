@@ -17,10 +17,11 @@ does, from V5 the chord grammar (`packages/music`: parse, format, the OCR correc
 `chord.set`/`chord.rm` ops, jazz chord typography through the engraver (`Δ`, `ø`, stacked
 alterations), and chord editing on both surfaces, and — from V6 so far — the enharmonic spelling
 engine (`model/spelling.ts`), the `transpose` op with `sbscore transpose --to`, and instrument
-parts as a render-time export view (`api/export/part.ts`, `sbscore export --for bb-trumpet`). Not
-built yet: per-object spelling **pins** and the browser controls for transpose and parts (V6d), the
-MusicXML codec, and the whole import pipeline. Don't assume a module exists because a plan mentions
-it.
+parts as a render-time export view (`api/export/part.ts`, `sbscore export --for bb-trumpet`), and
+per-object spelling **pins** on notes and chords (`--spell`, honoured through transposition and
+parts; chords gained a `spellingPinned` field at schema v2, ADR-0028). Not built yet: the browser
+controls for transpose, part export and `--spell` (V6e), the MusicXML codec, and the whole import
+pipeline. Don't assume a module exists because a plan mentions it.
 
 ## Layout
 
@@ -87,8 +88,9 @@ Breaking one of these breaks a decision of record. Ask before deviating from any
 - **Never `measureText` or `getBBox()`** — they exist only in a real browser and would drift
   screen from print (ADR-0015). Place text with SVG `text-anchor`. See `agent_docs/architecture.md`.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built (Q79).
-  The one remaining knowing exception: `score.create` and `meta.set` have a CLI verb and no UI
-  control yet.
+  Knowing exceptions with a CLI verb and no UI control yet: `score.create` and `meta.set`, and —
+  in flight through V6 — `transpose`, part export (`export --for`), and `--spell` pins, whose
+  browser controls land in V6e.
 - **The two surfaces must not disagree about a user-facing *string* either.** The browser's
   `CLI_BINARY` is asserted equal to the `bin` key in `packages/cli/package.json`. If two in-flight
   cards share a string rather than a file, one of them owes a guard.

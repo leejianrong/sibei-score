@@ -91,6 +91,8 @@ export interface RestAddPayload {
 export interface ChordSetPayload {
   /** The chord symbol as typed. `Cmaj7`, `F#m7b5`, `N.C.`, or something the grammar cannot read. */
   text: string;
+  /** Pin the root's spelling so it survives transposition (ADR-0017). Defaults to unpinned. */
+  spellingPinned?: boolean;
   /** *Recorded.* The id of the chord this set landed on — the existing one, or the one created. */
   id?: Id;
 }

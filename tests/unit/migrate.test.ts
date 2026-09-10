@@ -55,6 +55,38 @@ describe('the real chain', () => {
     }
   });
 
+  it('backfills spellingPinned onto a v1 chord (the real v1 -> v2 step, ADR-0017)', () => {
+    // A document written before v2, with a chord that has no `spellingPinned`. The migration must
+    // give it one, off, so a chart authored before the pin existed reads as unpinned rather than
+    // as a chord missing a field the type promises.
+    const v1: RawDocument = {
+      schemaVersion: 1,
+      id: 'score-1',
+      meta: { title: 'T', composer: '', style: null, key: { tonic: 'C', alter: 0, mode: 'major' }, time: { beats: 4, beatValue: 4 } },
+      bars: [
+        {
+          id: 'bar-1',
+          number: 1,
+          items: [],
+          tuplets: [],
+          chords: [{ id: 'chord-1', onset: 0, text: 'Cmaj7', confidence: null, review: { flagged: false, reasons: [] } }],
+          annotations: [],
+          startBarline: 'none',
+          endBarline: 'single',
+          ending: null,
+          review: { flagged: false, reasons: [] },
+        },
+      ],
+      sections: [],
+    };
+
+    const result = migrateDocument(v1);
+    expect(result.migrated).toBe(true);
+    expect(result.score.schemaVersion).toBe(SCHEMA_VERSION);
+    const chord = result.score.bars[0]?.chords[0];
+    expect(chord).toMatchObject({ id: 'chord-1', text: 'Cmaj7', spellingPinned: false });
+  });
+
   it('refuses a document from a newer schema version, rather than guessing', () => {
     // The worst available outcome is a quiet misread of irreplaceable data, so this is a hard
     // error and the message says what to do about it.

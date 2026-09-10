@@ -35,12 +35,30 @@ export interface DocumentMigration {
 }
 
 /**
- * The chain, in order. Empty because `SCHEMA_VERSION` has been 1 since the first commit and
- * nothing has changed the shape yet. The runner below is exercised anyway, against a
- * synthetic chain, so the machinery is known to work before there is a real migration
- * riding on it.
+ * v1 -> v2: give every chord a `spellingPinned` flag, off for everything written before it (V6d,
+ * ADR-0017). The commonest shape a real migration takes — a new field, backfilled onto the objects
+ * that predate it — and the one the synthetic chain in the tests was rehearsing all along.
  */
-export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [];
+const PIN_CHORDS: DocumentMigration = {
+  from: 1,
+  note: 'v2 gave every chord a `spellingPinned` flag (ADR-0017); off for chords written before it',
+  migrate(document) {
+    const bars = (document.bars as RawDocument[] | undefined) ?? [];
+    return {
+      ...document,
+      bars: bars.map((bar) => {
+        const chords = (bar.chords as RawDocument[] | undefined) ?? [];
+        return { ...bar, chords: chords.map((chord) => ({ spellingPinned: false, ...chord })) };
+      }),
+    };
+  },
+};
+
+/**
+ * The chain, in order — one migration per version step, so a document from any older build climbs
+ * to the current shape (ADR-0028).
+ */
+export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [PIN_CHORDS];
 
 /** Why a document could not be read. Distinguished so a caller can say something useful. */
 export type MigrationFailure =

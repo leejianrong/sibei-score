@@ -92,4 +92,18 @@ describe('parts respect the same spelling rules as transposition (ADR-0017)', ()
     writtenPart(score, 'bb-tenor');
     expect(score).toEqual(snapshot);
   });
+
+  it('honours a chord pin on a part', () => {
+    // A pinned G#7 written for F horn (P5 up) rides the interval to D#7; unpinned, the written key
+    // (G) would spell the same root as Eb7.
+    let score: Score | null = null;
+    const apply = (op: Operation): void => {
+      score = applyOperation(score, op).score;
+    };
+    apply({ type: 'score.create', payload: { id: 'p', barCount: 2, key: { tonic: 'C', alter: 0, mode: 'major' } } });
+    apply({ type: 'chord.set', target: 'bar1.beat1', payload: { text: 'G#7', spellingPinned: true } });
+    apply({ type: 'chord.set', target: 'bar1.beat3', payload: { text: 'G#7' } });
+    const part = writtenPart(score!, 'f-horn');
+    expect(part.bars[0]?.chords.map((c) => c.text)).toEqual(['D#7', 'Eb7']);
+  });
 });

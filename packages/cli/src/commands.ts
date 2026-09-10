@@ -54,12 +54,12 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
-  sbscore note add <id> <address> --pitch Eb5 --dur 8
-  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
+  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
-  sbscore chord set <id> <address> --text F#m7b5
+  sbscore chord set <id> <address> --text F#m7b5 [--spell]
   sbscore chord rm  <id> <address>
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
@@ -359,17 +359,18 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
       pitch: required(flags, 'pitch', 'note add'),
       duration: parseDuration(required(flags, 'dur', 'note add')),
       ...tieOf(flags),
+      ...spellOf(flags),
     };
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...spellOf(flags) };
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --spell');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }
@@ -410,7 +411,8 @@ async function chord(flags: Flags, client: Client, io: Io, json: boolean): Promi
 
   if (sub === 'set') {
     const text = required(flags, 'text', 'chord set');
-    return submit(flags, client, io, json, id, [{ type: 'chord.set', target, payload: { text } } as Operation]);
+    const payload = { text, ...spellOf(flags) };
+    return submit(flags, client, io, json, id, [{ type: 'chord.set', target, payload } as Operation]);
   }
   if (sub === 'rm') {
     return submit(flags, client, io, json, id, [{ type: 'chord.rm', target } as Operation]);
@@ -498,6 +500,22 @@ function tieOf(flags: Flags): { tie?: string } {
     throw new CliError(EXIT.usage, 'usage', '--tie takes none, start, stop or both');
   }
   return { tie };
+}
+
+/**
+ * `--spell` pins the object's spelling so it survives transposition (ADR-0017); `--unspell` clears
+ * the pin. Absent, the pin is left as it was — the server keeps an existing one on an upsert. Both
+ * at once is a contradiction, so it is refused rather than silently resolved.
+ */
+function spellOf(flags: Flags): { spellingPinned?: boolean } {
+  const pin = flags.switches.has('spell');
+  const unpin = flags.switches.has('unspell');
+  if (pin && unpin) {
+    throw new CliError(EXIT.usage, 'usage', '--spell and --unspell contradict each other');
+  }
+  if (pin) return { spellingPinned: true };
+  if (unpin) return { spellingPinned: false };
+  return {};
 }
 
 /** `Db`, `F#m`, `C` — the same spelling `formatKeySignature` prints and `sbscore show` displays. */
