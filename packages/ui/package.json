@@ -18,7 +18,8 @@
   "dependencies": {
     "@sibei/engrave": "workspace:*",
     "@sibei/layout": "workspace:*",
-    "@sibei/model": "workspace:*"
+    "@sibei/model": "workspace:*",
+    "@sibei/music": "workspace:*"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "6.2.4",

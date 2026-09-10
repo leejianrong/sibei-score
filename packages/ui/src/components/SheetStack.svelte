@@ -21,7 +21,6 @@
    * The selection box is drawn as a sibling overlay, positioned in percentage space over the
    * same sheet, so it can never edit — and can never desync from — the engraver's own markup.
    */
-  import type { ItemBox } from '../lib/hit-test.js';
   import type { RenderedPage } from '../lib/render.js';
 
   export interface Point {
@@ -29,27 +28,61 @@
     y: number;
   }
 
+  /** Just the rectangle an overlay needs — a note box, a chord box and a beat slot all satisfy it. */
+  interface OverlayBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }
+
   interface Props {
     pages: readonly RenderedPage[];
     /** Which item is selected, and its box in that page's layout units. */
-    selection?: { pageIndex: number; box: ItemBox } | null;
+    selection?: { pageIndex: number; box: OverlayBox } | null;
+    /** Which chord is selected (V5e) — drawn the same way, since only one thing is selected at once. */
+    chordSelection?: { pageIndex: number; box: OverlayBox } | null;
+    /** The empty beat under the pointer, where a click would add a chord (V5e). */
+    addHint?: { pageIndex: number; box: OverlayBox } | null;
     /** A click on a sheet, translated into that page's own layout units. */
     onselect?: (pageIndex: number, point: Point) => void;
+    /** The pointer moving over (or leaving, with `null`) a sheet, in that page's layout units. */
+    onhover?: (pageIndex: number, point: Point | null) => void;
   }
 
-  const { pages, selection = null, onselect }: Props = $props();
+  const { pages, selection = null, chordSelection = null, addHint = null, onselect, onhover }: Props = $props();
   const multi = $derived(pages.length > 1);
+
+  function pointOf(index: number, event: MouseEvent): Point | null {
+    const page = pages[index];
+    if (page === undefined) return null;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * page.layout.width,
+      y: ((event.clientY - rect.top) / rect.height) * page.layout.height,
+    };
+  }
 
   function handleClick(index: number, event: MouseEvent): void {
     if (onselect === undefined) return;
-    const page = pages[index];
-    if (page === undefined) return;
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    onselect(index, {
-      x: ((event.clientX - rect.left) / rect.width) * page.layout.width,
-      y: ((event.clientY - rect.top) / rect.height) * page.layout.height,
-    });
+    const point = pointOf(index, event);
+    if (point !== null) onselect(index, point);
+  }
+
+  function handleMove(index: number, event: MouseEvent): void {
+    if (onhover === undefined) return;
+    onhover(index, pointOf(index, event));
+  }
+
+  /** An overlay box positioned in percentage space over the sheet, so it tracks zoom for free. */
+  function boxStyle(box: OverlayBox, page: RenderedPage): string {
+    return (
+      `left: ${(box.x / page.layout.width) * 100}%;` +
+      `top: ${(box.y / page.layout.height) * 100}%;` +
+      `width: ${(box.width / page.layout.width) * 100}%;` +
+      `height: ${(box.height / page.layout.height) * 100}%;`
+    );
   }
 </script>
 
@@ -74,16 +107,20 @@
           class="sheet"
           aria-label="Sheet music, page {index + 1}"
           onclick={(event) => handleClick(index, event)}
+          onmousemove={(event) => handleMove(index, event)}
+          onmouseleave={() => onhover?.(index, null)}
         >
           {@html page.svg}
           {#if selection !== null && selection.pageIndex === index}
-            <div
-              class="hit selected"
-              style="left: {(selection.box.x / page.layout.width) * 100}%;
-                top: {(selection.box.y / page.layout.height) * 100}%;
-                width: {(selection.box.width / page.layout.width) * 100}%;
-                height: {(selection.box.height / page.layout.height) * 100}%;"
-            ></div>
+            <div class="hit selected" style={boxStyle(selection.box, page)}></div>
+          {/if}
+          {#if chordSelection !== null && chordSelection.pageIndex === index}
+            <div class="hit selected" style={boxStyle(chordSelection.box, page)}></div>
+          {/if}
+          <!-- The add-a-chord marker: a faint dashed target with a plus, shown only where a click
+               would land a new chord — never over one that is already there. -->
+          {#if addHint !== null && addHint.pageIndex === index && (chordSelection === null || chordSelection.pageIndex !== index)}
+            <div class="hit addhint" style={boxStyle(addHint.box, page)}><span>＋</span></div>
           {/if}
         </div>
       </div>
@@ -138,6 +175,21 @@
     background: var(--accent-wash);
     outline: 1.5px solid var(--accent);
     outline-offset: -1.5px;
+  }
+  /* The add-a-chord affordance: a dashed target with a centred plus, keyed to the pointer. */
+  .hit.addhint {
+    border: 1px dashed var(--accent);
+    border-radius: 2px;
+    background: var(--accent-wash);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hit.addhint span {
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0.9;
   }
 
   .gutter {

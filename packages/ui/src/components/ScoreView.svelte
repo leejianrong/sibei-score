@@ -39,9 +39,13 @@
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
   import { boxFor, findItem, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
   import type { Point } from '../lib/hit-test.js';
+  import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
+  import type { ChordBox } from '../lib/chord-hit.js';
   import { renderScorePages } from '../lib/render.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
+  import ChordInspector from './ChordInspector.svelte';
+  import type { ChordSelection } from './ChordInspector.svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
 
@@ -81,6 +85,26 @@
   let conflict = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+
+  // Chord selection (V5e) is separate from item selection — a chord is not an item — and the two
+  // are mutually exclusive: selecting one clears the other. In edit mode the overlay is looked up
+  // fresh by `chordId` on every render (like the note path), so paper/face changes and live updates
+  // move it with the ink. In add mode there is no chord yet, so its target box is the beat slot the
+  // click resolved to, carried until Save turns it into a real chord.
+  let chordSel = $state<{
+    pageIndex: number;
+    mode: 'add' | 'edit';
+    chordId: Id | null;
+    addr: string;
+    barNumber: number;
+    beat: number;
+    seedText: string;
+    box: { x: number; y: number; width: number; height: number };
+  } | null>(null);
+
+  // The beat under the pointer while it is over a chord band and nothing is being saved — the
+  // "click above the staff to add a chord" affordance (the approved V5e interaction).
+  let hoverSlot = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
 
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
@@ -126,6 +150,28 @@
     return box === null ? null : { pageIndex: selectedPage, box };
   });
 
+  // The selected chord's current box, looked up fresh so it tracks a repaint. Null in add mode, and
+  // null in edit mode once the chord no longer exists (removed here or elsewhere).
+  const selectedChordBox = $derived.by((): ChordBox | null => {
+    if (chordSel === null || chordSel.mode !== 'edit' || chordSel.chordId === null) return null;
+    const page = pages[chordSel.pageIndex];
+    if (page === undefined) return null;
+    return pageChordBoxes(page.layout, musicFont).find((box) => box.chordId === chordSel?.chordId) ?? null;
+  });
+
+  const chordSelection = $derived.by((): ChordSelection | null => {
+    if (chordSel === null) return null;
+    // A chord edited away elsewhere leaves nothing to inspect: hide rather than dangle.
+    if (chordSel.mode === 'edit' && selectedChordBox === null) return null;
+    return { addr: chordSel.addr, mode: chordSel.mode, text: chordSel.seedText, barNumber: chordSel.barNumber, beat: chordSel.beat };
+  });
+
+  const chordOverlay = $derived.by(() => {
+    if (chordSel === null) return null;
+    const box = chordSel.mode === 'edit' ? selectedChordBox : chordSel.box;
+    return box === null ? null : { pageIndex: chordSel.pageIndex, box };
+  });
+
   async function load(): Promise<void> {
     try {
       const record = await getScore(id);
@@ -159,6 +205,7 @@
   function deselect(): void {
     selectedId = null;
     selectedPage = null;
+    chordSel = null;
     conflict = false;
     saveError = null;
   }
@@ -173,16 +220,78 @@
     if (saving) return;
     const page = pages[pageIndex];
     if (page === undefined) return;
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
     conflict = false;
     saveError = null;
-    if (hit === null) {
-      selectedId = null;
-      selectedPage = null;
+
+    // A chord first: its band sits above the staff, clear of the notes, so a click there is never
+    // ambiguous with a note. Clicking an existing chord edits it; clicking an empty beat in the band
+    // adds one there (Q32). Only then does a click fall through to the notes and rests below.
+    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point);
+    if (chordHit !== null && !chordHit.plain) {
+      selectChord(pageIndex, 'edit', chordHit.chordId, chordHit.addr, chordHit.barNumber, chordHit.beat, chordHit.text, chordHit);
       return;
     }
+    if (score !== null) {
+      const slot = beatSlotAt(page.layout, point, score.meta.time);
+      if (slot !== null && chordHit === null) {
+        selectChord(pageIndex, 'add', null, slot.addr, slot.barNumber, slot.beat, '', slot);
+        return;
+      }
+    }
+
+    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    if (hit === null) {
+      deselect();
+      return;
+    }
+    chordSel = null;
     selectedId = hit.id;
     selectedPage = pageIndex;
+  }
+
+  function selectChord(
+    pageIndex: number,
+    mode: 'add' | 'edit',
+    chordId: Id | null,
+    addr: string,
+    barNumber: number,
+    beat: number,
+    seedText: string,
+    box: { x: number; y: number; width: number; height: number },
+  ): void {
+    selectedId = null;
+    selectedPage = null;
+    chordSel = { pageIndex, mode, chordId, addr, barNumber, beat, seedText, box };
+  }
+
+  /** The pointer moved over a sheet: light the add-a-chord marker if it is in an empty band beat. */
+  function handleSheetHover(pageIndex: number, point: Point | null): void {
+    if (point === null || saving || score === null) {
+      hoverSlot = null;
+      return;
+    }
+    const page = pages[pageIndex];
+    if (page === undefined) {
+      hoverSlot = null;
+      return;
+    }
+    // Don't offer "add" where a chord already sits — that is an edit target, not an empty beat.
+    if (chordAt(pageChordBoxes(page.layout, musicFont), point) !== null) {
+      hoverSlot = null;
+      return;
+    }
+    const slot = beatSlotAt(page.layout, point, score.meta.time);
+    hoverSlot = slot === null ? null : { pageIndex, box: slot };
+  }
+
+  async function handleChordSave(text: string): Promise<void> {
+    if (score === null || chordSel === null) return;
+    await runOps([{ type: 'chord.set', target: chordSel.addr, payload: { text } }]);
+  }
+
+  async function handleChordRemove(): Promise<void> {
+    if (score === null || chordSel === null || chordSel.mode !== 'edit') return;
+    await runOps([{ type: 'chord.rm', target: chordSel.addr }]);
   }
 
   /**
@@ -211,6 +320,16 @@
             },
           ];
 
+    await runOps(operations);
+  }
+
+  /**
+   * The write half every inspector shares: submit to the one write path, then re-read rather than
+   * trust the response (`changed[]` names ids, not values), and deselect. A 409 is the one path that
+   * does not re-read — it raises the conflict panel, and reloading is the only way out (ADR-0003).
+   */
+  async function runOps(operations: Operation[]): Promise<void> {
+    if (score === null) return;
     saving = true;
     saveError = null;
     try {
@@ -371,9 +490,20 @@
 
       <div class="group">
         <h3>Selected</h3>
-        {#if selection === null}
-          <p class="inspector-empty">Nothing selected. Click a note or a rest on the sheet to edit it.</p>
-        {:else}
+        {#if chordSelection !== null}
+          {#key `${chordSelection.mode}:${chordSelection.addr}`}
+            <ChordInspector
+              chord={chordSelection}
+              {conflict}
+              {saving}
+              error={saveError}
+              onsave={handleChordSave}
+              onremove={handleChordRemove}
+              ondeselect={deselect}
+              onreload={handleReload}
+            />
+          {/key}
+        {:else if selection !== null}
           {#key selection.id}
             <Inspector
               {selection}
@@ -385,6 +515,10 @@
               onreload={handleReload}
             />
           {/key}
+        {:else}
+          <p class="inspector-empty">
+            Nothing selected. Click a note or a rest to edit it, or the band above a bar to add a chord.
+          </p>
         {/if}
       </div>
     </aside>
@@ -407,7 +541,14 @@
             >
           </div>
         </div>
-        <SheetStack {pages} selection={selectionOverlay} onselect={handleSheetClick} />
+        <SheetStack
+          {pages}
+          selection={selectionOverlay}
+          chordSelection={chordOverlay}
+          addHint={hoverSlot}
+          onselect={handleSheetClick}
+          onhover={handleSheetHover}
+        />
       </div>
     </div>
   </section>

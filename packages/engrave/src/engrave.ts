@@ -73,10 +73,17 @@ export interface EngraveOptions {
   endingFontSize: number;
 }
 
+/**
+ * The chord symbol size a default render uses, in layout units. Exported so a consumer that
+ * hit-tests chord symbols (the browser, V5e) sizes its targets from the same number the ink was
+ * drawn at, rather than a second copy of it that could drift.
+ */
+export const DEFAULT_CHORD_FONT_SIZE = 14;
+
 const DEFAULT_OPTIONS: EngraveOptions = {
   font: DEFAULT_MUSIC_FONT,
   staffLines: true,
-  chordFontSize: 14,
+  chordFontSize: DEFAULT_CHORD_FONT_SIZE,
   barNumberFontSize: 11,
   rehearsalFontSize: 13,
   endingFontSize: 11,
