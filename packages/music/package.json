@@ -1,0 +1,15 @@
+{
+  "name": "@sibei/music",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "Chord grammar: parse and format chord symbols to structure. Framework-free, Node-free.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/model": "workspace:*"
+  }
+}
