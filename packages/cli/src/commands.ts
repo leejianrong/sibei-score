@@ -1,7 +1,14 @@
 import { statSync, writeFileSync } from 'node:fs';
 import { projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
-import type { MetaSetPayload, Operation, ScoreCreatePayload, SectionSetPayload } from '@sibei/api';
+import type {
+  BarlineSetPayload,
+  EndingSetPayload,
+  MetaSetPayload,
+  Operation,
+  ScoreCreatePayload,
+  SectionSetPayload,
+} from '@sibei/api';
 import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
 import { CliError, createClient } from './client.js';
@@ -64,6 +71,10 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore section set <id> <bar> [--letter A] [--name Bridge]   a section boundary (ADR-0021)
   sbscore section rm  <id> <bar>
+  sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|final|repeat-end]
+  sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
+  sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
+  sbscore ending rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
 
 Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
@@ -165,6 +176,12 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return transpose(flags, client, io, json);
     case 'section':
       return section(flags, client, io, json);
+    case 'barline':
+      return barline(flags, client, io, json);
+    case 'repeat':
+      return repeat(flags, client, io, json);
+    case 'ending':
+      return ending(flags, client, io, json);
     case 'batch':
       return batch(flags, client, io, json);
     case 'health': {
@@ -465,6 +482,79 @@ async function section(flags: Flags, client: Client, io: Io, json: boolean): Pro
     return submit(flags, client, io, json, id, [{ type: 'section.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'section takes set or rm');
+}
+
+/**
+ * `sbscore barline set <id> <bar> [--start ...] [--end ...]` (V7, ADR-0021). A bar carries an
+ * opening barline and a closing one, and this sets either or both. Barline type is hand-set, never
+ * detected (D48). At least one of `--start`/`--end` is required; the server refuses a set that
+ * changes nothing.
+ */
+async function barline(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'barline takes set');
+  const id = requiredPositional(flags, 2, 'a score id', 'barline set');
+  const target = requiredPositional(flags, 3, 'a bar address like bar11', 'barline set');
+
+  const payload: BarlineSetPayload = {};
+  const start = flags.options.get('start');
+  if (start !== undefined) payload.start = start as NonNullable<BarlineSetPayload['start']>;
+  const end = flags.options.get('end');
+  if (end !== undefined) payload.end = end as NonNullable<BarlineSetPayload['end']>;
+  if (payload.start === undefined && payload.end === undefined) {
+    throw new CliError(EXIT.usage, 'usage', 'barline set needs --start or --end');
+  }
+  return submit(flags, client, io, json, id, [{ type: 'barline.set', target, payload } as Operation]);
+}
+
+/**
+ * `sbscore repeat set <id> <startBar> <endBar>` (V7, ADR-0021). Sugar over `barline.set`: a
+ * `repeat-start` on the first bar and a `repeat-end` on the last, submitted as one batch so the pair
+ * is a single undoable unit (ADR-0008). The repeated span is `startBar..endBar` inclusive.
+ */
+async function repeat(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'repeat takes set');
+  const id = requiredPositional(flags, 2, 'a score id', 'repeat set');
+  const from = requiredPositional(flags, 3, 'a start bar like bar12', 'repeat set');
+  const to = requiredPositional(flags, 4, 'an end bar like bar19', 'repeat set');
+
+  return submit(flags, client, io, json, id, [
+    { type: 'barline.set', target: from, payload: { start: 'repeat-start' } } as Operation,
+    { type: 'barline.set', target: to, payload: { end: 'repeat-end' } } as Operation,
+  ]);
+}
+
+/**
+ * `sbscore ending set <id> <bar> --numbers 1[,2] --role ...` and `ending rm <id> <bar>` (V7,
+ * ADR-0021). A 1st/2nd-ending bracket is set per bar: a multi-bar ending is one `start`, any
+ * `continue` bars, and one `stop`; a one-bar ending is `start-stop`. `--numbers` is the pass numbers
+ * the bracket covers, comma-separated.
+ */
+async function ending(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `ending ${sub}`);
+  const target = requiredPositional(flags, 3, 'a bar address like bar12', `ending ${sub}`);
+
+  if (sub === 'set') {
+    const numbers = parseEndingNumbers(required(flags, 'numbers', 'ending set'));
+    const role = required(flags, 'role', 'ending set');
+    const payload = { numbers, role } as EndingSetPayload;
+    return submit(flags, client, io, json, id, [{ type: 'ending.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'ending.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
+}
+
+/** `1` or `1,2` → `[1]` / `[1, 2]`. The server normalises order and duplicates; this only reads. */
+function parseEndingNumbers(raw: string): number[] {
+  const numbers = raw.split(',').map((piece) => Number(piece.trim()));
+  if (numbers.length === 0 || numbers.some((n) => !Number.isInteger(n) || n < 1)) {
+    throw new CliError(EXIT.usage, 'usage', '--numbers takes pass numbers like 1 or 1,2');
+  }
+  return numbers;
 }
 
 /**

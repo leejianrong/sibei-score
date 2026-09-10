@@ -12,6 +12,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
+  aabaChart,
   everyGlyphChart,
   invalidBarChart,
   longFormChart,
@@ -29,6 +30,7 @@ const FIXTURES: Record<string, () => Score> = {
   'every-glyph': everyGlyphChart,
   'invalid-bars': invalidBarChart,
   'long-form': longFormChart,
+  'aaba-chart': aabaChart,
   untitled: untitledChart,
 };
 

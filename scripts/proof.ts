@@ -40,6 +40,7 @@ import { Resvg } from '@resvg/resvg-js';
 import type { MusicFontName } from '@sibei/engrave';
 import { MUSIC_FONT_NAMES, engravePage, musicFontNamed } from '@sibei/engrave';
 import {
+  aabaChart,
   everyGlyphChart,
   beamingChart,
   invalidBarChart,
@@ -58,6 +59,7 @@ const FIXTURES: Record<string, () => Score> = {
   beaming: beamingChart,
   'invalid-bars': invalidBarChart,
   'long-form': longFormChart,
+  'aaba-chart': aabaChart,
   untitled: untitledChart,
 };
 

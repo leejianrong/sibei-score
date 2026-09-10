@@ -19,8 +19,19 @@ is *not* a rendering slice. The cut:
 | | Delivers | State |
 |---|---|---|
 | V7a | `section.set|rm` ops, the `bar12` whole-bar address, `sbscore section set|rm`, layout wiring verified | **done** |
-| V7b | Repeat / double / final barlines and 1st/2nd endings — ops + CLI, proofed | planned |
+| V7b | `barline.set` + `ending.set|rm` ops, `sbscore barline/repeat/ending`, the AABA demo fixture, proofed | **done** |
 | V7c | The browser structure panel (design-first) | planned |
+
+**V7b proved the last of the structure rendering by adding the fixture that exercises it.** The
+engraver already drew every barline kind and every ending *role*, but the corpus only ever set a
+one-bar `start-stop` ending (`every-glyph`), so a **multi-bar** ending — `start` … `stop` across two
+bars — and a **2nd** ending had never been rendered. The `aaba-chart` fixture is the demo *and* the
+missing proof: a pickup, four rehearsal-lettered sections, and a repeat around the first A with a
+1st ending closed by a `repeat-end` and a 2nd ending on the next bar. `pnpm proof aaba-chart --system 2`
+shows the two brackets landing on the right bars with their hooks and numbers; the committed
+`aaba-chart.page1.svg` snapshot pins it. `repeat set` is CLI sugar — a `repeat-start`/`repeat-end`
+pair of `barline.set`s in one batch — so the op set stays minimal (`barline.set`, `ending.set`,
+`ending.rm`).
 
 **V7a added a fourth address form, `bar12` — a whole bar.** Structure attaches to a bar rather than
 to a beat within one, so `resolveBar` is its resolver, kept separate from `resolveAddress` (which is

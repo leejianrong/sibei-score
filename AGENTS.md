@@ -36,7 +36,8 @@ packages/
              `@sibei/api` is the port; `@sibei/api/sqlite` is the adapter
   cli        the `sbscore` binary — an HTTP client of the API, never a second write path
   ui         the browser: Svelte 5 + Vite. Renders through layout + engrave, never @sibei/pdf
-  fixtures   hand-authored scores: nasty-chart, every-glyph, long-form (spills to page 2), untitled
+  fixtures   hand-authored scores: nasty-chart, every-glyph, long-form (spills to page 2), untitled,
+             aaba-chart (V7's structure demo: pickup, rehearsal letters, a repeat with 1st/2nd endings)
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer
@@ -88,9 +89,11 @@ Breaking one of these breaks a decision of record. Ask before deviating from any
 - **Never `measureText` or `getBBox()`** — they exist only in a real browser and would drift
   screen from print (ADR-0015). Place text with SVG `text-anchor`. See `agent_docs/architecture.md`.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built (Q79).
-  The one remaining knowing exception: `score.create` and `meta.set` have a CLI verb and no UI
-  control yet. (V6's `transpose`, part export and `--spell` pins closed the gap they opened —
-  each has a control in the score view.)
+  The knowing exceptions: `score.create` and `meta.set` have a CLI verb and no UI control yet; and
+  the V7 structure verbs (`section.set|rm`, `barline.set`, `ending.set|rm`) ship CLI-first in V7a/V7b
+  as booked debt — their UI control is V7c's structure panel, the same way V4b shipped read-only
+  before V4c gave the note edits a control. (V6's `transpose`, part export and `--spell` pins each
+  have a control in the score view.)
 - **The two surfaces must not disagree about a user-facing *string* either.** The browser's
   `CLI_BINARY` is asserted equal to the `bin` key in `packages/cli/package.json`. If two in-flight
   cards share a string rather than a file, one of them owes a guard.
