@@ -15,7 +15,7 @@ change and no new store method.
 | | Delivers | State |
 |---|---|---|
 | V8a | Undo/redo by replay of the op log — control ops, `POST …/undo\|redo`, `sbscore undo\|redo`, ctrl-Z | **done** |
-| V8b | The `codec` package: MusicXML export + import, single-voice, every lossy case named | planned |
+| V8b | The `codec` package: MusicXML export + import, single-voice, every lossy case named | **done** |
 | V8c | Library delete + duplicate (design-first UI) | planned |
 | V8d | A migration fixture through every schema version | planned |
 | V8e | The container: Dockerfile + compose + a persistent volume, networking-disabled-except-port | planned |
@@ -35,6 +35,24 @@ and no schema change: the existing `type`/`payload`/`batch` columns carry a cont
 own batch of one. This is the KAN-510 shape decision, made at the point of use rather than up front.
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
+
+**V8b is the MusicXML codec, and it is a pure engine landed before its wiring — the V6a pattern.**
+`packages/codec` is `scoreToMusicXml` and `musicXmlToScore` for a single-voice lead sheet, plus its
+own dependency-free XML reader/writer. The reader is hand-written on purpose: `tests/arch` lets a
+framework-free package depend only on the other framework-free `@sibei/*` packages, so an XML library
+was never an option — the same "own the seam" call the engraver made. The round-trip preserves
+everything MusicXML can express (asserted as a musical signature of the nasty and AABA fixtures) and
+every lossy case is named in a test (ADR-0004): app ids, a note's accidental *display* mode,
+`spellingPinned`, confidence/review, the style line, a section's free-text name, a section with no
+letter, and chord text the grammar cannot parse. The chord round-trips exactly even so, because the
+verbatim symbol rides in the `<kind text>` attribute while the structured `<root>`/`<kind>` is what a
+third-party app renders. Chord onsets ride in a harmony `<offset>` from the measure start, so a chord
+off the beat lands where it was. **Not wired to a surface yet** — no `export --musicxml`, no import
+verb or button — which is booked debt, not an oversight: V6a landed the spelling engine the same way,
+pure first and wired in the sub-slices after, and a package's own PR is a poor place for dead surface
+code. The one bug the tests caught before it shipped: a single-bar `start-stop` ending left the
+importer's open-ending state set, so every bar after it read as `continue` — the fixture round-trip
+is what found it.
 
 **V7 is structure and page, and most of it turned out to be already built at V1.** SLICES.md's
 build plan reads as if the glyphs and the line-breaking were V7's to write; the code says
