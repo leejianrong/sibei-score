@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { LOCAL_OWNER, OperationError, createApplier, replay } from '@sibei/api';
+import { LOCAL_OWNER, OperationError, createApplier, replayLog } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Applier, ApplyResult, Operation, ScoreStore } from '@sibei/api';
 import { dur, notesOf } from '@sibei/model';
@@ -202,9 +202,10 @@ describe('replaying the log from empty reproduces the document exactly', () => {
     // The property PLAN.md names by name, against a real log out of a real store.
     const { store } = authorAChart();
     const stored = store.get(LOCAL_OWNER, 'score-1')!.score;
-    const log = store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.operation);
 
-    expect(replay(log)).toEqual(stored);
+    // `replayLog` over the whole stored log — control markers and all — is the property in its true
+    // form (V8a); it reduces to `replay` on a log with no undo/redo, which this one is.
+    expect(replayLog(store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
   });
 
   it('holds after edits and removals, not just additions', () => {
@@ -218,10 +219,9 @@ describe('replaying the log from empty reproduces the document exactly', () => {
     );
 
     const stored = context.store.get(LOCAL_OWNER, 'score-1')!.score;
-    const log = context.store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.operation);
     // Replay walks the *operations*, which never carried a version: the batch's expectedVersion is
     // not part of an operation's shape, so nothing about this check reaches the log (ADR-0028).
-    expect(replay(log)).toEqual(stored);
+    expect(replayLog(context.store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
   });
 
   it('holds through a rejected write, because a rejected write logs nothing', () => {
@@ -230,9 +230,9 @@ describe('replaying the log from empty reproduces the document exactly', () => {
 
     const { store } = context;
     const stored = store.get(LOCAL_OWNER, 'score-1')!.score;
-    const log = store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.operation);
+    const log = store.operations(LOCAL_OWNER, 'score-1');
     expect(log).toHaveLength(4);
-    expect(replay(log)).toEqual(stored);
+    expect(replayLog(log)).toEqual(stored);
   });
 });
 
@@ -468,5 +468,126 @@ describe('the store refuses a write with no operation behind it', () => {
     const score = { schemaVersion: 1, id: 's', meta: {}, bars: [], sections: [] } as never;
     expect(() => store.create(LOCAL_OWNER, score, [])).toThrow(/must carry the operations/);
     expect(() => store.commit(LOCAL_OWNER, 's', 1, score, [])).toThrow(/must carry the operations/);
+  });
+});
+
+describe('undo and redo, by replay of the op log (V8a, ADR-0003)', () => {
+  const pitchesOf = (fixture: Fixture): string[] =>
+    fixture.store
+      .get(LOCAL_OWNER, 'score-1')!
+      .score.bars.flatMap((bar) => notesOf(bar).map((n) => `${n.pitch.step}${n.pitch.octave}`));
+
+  const versionOf = (fixture: Fixture): number => fixture.store.get(LOCAL_OWNER, 'score-1')!.version;
+
+  it('undo reverts the last edit and redo brings it back', () => {
+    const ctx = authorAChart();
+    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+
+    const undone = ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    expect(undone.moved).toBe(true);
+    expect(pitchesOf(ctx)).toEqual(['E5', 'F5']);
+
+    const redone = ctx.applier.redo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    expect(redone.moved).toBe(true);
+    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+  });
+
+  it('keeps the replay-from-empty property after an undo — the log still reproduces the document', () => {
+    const ctx = authorAChart();
+    ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    const stored = ctx.store.get(LOCAL_OWNER, 'score-1')!.score;
+    // The append-only log now carries an `undo` marker; replaying the whole of it still lands on the
+    // stored document. This is the ADR-0003 property holding through undo, the thing that would
+    // break if undo had overwritten the document without recording anything.
+    expect(replayLog(ctx.store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
+  });
+
+  it('undo appends a control row rather than deleting history (append-only log)', () => {
+    const ctx = authorAChart();
+    const before = ctx.store.operations(LOCAL_OWNER, 'score-1');
+    ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    const after = ctx.store.operations(LOCAL_OWNER, 'score-1');
+
+    expect(after).toHaveLength(before.length + 1);
+    // Every original row is untouched; the only new one is the undo marker, its own batch.
+    expect(after.slice(0, before.length)).toEqual(before);
+    expect(after[after.length - 1]!.operation).toEqual({ type: 'undo' });
+    expect(after[after.length - 1]!.batch).toBe(before[before.length - 1]!.batch + 1);
+  });
+
+  it('undoes an agent batch of eight as one unit; eight singles undo one at a time', () => {
+    const batched = fresh();
+    batched.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const eight = Array.from({ length: 8 }, (_, i) => note(`bar${i < 4 ? 1 : 2}.beat${(i % 4) + 1}`, 'C5'));
+    batched.applier.apply(LOCAL_OWNER, 'score-1', {
+      operations: eight,
+      expectedVersion: versionOf(batched),
+    });
+    expect(pitchesOf(batched)).toHaveLength(8);
+    batched.applier.undo(LOCAL_OWNER, 'score-1', versionOf(batched));
+    expect(pitchesOf(batched)).toHaveLength(0);
+
+    const singles = fresh();
+    singles.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    for (const op of eight) {
+      singles.applier.apply(LOCAL_OWNER, 'score-1', { operations: [op], expectedVersion: versionOf(singles) });
+    }
+    expect(pitchesOf(singles)).toHaveLength(8);
+    singles.applier.undo(LOCAL_OWNER, 'score-1', versionOf(singles));
+    expect(pitchesOf(singles)).toHaveLength(7);
+  });
+
+  it('undo then redo returns the identical document', () => {
+    const ctx = authorAChart();
+    const before = ctx.store.get(LOCAL_OWNER, 'score-1')!.score;
+    ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    ctx.applier.redo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    expect(ctx.store.get(LOCAL_OWNER, 'score-1')!.score).toEqual(before);
+  });
+
+  it('undo at the first operation is a clean no-op, not an error (the floor is score.create)', () => {
+    const ctx = fresh();
+    ctx.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const rows = ctx.store.operations(LOCAL_OWNER, 'score-1').length;
+
+    const result = ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    expect(result.moved).toBe(false);
+    expect(result.canUndo).toBe(false);
+    expect(result.version).toBe(1); // unchanged
+    // Nothing appended: a no-op does not grow the log or bump the version.
+    expect(ctx.store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(rows);
+    expect(ctx.store.get(LOCAL_OWNER, 'score-1')!.score).not.toBeNull();
+  });
+
+  it('redo past the head is a clean no-op, not an error', () => {
+    const ctx = authorAChart();
+    const result = ctx.applier.redo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    expect(result.moved).toBe(false);
+    expect(result.canRedo).toBe(false);
+    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+  });
+
+  it('reports what is available before and after a move', () => {
+    const ctx = authorAChart();
+    const undone = ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    expect(undone).toMatchObject({ moved: true, canUndo: true, canRedo: true });
+  });
+
+  it('refuses a stale expected version, and the document is unchanged', () => {
+    const ctx = authorAChart();
+    const current = versionOf(ctx);
+    expect(() => ctx.applier.undo(LOCAL_OWNER, 'score-1', current - 1)).toThrow(OperationError);
+    expect(versionOf(ctx)).toBe(current);
+    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+  });
+
+  it('refuses an undo that names no version at all (KAN-607)', () => {
+    const ctx = authorAChart();
+    expect(() => ctx.applier.undo(LOCAL_OWNER, 'score-1', undefined)).toThrow(/expectedVersion|version it expects/);
+  });
+
+  it('refuses an undo on a score that does not exist', () => {
+    const ctx = fresh();
+    expect(() => ctx.applier.undo(LOCAL_OWNER, 'nope', 1)).toThrow(/no score/);
   });
 });

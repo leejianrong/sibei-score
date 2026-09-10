@@ -65,6 +65,13 @@ export interface Client {
    * somebody rediscovers that at runtime.
    */
   apply(id: string, operations: Operation[], expectedVersion: number): Promise<ApplyWire>;
+  /**
+   * Undo the last batch and redo the last undone one (V8a, ADR-0003). `expectedVersion` is required
+   * for the same reason `apply`'s is: an undo carries the version it believes it is reverting, so it
+   * cannot silently land on top of an edit that arrived since.
+   */
+  undo(id: string, expectedVersion: number): Promise<UndoWire>;
+  redo(id: string, expectedVersion: number): Promise<UndoWire>;
   exportScore(id: string, query: ExportQuery): Promise<Download>;
   health(): Promise<{ status: string; api: string }>;
 }
@@ -111,6 +118,16 @@ export interface ApplyWire {
   version: number;
   changed: string[];
   applied: Operation[];
+}
+
+/** `POST /v1/scores/:id/undo|redo` (V8a). `moved` is false at the undo floor and the redo head. */
+export interface UndoWire {
+  scoreId: string;
+  version: number;
+  changed: string[];
+  moved: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
@@ -184,6 +201,10 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
     create: (operations) => call('POST', '/v1/scores', { operations }),
     apply: (id, operations, expectedVersion) =>
       call('POST', `/v1/scores/${encodeURIComponent(id)}/ops`, { operations, expectedVersion }),
+    undo: (id, expectedVersion) =>
+      call('POST', `/v1/scores/${encodeURIComponent(id)}/undo`, { expectedVersion }),
+    redo: (id, expectedVersion) =>
+      call('POST', `/v1/scores/${encodeURIComponent(id)}/redo`, { expectedVersion }),
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that
       // have to agree about what a default is, and the query is the export cache's key (Q81).

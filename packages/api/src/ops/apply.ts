@@ -38,17 +38,20 @@ import type {
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
+import { isControlOperation } from './operations.js';
 import type {
   ChordSetPayload,
   MetaSetPayload,
   NoteAddPayload,
   BarlineSetPayload,
   EndingSetPayload,
+  LoggedOperation,
   NoteSetPayload,
   Operation,
   RestAddPayload,
   ScoreCreatePayload,
   SectionSetPayload,
+  StoredOperation,
   TransposePayload,
 } from './operations.js';
 
@@ -796,13 +799,89 @@ function validTime(time: TimeSignature | undefined): TimeSignature {
   return { beats: time.beats, beatValue: time.beatValue };
 }
 
-/** Replay: fold a whole log from nothing (ADR-0003's undo mechanism, and its test). */
+/** Replay: fold a whole log of *content* operations from nothing (ADR-0003's undo mechanism). */
 export function replay(operations: readonly Operation[]): Score | null {
   let score: Score | null = null;
   for (const [index, operation] of operations.entries()) {
     score = applyOperation(score, operation, index).score;
   }
   return score;
+}
+
+/**
+ * The undo/redo state a log resolves to (V8a).
+ *
+ * A log is a sequence of batches (grouped by the `batch` column). Most are content edits; some are
+ * `undo`/`redo` control markers (ADR-0003, `operations.ts`). Walking the log builds two stacks: the
+ * content batches currently *in effect*, and the ones an `undo` set aside for a `redo` to bring
+ * back. This is the whole of what undo means — it is derived from the append-only log, never stored
+ * as a cursor, which is why undo owes no schema change.
+ */
+export interface UndoState {
+  /** Content batches in effect, oldest first. Folding these flat is the current document. */
+  applied: Operation[][];
+  /** Content batches an `undo` set aside, in the order a `redo` would bring them back (LIFO). */
+  redo: Operation[][];
+}
+
+/** Group a seq-ordered log into its batches. A control op is always its own batch of one. */
+function batchesOf(log: readonly StoredOperation[]): LoggedOperation[][] {
+  const batches: LoggedOperation[][] = [];
+  let currentBatch: number | null = null;
+  for (const entry of log) {
+    if (currentBatch !== entry.batch) {
+      currentBatch = entry.batch;
+      batches.push([]);
+    }
+    batches[batches.length - 1]!.push(entry.operation);
+  }
+  return batches;
+}
+
+/**
+ * Resolve a log's undo/redo markers to the content batches in effect (V8a).
+ *
+ * An `undo` pops the most recent applied batch onto the redo stack; a `redo` brings one back; any
+ * other batch is a content edit, which is applied and clears the redo stack (a fresh edit after an
+ * undo is what discards the redo future — standard undo semantics, and here it falls out of log
+ * order rather than being a rule to remember). A marker with nothing to act on is a no-op the
+ * applier would never have written, tolerated here so replay stays total over any log.
+ */
+export function resolveLog(log: readonly StoredOperation[]): UndoState {
+  const applied: Operation[][] = [];
+  const redo: Operation[][] = [];
+  for (const batch of batchesOf(log)) {
+    const control = batch.length === 1 && isControlOperation(batch[0]!) ? batch[0].type : null;
+    if (control === 'undo') {
+      const popped = applied.pop();
+      if (popped !== undefined) redo.push(popped);
+    } else if (control === 'redo') {
+      const brought = redo.pop();
+      if (brought !== undefined) applied.push(brought);
+    } else {
+      // A content batch: control ops are always singletons, so nothing here is one.
+      applied.push(batch as Operation[]);
+      redo.length = 0;
+    }
+  }
+  return { applied, redo };
+}
+
+/** The content operations a log resolves to, once its undo/redo markers are applied. */
+export function effectiveLog(log: readonly StoredOperation[]): Operation[] {
+  return resolveLog(log).applied.flat();
+}
+
+/**
+ * Replay a whole stored log — control markers and all — from nothing (V8a).
+ *
+ * This is the ADR-0003 property in its true form: **replaying a score's append-only log reproduces
+ * its stored document exactly, undo and redo included.** `replay` folds content ops; this resolves
+ * the markers first, so the two agree on a log with no markers and this one is the one to assert a
+ * real log against.
+ */
+export function replayLog(log: readonly StoredOperation[]): Score | null {
+  return replay(effectiveLog(log));
 }
 
 /** The document schema every applied score is written at. */

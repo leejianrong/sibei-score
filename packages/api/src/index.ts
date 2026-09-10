@@ -45,10 +45,17 @@ export type { PartInstrument } from '@sibei/music';
 
 export * from './ops/operations.js';
 export * from './ops/errors.js';
-export { applyOperation, replay, DEFAULT_BAR_COUNT } from './ops/apply.js';
-export type { Applied } from './ops/apply.js';
+export {
+  applyOperation,
+  replay,
+  replayLog,
+  resolveLog,
+  effectiveLog,
+  DEFAULT_BAR_COUNT,
+} from './ops/apply.js';
+export type { Applied, UndoState } from './ops/apply.js';
 export { createApplier } from './ops/applier.js';
-export type { Applier, ApplyResult } from './ops/applier.js';
+export type { Applier, ApplyResult, UndoResult } from './ops/applier.js';
 
 export {
   createChangeBus,

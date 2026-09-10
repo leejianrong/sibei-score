@@ -89,7 +89,7 @@ load-bearing in the layout engine rather than incidental.
 
 **The verb set is deliberately short** — `score.create`, `meta.set`, `note.add|set|rm`,
 `rest.add|rm`, `chord.set|rm` (V5), `transpose` (V6), and the V7 structure verbs `section.set|rm`,
-`barline.set`, `ending.set|rm`. `tie`, `tuplet` and `undo` each still belong to a later slice. The
+`barline.set`, `ending.set|rm`. `tie` and `tuplet` each still belong to a later slice. The
 structure verbs all target a **whole-bar address** (`bar5`): `section.set` and `ending.set` are
 upserts, the same upsert-at-a-place shape as `chord.set`; `barline.set` sets a bar's opening and/or
 closing barline. There is no `repeat` op — a repeat is a `repeat-start`/`repeat-end` pair of
@@ -97,6 +97,20 @@ closing barline. There is no `repeat` op — a repeat is a `repeat-start`/`repea
 about: a score's bar count is fixed at creation (there is no `bar.append` yet), and deleting a score
 is *not* an operation — it destroys the log an entry would live in, so it is a library lifecycle call
 instead.
+
+**Undo and redo are the applier's, not the routes' (V8a).** They append `undo`/`redo` *control*
+operations — a `LoggedOperation` that is not one of the content verbs above, because it cannot be
+folded from the score alone: computing its result needs the whole log, which the pure applier in
+`apply.ts` never sees. So the log stays **append-only forever** — undo never deletes the last
+batch's rows — and `replayLog` resolves the markers against the log (`resolveLog`: an applied stack
+and a redo stack, derived from batch order) so replay-from-empty still reproduces the stored
+document exactly, undo included. That is why undo owes **no schema change**: the existing
+`type`/`payload`/`batch` columns already carry a control op, which is its own batch of one. Both
+`Applier.undo`/`redo` carry an `expectedVersion` like a write and refuse a missing one (KAN-607); a
+move at the undo floor (a score with only its `score.create` batch) or past the redo head is a clean
+`moved: false` — no version bump, no log row — rather than an error. This settles the shape KAN-510
+left open: the log's read surface is `ScoreReader.operations`, consumed *inside* the applier, and
+undo/redo are their own routes rather than an entry in the op vocabulary.
 
 ## Export, the blob port, and the cache that has no invalidation logic
 
@@ -163,6 +177,8 @@ POST   /v1/scores            create — a batch whose first op is score.create
 GET    /v1/scores/:id        the document, its version, its timestamp
 DELETE /v1/scores/:id        library lifecycle, not an operation
 POST   /v1/scores/:id/ops    one operation, or a transactional list
+POST   /v1/scores/:id/undo   undo the last batch by replay (V8a); redo is the sibling
+POST   /v1/scores/:id/redo   reapply the last undone batch (V8a)
 GET    /v1/scores/:id/export ?format=pdf&paper=a4|letter&font=normal|jazz&instrument=concert
 GET    /v1/scores/:id/events SSE: this score's changes (V4a)
 ```
@@ -232,8 +248,10 @@ special case.
 **There is no replay, and the first frame is why that is safe.** No `id:` is emitted on any frame,
 because emitting one makes a browser send `Last-Event-ID` and a server that ignores it has made a
 promise it does not keep. Instead the stream **opens with a `changed` event carrying the current
-version**, so connecting *is* the catch-up and a reconnecting client cannot forget to re-read. That
-also leaves KAN-510 free to decide the op log's read shape rather than freezing one here.
+version**, so connecting *is* the catch-up and a reconnecting client cannot forget to re-read. This
+left KAN-510 free to decide the op log's read shape rather than freezing one here; V8a decided it —
+the read surface is `ScoreReader.operations`, read *inside* the applier for undo/redo, and undo/redo
+publish a `changed` event the same way an edit does (a no-op move publishes nothing).
 
 **A deletion is an event too** (`event: deleted`), published from a wrapper around `ScoreLibrary`.
 Not an op and it cannot be — deleting a score destroys the log an entry would live in — but it is

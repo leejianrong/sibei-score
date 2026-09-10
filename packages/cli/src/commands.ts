@@ -12,7 +12,7 @@ import type {
 import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
 import { CliError, createClient } from './client.js';
-import type { Client, ExportQuery } from './client.js';
+import type { Client, ExportQuery, UndoWire } from './client.js';
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
 import { fallbackName, outputPathFor } from './output.js';
@@ -76,6 +76,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore undo <id>                        revert the last edit or batch (ADR-0003)
+  sbscore redo <id>                        reapply the last undone edit
 
 Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
@@ -184,6 +186,10 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return ending(flags, client, io, json);
     case 'batch':
       return batch(flags, client, io, json);
+    case 'undo':
+      return move('undo', flags, client, io, json);
+    case 'redo':
+      return move('redo', flags, client, io, json);
     case 'health': {
       const health = await client.health();
       io.out(json ? JSON.stringify(health) : `${health.status} · api ${health.api}`);
@@ -605,6 +611,36 @@ async function submit(
       : `version ${result.version}  changed ${result.changed.join(' ') || '(nothing)'}`,
   );
   return EXIT.ok;
+}
+
+/**
+ * `undo` and `redo` (V8a, ADR-0003). Shared, because they are one shape: revert the last batch, or
+ * bring the last reverted one back, by replay of the op log.
+ *
+ * The version is resolved exactly the way `submit` resolves it — `--if-version` if pinned, else a
+ * read first — so an undo is subject to the same optimistic-concurrency check as an edit and cannot
+ * silently revert on top of something that landed since. Undoing at the first operation, or redoing
+ * with nothing to bring back, is not an error: the server answers `moved: false` and this prints
+ * `nothing to undo`, so a script can loop `undo` to the floor without special-casing the end.
+ */
+async function move(
+  which: 'undo' | 'redo',
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', which);
+  const pinned = optionalNumber(flags, 'if-version');
+  const expected = pinned ?? (await client.read(id)).version;
+  const result = which === 'undo' ? await client.undo(id, expected) : await client.redo(id, expected);
+  io.out(json ? JSON.stringify(result) : moveLine(which, result));
+  return EXIT.ok;
+}
+
+function moveLine(which: 'undo' | 'redo', result: UndoWire): string {
+  if (!result.moved) return `nothing to ${which}`;
+  return `${which === 'undo' ? 'undid' : 'redid'}  version ${result.version}`;
 }
 
 // ---------------------------------------------------------------------------
