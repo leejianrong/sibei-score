@@ -108,6 +108,9 @@ importers:
       '@sibei/model':
         specifier: workspace:*
         version: link:../model
+      '@sibei/music':
+        specifier: workspace:*
+        version: link:../music
 
   packages/fixtures:
     dependencies:

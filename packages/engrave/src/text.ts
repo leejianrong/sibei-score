@@ -1,4 +1,6 @@
 import type { LayoutText, LayoutTextRole } from '@sibei/layout';
+import { formatRoot, parseChord } from '@sibei/music';
+import type { Alteration, ChordStructure } from '@sibei/music';
 import type { SvgElement } from './svg.js';
 import { el, textEl } from './svg.js';
 
@@ -84,20 +86,32 @@ export function headerText(item: LayoutText): SvgElement {
 // ---------------------------------------------------------------------------
 
 /**
- * Root at full size, extensions superscripted, a slash bass back at full size. That is
- * the jazz convention and it is what makes `F#m7b5` read correctly rather than as a run
- * of same-size characters.
+ * Jazz chord typography, driven by the grammar (V5, ADR-0012, ADR-0030). The root and a slash
+ * bass sit at full size on the baseline; the quality glyph — `Δ` for a major seventh, `ø` for a
+ * half-diminished chord, `°` for a diminished one, `m`/`+` for minor and augmented — sits at full
+ * size too; and the tensions ride as a superscript. Altered degrees are parenthesised, and two or
+ * more of them stack vertically the way a reader expects them (`♯11` over `♭9`).
  *
- * Presentation only: this splits the text, it does not understand it. Parsing chord text
- * into root, quality, extensions, alterations and bass is the `music` package's job
- * (ADR-0012, P8), and V5 replaces the split below with that structure — which is also
- * where `Δ`, `ø` and proper `alt` typography come from.
+ * This *understands* the text now rather than splitting it on a regex. `parseChord` turns
+ * `Ebmaj7` into a structure, and it is that structure — not the characters — that decides `Δ7`.
+ * Text the grammar cannot read (and a `plain` annotation, Q56) is drawn verbatim and unsplit:
+ * superscripting half of `solo break` would be worse than leaving it whole. `N.C.` parses to a
+ * no-chord marking and is likewise drawn as written.
+ *
+ * Nothing here is measured (ADR-0015). The one place width matters — sliding a stacked alteration
+ * back under the one above it — uses a character-count estimate, the same technique `rehearsalMark`
+ * uses to size its box, never `getBBox`.
  */
-const ROOT_PATTERN = /^([A-G](?:##|bb|#|b)?)(.*)$/;
-
-/** How far a superscript rises above the baseline, as a fraction of the font size. */
 const SUPERSCRIPT_RISE = 0.42;
 const SUPERSCRIPT_SCALE = 0.72;
+/** A stacked alteration's own size and the drop to the line beneath it, as fractions of the size. */
+const STACK_SCALE = 0.72;
+const STACK_LINE = 0.82;
+/** Rough advance per superscript character, for sliding a stacked run back. Digits are narrow. */
+const STACK_ADVANCE = 0.5;
+/** Music accidentals as glyphs, so `♯11` reads as an alteration rather than a hash. */
+const SHARP = '♯';
+const FLAT = '♭';
 
 export interface ChordSpec {
   text: string;
@@ -123,25 +137,76 @@ export function chordSymbol(spec: ChordSpec): SvgElement {
     stroke: 'none',
   };
 
-  const match = spec.plain ? null : ROOT_PATTERN.exec(spec.text);
-  if (match === null) {
-    // `N.C.`, or text the grammar will later flag. Verbatim and unsplit — superscripting
-    // half of `solo break` would be worse than leaving it alone.
+  const parsed = spec.plain ? null : parseChord(spec.text);
+  if (parsed === null || parsed.kind === 'no-chord') {
+    // `N.C.`, a plain annotation, or text the grammar cannot read: verbatim and unsplit.
     return textEl(attrs, [spec.text]);
   }
 
-  const [, root = '', remainder = ''] = match;
-  const slash = remainder.lastIndexOf('/');
-  const quality = slash === -1 ? remainder : remainder.slice(0, slash);
-  const bass = slash === -1 ? '' : remainder.slice(slash + 1);
+  return textEl(attrs, chordRuns(parsed.structure, spec.size));
+}
 
-  const parts: (SvgElement | string)[] = [root];
-  if (quality !== '') parts.push(superscript(quality, spec.size));
-  // The slash and the bass stay at full size: a superscripted bass note reads as an
-  // extension rather than as the chord's foot.
-  if (bass !== '') parts.push(`/${bass}`);
+/** The ordered runs of one engraved chord: baseline root + quality, a superscript, a slash bass. */
+function chordRuns(s: ChordStructure, size: number): (SvgElement | string)[] {
+  const runs: (SvgElement | string)[] = [formatRoot(s.root)];
 
-  return textEl(attrs, parts);
+  const quality = baselineQuality(s);
+  if (quality !== '') runs.push(quality);
+
+  const alterations = shownAlterations(s);
+  const lead = superscriptLead(s);
+  // Two or more alterations with nothing after them stack; otherwise they ride inline in parens.
+  if (alterations.length >= 2 && s.bass === null) {
+    runs.push(...stackedSuperscript(lead, alterations, size));
+  } else {
+    const parenthesised = alterations.length === 0 ? '' : `(${alterations.map(formatAlteration).join('')})`;
+    const raised = `${lead}${parenthesised}`;
+    if (raised !== '') runs.push(superscript(raised, size));
+  }
+
+  // The slash and the bass stay at full size: a superscripted bass reads as an extension.
+  if (s.bass !== null) runs.push(`/${formatRoot(s.bass)}`);
+  return runs;
+}
+
+/**
+ * The full-size glyphs after the root: `m`, `+`, `°`, `ø`, and the `Δ` of a major seventh. A
+ * half-diminished chord is `ø` alone — the `m` and the `♭5` are what `ø` *means*, so drawing them
+ * too would be saying it twice (that `♭5` is dropped in `shownAlterations`).
+ */
+function baselineQuality(s: ChordStructure): string {
+  if (isHalfDiminished(s)) return 'ø';
+  let out = '';
+  if (s.triad === 'minor') out += 'm';
+  else if (s.triad === 'augmented') out += '+';
+  else if (s.triad === 'diminished') out += '°';
+  if (s.seventh === 'major') out += 'Δ';
+  return out;
+}
+
+/** The superscript number: the extension or seventh, a sixth, the `alt` shorthand, a suspension. */
+function superscriptLead(s: ChordStructure): string {
+  if (s.alt) return '7alt';
+  const top = s.seventh !== null ? String(s.extension ?? 7) : s.sixth ? '6' : s.power ? '5' : '';
+  return s.suspension === null ? top : `${top}${s.suspension}`;
+}
+
+function shownAlterations(s: ChordStructure): Alteration[] {
+  return isHalfDiminished(s)
+    ? s.alterations.filter((a) => !(a.degree === 5 && a.alter === -1))
+    : s.alterations;
+}
+
+function isHalfDiminished(s: ChordStructure): boolean {
+  return (
+    s.triad === 'minor' &&
+    s.seventh === 'minor' &&
+    s.alterations.some((a) => a.degree === 5 && a.alter === -1)
+  );
+}
+
+function formatAlteration(a: Alteration): string {
+  return `${a.alter < 0 ? FLAT : SHARP}${a.degree}`;
 }
 
 /**
@@ -152,12 +217,53 @@ function superscript(value: string, size: number): SvgElement {
   return {
     name: 'tspan',
     attrs: {
-      'font-size': `${Number((size * SUPERSCRIPT_SCALE).toFixed(3))}px`,
-      dy: -Number((size * SUPERSCRIPT_RISE).toFixed(3)),
+      'font-size': `${round(size * SUPERSCRIPT_SCALE)}px`,
+      dy: -round(size * SUPERSCRIPT_RISE),
     },
     children: [],
     text: [value],
   };
+}
+
+/**
+ * The lead and the first alteration on one raised line, then the remaining alterations stacked
+ * beneath the first — each slid left by an estimate of the run above it so their left edges line
+ * up. Only reached when there is no bass, so nothing has to resume after the stack.
+ */
+function stackedSuperscript(lead: string, alterations: Alteration[], size: number): SvgElement[] {
+  const scaled = size * STACK_SCALE;
+  const first = alterations[0] as Alteration;
+  const top = `${lead}${formatAlteration(first)}`;
+
+  const runs: SvgElement[] = [
+    {
+      name: 'tspan',
+      attrs: { 'font-size': `${round(scaled)}px`, dy: -round(size * SUPERSCRIPT_RISE) },
+      children: [],
+      text: [top],
+    },
+  ];
+
+  let previous = formatAlteration(first);
+  for (const alteration of alterations.slice(1)) {
+    const text = formatAlteration(alteration);
+    runs.push({
+      name: 'tspan',
+      attrs: {
+        'font-size': `${round(scaled)}px`,
+        dy: round(scaled * STACK_LINE),
+        dx: -round(previous.length * scaled * STACK_ADVANCE),
+      },
+      children: [],
+      text: [text],
+    });
+    previous = text;
+  }
+  return runs;
+}
+
+function round(value: number): number {
+  return Number(value.toFixed(3));
 }
 
 /**
