@@ -35,6 +35,7 @@
   } from '../lib/api.js';
   import type { Operation } from '../lib/api.js';
   import { SERVE_COMMAND } from '../lib/branding.js';
+  import { watchScore } from '../lib/events.js';
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
   import { boxFor, findItem, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
   import type { Point } from '../lib/hit-test.js';
@@ -231,6 +232,33 @@
     deselect();
     await load();
   }
+
+  /**
+   * Live updates (V4d, SLICES.md V4 step 5). One stream per mounted chart: `App.svelte` keys this
+   * component on the id, so `id` is fixed here and the effect opens exactly one connection and
+   * closes it on unmount (the teardown `watchScore` returns is the effect's cleanup).
+   *
+   * A `changed` frame carries the version that now exists. If that is not the version on screen,
+   * re-read — the same recovery `handleSave` runs, and what the server's `{version}`-only payload
+   * was shaped for (`change-bus.ts`). Three frames are deliberately no-ops: the stream's opening
+   * catch-up frame (its version is the one we just loaded), a change we made ourselves (`load`
+   * already moved us there), and any frame that lands mid-save — that one is left to the save's own
+   * re-read rather than raced with it. A `deleted` frame means the chart is gone; there is no
+   * version to re-read to, so it becomes the same "no chart with that id" state a 404 does.
+   */
+  $effect(() =>
+    watchScore(id, {
+      onChanged: (incoming) => {
+        if (score !== null && !saving && incoming !== version) void load();
+      },
+      onDeleted: () => {
+        score = null;
+        onTitle(null);
+        deselect();
+        failure = { kind: 'missing', message: 'this chart was deleted.' };
+      },
+    }),
+  );
 
   void load();
 </script>

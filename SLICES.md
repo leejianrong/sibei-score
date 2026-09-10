@@ -273,6 +273,14 @@ page.
 
 **Delivers:** R1
 
+> **History, 2026-09-10.** Shipped as four sub-cards V4a–V4d (KAN-587–590 under KAN-412), not the
+> six build-plan steps below. V4a (the change bus and `GET …/events`) went first and in parallel;
+> V4b the read-only Svelte shell; V4c hit-testing, the inspector and edits as ops; V4d wired the
+> stream into the open score view and added the boots-the-whole-stack E2E (`tests/browser/`,
+> Playwright driving a real Chromium in the infra layer) and this slice's demo (`pnpm demo:v4`).
+> Read the plan below as the record of intent; the cut is on the board and in git. One knowing gap
+> remains against Q79: `score.create` and `meta.set` have no UI control yet.
+
 **Build plan**
 
 1. Svelte 5 + Vite shell (ADR-0022); library view listing charts with search.
