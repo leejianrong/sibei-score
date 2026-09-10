@@ -81,6 +81,8 @@ export interface ExportQuery {
   format?: string;
   paper?: string;
   font?: string;
+  /** The written part to render — a transposing instrument, or `concert` (the default). */
+  instrument?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */

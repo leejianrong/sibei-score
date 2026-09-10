@@ -144,6 +144,27 @@ describe('sbscore export writes a real PDF', () => {
     expect(readFileSync(join(work, 'jazz.pdf'))).not.toEqual(a4);
   });
 
+  it('exports a transposing part with --for, named after the instrument (V6, ADR-0016)', async () => {
+    await aChart();
+    await sbscore('export', 'soul', '-o', join(work, 'concert.pdf'));
+    const part = await sbscore('export', 'soul', '--for', 'bb-tenor');
+    expect(part.code).toBe(EXIT.ok);
+
+    // The part lands under its own name, and is different ink from the concert chart.
+    const partPath = join(work, 'Body and Soul - Bb Tenor.pdf');
+    expect(isPdf(partPath)).toBe(true);
+    expect(readFileSync(partPath)).not.toEqual(readFileSync(join(work, 'concert.pdf')));
+    // A part stores nothing (ADR-0016): the concert chart is untouched.
+    expect(store.get('local', 'soul')?.score.meta.key).toEqual({ tonic: 'D', alter: -1, mode: 'major' });
+  });
+
+  it('422s an instrument this build cannot render, on exit 2', async () => {
+    await aChart();
+    const result = await sbscore('export', 'soul', '--for', 'tuba');
+    expect(result.code).toBe(EXIT.validation);
+    expect(result.err).toContain('tuba');
+  });
+
   it('serves the same bytes the second time, which is the cache doing its job', async () => {
     await aChart();
     await sbscore('export', 'soul', '-o', join(work, 'first.pdf'));

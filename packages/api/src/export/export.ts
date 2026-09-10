@@ -7,6 +7,8 @@ import type { Id, Score } from '@sibei/model';
 import { renderScoreToPdf } from '@sibei/pdf';
 import type { BlobKey, BlobStore } from '../blob/blob-store.js';
 import type { Owner, ScoreReader, ScoreRecord } from '../store/repository.js';
+import { PART_INSTRUMENTS, partLabel, writtenPart } from './part.js';
+import type { PartInstrument } from './part.js';
 
 /**
  * Export from the store (V3, R0) — the first path that runs a stored chart all the way to a
@@ -26,16 +28,17 @@ export const EXPORT_FORMATS = ['pdf'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /**
- * Which written part to render. `concert` is the score as stored, which is all V3 can produce:
- * ADR-0016 makes an instrument part a **render-time view** over transposition, and transposition
- * is V6.
+ * Which written part to render. `concert` is the score as stored; the five transposing instruments
+ * are **render-time views** over the same concert document (ADR-0016), added in V6c. The list — and
+ * the transposition behind each name — is `part.ts`'s, so the cache key, the route's validation and
+ * the renderer all agree about what an instrument *is* by construction.
  *
- * It is a parameter and a key component now regardless, because Q81 fixes the cache key at
- * `(score version, format, instrument)`. Leaving the third component out until something used it
- * would make V6 a cache-key migration rather than one more value in a key that already had room.
+ * This dimension was in the cache key from V3 with only `concert` in it (Q81), precisely so that
+ * turning it on here was one more value in a key that already had room rather than a cache-key
+ * migration.
  */
-export const EXPORT_INSTRUMENTS = ['concert'] as const;
-export type ExportInstrument = (typeof EXPORT_INSTRUMENTS)[number];
+export const EXPORT_INSTRUMENTS = PART_INSTRUMENTS;
+export type ExportInstrument = PartInstrument;
 
 /**
  * The paper and the face, both taken from the packages that own them rather than restated here.
@@ -149,7 +152,7 @@ export function createExporter(reader: ScoreReader, blobs: BlobStore): Exporter 
         artefact: {
           key,
           contentType: CONTENT_TYPES[request.format],
-          filename: downloadName(record.score, request.format),
+          filename: downloadName(record.score, request.format, request.instrument),
           bytes,
           cached,
           version: record.version,
@@ -159,7 +162,9 @@ export function createExporter(reader: ScoreReader, blobs: BlobStore): Exporter 
       const hit = await blobs.get(key);
       if (hit !== null) return describe(hit, true);
 
-      const bytes = await render(record.score, request);
+      // The one place a part is produced: the stored concert score is turned into its written view
+      // just before rendering, and never persisted (ADR-0016). `concert` returns it untouched.
+      const bytes = await render(writtenPart(record.score, request.instrument), request);
       await blobs.put(key, bytes);
       return describe(bytes, false);
     },
@@ -189,13 +194,16 @@ function exhaustive(format: never): never {
  * `Content-Disposition` header: a title holding a quote or a newline would otherwise be a way for
  * whoever named the chart to write a header of their own.
  */
-function downloadName(score: Score, format: ExportFormat): string {
+function downloadName(score: Score, format: ExportFormat, instrument: ExportInstrument): string {
   const stem = score.meta.title
     .replace(/[^A-Za-z0-9 _-]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ')
     .slice(0, 60);
-  return `${stem === '' ? 'score' : stem}.${format}`;
+  // A part names its instrument, because a folder full of `Body and Soul.pdf` is useless the moment
+  // you export more than one. The concert score keeps the bare title.
+  const part = instrument === 'concert' ? '' : ` - ${partLabel(instrument)}`;
+  return `${stem === '' ? 'score' : stem}${part}.${format}`;
 }
 
 /** The query value, or null when it is not a format this build can produce. */

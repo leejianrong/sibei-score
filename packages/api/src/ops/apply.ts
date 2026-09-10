@@ -15,7 +15,6 @@ import {
   resolvePosition,
   keyInterval,
   transposePitch,
-  transposeSpelling,
   AddressError,
 } from '@sibei/model';
 import type {
@@ -24,14 +23,13 @@ import type {
   Chord,
   Duration,
   Id,
-  Interval,
   KeySignature,
   Note,
   Review,
   Score,
   TimeSignature,
 } from '@sibei/model';
-import { formatChord, parseChord } from '@sibei/music';
+import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
 import type {
   ChordSetPayload,
@@ -434,31 +432,6 @@ function transpose(score: Score, payload: TransposePayload): Applied {
     operation: { type: 'transpose', payload: { to } },
     changed: changed.length > 0 ? changed : [score.id],
   };
-}
-
-/**
- * Move a chord symbol's root (and any slash bass) by the transposition interval, respelled by the
- * destination key. Text the grammar cannot read, and `N.C.`, are returned unchanged — there is no
- * root to move, and an unparseable symbol stays verbatim and flagged exactly as it was stored
- * (ADR-0012). A parsed chord comes back through `formatChord`, so it is written in the grammar's one
- * canonical spelling — the price of transposing structure rather than juggling substrings, and the
- * same canonicalisation `chord.set` already relies on for the round-trip.
- *
- * Chords carry no spelling pin yet, so every root respells by the key; the per-chord override is a
- * document-shape change that arrives with its migration in a later slice (ADR-0017, ADR-0028).
- */
-function transposeChordText(text: string, interval: Interval, to: KeySignature): string {
-  const parsed = parseChord(text);
-  if (parsed === null || parsed.kind === 'no-chord') return text;
-  const s = parsed.structure;
-  return formatChord({
-    kind: 'chord',
-    structure: {
-      ...s,
-      root: transposeSpelling(s.root, interval, to),
-      bass: s.bass === null ? null : transposeSpelling(s.bass, interval, to),
-    },
-  });
 }
 
 function validChordText(text: unknown): string {
