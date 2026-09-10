@@ -2,7 +2,16 @@ import { MUSIC_FONT_NAMES } from '@sibei/engrave';
 import type { MusicFontName } from '@sibei/engrave';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
-import type { AccidentalDisplay, Duration, Id, KeySignature, Score } from '@sibei/model';
+import type {
+  AccidentalDisplay,
+  Duration,
+  EndBarline,
+  EndingRole,
+  Id,
+  KeySignature,
+  Score,
+  StartBarline,
+} from '@sibei/model';
 
 /**
  * The UI's whole relationship with the server: an HTTP client of `/v1/` (ADR-0002). It holds no
@@ -92,9 +101,11 @@ export async function getScore(id: Id): Promise<ScoreRecord> {
  * depends on and which is framework-free by the same rule.
  *
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
- * adds `chord.set` and `chord.rm` for the chord inspector. `note.add` on its own, `score.create`
- * and `meta.set` exist on the server and have no UI control yet — that is booked debt (Q79), not a
- * gap this file is meant to close.
+ * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
+ * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
+ * `ending.set`/`ending.rm`. `note.add` on its own, `score.create` and `meta.set` exist on the
+ * server and have no UI control yet — that is booked debt (Q79), not a gap this file is meant to
+ * close.
  */
 export interface NoteSetPayload {
   pitch?: string;
@@ -119,13 +130,35 @@ export interface TransposePayload {
   to: KeySignature;
 }
 
+/** Structure verbs (V7c). All target a whole-bar address (`bar7`), the way the CLI's do. */
+export interface SectionSetPayload {
+  /** Null clears the rehearsal letter; omitted keeps it on an upsert. */
+  letter?: string | null;
+  name?: string | null;
+}
+
+export interface BarlineSetPayload {
+  start?: StartBarline;
+  end?: EndBarline;
+}
+
+export interface EndingSetPayload {
+  numbers: number[];
+  role: EndingRole;
+}
+
 export type Operation =
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
-  | { type: 'transpose'; payload: TransposePayload };
+  | { type: 'transpose'; payload: TransposePayload }
+  | { type: 'section.set'; target: string; payload: SectionSetPayload }
+  | { type: 'section.rm'; target: string }
+  | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
+  | { type: 'ending.set'; target: string; payload: EndingSetPayload }
+  | { type: 'ending.rm'; target: string };
 
 export interface Batch {
   operations: readonly Operation[];

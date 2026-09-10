@@ -12,12 +12,19 @@
     value: T;
     display?: (option: T) => string;
     onselect: (option: T) => void;
+    /**
+     * Stretch to the container's full width, sharing it equally between the segments (V7c). The
+     * default `fit-content` control sizes to its labels — right for two or three short words, but a
+     * four- or five-way control of real words (Single · Double · Final · Repeat) overflows a narrow
+     * rail. `fill` divides the width instead, so the segments wrap nothing and clip nothing.
+     */
+    fill?: boolean;
   }
 
-  const { label, options, value, display, onselect }: Props = $props();
+  const { label, options, value, display, onselect, fill = false }: Props = $props();
 </script>
 
-<div class="seg" role="group" aria-label={label}>
+<div class="seg" class:fill role="group" aria-label={label}>
   {#each options as option (option)}
     <button
       aria-pressed={option === value}
@@ -37,6 +44,9 @@
     background: var(--panel-2);
     width: fit-content;
   }
+  .seg.fill {
+    width: 100%;
+  }
   .seg button {
     background: none;
     border: 0;
@@ -45,6 +55,13 @@
     font-size: 11.5px;
     letter-spacing: 0.06em;
     color: var(--ink-soft);
+  }
+  .seg.fill button {
+    flex: 1;
+    padding: 5px 4px 6px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    text-align: center;
   }
   .seg button + button {
     border-left: 1px solid var(--rule);

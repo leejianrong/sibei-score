@@ -8,6 +8,7 @@
  * pulling a component compiler into the fast layer.
  */
 export * from './api.js';
+export * from './bar-hit.js';
 export * from './branding.js';
 export * from './chord-hit.js';
 export * from './events.js';
@@ -15,3 +16,4 @@ export * from './format.js';
 export * from './hit-test.js';
 export * from './render.js';
 export * from './routing.js';
+export * from './structure-edits.js';

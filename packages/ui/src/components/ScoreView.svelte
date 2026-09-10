@@ -44,11 +44,16 @@
   import type { Point } from '../lib/hit-test.js';
   import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
   import type { ChordBox } from '../lib/chord-hit.js';
+  import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
   import { renderScorePages } from '../lib/render.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
   import ChordInspector from './ChordInspector.svelte';
   import type { ChordSelection } from './ChordInspector.svelte';
+  import StructureInspector from './StructureInspector.svelte';
+  import { structureOps } from '../lib/structure-edits.js';
+  import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
+  import { sectionStartingAt } from '@sibei/model';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
 
@@ -129,6 +134,12 @@
     seedText: string;
     box: { x: number; y: number; width: number; height: number };
   } | null>(null);
+
+  // Bar selection (V7c) — a third, mutually-exclusive selection alongside items and chords. A bar is
+  // not an item, so it is its own state; the id is just the page and the bar number, and everything
+  // the Structure panel shows is looked up fresh from the model by number, so a reload never leaves
+  // it holding a stale copy (the same discipline as note/chord selection).
+  let barSel = $state<{ pageIndex: number; barNumber: number } | null>(null);
 
   // The beat under the pointer while it is over a chord band and nothing is being saved — the
   // "click above the staff to add a chord" affordance (the approved V5e interaction).
@@ -232,6 +243,36 @@
     return box === null ? null : { pageIndex: chordSel.pageIndex, box };
   });
 
+  // The selected bar's structure, read fresh from the stored score by bar number (V7c). Barlines and
+  // the ending are on the model bar; the rehearsal letter and section name come from the section that
+  // begins on this bar, if any. Nothing here is a layout property — the panel edits the document, not
+  // the render — so like note/chord pins it is looked up from `score`, never from the layout items.
+  const barStructure = $derived.by((): BarStructure | null => {
+    if (!editable || barSel === null || score === null) return null;
+    const bar = score.bars.find((candidate) => candidate.number === barSel!.barNumber);
+    if (bar === undefined) return null;
+    const section = sectionStartingAt(score, bar.number);
+    return {
+      barNumber: bar.number,
+      addr: `bar${bar.number}`,
+      isPickup: bar.number === 0,
+      hasSection: section !== null,
+      letter: section?.letter ?? '',
+      name: section?.name ?? '',
+      startBarline: bar.startBarline,
+      endBarline: bar.endBarline,
+      ending: bar.ending,
+    };
+  });
+
+  const barOverlay = $derived.by(() => {
+    if (barSel === null) return null;
+    const page = pages[barSel.pageIndex];
+    if (page === undefined) return null;
+    const box = barBoxFor(pageBarBoxes(page.layout), barSel.barNumber);
+    return box === null ? null : { pageIndex: barSel.pageIndex, box };
+  });
+
   async function load(): Promise<void> {
     try {
       const record = await getScore(id);
@@ -266,6 +307,7 @@
     selectedId = null;
     selectedPage = null;
     chordSel = null;
+    barSel = null;
     conflict = false;
     saveError = null;
   }
@@ -302,13 +344,26 @@
     }
 
     const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
-    if (hit === null) {
+    if (hit !== null) {
+      chordSel = null;
+      barSel = null;
+      selectedId = hit.id;
+      selectedPage = pageIndex;
+      return;
+    }
+
+    // Nothing above the staff and no note under the click: the bar itself, so its structure (section,
+    // barlines, endings) becomes editable. A barline sits on a bar edge, so clicking one lands in the
+    // bar it bounds — "click the bar or its barline" (V7c). Only a click that misses every bar — the
+    // margins, the gap between systems — is a deselect.
+    const barHit = barAt(pageBarBoxes(page.layout), point);
+    if (barHit === null) {
       deselect();
       return;
     }
+    selectedId = null;
     chordSel = null;
-    selectedId = hit.id;
-    selectedPage = pageIndex;
+    barSel = { pageIndex, barNumber: barHit.barNumber };
   }
 
   function selectChord(
@@ -323,6 +378,7 @@
   ): void {
     selectedId = null;
     selectedPage = null;
+    barSel = null;
     chordSel = { pageIndex, mode, chordId, addr, barNumber, beat, seedText, box };
   }
 
@@ -395,6 +451,25 @@
             },
           ];
 
+    await runOps(operations);
+  }
+
+  /**
+   * Save a bar's structure (V7c). The panel hands over the bar's desired section, barlines and
+   * ending; this turns the diff against what the bar carries now into the minimal batch of the ops
+   * V7a/V7b built — `section.set`/`section.rm`, `barline.set`, `ending.set`/`ending.rm` — and posts
+   * them as one unit, so undo reverts the whole structural edit at once. Editing the letter/name
+   * fields to empty removes the section; the panel does not author a label-less boundary (the CLI
+   * does), which keeps two text fields meaning exactly one thing.
+   */
+  async function handleStructureSave(edits: StructureEdits): Promise<void> {
+    if (score === null || barStructure === null) return;
+    const operations = structureOps(barStructure, edits);
+    // Nothing changed: skip the round trip rather than post an empty batch (the server refuses one).
+    if (operations.length === 0) {
+      deselect();
+      return;
+    }
     await runOps(operations);
   }
 
@@ -647,9 +722,22 @@
               onreload={handleReload}
             />
           {/key}
+        {:else if barStructure !== null}
+          {#key barStructure.barNumber}
+            <StructureInspector
+              bar={barStructure}
+              {conflict}
+              {saving}
+              error={saveError}
+              onsave={handleStructureSave}
+              ondeselect={deselect}
+              onreload={handleReload}
+            />
+          {/key}
         {:else}
           <p class="inspector-empty">
-            Nothing selected. Click a note or a rest to edit it, or the band above a bar to add a chord.
+            Nothing selected. Click a note or a rest to edit it, a bar or its barline to set its
+            structure, or the band above a bar to add a chord.
           </p>
         {/if}
       </div>
@@ -680,6 +768,7 @@
           {pages}
           selection={selectionOverlay}
           chordSelection={chordOverlay}
+          barSelection={barOverlay}
           addHint={hoverSlot}
           onselect={handleSheetClick}
           onhover={handleSheetHover}

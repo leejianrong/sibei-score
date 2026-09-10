@@ -42,6 +42,8 @@
     selection?: { pageIndex: number; box: OverlayBox } | null;
     /** Which chord is selected (V5e) — drawn the same way, since only one thing is selected at once. */
     chordSelection?: { pageIndex: number; box: OverlayBox } | null;
+    /** Which bar is selected (V7c) — a bracket over the whole bar rather than a tight box on one glyph. */
+    barSelection?: { pageIndex: number; box: OverlayBox } | null;
     /** The empty beat under the pointer, where a click would add a chord (V5e). */
     addHint?: { pageIndex: number; box: OverlayBox } | null;
     /** A click on a sheet, translated into that page's own layout units. */
@@ -50,7 +52,7 @@
     onhover?: (pageIndex: number, point: Point | null) => void;
   }
 
-  const { pages, selection = null, chordSelection = null, addHint = null, onselect, onhover }: Props = $props();
+  const { pages, selection = null, chordSelection = null, barSelection = null, addHint = null, onselect, onhover }: Props = $props();
   const multi = $derived(pages.length > 1);
 
   function pointOf(index: number, event: MouseEvent): Point | null {
@@ -111,6 +113,9 @@
           onmouseleave={() => onhover?.(index, null)}
         >
           {@html page.svg}
+          {#if barSelection !== null && barSelection.pageIndex === index}
+            <div class="hit barsel" style={boxStyle(barSelection.box, page)}></div>
+          {/if}
           {#if selection !== null && selection.pageIndex === index}
             <div class="hit selected" style={boxStyle(selection.box, page)}></div>
           {/if}
@@ -175,6 +180,13 @@
     background: var(--accent-wash);
     outline: 1.5px solid var(--accent);
     outline-offset: -1.5px;
+  }
+  /* A selected bar is a region, not a glyph: a lighter wash and a full outline so it reads as
+     "this whole bar" without burying the ink it sits over. */
+  .hit.barsel {
+    background: var(--accent-wash);
+    outline: 1.5px solid var(--accent);
+    outline-offset: 0;
   }
   /* The add-a-chord affordance: a dashed target with a centred plus, keyed to the pointer. */
   .hit.addhint {

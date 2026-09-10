@@ -18,7 +18,7 @@ import { join, resolve } from 'node:path';
 import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
 import type { Score } from '@sibei/model';
 import { type Browser, chromium, type Page } from 'playwright';
-import { loadFont, pageItemBoxes, renderScorePages } from '@sibei/ui';
+import { barBoxFor, loadFont, pageBarBoxes, pageItemBoxes, renderScorePages } from '@sibei/ui';
 
 const REPO = resolve(import.meta.dirname, '..');
 const OUT = join(REPO, 'screenshots');
@@ -100,6 +100,26 @@ function killGroup(child: ChildProcess | undefined): void {
   }
 }
 
+/** A bar's centre, as a fraction of the sheet — the app's own bar geometry, so a click selects it. */
+function barFraction(score: Score, barNumber: number): { pageIndex: number; cx: number; cy: number } | null {
+  const pages = renderScorePages(score, { paper: 'a4' }, { font: DEFAULT_MUSIC_FONT });
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    const page = pages[pageIndex];
+    if (page === undefined) continue;
+    const box = barBoxFor(pageBarBoxes(page.layout), barNumber);
+    if (box !== null) {
+      // Left of centre, below the staff lines: clear of the notes and the chord band, so the click
+      // lands on the bar rather than something in it.
+      return {
+        pageIndex,
+        cx: (box.x + box.width * 0.3) / page.layout.width,
+        cy: (box.y + box.height * 0.82) / page.layout.height,
+      };
+    }
+  }
+  return null;
+}
+
 /** The first note on a chart, as a fraction of the sheet — the app's own geometry, so a click lands. */
 function firstNoteFraction(score: Score): { pageIndex: number; cx: number; cy: number } | null {
   const pages = renderScorePages(score, { paper: 'a4' }, { font: DEFAULT_MUSIC_FONT });
@@ -156,6 +176,16 @@ async function main(): Promise<void> {
       ['bar5.beat1', 'Eb5', '4'], ['bar5.beat2', 'F5', '4'],
     ];
     for (const [where, pitch, dur] of melody) cli(['note', 'add', 'body-and-soul', where, '--pitch', pitch, '--dur', dur]);
+
+    // A chart with real structure, so the Structure panel (V7c) has something to select and edit:
+    // a section, a repeat around the first four bars, and a 1st ending on bar 4.
+    cli(['new', '--id', 'structure-demo', '--title', 'Structure', '--composer', 'sibei-score', '--key', 'C', '--bars', '8']);
+    for (const [where, pitch] of [['bar1.beat1', 'E5'], ['bar2.beat1', 'G5'], ['bar3.beat1', 'C5'], ['bar4.beat1', 'D5']] as const) {
+      cli(['note', 'add', 'structure-demo', where, '--pitch', pitch, '--dur', '2']);
+    }
+    cli(['section', 'set', 'structure-demo', 'bar1', '--letter', 'A', '--name', 'Head']);
+    cli(['repeat', 'set', 'structure-demo', 'bar1', 'bar4']);
+    cli(['ending', 'set', 'structure-demo', 'bar4', '--numbers', '1', '--role', 'start-stop']);
 
     cli(['new', '--id', 'autumn-leaves', '--title', 'Autumn Leaves', '--composer', 'Joseph Kosma', '--key', 'Gm', '--bars', '32']);
     cli(['new', '--id', 'blue-bossa', '--title', 'Blue Bossa', '--composer', 'Kenny Dorham', '--key', 'Cm', '--bars', '16']);
@@ -231,6 +261,26 @@ async function main(): Promise<void> {
       }
     }
     await score.close();
+
+    // 5. A bar selected, the Structure panel open (V7c).
+    const structure = await context.newPage();
+    await structure.goto(`${uiUrl}/#/score/structure-demo`, { waitUntil: 'domcontentloaded' });
+    await structure.waitForSelector('.sheet');
+    await structure.waitForTimeout(400);
+    const barRecord = cli(['open', 'structure-demo']) as { score: Score };
+    const barTarget = barFraction(barRecord.score, 4); // the 1st-ending / repeat-end bar
+    if (barTarget !== null) {
+      const sheet = structure.locator('.sheet').nth(barTarget.pageIndex);
+      const box = await sheet.boundingBox();
+      if (box !== null) {
+        await sheet.click({ position: { x: barTarget.cx * box.width, y: barTarget.cy * box.height } });
+        await structure.getByRole('button', { name: 'Save' }).waitFor({ timeout: 5_000 });
+        await structure.getByRole('button', { name: 'Save' }).scrollIntoViewIfNeeded();
+        await structure.waitForTimeout(300);
+        await shoot(structure, 'structure-panel.png');
+      }
+    }
+    await structure.close();
 
     // A chart in a different meter, so the gallery isn't all one time signature.
     const five = await context.newPage();
