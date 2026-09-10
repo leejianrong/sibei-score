@@ -25,6 +25,8 @@
     text: string;
     barNumber: number;
     beat: number;
+    /** Whether the root's spelling is pinned against transposition (ADR-0017). V6e. */
+    spellingPinned: boolean;
   }
 
   interface Props {
@@ -32,7 +34,7 @@
     conflict: boolean;
     saving: boolean;
     error: string | null;
-    onsave: (text: string) => void;
+    onsave: (text: string, spellingPinned: boolean) => void;
     onremove: () => void;
     ondeselect: () => void;
     onreload: () => void;
@@ -44,6 +46,7 @@
   // (on mode+addr), so this never needs to react to a *different* chord arriving in place — only to
   // the keystrokes below. `untrack` says so, matching the note inspector.
   let text = $state(untrack(() => chord.text));
+  let spellingPinned = $state(untrack(() => chord.spellingPinned));
 
   // The live reading. Recomputed each keystroke; nothing here is stored or sent — it only says what
   // the grammar makes of the text so far.
@@ -71,7 +74,7 @@
 
   function save(): void {
     // Trimmed, but never validated-away: the server stores whatever this is and flags it if it must.
-    onsave(text.trim());
+    onsave(text.trim(), spellingPinned);
   }
 </script>
 
@@ -124,6 +127,18 @@
         </span>
       </div>
     {/if}
+
+    <label class="pin">
+      <input
+        type="checkbox"
+        checked={spellingPinned}
+        onchange={(event) => (spellingPinned = (event.currentTarget as HTMLInputElement).checked)}
+      />
+      <span class="pin-text">
+        Pin spelling
+        <em>Keeps this root through a transpose. Off, the destination key decides it.</em>
+      </span>
+    </label>
 
     {#if error !== null}
       <p class="field-error">{error}</p>
@@ -315,6 +330,35 @@
   .hint code {
     font-size: 10.5px;
     color: var(--ink-soft);
+  }
+
+  /* The spelling pin (V6e, ADR-0017), the chord twin of the note inspector's. */
+  .pin {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    cursor: pointer;
+  }
+  .pin input {
+    margin: 2px 0 0;
+    width: 15px;
+    height: 15px;
+    flex: none;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .pin-text {
+    font-size: 12.5px;
+    color: var(--ink);
+    line-height: 1.4;
+  }
+  .pin-text em {
+    display: block;
+    font-style: normal;
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 2px;
+    line-height: 1.5;
   }
 
   .conflict {

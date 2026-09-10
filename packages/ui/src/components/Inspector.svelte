@@ -28,6 +28,8 @@
     duration: Duration;
     accidental: AccidentalDisplay;
     tie: TieRole;
+    /** Whether this note's spelling is pinned against transposition (ADR-0017). V6e. */
+    spellingPinned: boolean;
   }
 
   export interface RestSelection {
@@ -42,6 +44,7 @@
     pitch: string;
     duration: Duration;
     accidental: AccidentalDisplay;
+    spellingPinned: boolean;
   }
 
   export interface RestEdits {
@@ -76,6 +79,7 @@
   let accidental = $state<AccidentalDisplay>(
     untrack(() => (selection.kind === 'note' ? selection.accidental : 'auto')),
   );
+  let spellingPinned = $state(untrack(() => (selection.kind === 'note' ? selection.spellingPinned : false)));
   let pitchError = $state<string | null>(null);
 
   const tieHint = $derived(selection.kind === 'note' ? hintFor(selection.tie) : null);
@@ -101,7 +105,7 @@
       return;
     }
     pitchError = null;
-    onsave({ pitch: pitchInput, duration, accidental });
+    onsave({ pitch: pitchInput, duration, accidental, spellingPinned });
   }
 </script>
 
@@ -171,6 +175,18 @@
           onselect={(chosen) => (accidental = chosen)}
         />
       </div>
+
+      <label class="pin">
+        <input
+          type="checkbox"
+          checked={spellingPinned}
+          onchange={(event) => (spellingPinned = (event.currentTarget as HTMLInputElement).checked)}
+        />
+        <span class="pin-text">
+          Pin spelling
+          <em>Keeps this spelling through a transpose. Off, the destination key decides it.</em>
+        </span>
+      </label>
     {/if}
 
     {#if tieHint !== null}
@@ -315,6 +331,36 @@
     color: var(--ink-faint);
     line-height: 1.55;
     margin: 0;
+  }
+
+  /* The spelling pin (V6e, ADR-0017). A checkbox rather than a segmented control: it is a plain
+     on/off, and the caption carries the meaning the two states cannot. */
+  .pin {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    cursor: pointer;
+  }
+  .pin input {
+    margin: 2px 0 0;
+    width: 15px;
+    height: 15px;
+    flex: none;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .pin-text {
+    font-size: 12.5px;
+    color: var(--ink);
+    line-height: 1.4;
+  }
+  .pin-text em {
+    display: block;
+    font-style: normal;
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-top: 2px;
+    line-height: 1.5;
   }
 
   .conflict {

@@ -38,8 +38,10 @@ export type {
   ExportRequest,
   Exporter,
 } from './export/export.js';
-export { PART_INSTRUMENTS, partInterval, partLabel, writtenPart } from './export/part.js';
-export type { PartInstrument } from './export/part.js';
+// Parts live in @sibei/music now (V6e), so the browser can render them too; re-exported here so the
+// server-side consumers and tests that reached them through @sibei/api still do.
+export { PART_INSTRUMENTS, partInterval, partLabel, writtenPart } from '@sibei/music';
+export type { PartInstrument } from '@sibei/music';
 
 export * from './ops/operations.js';
 export * from './ops/errors.js';
