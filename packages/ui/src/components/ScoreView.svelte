@@ -33,7 +33,9 @@
     INSTRUMENTS,
     OfflineError,
     PAPERS,
+    redoScore,
     submitOps,
+    undoScore,
   } from '../lib/api.js';
   import type { ExportInstrument, Operation } from '../lib/api.js';
   import { TARGET_KEYS, keyEquals } from '../lib/keys.js';
@@ -501,6 +503,59 @@
     deselect();
     await load();
   }
+
+  /**
+   * Undo and redo (V8a, ADR-0003). Same recovery path as `runOps`: submit, re-read, deselect, and a
+   * 409 raises the conflict panel rather than retrying at the server's version. A move that did
+   * nothing — the undo floor or the redo head — comes back `moved: false`, and the re-read is a
+   * cheap no-op, so ctrl-Z past the first edit is quiet rather than an error.
+   */
+  async function runMove(direction: 'undo' | 'redo'): Promise<void> {
+    if (score === null || !editable || saving) return;
+    saving = true;
+    saveError = null;
+    try {
+      await (direction === 'undo' ? undoScore : redoScore)(score.id, version);
+      await load();
+      deselect();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        conflict = true;
+        return;
+      }
+      saveError = error instanceof Error ? error.message : String(error);
+    } finally {
+      saving = false;
+    }
+  }
+
+  /** A field with its own undo stack: ctrl-Z there is text editing, not a document undo. */
+  function isTextField(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+  }
+
+  /**
+   * Ctrl-Z / ⌘-Z undo, and Ctrl-Shift-Z / ⌘-Shift-Z / Ctrl-Y redo — the global affordance PLAN.md
+   * names (P4), the browser half of `sbscore undo`. Registered on the window once (the effect reads
+   * nothing reactive synchronously, so it does not re-bind on every edit) and reads the live state
+   * at keypress. It stands down over a text field so the chord editor keeps its own undo, and over a
+   * part preview, where editing — and so undo — is off (the sheet is not the concert truth).
+   */
+  $effect(() => {
+    function onKeydown(event: KeyboardEvent): void {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+      const undo = key === 'z' && !event.shiftKey;
+      const redo = (key === 'z' && event.shiftKey) || key === 'y';
+      if (!undo && !redo) return;
+      if (isTextField(event.target) || score === null || !editable || saving) return;
+      event.preventDefault();
+      void runMove(undo ? 'undo' : 'redo');
+    }
+    window.addEventListener('keydown', onKeydown);
+    return () => window.removeEventListener('keydown', onKeydown);
+  });
 
   /**
    * Live updates (V4d, SLICES.md V4 step 5). One stream per mounted chart: `App.svelte` keys this

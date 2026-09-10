@@ -461,6 +461,18 @@ render correctly, and the pickup sits outside the grid.
 
 **Delivers:** R1, R7 (for v0.1), and completes v0.1
 
+> **Note, 2026-09-10.** Being cut into sub-slices V8a–V8f, landed as separate PRs the way V2–V7
+> were: (V8a) undo/redo, (V8b) the `codec` package, (V8c) library delete/duplicate, (V8d) the
+> migration fixture test, (V8e) the container, (V8f) the docs. **V8a is done.** Two corrections
+> against contact with the code (AGENTS.md's "trust the code"): step 1 reads "minus the last
+> *operation*", but ADR-0003 makes a **batch** one undoable unit, so undo drops the last *batch* —
+> the demo's eight-edit batch reverts as one. And because the op log is append-only forever
+> (ADR-0003; nothing UPDATEs or DELETEs a row) and `replay(log) == stored doc` is a tested property,
+> undo cannot delete rows or overwrite the document blindly: it appends an `undo`/`redo` **control
+> operation** that `replayLog` resolves, which needs no schema change and no inverse operations. This
+> also settled KAN-510 (the op log's read shape): the surface is `ScoreReader.operations`, read
+> inside the applier, with `POST /v1/scores/:id/undo|redo` as the write routes.
+
 **Build plan**
 
 1. Undo and redo by replay of the op log minus the last operation (ADR-0003), exposed as

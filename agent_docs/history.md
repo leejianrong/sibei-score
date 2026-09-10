@@ -6,6 +6,36 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V8 is undo, MusicXML, the library, the container and the docs, cut into vertical sub-slices the
+way V2–V7 were.** The verification pass paid off the way V7's did: the read surface over the op log
+(`ScoreReader.operations`) and the library `delete` already existed, the `batch` column has grouped
+undoable units since V2c, and migration-on-read has been real since V6d — so undo owed no schema
+change and no new store method.
+
+| | Delivers | State |
+|---|---|---|
+| V8a | Undo/redo by replay of the op log — control ops, `POST …/undo\|redo`, `sbscore undo\|redo`, ctrl-Z | **done** |
+| V8b | The `codec` package: MusicXML export + import, single-voice, every lossy case named | planned |
+| V8c | Library delete + duplicate (design-first UI) | planned |
+| V8d | A migration fixture through every schema version | planned |
+| V8e | The container: Dockerfile + compose + a persistent volume, networking-disabled-except-port | planned |
+| V8f | v0.1 docs: install, the CLI reference, the offline claim | planned |
+
+**V8a's one real decision was how undo persists, and the append-only log forced it.** ADR-0003 keeps
+the log append-only forever — `sqlite-store.ts` has no UPDATE or DELETE against it, and
+`one-writer.test.ts` fails if one appears — because rewriting history is exactly what undo-by-replay
+must never do. So undo cannot delete the last batch's rows, and it cannot overwrite the document
+either, because `replay(log) == stored doc` is a tested property. It appends an `undo` **control
+operation** instead: a `LoggedOperation` that is not a content verb (it can't be folded from the
+score alone — its result needs the whole log). `replayLog` resolves the markers against the log
+(`resolveLog` walks batch order into an applied stack and a redo stack) and folds the survivors, so
+the append-only log still reproduces the document exactly, undo included — the ADR-0003 property
+test extends to become undo's correctness proof. No inverse operations (the thing ADR-0003 rejected)
+and no schema change: the existing `type`/`payload`/`batch` columns carry a control op, which is its
+own batch of one. This is the KAN-510 shape decision, made at the point of use rather than up front.
+A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
+redo past the head are `moved: false` no-ops, not errors.
+
 **V7 is structure and page, and most of it turned out to be already built at V1.** SLICES.md's
 build plan reads as if the glyphs and the line-breaking were V7's to write; the code says
 otherwise. The model shapes (`Section`, `Bar.startBarline|endBarline|ending`) landed at V1 per
@@ -126,7 +156,7 @@ Not oversights. Each lands with the slice that needs it.
 |---|---|---|
 | Containerized test infra | probably never | V2a's answer turned out to be that SQLite needs no container: the `infra` layer runs against `:memory:` and temp files. Revisit only if something arrives that genuinely needs a daemon |
 | A cap on concurrent event streams | when something needs one | A hostile page can hold streams open — it reads nothing (no CORS headers, so the browser refuses the page the bytes) but nothing limits the count. Resource exhaustion is outside ADR-0029's threat model, and the alternative fix (widening the Origin rule to cover GETs) would change an ADR's shape to buy it (KAN-601) |
-| Replay on the event stream | when undo needs it | No `id:` is emitted, so no `Last-Event-ID` is promised. Replay needs a read surface over the op log and KAN-510 has deliberately not decided its shape — the first frame carrying the current version makes replay unnecessary for correctness |
+| Replay on the event stream | still not needed | No `id:` is emitted, so no `Last-Event-ID` is promised, and the first frame carrying the current version makes stream replay unnecessary for correctness. V8a's undo did not want it: undo reads the op log server-side (`ScoreReader.operations`, the read surface KAN-510 left open and V8a settled) and publishes a plain `changed` event like any edit — the client re-reads, exactly as it already did |
 | Anything serving the built browser | V4d or V8 | `pnpm ui:build` produces a bundle with no home. The dev server proxies `/v1/` to keep the UI same-origin, which is what ADR-0029's guards require; `sbscore serve` has no static path yet and inventing one was out of V4b's scope |
 | A cache-hit signal on the export response | when something needs one | `Artefact.cached` exists internally; no header carries it, so the CLI cannot report it. `/v1/` goes additive-only after the hosted transition, so the shape is worth deciding rather than defaulting (KAN-528) |
 | Eviction of cached artefacts | V8 | Superseded blobs accumulate. Correct by design — no `delete` on the port means nowhere to write invalidation logic — and eviction belongs with library lifecycle, where deleting a score should drop its blobs too (KAN-516) |

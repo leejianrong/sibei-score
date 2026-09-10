@@ -175,6 +175,32 @@ export async function submitOps(id: Id, batch: Batch): Promise<void> {
 }
 
 /**
+ * The result of an undo or a redo (V8a, ADR-0003). Unlike an edit, the caller does read one field
+ * of the response — `moved` — so ctrl-Z at the undo floor is a quiet no-op rather than an apparent
+ * failure. Everything else the caller learns by re-`getScore`, the same discipline as `submitOps`:
+ * the version and `moved` are enough to decide whether to repaint, never the content.
+ */
+export interface MoveResult {
+  version: number;
+  moved: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+/**
+ * `POST /v1/scores/:id/undo` and `…/redo`. Both carry `expectedVersion` for the same reason an edit
+ * does (ADR-0003): an undo reverts the version the reader is looking at, and a stale one is a 409 it
+ * recovers from by reloading — exactly the path `runOps` takes.
+ */
+export async function undoScore(id: Id, expectedVersion: number): Promise<MoveResult> {
+  return await postJson<MoveResult>(`${V1}/scores/${encodeURIComponent(id)}/undo`, { expectedVersion });
+}
+
+export async function redoScore(id: Id, expectedVersion: number): Promise<MoveResult> {
+  return await postJson<MoveResult>(`${V1}/scores/${encodeURIComponent(id)}/redo`, { expectedVersion });
+}
+
+/**
  * The instrument a part is written for (V6e, ADR-0016). Declared here as the **wire** value the
  * export route accepts, for the same reason `ScoreListing` is: `@sibei/api` owns the real
  * `PART_INSTRUMENTS`, and a browser bundle may not resolve that package (`tests/arch`). A name this

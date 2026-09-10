@@ -1,8 +1,8 @@
 import type { Id, Score } from '@sibei/model';
-import { applyOperation } from './apply.js';
+import { applyOperation, replay, resolveLog } from './apply.js';
 import { OperationError } from './errors.js';
 import { OPERATION_VERSION, isCreateBatch } from './operations.js';
-import type { Batch, Operation, StoredOperation } from './operations.js';
+import type { Batch, ControlOperation, LoggedOperation, Operation, StoredOperation } from './operations.js';
 import type { Owner, ScoreReader, ScoreWriter } from '../store/repository.js';
 
 /**
@@ -20,6 +20,16 @@ import type { Owner, ScoreReader, ScoreWriter } from '../store/repository.js';
 
 export interface Applier {
   apply(owner: Owner, scoreId: Id | null, batch: Batch): ApplyResult;
+  /**
+   * Undo the last applied batch, and redo the last undone one, by replay of the op log (V8a,
+   * ADR-0003). Both carry an `expectedVersion` for the same optimistic-concurrency reason a write
+   * does: a client undoing what it holds must not silently revert an edit that landed since. Both
+   * go through the one write path — they are the only thing besides `apply` that appends to the log,
+   * and they do it here rather than in a route because computing the result needs to *read* the log,
+   * which the pure applier in `apply.ts` never can.
+   */
+  undo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): UndoResult;
+  redo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): UndoResult;
 }
 
 export interface ApplyResult {
@@ -30,6 +40,27 @@ export interface ApplyResult {
   changed: Id[];
   /** The operations as logged: normalised, sequenced by the store. */
   applied: readonly Operation[];
+}
+
+/**
+ * The outcome of an undo or a redo (V8a).
+ *
+ * `moved` is the honest answer to "was there anything to do": false at the undo floor (a score with
+ * only its `score.create` batch — undoing that would leave no score, which ADR-0003 does not do) and
+ * past the redo head (nothing was undone to bring back). A no-op does not bump the version and
+ * appends nothing to the log — it is a clean answer, not an error, which is what the unit test at
+ * the first operation and past the head demands. `canUndo`/`canRedo` let a surface light or dim its
+ * controls without a second round trip.
+ */
+export interface UndoResult {
+  scoreId: Id;
+  /** The version after the move, or the unchanged version on a no-op. */
+  version: number;
+  /** `[scoreId]` when the document moved, empty on a no-op — the whole document is what changed. */
+  changed: Id[];
+  moved: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 /**
@@ -59,7 +90,86 @@ export function createApplier(
       const expected = requireExpectedVersion(batch);
       return mutate(store, owner, id, batch, expected, now);
     },
+
+    undo(owner, scoreId, expectedVersion) {
+      return move(store, owner, scoreId, expectedVersion, 'undo', now);
+    },
+
+    redo(owner, scoreId, expectedVersion) {
+      return move(store, owner, scoreId, expectedVersion, 'redo', now);
+    },
   };
+}
+
+/**
+ * Undo and redo, as one function because they are one shape (V8a).
+ *
+ * Read the log, resolve its undo/redo markers to the batches in effect (`resolveLog`), and either
+ * drop the last applied batch or bring back the last undone one. The new document is `replay(the
+ * effective content ops)` — undo really is "replay the log minus the last batch", exactly as
+ * ADR-0003 says, and redo re-applies the batch it set aside. What lands in the log is a single
+ * control marker; the append-only log then reproduces this very document on the next replay.
+ *
+ * The version is checked first, so a stale undo is a conflict a client re-reads from rather than a
+ * revert applied on top of an edit it never saw (ADR-0003). The floor is the `score.create` batch:
+ * undo stops there rather than leaving no score at all.
+ */
+function move(
+  store: ScoreReader & ScoreWriter,
+  owner: Owner,
+  scoreId: Id,
+  expectedVersion: number | undefined,
+  direction: 'undo' | 'redo',
+  now: () => Date,
+): UndoResult {
+  if (expectedVersion === undefined) throw new OperationError({ kind: 'missing-expected-version' });
+
+  const current = store.get(owner, scoreId);
+  if (current === null) throw new OperationError({ kind: 'no-such-score', id: scoreId });
+  if (expectedVersion !== current.version) {
+    throw new OperationError({ kind: 'stale-version', expected: expectedVersion, current: current.version });
+  }
+
+  const { applied, redo } = resolveLog(store.operations(owner, scoreId));
+
+  // The batches that would be in effect *after* this move. Undo drops the last applied batch (but
+  // never the create at the floor); redo brings back the last undone one.
+  const canUndo = applied.length > 1;
+  const canRedo = redo.length > 0;
+  const nextApplied =
+    direction === 'undo'
+      ? canUndo
+        ? applied.slice(0, -1)
+        : null
+      : canRedo
+        ? [...applied, redo[redo.length - 1]!]
+        : null;
+
+  if (nextApplied === null) {
+    // Nothing to do: the undo floor or the redo head. A clean no-op — no version bump, no log row.
+    return { scoreId, version: current.version, changed: [], moved: false, canUndo, canRedo };
+  }
+
+  const next = replay(nextApplied.flat());
+  if (next === null) {
+    // Unreachable: `nextApplied` always keeps the `score.create` batch, so it never folds to null.
+    throw new OperationError({ kind: 'validation', detail: `${direction} produced no score` });
+  }
+
+  const marker: ControlOperation = { type: direction };
+  const outcome = store.commit(owner, scoreId, expectedVersion, next, stamp([marker], now));
+  if (!outcome.ok) {
+    if (outcome.reason === 'conflict') {
+      throw new OperationError({ kind: 'stale-version', expected: expectedVersion, current: outcome.version });
+    }
+    if (outcome.reason === 'not-found') throw new OperationError({ kind: 'no-such-score', id: scoreId });
+    throw new OperationError({ kind: 'conflict-exists', id: scoreId });
+  }
+
+  // Availability *after* the move, so a surface can dim its controls from the same result.
+  const nowCanUndo = nextApplied.length > 1;
+  const nowCanRedo = direction === 'undo' ? true : redo.length > 1;
+  return { scoreId, version: outcome.version, changed: [scoreId], moved: true, canUndo: nowCanUndo, canRedo: nowCanRedo };
 }
 
 function requireId(scoreId: Id | null): Id {
@@ -193,7 +303,7 @@ function fold(
  * Wrap the normalised operations for the log. `seq` and `batch` are left to the store, which owns
  * the log's ordering; a caller choosing its own sequence numbers is a race waiting to be written.
  */
-function stamp(operations: readonly Operation[], now: () => Date): StoredOperation[] {
+function stamp(operations: readonly LoggedOperation[], now: () => Date): StoredOperation[] {
   const createdAt = `${now().toISOString().slice(0, 19)}Z`;
   return operations.map((operation) => ({
     seq: 0,

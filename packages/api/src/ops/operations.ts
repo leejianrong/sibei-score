@@ -173,8 +173,13 @@ export type EndingRmPayload = Record<string, never>;
 /**
  * The verbs implemented so far. V2 built the note and rest verbs; V5 added `chord.set` and
  * `chord.rm`; V6 added `transpose`; V7 adds `section.set`/`section.rm` and the barline and ending
- * verbs — `barline.set`, `ending.set` and `ending.rm`. `tie`, `tuplet` and `undo` each belong to a
- * later slice and building them here would be doing that slice's work early.
+ * verbs — `barline.set`, `ending.set` and `ending.rm`. `tie` and `tuplet` each belong to a later
+ * slice and building them here would be doing that slice's work early.
+ *
+ * **`Operation` is the *content* vocabulary: every member mutates the document, and every member is
+ * folded by `applyOperation` as a pure `(score, op) -> score`.** Undo and redo are deliberately not
+ * in this union — they are `ControlOperation`s (below), because they cannot be folded from the score
+ * alone: their result depends on the whole log, which the pure applier never sees.
  */
 export type Operation =
   | { type: 'score.create'; payload: ScoreCreatePayload }
@@ -213,20 +218,55 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'ending.rm',
 ];
 
+/**
+ * Undo and redo as they sit in the log (V8a, ADR-0003).
+ *
+ * **They are operations in the log, but not `Operation`s.** ADR-0003 keeps the log append-only
+ * forever — nothing ever UPDATEs or DELETEs a row, because rewriting history is exactly what
+ * undo-by-replay must never be able to do — so undo cannot delete the last batch's rows. Instead it
+ * appends a *control* operation: a marker that says "the last applied batch is now undone". Replay
+ * resolves these markers against the log (see `resolveLog` in `apply.ts`), so the append-only log
+ * still reproduces the stored document exactly, which is the property the whole write path rests on.
+ *
+ * This is not an inverse operation (ADR-0003 rejected those): there is one control op, not a
+ * provably-correct inverse per verb, and undo's *result* is still `replay(the log minus the last
+ * batch)` — the control op is only how that decision is persisted. It needs no schema change: the
+ * existing `type`/`payload`/`batch` columns already carry it, and a control op is its own batch of
+ * one, so it is itself a unit the way an edit is (undo of undo is `redo`, not a second marker on the
+ * same batch).
+ */
+export type ControlOperation = { type: 'undo' } | { type: 'redo' };
+
+export type ControlOperationType = ControlOperation['type'];
+
+export const CONTROL_OPERATION_TYPES: readonly ControlOperationType[] = ['undo', 'redo'];
+
+/**
+ * Anything that can sit in the log: a content `Operation` or a `ControlOperation`. The store reads
+ * and writes this; `applyOperation` only ever sees the content half, because `resolveLog` strips the
+ * control ops away before folding.
+ */
+export type LoggedOperation = Operation | ControlOperation;
+
+export function isControlOperation(operation: LoggedOperation): operation is ControlOperation {
+  return operation.type === 'undo' || operation.type === 'redo';
+}
+
 /** An operation as it sits in the log: normalised, sequenced, and grouped into its batch. */
 export interface StoredOperation {
   /** 1-based, per score, gapless. The order replay walks. */
   seq: number;
   /**
    * The undoable unit this operation belongs to (ADR-0003). A `batch` is one unit whatever its
-   * length; a lone operation is a unit of one. Undo (V8) drops the last group, not the last row
+   * length; a lone operation is a unit of one. Undo (V8a) drops the last group, not the last row
    * — the column is here from the first commit because adding it after a library exists is the
    * expensive version of the same decision.
    */
   batch: number;
   /** The operation shape's own version, not the document's (ADR-0028). */
   version: number;
-  operation: Operation;
+  /** A content edit or an undo/redo control marker (V8a). */
+  operation: LoggedOperation;
   /** ISO-8601. Audit only: nothing in the document depends on it, so replay ignores it. */
   createdAt: string;
 }

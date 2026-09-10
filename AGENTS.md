@@ -8,7 +8,8 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is next.** `SLICES.md` is the plan of record and
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo) has landed.**
+`SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
 the op log and applier, the `/v1/` API, the CLI with its text projection, export from the store, an
@@ -24,9 +25,12 @@ sections and rehearsal letters, repeat/double/final barlines, and 1st/2nd ending
 `section.set|rm`, `barline.set` and `ending.set|rm` ops (all targeting a whole-bar `bar12` address),
 their `sbscore section|barline|repeat|ending` verbs, and the browser Structure panel reached by
 clicking a bar. The layout has broken lines at real sections and the engraver drawn every barline
-kind since V1 (ADR-0026); V7 was the write path and the surfaces, not the rendering. Not built yet:
-the MusicXML codec and the whole import pipeline. Don't assume a module exists because a plan
-mentions it.
+kind since V1 (ADR-0026); V7 was the write path and the surfaces, not the rendering. From V8a
+**undo/redo** by replay of the append-only op log (ADR-0003): `undo`/`redo` *control* operations
+resolved by `replayLog`, the `POST /v1/scores/:id/undo|redo` routes, `sbscore undo|redo`, and ctrl-Z
+/ ctrl-shift-Z in the score view — an agent `batch` undoing as one unit. Not built yet: the MusicXML
+codec, the library's delete/duplicate controls, the container, and the whole import pipeline. Don't
+assume a module exists because a plan mentions it.
 
 ## Layout
 

@@ -119,6 +119,27 @@ export async function route(
     return sendJson(response, 200, context.applier.apply(context.owner, opsFor, batchFrom(body)));
   }
 
+  // Undo and redo (V8a, ADR-0003). Their own routes rather than operations in an `/ops` batch,
+  // because they are not content edits: they act on the *log*, and only the applier can read it.
+  // Each carries `expectedVersion` like a write — the applier refuses one without it — so a client
+  // cannot undo on top of an edit it never saw. The move is idempotent at the ends: undoing at the
+  // first operation and redoing past the head come back 200 with `moved: false`, never an error.
+  const undoFor = match(path, /^\/v1\/scores\/([^/]+)\/undo$/);
+  if (undoFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    return sendJson(response, 200, context.applier.undo(context.owner, undoFor, expectedVersionFrom(body)));
+  }
+
+  const redoFor = match(path, /^\/v1\/scores\/([^/]+)\/redo$/);
+  if (redoFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    return sendJson(response, 200, context.applier.redo(context.owner, redoFor, expectedVersionFrom(body)));
+  }
+
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));
 }
 
@@ -254,6 +275,16 @@ export function batchFrom(body: unknown): Batch {
     operations: Array.isArray(operations) ? operations : [],
     ...(source.expectedVersion === undefined ? {} : { expectedVersion: source.expectedVersion }),
   };
+}
+
+/**
+ * The expected version an undo/redo carries. `undefined` when the body omits it — the applier
+ * refuses that with the same `missing-expected-version` a write gets, rather than this file guessing
+ * a version the caller never established (KAN-607).
+ */
+function expectedVersionFrom(body: unknown): number | undefined {
+  const value = (body as { expectedVersion?: unknown } | null)?.expectedVersion;
+  return typeof value === 'number' ? value : undefined;
 }
 
 const MALFORMED = Symbol('malformed');

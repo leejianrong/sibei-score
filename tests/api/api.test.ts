@@ -414,6 +414,71 @@ describe('a batch is transactional over HTTP too (ADR-0008)', () => {
   });
 });
 
+describe('undo and redo over HTTP (V8a, ADR-0003)', () => {
+  const pitchCount = async (): Promise<number> => {
+    const score = (await call('GET', '/v1/scores/score-1')).body.score as { bars: { items: unknown[] }[] };
+    return score.bars.reduce((n, bar) => n + bar.items.length, 0);
+  };
+  const versionNow = async (): Promise<number> =>
+    (await call('GET', '/v1/scores/score-1')).body.version as number;
+
+  it('undoes the last edit and redoes it', async () => {
+    await aChart();
+    await edit({ operation: note('bar1.beat2', 'F5') });
+    expect(await pitchCount()).toBe(2);
+
+    const undone = await call('POST', '/v1/scores/score-1/undo', { expectedVersion: await versionNow() });
+    expect(undone.status).toBe(200);
+    expect(undone.body).toMatchObject({ moved: true });
+    expect(await pitchCount()).toBe(1);
+
+    const redone = await call('POST', '/v1/scores/score-1/redo', { expectedVersion: await versionNow() });
+    expect(redone.body).toMatchObject({ moved: true });
+    expect(await pitchCount()).toBe(2);
+  });
+
+  it('answers 200 with moved:false at the undo floor rather than erroring', async () => {
+    await call('POST', '/v1/scores', { operation: CREATE });
+    const reply = await call('POST', '/v1/scores/score-1/undo', { expectedVersion: await versionNow() });
+    expect(reply.status).toBe(200);
+    expect(reply.body).toMatchObject({ moved: false, canUndo: false });
+  });
+
+  it('is a 409 with the current version on a stale undo (ADR-0003)', async () => {
+    const version = await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/undo', { expectedVersion: version - 1 });
+    expect(reply.status).toBe(409);
+    expect(reply.body.error).toMatchObject({ kind: 'stale-version', currentVersion: version });
+  });
+
+  it('is a 422 when the undo names no version at all (KAN-607)', async () => {
+    await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/undo', {});
+    expect(reply.status).toBe(422);
+    expect((reply.body.error as { kind: string }).kind).toBe('missing-expected-version');
+  });
+
+  it('is a 404 for a score that is not there', async () => {
+    const reply = await call('POST', '/v1/scores/nope/undo', { expectedVersion: 1 });
+    expect(reply.status).toBe(404);
+  });
+
+  it('refuses GET on the undo route', async () => {
+    expect((await call('GET', '/v1/scores/score-1/undo')).status).toBe(405);
+  });
+
+  it('rejects a foreign-origin undo as a state change (ADR-0029)', async () => {
+    const version = await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/undo', { expectedVersion: version }, {
+      origin: 'https://evil.example',
+    });
+    expect(reply.status).toBe(403);
+    expect((reply.body.error as { kind: string }).kind).toBe('foreign-origin');
+    // And nothing moved.
+    expect(await versionNow()).toBe(version);
+  });
+});
+
 describe('the Origin check (ADR-0029)', () => {
   it('rejects a state-changing request from a foreign origin', async () => {
     // The drive-by path: a page the user happens to be visiting, issuing a write.

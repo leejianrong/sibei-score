@@ -162,6 +162,66 @@ describe('editing', () => {
   });
 });
 
+describe('undo and redo (V8a, ADR-0003)', () => {
+  it('reverts the last edit and reapplies it', async () => {
+    await aChart();
+    await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'C5', '--dur', '4');
+    expect((await sbscore('show', 'soul')).out).toContain('c5/4');
+
+    const undone = await sbscore('undo', 'soul');
+    expect(undone.code).toBe(EXIT.ok);
+    expect(undone.out).toMatch(/^undid/);
+    expect((await sbscore('show', 'soul')).out).not.toContain('c5/4');
+
+    const redone = await sbscore('redo', 'soul');
+    expect(redone.code).toBe(EXIT.ok);
+    expect(redone.out).toMatch(/^redid/);
+    expect((await sbscore('show', 'soul')).out).toContain('c5/4');
+  });
+
+  it('undoes an eight-edit batch as one step, and eight singles one at a time', async () => {
+    // A batch is one undoable unit (ADR-0008): eight ops in one `batch` verb, one undo, all gone.
+    await aChart();
+    const eight = Array.from({ length: 8 }, (_, i) => ({
+      type: 'note.add',
+      target: `bar${i < 4 ? 1 : 2}.beat${(i % 4) + 1}`,
+      payload: { pitch: 'C5', duration: { value: 4, dots: 0 } },
+    }));
+    expect((await sbscore('batch', 'soul', '--ops', JSON.stringify(eight))).code).toBe(EXIT.ok);
+    expect((await sbscore('show', 'soul')).out.match(/c5\/4/g) ?? []).toHaveLength(8);
+
+    await sbscore('undo', 'soul');
+    expect((await sbscore('show', 'soul')).out).not.toContain('c5/4');
+  });
+
+  it('says so plainly and exits ok when there is nothing to undo', async () => {
+    await aChart();
+    const result = await sbscore('undo', 'soul');
+    expect(result.code).toBe(EXIT.ok);
+    expect(result.out).toBe('nothing to undo');
+  });
+
+  it('reports moved in --json so an agent can branch on it', async () => {
+    await aChart();
+    const result = await sbscore('undo', 'soul', '--json');
+    expect(result.code).toBe(EXIT.ok);
+    expect(json<{ moved: boolean }>(result.out).moved).toBe(false);
+  });
+
+  it('gives a stale conflict its own exit code when --if-version is pinned', async () => {
+    await aChart();
+    await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'C5', '--dur', '4');
+    // Version is 3 now (create, the aChart edit is none — aChart is just new; add made it 2).
+    const result = await sbscore('undo', 'soul', '--if-version', '1');
+    expect(result.code).toBe(EXIT.conflict);
+  });
+
+  it('exits not-found for a score that is not there', async () => {
+    // The version read happens first, so a missing score fails on the GET, like every other verb.
+    expect((await sbscore('undo', 'nope')).code).toBe(EXIT.notFound);
+  });
+});
+
 describe('chords, over the same one write path (V5, Q32)', () => {
   it('sets a chord above a bar and shows it in the projection', async () => {
     await aChart();
