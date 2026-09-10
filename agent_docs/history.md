@@ -20,7 +20,7 @@ is *not* a rendering slice. The cut:
 |---|---|---|
 | V7a | `section.set|rm` ops, the `bar12` whole-bar address, `sbscore section set|rm`, layout wiring verified | **done** |
 | V7b | `barline.set` + `ending.set|rm` ops, `sbscore barline/repeat/ending`, the AABA demo fixture, proofed | **done** |
-| V7c | The browser structure panel (design-first) | planned |
+| V7c | The browser Structure panel — click a bar, edit its section/barlines/ending (design-first) | **done** |
 
 **V7b proved the last of the structure rendering by adding the fixture that exercises it.** The
 engraver already drew every barline kind and every ending *role*, but the corpus only ever set a
@@ -32,6 +32,18 @@ shows the two brackets landing on the right bars with their hooks and numbers; t
 `aaba-chart.page1.svg` snapshot pins it. `repeat set` is CLI sugar — a `repeat-start`/`repeat-end`
 pair of `barline.set`s in one batch — so the op set stays minimal (`barline.set`, `ending.set`,
 `ending.rm`).
+
+**V7c closed the Q79 debt V7a/V7b booked, design-first.** A mockup built around the real
+`aaba-chart` render was published and approved before a line of the panel was written; the
+implementation was then checked against it with real screenshots (`pnpm screenshots` grew a
+`structure-panel.png`), and the one thing the shot caught — a four/five-way word-labelled segmented
+control overflowing the 292px rail — became a `fill` variant on `SegmentedControl` rather than a
+one-off. **Selecting a bar** extends the hit-test the way V4c/V5e extended it for notes and chords:
+`bar-hit.ts` boxes each bar's staff region (a barline sits on a bar edge, so clicking one selects
+the bar it bounds), and clicking bare staff selects the bar where it used to deselect. The panel's
+Save turns the diff against the bar's current structure into the minimal batch of V7a/V7b's ops
+(`structure-edits.ts`, a pure function unit-tested in the fast layer); a browser test drives the
+whole click→edit→save→store→engrave round trip.
 
 **V7a added a fourth address form, `bar12` — a whole bar.** Structure attaches to a bar rather than
 to a beat within one, so `resolveBar` is its resolver, kept separate from `resolveAddress` (which is

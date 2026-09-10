@@ -1,6 +1,6 @@
 import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
 import type { Score } from '@sibei/model';
-import { loadFont, pageChordBoxes, pageItemBoxes, renderScorePages } from '@sibei/ui';
+import { barBoxFor, loadFont, pageBarBoxes, pageChordBoxes, pageItemBoxes, renderScorePages } from '@sibei/ui';
 
 /**
  * Where to click to select a note, computed from the **same** geometry the browser hit-tests
@@ -64,6 +64,30 @@ export function chordBandTarget(score: Score, barNumber: number, beat: number): 
       // 0), so the band is only a glyph-height tall just above the staff — aim clear of both edges.
       const y = system.staveY - system.chordBaselineOffset - 10;
       return { noteId: `bar${barNumber}.beat${beat}`, pageIndex, cx: x / page.layout.width, cy: y / page.layout.height };
+    }
+  }
+  throw new Error(`no bar ${barNumber} to target`);
+}
+
+/**
+ * Where to click to select a **whole bar** and open the Structure panel (V7c) — the same bar
+ * geometry the browser hit-tests against (`pageBarBoxes`). Aimed low and left of centre, clear of
+ * the notes and the chord band, so the click lands on the bar rather than something in it — exactly
+ * where the screenshots script clicks.
+ */
+export function barTarget(score: Score, barNumber: number): NoteTarget {
+  const pages = renderScorePages(score, { paper: 'a4' }, { font: DEFAULT_MUSIC_FONT });
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    const page = pages[pageIndex];
+    if (page === undefined) continue;
+    const box = barBoxFor(pageBarBoxes(page.layout), barNumber);
+    if (box !== null) {
+      return {
+        noteId: `bar${barNumber}`,
+        pageIndex,
+        cx: (box.x + box.width * 0.3) / page.layout.width,
+        cy: (box.y + box.height * 0.82) / page.layout.height,
+      };
     }
   }
   throw new Error(`no bar ${barNumber} to target`);
