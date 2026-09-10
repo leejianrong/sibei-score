@@ -16,8 +16,10 @@ import type { Bar, BarItem, Chord, Id, Note, Rest, Score } from './score.js';
  * beats a silent mis-edit.
  */
 
-/** The three forms, parsed. */
+/** The four forms, parsed. */
 export type Address =
+  /** `bar12` — a whole bar. Structure attaches here: a section, a barline, an ending (V7). */
+  | { form: 'bar'; bar: number }
   /** `bar12.beat3` — a beat within a bar. 1-based, fractional between beats. */
   | { form: 'beat'; bar: number; beat: number }
   /** `bar12.n3` — the third item in bar 12, ordered by onset then by insertion order. */
@@ -69,7 +71,11 @@ export type AddressFailure =
   | { kind: 'no-such-ordinal'; bar: number; ordinal: number; count: number }
   | { kind: 'no-such-id'; id: Id }
   | { kind: 'wrong-kind'; found: AddressKind; looking: AddressKind; at: string }
-  | { kind: 'not-a-position'; text: string };
+  | { kind: 'not-a-position'; text: string }
+  /** A bar address given where a note/rest/chord was wanted. */
+  | { kind: 'not-an-object'; text: string }
+  /** A position or id given where a whole-bar address was wanted (a structure verb). */
+  | { kind: 'not-a-bar'; text: string };
 
 export class AddressError extends Error {
   readonly failure: AddressFailure;
@@ -90,7 +96,7 @@ export function formatAddressFailure(failure: AddressFailure): string {
     case 'syntax':
       return (
         `not an address: ${JSON.stringify(failure.text)}. ` +
-        `Expected bar12.beat3, bar12.n3, or an id like note-17.`
+        `Expected bar12, bar12.beat3, bar12.n3, or an id like note-17.`
       );
     case 'no-such-bar':
       return failure.present.length === 0
@@ -115,6 +121,16 @@ export function formatAddressFailure(failure: AddressFailure): string {
         `${JSON.stringify(failure.text)} names an object rather than a place. ` +
         `Use a beat address like bar12.beat3 to say where.`
       );
+    case 'not-an-object':
+      return (
+        `${JSON.stringify(failure.text)} names a whole bar rather than a note, rest or chord. ` +
+        `Use a beat address like bar12.beat3, or an id.`
+      );
+    case 'not-a-bar':
+      return (
+        `${JSON.stringify(failure.text)} names a position rather than a whole bar. ` +
+        `Use a bar address like bar12.`
+      );
   }
 }
 
@@ -125,6 +141,7 @@ export function formatAddressFailure(failure: AddressFailure): string {
 /** `bar0` is the pickup, so bar 1 is the first full bar, matching how musicians count. */
 const BEAT_FORM = /^bar(\d+)\.beat(\d+(?:\.\d+)?)$/;
 const ORDINAL_FORM = /^bar(\d+)\.n(\d+)$/;
+const BAR_FORM = /^bar(\d+)$/;
 const ID_FORM = /^[a-z]+-\d+$/;
 
 /** Syntax only — no score consulted, so this cannot tell you whether the thing exists. */
@@ -146,6 +163,9 @@ export function parseAddress(text: string): Address {
     return { form: 'beat', bar: Number(bar), beat: Number(b) };
   }
 
+  const bar = BAR_FORM.exec(trimmed);
+  if (bar !== null) return { form: 'bar', bar: Number(bar[1]) };
+
   if (ID_FORM.test(trimmed)) return { form: 'id', id: trimmed };
 
   throw new AddressError({ kind: 'syntax', text });
@@ -154,6 +174,8 @@ export function parseAddress(text: string): Address {
 /** The address, printed. The text projection prints these, so an agent never constructs one. */
 export function formatAddress(address: Address): string {
   switch (address.form) {
+    case 'bar':
+      return `bar${address.bar}`;
     case 'beat':
       return `bar${address.bar}.beat${formatBeat(address.beat)}`;
     case 'ordinal':
@@ -184,7 +206,24 @@ export function resolveAddress(
       return resolveOrdinal(score, parsed, looking);
     case 'beat':
       return resolveBeat(score, parsed, looking);
+    case 'bar':
+      // A bare bar names a place, not a note/rest/chord. Structure verbs use `resolveBar`;
+      // anything looking for an object here has been handed a bar where it wanted a thing in one.
+      throw new AddressError({ kind: 'not-an-object', text: formatAddress(parsed) });
   }
+}
+
+/**
+ * The bar a `bar12` address names (V7). Structure — sections, barlines, endings — attaches to a
+ * whole bar rather than to a position within one, so it resolves here rather than through
+ * `resolveAddress`, which is about the notes and chords *inside* a bar.
+ */
+export function resolveBar(score: Score, address: Address | string): Bar {
+  const parsed = typeof address === 'string' ? parseAddress(address) : address;
+  if (parsed.form !== 'bar') {
+    throw new AddressError({ kind: 'not-a-bar', text: formatAddress(parsed) });
+  }
+  return barOrThrow(score, parsed.bar);
 }
 
 /**

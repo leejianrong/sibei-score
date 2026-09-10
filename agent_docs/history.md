@@ -6,6 +6,28 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V7 is structure and page, and most of it turned out to be already built at V1.** SLICES.md's
+build plan reads as if the glyphs and the line-breaking were V7's to write; the code says
+otherwise. The model shapes (`Section`, `Bar.startBarline|endBarline|ending`) landed at V1 per
+ADR-0026, so no migration is owed. `layout` already breaks the four-bar grid at real
+`score.sections` (`planSystems` via `startsSection`) and already emits the `rehearsalMark`,
+`barline`, `endBarline` and `ending` items; `engrave` already draws every one of them, wired into
+`engrave.ts` and proven by the committed snapshots. So V7 is the **write path** — the ops that set
+these fields — plus the CLI and UI to drive them, and proofing that user-set structure renders. It
+is *not* a rendering slice. The cut:
+
+| | Delivers | State |
+|---|---|---|
+| V7a | `section.set|rm` ops, the `bar12` whole-bar address, `sbscore section set|rm`, layout wiring verified | **done** |
+| V7b | Repeat / double / final barlines and 1st/2nd endings — ops + CLI, proofed | planned |
+| V7c | The browser structure panel (design-first) | planned |
+
+**V7a added a fourth address form, `bar12` — a whole bar.** Structure attaches to a bar rather than
+to a beat within one, so `resolveBar` is its resolver, kept separate from `resolveAddress` (which is
+about the notes and chords *inside* a bar). A rehearsal letter therefore keys on a **bar number**
+and survives notes being inserted before it, which is the V7 unit case. `section.set` is an upsert
+like `chord.set`: the same verb creates a section and later edits its letter or name.
+
 **V4 is done** — the browser. It is the first slice with a UI at all, and the first that
 can break "the two surfaces cannot disagree" by building a second way to do something. It was cut
 into four sub-cards (KAN-587–590 under KAN-412), and the cut is *not* SLICES.md's six steps:

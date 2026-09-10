@@ -13,6 +13,7 @@ import {
   orderedItems,
   parseAddress,
   resolveAddress,
+  resolveBar,
   resolvePosition,
 } from '@sibei/model';
 import type { Score } from '@sibei/model';
@@ -69,6 +70,8 @@ function aScore(): Score {
 
 describe('parsing', () => {
   it.each([
+    ['bar12', { form: 'bar', bar: 12 }],
+    ['bar0', { form: 'bar', bar: 0 }],
     ['bar12.beat3', { form: 'beat', bar: 12, beat: 3 }],
     ['bar12.beat2.5', { form: 'beat', bar: 12, beat: 2.5 }],
     ['bar0.beat4', { form: 'beat', bar: 0, beat: 4 }],
@@ -86,7 +89,6 @@ describe('parsing', () => {
   });
 
   it.each([
-    ['bar12'],
     ['12.beat3'],
     ['bar12.beat'],
     ['bar12.n'],
@@ -105,13 +107,35 @@ describe('parsing', () => {
 
   it('says what an address looks like when it cannot read one', () => {
     // An agent that gets this back should not need to read the docs to recover.
-    expect(() => parseAddress('bar12')).toThrow(/Expected bar12\.beat3, bar12\.n3, or an id/);
+    expect(() => parseAddress('barX')).toThrow(/Expected bar12, bar12\.beat3, bar12\.n3, or an id/);
   });
 
   it('round-trips through formatting', () => {
-    for (const text of ['bar12.beat3', 'bar12.beat2.5', 'bar12.n3', 'note-17']) {
+    for (const text of ['bar12', 'bar12.beat3', 'bar12.beat2.5', 'bar12.n3', 'note-17']) {
       expect(formatAddress(parseAddress(text))).toBe(text);
     }
+  });
+});
+
+describe('the bar form — a whole bar, for structure (V7)', () => {
+  it('resolves to the bar with that number', () => {
+    expect(resolveBar(aScore(), 'bar1').id).toBe('bar-1');
+    expect(resolveBar(aScore(), 'bar0').id).toBe('bar-0'); // the pickup is addressable too
+  });
+
+  it('names a bar that does not exist, listing what is there', () => {
+    expect(() => resolveBar(aScore(), 'bar9')).toThrow(/no bar 9/);
+  });
+
+  it('refuses a position address where a whole bar was wanted', () => {
+    expect(() => resolveBar(aScore(), 'bar1.beat1')).toThrow(/whole bar/);
+    expect(() => resolveBar(aScore(), 'note-2')).toThrow(/whole bar/);
+  });
+
+  it('is not something to add a note or chord onto', () => {
+    // A bar address names a place too big to hold one item; resolveAddress says so rather than snap.
+    expect(() => resolveAddress(aScore(), 'bar1')).toThrow(/whole bar rather than a note/);
+    expect(() => resolvePosition(aScore(), 'bar1')).toThrow(/whole bar rather than a note/);
   });
 });
 

@@ -88,10 +88,12 @@ copes with two items sharing an onset, because an imported document may contain 
 load-bearing in the layout engine rather than incidental.
 
 **The verb set is deliberately short** — `score.create`, `meta.set`, `note.add|set|rm`,
-`rest.add|rm`. `chord`, `section`, `repeat`, `tie`, `tuplet`, `transpose` and `undo` each belong
-to a later slice. Two gaps worth knowing about: a score's bar count is fixed at creation (there
-is no `bar.append` until V7 needs one), and deleting a score is *not* an operation — it destroys
-the log an entry would live in, so it is a library lifecycle call instead.
+`rest.add|rm`, `chord.set|rm` (V5), `transpose` (V6), and `section.set|rm` (V7). `repeat`,
+`tie`, `tuplet` and `undo` each still belong to a later slice. `section.set` is an upsert keyed on
+a whole-bar address (`bar5`), the same upsert-at-a-place shape as `chord.set`. Two gaps worth
+knowing about: a score's bar count is fixed at creation (there is no `bar.append` yet), and
+deleting a score is *not* an operation — it destroys the log an entry would live in, so it is a
+library lifecycle call instead.
 
 ## Export, the blob port, and the cache that has no invalidation logic
 

@@ -114,8 +114,33 @@ export interface TransposePayload {
 }
 
 /**
+ * Upsert the section that begins on a bar (V7, R3, ADR-0021). The target is a whole-bar address
+ * (`bar5`); the section is keyed by that start bar, so `set` replaces the section already starting
+ * there — keeping its id — or creates one if none is. This mirrors `chord.set`'s upsert-at-a-place
+ * shape rather than a stackable `add`, because a bar begins at most one section.
+ *
+ * A section is load-bearing for layout, not only notation: its start bar forces a line break in the
+ * four-bar grid (ADR-0015), and its `letter`, when present, is engraved as a rehearsal mark. Both
+ * `letter` and `name` are stored verbatim and may be omitted (left null) — a section can divide the
+ * form without carrying a rehearsal letter. Sections are *supported and hand-added, never detected*
+ * (ADR-0021), which is exactly what this op is.
+ */
+export interface SectionSetPayload {
+  /** The rehearsal letter, e.g. `A`. Null clears it; omitted on an upsert keeps the existing one. */
+  letter?: string | null;
+  /** The section name, e.g. `Bridge`. Null clears it; omitted on an upsert keeps the existing one. */
+  name?: string | null;
+  /** *Recorded.* The id of the section this set landed on — the existing one, or the one created. */
+  id?: Id;
+}
+
+/** Remove the section that begins on the target bar. A no-op target (no section there) is refused. */
+export type SectionRmPayload = Record<string, never>;
+
+/**
  * The verbs implemented so far. V2 built the note and rest verbs; V5 added `chord.set` and
- * `chord.rm`; V6 adds `transpose` (this slice). `section`, `repeat`, `tie`, `tuplet` and `undo`
+ * `chord.rm`; V6 added `transpose`; V7 adds `section.set` and `section.rm` (this slice), with the
+ * barline and ending verbs following in the same milestone. `repeat`, `tie`, `tuplet` and `undo`
  * each belong to a later slice and building them here would be doing that slice's work early.
  */
 export type Operation =
@@ -128,7 +153,9 @@ export type Operation =
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
-  | { type: 'transpose'; payload: TransposePayload };
+  | { type: 'transpose'; payload: TransposePayload }
+  | { type: 'section.set'; target: string; payload: SectionSetPayload }
+  | { type: 'section.rm'; target: string; payload?: SectionRmPayload };
 
 export type OperationType = Operation['type'];
 
@@ -143,6 +170,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'chord.set',
   'chord.rm',
   'transpose',
+  'section.set',
+  'section.rm',
 ];
 
 /** An operation as it sits in the log: normalised, sequenced, and grouped into its batch. */
