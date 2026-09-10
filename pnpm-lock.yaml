@@ -29,6 +29,9 @@ importers:
       '@sibei/model':
         specifier: workspace:*
         version: link:packages/model
+      '@sibei/music':
+        specifier: workspace:*
+        version: link:packages/music
       '@sibei/pdf':
         specifier: workspace:*
         version: link:packages/pdf
@@ -116,6 +119,12 @@ importers:
         version: link:../model
 
   packages/model: {}
+
+  packages/music:
+    dependencies:
+      '@sibei/model':
+        specifier: workspace:*
+        version: link:../model
 
   packages/pdf:
     dependencies:
