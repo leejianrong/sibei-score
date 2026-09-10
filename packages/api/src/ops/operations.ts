@@ -96,9 +96,25 @@ export interface ChordSetPayload {
 }
 
 /**
- * The verbs implemented so far. V2 built the note and rest verbs; V5 adds `chord.set` and
- * `chord.rm` (this slice). `section`, `repeat`, `tie`, `tuplet`, `transpose` and `undo` each
- * belong to a later slice and building them here would be doing that slice's work early.
+ * Transpose the whole chart into a new concert key (ADR-0016). A **mutation**, not a view: the
+ * score always stores concert pitch, so changing the concert key changes the tune, goes through the
+ * log, and is undoable like any other edit (an instrument *part* is the other feature, and it stays
+ * a render-time view — see `EXPORT_INSTRUMENTS`).
+ *
+ * The melody is respelled by the destination key signature, honouring per-note pins; chord roots
+ * and slash basses move with it (ADR-0017). Nothing here is *recorded*: the respelling is a pure
+ * function of the score's key at apply time and the target, both of which replay reproduces exactly,
+ * so the target key is all the payload has to carry.
+ */
+export interface TransposePayload {
+  /** The concert key to transpose into. */
+  to: KeySignature;
+}
+
+/**
+ * The verbs implemented so far. V2 built the note and rest verbs; V5 added `chord.set` and
+ * `chord.rm`; V6 adds `transpose` (this slice). `section`, `repeat`, `tie`, `tuplet` and `undo`
+ * each belong to a later slice and building them here would be doing that slice's work early.
  */
 export type Operation =
   | { type: 'score.create'; payload: ScoreCreatePayload }
@@ -109,7 +125,8 @@ export type Operation =
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
-  | { type: 'chord.rm'; target: string };
+  | { type: 'chord.rm'; target: string }
+  | { type: 'transpose'; payload: TransposePayload };
 
 export type OperationType = Operation['type'];
 
@@ -123,6 +140,7 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'rest.rm',
   'chord.set',
   'chord.rm',
+  'transpose',
 ];
 
 /** An operation as it sits in the log: normalised, sequenced, and grouped into its batch. */

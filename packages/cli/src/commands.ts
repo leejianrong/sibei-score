@@ -60,6 +60,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore rest rm  <id> <address>
   sbscore chord set <id> <address> --text F#m7b5
   sbscore chord rm  <id> <address>
+  sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
 
 Addresses (ADR-0007):  bar12.beat3  ·  bar12.n3  ·  note-17
@@ -157,6 +158,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return rest(flags, client, io, json);
     case 'chord':
       return chord(flags, client, io, json);
+    case 'transpose':
+      return transpose(flags, client, io, json);
     case 'batch':
       return batch(flags, client, io, json);
     case 'health': {
@@ -408,6 +411,19 @@ async function chord(flags: Flags, client: Client, io: Io, json: boolean): Promi
     return submit(flags, client, io, json, id, [{ type: 'chord.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'chord takes set or rm');
+}
+
+/**
+ * `sbscore transpose <id> --to Eb` (V6, ADR-0016). Changes the chart's concert key — a mutation, so
+ * it goes through the same versioned write path as any edit and is undoable later. `--to` takes a
+ * key in the spelling `sbscore show` prints: `Eb`, `F#m`, `C`. The melody and the chord symbols move
+ * together; the server decides the spellings by the destination key (ADR-0017), so the CLI passes
+ * only the target and judges nothing about the notes.
+ */
+async function transpose(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'transpose');
+  const to = parseKey(required(flags, 'to', 'transpose'));
+  return submit(flags, client, io, json, id, [{ type: 'transpose', payload: { to } } as Operation]);
 }
 
 /**
