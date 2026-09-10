@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo) has landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo) and V8b (the MusicXML codec) have landed.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -28,9 +28,13 @@ clicking a bar. The layout has broken lines at real sections and the engraver dr
 kind since V1 (ADR-0026); V7 was the write path and the surfaces, not the rendering. From V8a
 **undo/redo** by replay of the append-only op log (ADR-0003): `undo`/`redo` *control* operations
 resolved by `replayLog`, the `POST /v1/scores/:id/undo|redo` routes, `sbscore undo|redo`, and ctrl-Z
-/ ctrl-shift-Z in the score view — an agent `batch` undoing as one unit. Not built yet: the MusicXML
-codec, the library's delete/duplicate controls, the container, and the whole import pipeline. Don't
-assume a module exists because a plan mentions it.
+/ ctrl-shift-Z in the score view — an agent `batch` undoing as one unit. From V8b the **MusicXML
+codec** (`packages/codec`): `scoreToMusicXml`/`musicXmlToScore` for single-voice lead sheets, with
+its own dependency-free XML reader and a round-trip whose every lossy case is named in a test — but
+**not yet wired to a surface** (no `export --musicxml`, no import verb/button yet: booked debt, the
+V6a pattern of landing a pure engine before its ops). Not built yet: the codec's surface wiring, the
+library's delete/duplicate controls, the container, and the whole import pipeline. Don't assume a
+module exists because a plan mentions it.
 
 ## Layout
 
@@ -38,6 +42,7 @@ assume a module exists because a plan mentions it.
 packages/
   model      score types, tick arithmetic, pitch, derived metric validity
   music      the chord grammar: parse/format chord symbols to structure, and the OCR corrector
+  codec      MusicXML at the edges (ADR-0004): score <-> MusicXML string, single-voice. Own XML reader
   layout     score -> engine-independent positions: the four-bar grid
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM

@@ -17,6 +17,9 @@ importers:
       '@sibei/cli':
         specifier: workspace:*
         version: link:packages/cli
+      '@sibei/codec':
+        specifier: workspace:*
+        version: link:packages/codec
       '@sibei/engrave':
         specifier: workspace:*
         version: link:packages/engrave
@@ -99,6 +102,15 @@ importers:
       '@sibei/model':
         specifier: workspace:*
         version: link:../model
+
+  packages/codec:
+    dependencies:
+      '@sibei/model':
+        specifier: workspace:*
+        version: link:../model
+      '@sibei/music':
+        specifier: workspace:*
+        version: link:../music
 
   packages/engrave:
     dependencies:

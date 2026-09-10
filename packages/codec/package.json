@@ -1,0 +1,16 @@
+{
+  "name": "@sibei/codec",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "MusicXML codec at the edges (ADR-0004): export a score to MusicXML and import one back. Single-voice lead sheets. Framework-free, Node-free.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/model": "workspace:*",
+    "@sibei/music": "workspace:*"
+  }
+}
