@@ -4,6 +4,7 @@ import {
   SCHEMA_VERSION,
   barReview,
   makeBar,
+  makeChord,
   makeNote,
   makeRest,
   makeScore,
@@ -17,15 +18,19 @@ import {
 import type {
   Bar,
   BarItem,
+  Chord,
   Duration,
   Id,
   KeySignature,
   Note,
+  Review,
   Score,
   TimeSignature,
 } from '@sibei/model';
+import { parseChord } from '@sibei/music';
 import { OperationError } from './errors.js';
 import type {
+  ChordSetPayload,
   MetaSetPayload,
   NoteAddPayload,
   NoteSetPayload,
@@ -105,6 +110,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return addRest(score, operation.target, operation.payload);
     case 'rest.rm':
       return removeItem(score, operation.target, 'rest');
+    case 'chord.set':
+      return setChord(score, operation.target, operation.payload);
+    case 'chord.rm':
+      return removeChord(score, operation.target);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.
@@ -323,6 +332,78 @@ function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applie
     operation: kind === 'note' ? { type: 'note.rm', target } : { type: 'rest.rm', target },
     changed: [id],
   };
+}
+
+// ---------------------------------------------------------------------------
+// chord.set, chord.rm
+// ---------------------------------------------------------------------------
+
+/**
+ * Set a chord symbol at a beat (Q32). An upsert: the chord already on that beat has its text
+ * replaced, keeping its id; an empty beat gets a new chord. There is no `refuseOccupiedOnset`
+ * here, and that asymmetry with `note.add` is the point — a note stacked on a beat would be a
+ * second voice, but a *second chord symbol on the same beat* is not a thing, so setting one
+ * replaces rather than refuses. A chord at a *different* beat in the same bar is how two chords
+ * share a bar, and the address is what keeps them apart.
+ *
+ * The text is stored exactly as given. The grammar decides only the flag: unparseable text is
+ * kept and flagged `unparsed-chord`, never rejected (ADR-0012).
+ */
+function setChord(score: Score, target: string, payload: ChordSetPayload): Applied {
+  const position = resolvePosition(score, target);
+  const text = validChordText(payload.text);
+  const existing = position.bar.chords.find((chord) => chord.onset === position.onset);
+  const id = existing?.id ?? nextId(score, 'chord');
+
+  const chord = makeChord({ id, onset: position.onset, text, review: chordReview(text) });
+
+  return {
+    score: mapBar(score, position.bar.id, (bar) => ({
+      ...bar,
+      chords: [...bar.chords.filter((other) => other.id !== id), chord].sort((a, b) => a.onset - b.onset),
+    })),
+    operation: { type: 'chord.set', target, payload: { ...payload, id } },
+    changed: [id],
+  };
+}
+
+function removeChord(score: Score, target: string): Applied {
+  const resolved = resolveAddress(score, target, 'chord');
+  const chord = resolved.target as Chord;
+
+  return {
+    score: mapBar(score, resolved.bar.id, (bar) => ({
+      ...bar,
+      chords: bar.chords.filter((other) => other.id !== chord.id),
+    })),
+    operation: { type: 'chord.rm', target },
+    changed: [chord.id],
+  };
+}
+
+function validChordText(text: unknown): string {
+  if (typeof text !== 'string') {
+    throw new OperationError({ kind: 'validation', detail: 'a chord needs text' });
+  }
+  const trimmed = text.trim();
+  if (trimmed === '') {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'a chord needs non-empty text; remove the chord with chord rm instead',
+    });
+  }
+  return trimmed;
+}
+
+/**
+ * A chord's review flag, from the grammar (ADR-0012). Parseable text — including `N.C.` — is not
+ * flagged; text the grammar cannot read is flagged `unparsed-chord`, which is the projection's `!`
+ * and the score rail's highlight. This is a *stored* flag, not a derived one, because the model is
+ * framework-free and cannot depend on `@sibei/music` — the applier is where the two meet (see
+ * `review.ts` on why unparsed-chord is stored rather than recomputed by every reader).
+ */
+function chordReview(text: string): Review {
+  return parseChord(text) === null ? { flagged: true, reasons: ['unparsed-chord'] } : noReview();
 }
 
 // ---------------------------------------------------------------------------

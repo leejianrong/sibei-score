@@ -319,6 +319,15 @@ a reload. The two surfaces visibly cannot disagree.
 
 **Delivers:** R3 (partial)
 
+> **Note, 2026-09-10.** Being cut into sub-slices V5a–V5e (grammar, corrector, ops+CLI, engraver
+> typography, browser), landed as separate PRs the way V2–V4 were. Two corrections against contact
+> with the code, per AGENTS.md's "trust the code": the `Chord` model field and beat-anchored chord
+> *addressing* already existed from V1 (`resolveBeat` handles `looking: 'chord'`), so step 2 is the
+> ops and the applier, not the address scheme. And step 5's `Ebm7@1, Bb7@3` is conceptual shorthand
+> for beat placement — the projection has rendered chords in its **four-bar grid** since ADR-0009's
+> worked example (`1 |Ebm7  Ab7|…`), not with an `@beat` syntax — so step 5 is delivered by that
+> grid, and the corrector (ADR-0011) is added alongside the grammar as its own sub-slice.
+
 **Build plan**
 
 1. `music` package: chord grammar — parse and format root, quality, extensions,

@@ -14,6 +14,7 @@
     "@sibei/engrave": "workspace:*",
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",
+    "@sibei/music": "workspace:*",
     "@sibei/pdf": "workspace:*",
     "better-sqlite3": "13.0.2"
   },
