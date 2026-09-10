@@ -13,6 +13,9 @@ import {
   parsePitch,
   resolveAddress,
   resolvePosition,
+  keyInterval,
+  transposePitch,
+  transposeSpelling,
   AddressError,
 } from '@sibei/model';
 import type {
@@ -21,13 +24,14 @@ import type {
   Chord,
   Duration,
   Id,
+  Interval,
   KeySignature,
   Note,
   Review,
   Score,
   TimeSignature,
 } from '@sibei/model';
-import { parseChord } from '@sibei/music';
+import { formatChord, parseChord } from '@sibei/music';
 import { OperationError } from './errors.js';
 import type {
   ChordSetPayload,
@@ -37,6 +41,7 @@ import type {
   Operation,
   RestAddPayload,
   ScoreCreatePayload,
+  TransposePayload,
 } from './operations.js';
 
 /**
@@ -114,6 +119,8 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setChord(score, operation.target, operation.payload);
     case 'chord.rm':
       return removeChord(score, operation.target);
+    case 'transpose':
+      return transpose(score, operation.payload);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.
@@ -379,6 +386,79 @@ function removeChord(score: Score, target: string): Applied {
     operation: { type: 'chord.rm', target },
     changed: [chord.id],
   };
+}
+
+// ---------------------------------------------------------------------------
+// transpose
+// ---------------------------------------------------------------------------
+
+/**
+ * Transpose the whole chart into a new concert key (ADR-0016). The score always stores concert
+ * pitch, so this genuinely changes the tune: the melody moves by the interval between the current
+ * key and the target and is respelled by the destination key signature, honouring per-note pins
+ * (ADR-0017); chord roots and slash basses move with it. The key signature itself becomes the
+ * target.
+ *
+ * It is a mutation on the one write path like any other op, which is what makes it undoable later
+ * (V8) without any special-casing. Nothing is recorded into the payload beyond the target key: the
+ * respelling is a pure function of the score's key at apply time and the target, and replay
+ * reproduces both, so recording per-object results would add nothing replay does not already have.
+ *
+ * Rhythm is untouched, so metric validity cannot change — but the bars are reflagged anyway, the
+ * same no-op `meta.set` performs, so the stored write-through flag can never fall out of step with
+ * the rule that derives it.
+ */
+function transpose(score: Score, payload: TransposePayload): Applied {
+  const to = validKey(payload.to);
+  const interval = keyInterval(score.meta.key, to);
+  const changed: Id[] = [];
+
+  const bars = score.bars.map((bar) => {
+    const items = bar.items.map((item) => {
+      if (item.kind !== 'note') return item;
+      changed.push(item.id);
+      return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned) };
+    });
+    const chords = bar.chords.map((chord) => {
+      const moved = transposeChordText(chord.text, interval, to);
+      if (moved === chord.text) return chord;
+      changed.push(chord.id);
+      return { ...chord, text: moved };
+    });
+    return reflag({ ...bar, items, chords }, score.meta.time);
+  });
+
+  const next: Score = { ...score, meta: { ...score.meta, key: to }, bars };
+  return {
+    score: next,
+    operation: { type: 'transpose', payload: { to } },
+    changed: changed.length > 0 ? changed : [score.id],
+  };
+}
+
+/**
+ * Move a chord symbol's root (and any slash bass) by the transposition interval, respelled by the
+ * destination key. Text the grammar cannot read, and `N.C.`, are returned unchanged — there is no
+ * root to move, and an unparseable symbol stays verbatim and flagged exactly as it was stored
+ * (ADR-0012). A parsed chord comes back through `formatChord`, so it is written in the grammar's one
+ * canonical spelling — the price of transposing structure rather than juggling substrings, and the
+ * same canonicalisation `chord.set` already relies on for the round-trip.
+ *
+ * Chords carry no spelling pin yet, so every root respells by the key; the per-chord override is a
+ * document-shape change that arrives with its migration in a later slice (ADR-0017, ADR-0028).
+ */
+function transposeChordText(text: string, interval: Interval, to: KeySignature): string {
+  const parsed = parseChord(text);
+  if (parsed === null || parsed.kind === 'no-chord') return text;
+  const s = parsed.structure;
+  return formatChord({
+    kind: 'chord',
+    structure: {
+      ...s,
+      root: transposeSpelling(s.root, interval, to),
+      bass: s.bass === null ? null : transposeSpelling(s.bass, interval, to),
+    },
+  });
 }
 
 function validChordText(text: unknown): string {
