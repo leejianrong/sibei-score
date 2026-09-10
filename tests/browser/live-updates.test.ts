@@ -7,8 +7,8 @@ import { startStack, type Stack } from './support/stack.js';
  * V4d's end-to-end tests — the ones SLICES.md's V4 test plan lists under "End-to-end", and the
  * reason V4d exists as its own card. They boot the **whole stack** (`support/stack.ts`) and drive
  * a **real** browser, because the thing under test is the seam between the surfaces — a jsdom
- * simulation would pass while the product is broken, which CLAUDE.md names as exactly the failure
- * to avoid here.
+ * simulation would pass while the product is broken, which `agent_docs/testing.md` names as exactly
+ * the failure to avoid here.
  *
  * All three turn on the one property the architecture is built to guarantee: the browser and the
  * CLI are two clients of one API (ADR-0002) and cannot disagree about a chart. A browser edit is a

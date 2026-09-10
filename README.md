@@ -9,9 +9,9 @@ command line**, and exported as a print-ready PDF.
 > built (V1–V4). Chords, transposition, and photo import are planned — see [`SLICES.md`](SLICES.md).
 
 <p align="center">
-  <img src="docs/assets/nasty-chart.svg" alt="A lead sheet engraved by sibei-score: four bars to a line, chord symbols above the staff, ties, triplets and a pickup" width="620">
+  <img src="screenshots/score-view.png" alt="The sibei-score browser: a rail of chart metadata and controls beside an engraved lead sheet, four bars to a line" width="860">
   <br>
-  <em>The <code>nasty-chart</code> fixture, rendered by the built-in engraver — ties across barlines, triplets, a pickup, and dense chord symbols.</em>
+  <em>The score view — the rail carries what the engraving can't say (review state, the face and paper, export), and the sheet renders through the same layout + engrave the PDF does.</em>
 </p>
 
 ## Why
@@ -82,6 +82,22 @@ the exit codes (which are a contract). The two live surfaces:
 - **Browser** — a library view with search and a score view that renders through the *same* layout
   and engrave packages the PDF does, edits notes and rests, and repaints live when the chart changes
   elsewhere.
+
+## Screenshots
+
+A few more states below; the full set — including the handwritten face and a 5/4 chart — is in
+[`screenshots/`](screenshots/), regenerable with `pnpm screenshots`.
+
+| The library | Editing a note |
+|---|---|
+| [<img src="screenshots/library.png" alt="The library view: a searchable list of charts with title, composer, key and version" width="420">](screenshots/library.png) | [<img src="screenshots/inspector.png" alt="A note selected on the sheet, with an inspector for pitch, duration and accidental in the rail" width="420">](screenshots/inspector.png) |
+| Search by title, composer or key. New charts come from the CLI. | Click a note; edit pitch, duration and accidental. Every edit is an op through the same API the CLI uses. |
+
+The handwritten **jazz** face (Petaluma) is one control away from the engraved default:
+
+<p align="center">
+  <img src="screenshots/score-view-jazz.png" alt="The same chart rendered in the Petaluma handwritten Real Book face" width="720">
+</p>
 
 ## Repository
 
