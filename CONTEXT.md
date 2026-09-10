@@ -32,7 +32,7 @@ in full: `docs/adr/`.
 | **Bar** | A measure. Numbered from 1. |
 | **Bar 0** | The pickup bar, when present. Sits before bar 1 and consumes no four-bar slot. |
 | **Onset** | The point at which a note begins. The only positions an address may name. |
-| **Beat position** | Location within a bar, used to anchor chord symbols. `Ebm7@1, Bb7@3` means two chords in one bar. |
+| **Beat position** | Where in a bar a chord is anchored (Q32) — e.g. Ebm7 on beat 1 and Bb7 on beat 3 are two positions in one bar. `Ebm7@1` is conceptual shorthand for that placement; the text projection renders chords in its four-bar grid, not an `@beat` syntax (ADR-0009). |
 | **Section** | A named division of the form — A, B, bridge. Carries a **rehearsal letter**. |
 | **Section boundary** | The edge of a section. Load-bearing for layout, not only notation: it forces a line break. |
 | **Metric validity** | Whether a bar's durations sum to the time signature. A derived property, never an invariant. An invalid bar is stored and flagged. |

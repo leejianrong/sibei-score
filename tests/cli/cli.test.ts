@@ -162,6 +162,38 @@ describe('editing', () => {
   });
 });
 
+describe('chords, over the same one write path (V5, Q32)', () => {
+  it('sets a chord above a bar and shows it in the projection', async () => {
+    await aChart();
+    // The demo: type F#m7b5 above bar 3, then a second chord on beat 3 from the CLI.
+    expect((await sbscore('chord', 'set', 'soul', 'bar3.beat1', '--text', 'F#m7b5')).code).toBe(EXIT.ok);
+    expect((await sbscore('chord', 'set', 'soul', 'bar3.beat3', '--text', 'B7')).code).toBe(EXIT.ok);
+    const shown = (await sbscore('show', 'soul')).out;
+    expect(shown).toContain('F#m7b5');
+    expect(shown).toContain('B7');
+    expect(shown.indexOf('F#m7b5')).toBeLessThan(shown.indexOf('B7'));
+  });
+
+  it('upserts on set and removes on rm, at a beat or by id', async () => {
+    await aChart();
+    await sbscore('chord', 'set', 'soul', 'bar1.beat1', '--text', 'Cmaj7');
+    await sbscore('chord', 'set', 'soul', 'bar1.beat1', '--text', 'Am7'); // replaces, keeps chord-1
+    expect((await sbscore('show', 'soul')).out).toContain('Am7');
+    expect((await sbscore('show', 'soul')).out).not.toContain('Cmaj7');
+
+    expect((await sbscore('chord', 'rm', 'soul', 'chord-1')).code).toBe(EXIT.ok);
+    expect((await sbscore('show', 'soul')).out).not.toContain('Am7');
+  });
+
+  it('stores unparseable text verbatim and flags it, never rejecting it (ADR-0012)', async () => {
+    await aChart();
+    expect((await sbscore('chord', 'set', 'soul', 'bar1.beat1', '--text', 'solo break')).code).toBe(EXIT.ok);
+    const shown = (await sbscore('show', 'soul')).out;
+    expect(shown).toContain('solo break!'); // verbatim, with the review flag
+    expect(shown).toContain('needs review');
+  });
+});
+
 describe('a write always names the version it expects (ADR-0003, KAN-607)', () => {
   it('reads the version first when --if-version is absent, instead of writing blind', async () => {
     // The server refuses a write that names no version, and `--if-version` is optional — so absence

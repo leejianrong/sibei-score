@@ -58,6 +58,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
+  sbscore chord set <id> <address> --text F#m7b5
+  sbscore chord rm  <id> <address>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
 
 Addresses (ADR-0007):  bar12.beat3  ·  bar12.n3  ·  note-17
@@ -153,6 +155,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return note(flags, client, io, json);
     case 'rest':
       return rest(flags, client, io, json);
+    case 'chord':
+      return chord(flags, client, io, json);
     case 'batch':
       return batch(flags, client, io, json);
     case 'health': {
@@ -380,6 +384,30 @@ async function rest(flags: Flags, client: Client, io: Io, json: boolean): Promis
     return submit(flags, client, io, json, id, [{ type: 'rest.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'rest takes add or rm');
+}
+
+/**
+ * `sbscore chord set <id> <address> --text F#m7b5` and `chord rm <id> <address>` (V5, Q32).
+ *
+ * The address is a beat within a bar — `bar3.beat1`, `bar3.beat3` — because a chord anchors to a
+ * beat, and two chords in one bar are two addresses. `set` is an upsert on the server, so the same
+ * verb places the first chord and edits it later. The text is passed through untouched: whether the
+ * grammar can read it is the server's business, not the CLI's, so `--text "solo break"` is stored
+ * and flagged exactly like a mistyped chord rather than being refused here.
+ */
+async function chord(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `chord ${sub}`);
+  const target = requiredPositional(flags, 3, 'an address', `chord ${sub}`);
+
+  if (sub === 'set') {
+    const text = required(flags, 'text', 'chord set');
+    return submit(flags, client, io, json, id, [{ type: 'chord.set', target, payload: { text } } as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'chord.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'chord takes set or rm');
 }
 
 /**

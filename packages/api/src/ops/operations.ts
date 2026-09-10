@@ -79,9 +79,26 @@ export interface RestAddPayload {
 }
 
 /**
- * The verbs this slice implements, and deliberately only these: what V2's demo and test plan
- * need. `chord`, `section`, `repeat`, `tie`, `tuplet`, `transpose` and `undo` each belong to a
- * later slice and building them here would be doing that slice's work early.
+ * Set a chord symbol at a beat within a bar (Q32, ADR-0012). `set` is an upsert: it replaces the
+ * chord already at that beat, or creates one if none is there — a chord *symbol* is a property of
+ * a beat, not a stackable object like a note, so there is no separate `chord.add`.
+ *
+ * `text` is stored **verbatim**, always. Whether the grammar (`@sibei/music`) can parse it decides
+ * only the review flag, never whether it is stored: unparseable text is kept and flagged, never
+ * rejected (ADR-0012). The parsed structure is not stored — the text is the truth, and any reader
+ * that needs the structure re-parses it, the same way the engraver and transposition will.
+ */
+export interface ChordSetPayload {
+  /** The chord symbol as typed. `Cmaj7`, `F#m7b5`, `N.C.`, or something the grammar cannot read. */
+  text: string;
+  /** *Recorded.* The id of the chord this set landed on — the existing one, or the one created. */
+  id?: Id;
+}
+
+/**
+ * The verbs implemented so far. V2 built the note and rest verbs; V5 adds `chord.set` and
+ * `chord.rm` (this slice). `section`, `repeat`, `tie`, `tuplet`, `transpose` and `undo` each
+ * belong to a later slice and building them here would be doing that slice's work early.
  */
 export type Operation =
   | { type: 'score.create'; payload: ScoreCreatePayload }
@@ -90,7 +107,9 @@ export type Operation =
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'note.rm'; target: string }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
-  | { type: 'rest.rm'; target: string };
+  | { type: 'rest.rm'; target: string }
+  | { type: 'chord.set'; target: string; payload: ChordSetPayload }
+  | { type: 'chord.rm'; target: string };
 
 export type OperationType = Operation['type'];
 
@@ -102,6 +121,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'note.rm',
   'rest.add',
   'rest.rm',
+  'chord.set',
+  'chord.rm',
 ];
 
 /** An operation as it sits in the log: normalised, sequenced, and grouped into its batch. */
