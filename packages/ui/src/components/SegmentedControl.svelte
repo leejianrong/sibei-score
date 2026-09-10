@@ -1,9 +1,10 @@
-<script lang="ts" generics="T extends string">
+<script lang="ts" generics="T extends string | number">
   /**
    * A segmented control over a list the renderer published — never a hardcoded pair.
    * `PAPERS` and `FONTS` come from `PAPER_SIZES` and `MUSIC_FONT_NAMES`, so a third face or a
    * third paper appears here as a third segment, the same way the export route's 422 quotes a
-   * list it derives rather than one it restates.
+   * list it derives rather than one it restates. `number` joined the constraint at V4c, for a
+   * note value (`1 | 2 | 4 | 8 | 16 | 32`) — the same control, not a second one for numbers.
    */
   interface Props {
     label: string;

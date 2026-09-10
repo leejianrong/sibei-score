@@ -12,18 +12,35 @@
    * nowhere else to go: an under-filled bar and a correct one are the same ink, so the engraver
    * draws no flag, and if the chrome does not say it nobody ever finds out (ADR-0013).
    *
-   * Read-only, deliberately. No selection, no hit-testing, no inspector — V4c. The room below
-   * the export block is where the inspector goes.
+   * **Selection and the inspector are V4c.** A click on the sheet hit-tests against the exact
+   * geometry the engraver drew from (`../lib/hit-test.js`), never a second opinion about where
+   * anything sits. Saving submits an op to the same `/v1/scores/:id/ops` the CLI uses — there is
+   * no second write path — and a stale write recovers by reloading, never by retrying with the
+   * server's version (ADR-0003).
    */
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { Paper } from '@sibei/layout';
-  import { formatKeySignature, NEEDS_REVIEW, reviewSummary } from '@sibei/model';
-  import type { Score } from '@sibei/model';
-  import { ApiError, exportRoute, exportUrl, FONTS, getScore, OfflineError, PAPERS } from '../lib/api.js';
+  import { formatKeySignature, formatPitch, NEEDS_REVIEW, reviewSummary } from '@sibei/model';
+  import type { Id, Score } from '@sibei/model';
+  import {
+    ApiError,
+    exportRoute,
+    exportUrl,
+    FONTS,
+    getScore,
+    OfflineError,
+    PAPERS,
+    submitOps,
+  } from '../lib/api.js';
+  import type { Operation } from '../lib/api.js';
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
+  import { boxFor, findItem, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
+  import type { Point } from '../lib/hit-test.js';
   import { renderScorePages } from '../lib/render.js';
+  import Inspector from './Inspector.svelte';
+  import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
 
@@ -55,6 +72,15 @@
   let font = $state<MusicFontName>(DEFAULT_MUSIC_FONT);
   let zoom = $state(100);
 
+  // Selection (V4c). The id is the whole of it — everything the inspector shows is looked up
+  // fresh from the current render each time, never cached at selection time, so a reload never
+  // leaves it holding a stale copy of what it is inspecting.
+  let selectedId = $state<Id | null>(null);
+  let selectedPage = $state<number | null>(null);
+  let conflict = $state(false);
+  let saving = $state(false);
+  let saveError = $state<string | null>(null);
+
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
@@ -63,6 +89,41 @@
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
   const route = $derived(exportRoute({ paper, font }));
+
+  // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
+  // own geometry functions with it rather than a second copy of them (../lib/hit-test.js).
+  const musicFont = $derived(loadFont(font));
+
+  const located = $derived.by(() => {
+    if (selectedId === null || selectedPage === null) return null;
+    const page = pages[selectedPage];
+    if (page === undefined) return null;
+    return findItem(page.layout, selectedId);
+  });
+
+  const selection = $derived.by((): Selection | null => {
+    if (located === null) return null;
+    const { item } = located;
+    if (item.kind === 'note') {
+      return {
+        kind: 'note',
+        id: item.noteId,
+        pitch: formatPitch(item.pitch),
+        duration: item.duration,
+        accidental: item.accidental,
+        tie: item.tie,
+      };
+    }
+    return { kind: 'rest', id: item.restId, duration: item.duration };
+  });
+
+  const selectionOverlay = $derived.by(() => {
+    if (selectedId === null || selectedPage === null) return null;
+    const page = pages[selectedPage];
+    if (page === undefined) return null;
+    const box = boxFor(pageItemBoxes(page.layout, musicFont), selectedId);
+    return box === null ? null : { pageIndex: selectedPage, box };
+  });
 
   async function load(): Promise<void> {
     try {
@@ -92,6 +153,83 @@
 
   function stepZoom(by: number): void {
     zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom + by));
+  }
+
+  function deselect(): void {
+    selectedId = null;
+    selectedPage = null;
+    conflict = false;
+    saveError = null;
+  }
+
+  /**
+   * A click on a sheet, in that page's own layout units (`SheetStack` did the pixel-to-unit
+   * arithmetic; this is where musical meaning is decided). Missing everything counts as a
+   * deselect — clicking white space is how the mockup's "Deselect" affordance behaves without a
+   * second control for it.
+   */
+  function handleSheetClick(pageIndex: number, point: Point): void {
+    if (saving) return;
+    const page = pages[pageIndex];
+    if (page === undefined) return;
+    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    conflict = false;
+    saveError = null;
+    if (hit === null) {
+      selectedId = null;
+      selectedPage = null;
+      return;
+    }
+    selectedId = hit.id;
+    selectedPage = pageIndex;
+  }
+
+  /**
+   * `note.set` for a note; `rest.rm` + `rest.add` in one batch for a rest, because there is no
+   * `rest.set` verb and inventing one is a slice-level decision this card does not get to make
+   * (KAN-589). The add's target is a position — `bar12.beat3` — because the rm just freed that
+   * beat and the new rest has no id yet to address by.
+   *
+   * Success re-reads the score rather than trusting `ApplyResult`'s content, the same reasoning
+   * as the SSE event payload: this response says an edit landed, not what the chart now says.
+   * A 409 is the one path that does not re-read — it shows the conflict panel, and reloading is
+   * the only way out of it (ADR-0003).
+   */
+  async function handleSave(edits: NoteEdits | RestEdits): Promise<void> {
+    if (score === null || located === null || selectedId === null) return;
+
+    const operations: Operation[] =
+      located.item.kind === 'note'
+        ? [{ type: 'note.set', target: selectedId, payload: edits as NoteEdits }]
+        : [
+            { type: 'rest.rm', target: selectedId },
+            {
+              type: 'rest.add',
+              target: `bar${located.barNumber}.beat${located.item.beat}`,
+              payload: { duration: (edits as RestEdits).duration },
+            },
+          ];
+
+    saving = true;
+    saveError = null;
+    try {
+      await submitOps(score.id, { operations, expectedVersion: version });
+      await load();
+      deselect();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        conflict = true;
+        return;
+      }
+      saveError = error instanceof Error ? error.message : String(error);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function handleReload(): Promise<void> {
+    deselect();
+    await load();
   }
 
   void load();
@@ -202,6 +340,25 @@
           <span class="u-q">{route.query}</span>
         </p>
       </div>
+
+      <div class="group">
+        <h3>Selected</h3>
+        {#if selection === null}
+          <p class="inspector-empty">Nothing selected. Click a note or a rest on the sheet to edit it.</p>
+        {:else}
+          {#key selection.id}
+            <Inspector
+              {selection}
+              {conflict}
+              {saving}
+              error={saveError}
+              onsave={handleSave}
+              ondeselect={deselect}
+              onreload={handleReload}
+            />
+          {/key}
+        {/if}
+      </div>
     </aside>
 
     <div class="stage" style="--sheet-w: {(SHEET_WIDTH * zoom) / 100}px">
@@ -222,7 +379,7 @@
             >
           </div>
         </div>
-        <SheetStack {pages} />
+        <SheetStack {pages} selection={selectionOverlay} onselect={handleSheetClick} />
       </div>
     </div>
   </section>
@@ -341,6 +498,13 @@
     color: var(--ink-faint);
     font-size: 11px;
     letter-spacing: 0.03em;
+  }
+
+  .inspector-empty {
+    font-size: 12px;
+    color: var(--ink-faint);
+    line-height: 1.6;
+    margin: 0;
   }
 
   .control-row {
