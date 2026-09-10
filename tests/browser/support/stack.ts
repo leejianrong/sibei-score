@@ -175,16 +175,20 @@ export async function startStack(): Promise<Stack> {
   try {
     const { listening: apiUrl } = await waitForAnnouncement(api, 'sbscore serve', 20_000);
 
+    // Vite honours an explicit `--port`, so the URL is known before it starts — there is no banner
+    // to scrape. That is deliberate: Vite wraps the port in ANSI colour codes on a CI runner
+    // (`127.0.0.1:\x1b[1m46695\x1b[22m/`), which a regex over the banner missed while matching
+    // Vite's uncoloured local output fine. Poll the known port instead — "process spawned" is a
+    // moment before "will serve a request", and Vite's first-request dependency optimisation widens
+    // that gap.
     const uiPort = await freePort();
     vite = spawn(
       'pnpm',
       ['--filter', '@sibei/ui', 'exec', 'vite', '--port', String(uiPort), '--strictPort', '--host', '127.0.0.1'],
       { ...spawnOptions, env: { ...process.env, SBSCORE_API: apiUrl } },
     );
-    // Vite announces itself as `Local: http://127.0.0.1:PORT/`, not JSON, so scrape that line —
-    // then poll it, because "printed the banner" is a moment before "will serve a request".
-    const uiUrl = (await scrapeViteUrl(vite, 30_000)).replace(/\/$/, '');
-    await waitForHttp(`${uiUrl}/`, 20_000);
+    const uiUrl = `http://127.0.0.1:${uiPort}`;
+    await waitForHttp(`${uiUrl}/`, 30_000);
 
     const executablePath = discoverChromium();
     browser = await chromium.launch(executablePath === undefined ? {} : { executablePath });
@@ -210,22 +214,4 @@ export async function startStack(): Promise<Stack> {
     await teardown();
     throw error;
   }
-}
-
-/** Vite prints `Local: http://127.0.0.1:PORT/`; pull the URL out of its stdout. */
-function scrapeViteUrl(child: ChildProcess, timeoutMs: number): Promise<string> {
-  return new Promise((resolveWith, reject) => {
-    let out = '';
-    const timer = setTimeout(() => reject(new Error(`vite did not print a URL in ${timeoutMs}ms:\n${out}`)), timeoutMs);
-    const onData = (chunk: Buffer): void => {
-      out += chunk.toString();
-      const match = /https?:\/\/127\.0\.0\.1:\d+\/?/.exec(out);
-      if (match !== null) {
-        clearTimeout(timer);
-        resolveWith(match[0]);
-      }
-    };
-    child.stdout?.on('data', onData);
-    child.stderr?.on('data', onData);
-  });
 }
