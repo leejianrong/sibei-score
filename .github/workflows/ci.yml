@@ -69,6 +69,13 @@ jobs:
       - name: check the native binding is actually there
         run: node -e "new (require('better-sqlite3'))(':memory:').close()"
         working-directory: packages/api
+      # V4d's boots-the-whole-stack tests drive a real Chromium (SLICES.md; a jsdom simulation
+      # would pass while the product is broken). pnpm does not run Playwright's own postinstall
+      # (its build scripts are blocked by default), so the browser is fetched explicitly here —
+      # chromium only, with its OS libraries. This adds a step to an existing job, not a new
+      # required check, so it does not touch branch protection.
+      - name: install the Chromium the stack E2E drives
+        run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run test:infra
 
   # V2's demo, run the way a person would run it: start the server, author a chart from the CLI,

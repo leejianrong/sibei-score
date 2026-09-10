@@ -38,6 +38,10 @@ const INFRA = [
   'tests/store/**/*.test.ts',
   'tests/api/**/*.test.ts',
   'tests/cli/**/*.test.ts',
+  // V4d's boots-the-whole-stack tests: `sbscore serve` + `vite` + a real Chromium, driven with
+  // Playwright. They belong here, not in a seventh CI job — this layer already needs a native
+  // binding and a listening socket, and this file has reserved the spot since V2a.
+  'tests/browser/**/*.test.ts',
 ];
 
 /** Runs before every fast-layer test file, and refuses to let one load a compiled module. */

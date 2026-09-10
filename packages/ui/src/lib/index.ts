@@ -9,6 +9,7 @@
  */
 export * from './api.js';
 export * from './branding.js';
+export * from './events.js';
 export * from './format.js';
 export * from './hit-test.js';
 export * from './render.js';

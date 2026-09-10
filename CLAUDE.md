@@ -7,15 +7,15 @@ stale — fix it.
 
 ## Build status, honestly
 
-**V1, V1b–V1d, V2, V3 are done, and V4 is half done** (`SLICES.md`). What exists: the score
+**V1, V1b–V1d, V2, V3 and V4 are done** (`SLICES.md`). What exists: the score
 model, the layout engine, **our own engraver**, the server-side PDF path, the store, the address
 resolver, the op log and applier, the `/v1/` API, the CLI with the text projection, **export from
-the store**, an **SSE change stream**, and **a browser that can open a chart and look at it**.
-What does **not** exist yet: editing from the browser, the chord grammar, transposition, the
+the store**, an **SSE change stream**, and **a browser that opens a chart, edits it, and repaints
+live when something else does**. What does **not** exist yet: the chord grammar, transposition, the
 MusicXML codec, and the whole import pipeline. Do not assume a module is there because a plan
 mentions it.
 
-**V4 is in progress** — the browser. It is the first slice with a UI at all, and the first that
+**V4 is done** — the browser. It is the first slice with a UI at all, and the first that
 can break "the two surfaces cannot disagree" by building a second way to do something. It was cut
 into four sub-cards (KAN-587–590 under KAN-412), and the cut is *not* SLICES.md's six steps:
 step 5 (SSE) turned out to be the one genuinely separable piece and went first, in parallel with
@@ -25,13 +25,15 @@ the shell, while steps 1–4 are a vertical chain that resists parallelising.
 |---|---|---|
 | V4a | `GET /v1/scores/:id/events`, the change bus | **done** |
 | V4b | The Svelte 5 shell, the library view, the score view — read-only | **done** |
-| V4c | Hit-testing, the inspector, and edits as ops | next |
-| V4d | SSE wired to the browser, the stack E2E, and V4's demo | after V4c |
+| V4c | Hit-testing, the inspector, and edits as ops | **done** |
+| V4d | SSE wired to the browser, the stack E2E, and V4's demo | **done** |
 
-**V4b shipped read-only on purpose, so Q79 parity is knowingly unmet right now.**
-`score.create`, `meta.set`, `note.*` and `rest.*` all have a CLI verb and no UI control. That is
-booked debt, not an oversight: the UI's first write is V4c's whole subject, and splitting the
-first write across two cards is worse than a slice of debt. V4c closes it.
+**Q79 parity is met again as of V4c.** V4b shipped read-only on purpose — `score.create`,
+`meta.set`, `note.*` and `rest.*` had a CLI verb and no UI control — and that was booked debt, not
+an oversight: the UI's first write was V4c's whole subject, and splitting the first write across two
+cards would have been worse than a slice of debt. V4c closed the note/rest edits; `score.create` and
+`meta.set` still have no UI control and are the same knowing debt one card smaller, waiting on the
+slice that gives the browser a "new chart" and a metadata editor.
 
 **V4b is also where the design-first rule proved itself.** A UI card runs in two phases with the
 same agent — a self-contained HTML mockup published for approval, *then* implementation with real
@@ -91,7 +93,7 @@ render-time argument, not a build-time constant: `pnpm proof --font jazz`, or
 pnpm install               # pnpm workspace; --frozen-lockfile in CI
 pnpm check                 # typecheck every package, then both suite layers. The gate.
 pnpm typecheck             # each package under its own strict config. `ui` goes via svelte-check
-pnpm test                  # vitest, both layers, 729 tests
+pnpm test                  # vitest, both layers
 pnpm test:fast             # the no-infra layer — what the pre-push hook runs
 pnpm test:infra            # the layer that needs a real store
 pnpm test:watch
@@ -100,6 +102,7 @@ pnpm sbscore <verb>        # the CLI. `pnpm sbscore --help` lists every verb
 pnpm ui                    # the browser, on Vite. strictPort — it refuses rather than sliding
 pnpm ui:build              # build the browser bundle. Nothing serves it yet (see the table below)
 pnpm demo                  # V2's demo end to end, closing on an export. A CI job
+pnpm demo:v4               # V4's live-update demo: serve + browser, edit from the CLI, watch it repaint
 pnpm render:nasty          # out/render/nasty-chart/nasty-chart.pdf — the V1 demo
 pnpm render all            # every fixture
 pnpm vendor:fonts          # regenerate the vendored font slices (needs network)
@@ -252,9 +255,10 @@ Breaking one of these breaks a decision of record.
 - **Metrically invalid bars are stored and flagged, never rejected** (ADR-0013). Nothing in
   the pipeline may repair or refuse a bar.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built
-  (Q79). Parity between the two surfaces is a constraint, not an aspiration. **V4b is a knowing,
-  temporary exception** — the browser is read-only until V4c — and it is recorded above rather
-  than left to be discovered.
+  (Q79). Parity between the two surfaces is a constraint, not an aspiration. The browser gained
+  its first writes at V4c (note and rest editing); **`score.create` and `meta.set` are the one
+  remaining knowing exception** — a CLI verb with no UI control yet — recorded above rather than
+  left to be discovered.
 - **The two surfaces must not disagree about a user-facing *string* either.** The browser's
   `CLI_BINARY` is asserted equal to the actual `bin` key in `packages/cli/package.json`. That
   guard exists because it nearly failed for real: V4b and the `sibei` → `sbscore` rename were
@@ -279,7 +283,7 @@ packages/
              the only one whose title block emits nothing
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
-  store/  api/  cli/                   need a real store or socket: the `infra` layer
+  store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer
   snapshots/                           committed .svg files
 scripts/     development entry points, not product surface
 ```
@@ -739,9 +743,18 @@ it — so `sbscore open` (the full structured dump) must stay the thing that car
 
 ### The browser
 
-`packages/ui`. Svelte 5 + Vite (ADR-0022), and **read-only until V4c**. A library view with search,
-and a score view. It is an HTTP client of `/v1/` exactly like the CLI (ADR-0002) — it holds no
-store, no applier and no renderer beyond `layout` + `engrave`.
+`packages/ui`. Svelte 5 + Vite (ADR-0022). A library view with search, and a score view that
+**opens a chart, edits a note or rest (V4c), and repaints when something else edits it (V4d)**. It
+is an HTTP client of `/v1/` exactly like the CLI (ADR-0002) — it holds no store, no applier and no
+renderer beyond `layout` + `engrave`.
+
+**Live updates are an `EventSource`, and the browser decides nothing on the wire** (`lib/events.ts`,
+V4d). `watchScore` opens `GET /v1/scores/:id/events` and forwards a `changed` frame's version and a
+`deleted` frame; `ScoreView`'s `$effect` opens exactly one stream per mounted chart and re-reads
+only when the version it is told about is not the one on screen — the same recovery a stale save
+does, because the server's payload is `{version}` and nothing else (`change-bus.ts`). A change the
+browser made itself, the stream's opening catch-up frame, and a frame mid-save are all no-ops. The
+whole path is proved end-to-end by `tests/browser/`, which boots `serve` + `vite` + a real Chromium.
 
 **It composes `layout()` + `engravePage()` itself, in six lines.** It does not call
 `renderScoreToSvg`, even though that function is pure and is precisely the composition it wants:
@@ -826,9 +839,10 @@ is specific.
 
 - **The suite is two layers** (`vitest.config.ts`), split by what a test needs in order to run
   rather than by what it is about. `fast` is `unit`, `integration`, `e2e` and `arch`; `infra` is
-  `store`, `api` and `cli`, and needs better-sqlite3's native binding, a listening socket, and in
-  one file a real subprocess. **The pre-push hook runs `fast` only** — a slow gate gets bypassed
-  and then it protects nothing. `pnpm test` and CI run both, 729 tests.
+  `store`, `api`, `cli` and `browser`, and needs better-sqlite3's native binding, a listening
+  socket, a real subprocess, and — for `browser` (V4d) — a real Chromium that Playwright drives.
+  **The pre-push hook runs `fast` only** — a slow gate gets bypassed and then it protects nothing.
+  `pnpm test` and CI run both.
 - **The `fast` layer really is infra-free, and it is measured rather than intended** (KAN-514).
   A `process.dlopen` trap in the layer's `setupFiles` fails any fast-layer test that loads a
   native binding, naming the binding. Two things about it are worth knowing. It traps at **load**,
@@ -860,7 +874,7 @@ Not oversights. Each lands with the slice that needs it.
 | Gate | When | Why not now |
 |---|---|---|
 | Containerized test infra | probably never | V2a's answer turned out to be that SQLite needs no container: the `infra` layer runs against `:memory:` and temp files. Revisit only if something arrives that genuinely needs a daemon |
-| E2E that boots the stack | **V4d, and now due** | There is a stack to boot as of V4b. It must join the **infra** layer, not a seventh CI job — `vitest.config.ts` has said so in a comment since V2a. Whoever takes it decides Playwright-versus-simulation deliberately: the three tests SLICES.md asks for genuinely need a browser, and a jsdom simulation would pass while the product is broken |
+| E2E that boots the stack | **done, V4d** | `tests/browser/` boots `sbscore serve` + `vite` + a real Chromium (Playwright `1.56.0`, driven as a *library* under vitest so there is no seventh runner), in the **infra** layer where `vitest.config.ts` reserved the spot. Playwright over simulation was deliberate: the three tests genuinely need a browser, and a jsdom simulation would pass while the product is broken. CI's infra job installs the browser with `playwright install --with-deps chromium` |
 | A cap on concurrent event streams | when something needs one | A hostile page can hold streams open — it reads nothing (no CORS headers, so the browser refuses the page the bytes) but nothing limits the count. Resource exhaustion is outside ADR-0029's threat model, and the alternative fix (widening the Origin rule to cover GETs) would change an ADR's shape to buy it (KAN-601) |
 | Replay on the event stream | when undo needs it | No `id:` is emitted, so no `Last-Event-ID` is promised. Replay needs a read surface over the op log and KAN-510 has deliberately not decided its shape — the first frame carrying the current version makes replay unnecessary for correctness |
 | Anything serving the built browser | V4d or V8 | `pnpm ui:build` produces a bundle with no home. The dev server proxies `/v1/` to keep the UI same-origin, which is what ADR-0029's guards require; `sbscore serve` has no static path yet and inventing one was out of V4b's scope |
