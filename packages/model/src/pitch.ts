@@ -2,7 +2,11 @@ import type { Alter, KeySignature, Pitch, Step } from './score.js';
 
 export const STEPS: readonly Step[] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 
-const SEMITONE_OF_STEP: Record<Step, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+/**
+ * The natural pitch class of each step, C = 0. Shared data: `pitchToMidi` and the spelling
+ * engine (`spelling.ts`) both need it, and one copy is how they cannot disagree.
+ */
+export const SEMITONE_OF_STEP: Record<Step, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
 /** Semitones above C-1, so middle C (C4) is 60. Matches MIDI numbering. */
 export function pitchToMidi(pitch: Pitch): number {
