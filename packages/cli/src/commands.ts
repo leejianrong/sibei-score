@@ -51,6 +51,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
   sbscore export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]
+              [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sbscore note add <id> <address> --pitch Eb5 --dur 8
@@ -266,6 +267,10 @@ async function exportScore(
   if (paper !== undefined) query.paper = paper;
   const font = flags.options.get('font');
   if (font !== undefined) query.font = font;
+  // `--for bb-trumpet` renders the written part for a transposing instrument (V6, ADR-0016). Like
+  // paper and face, the server judges the name and 422s an unknown one; the CLI just forwards it.
+  const instrument = flags.options.get('for');
+  if (instrument !== undefined) query.instrument = instrument;
 
   const artefact = await client.exportScore(id, query);
   const path = outputPathFor({

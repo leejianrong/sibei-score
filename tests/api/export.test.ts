@@ -276,6 +276,45 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
   });
 });
 
+describe('instrument parts are a render-time view (V6, ADR-0016)', () => {
+  it('renders a part on its own cache key, distinct from the concert score', async () => {
+    await aChart();
+    const concert = await download('/v1/scores/score-1/export?instrument=concert');
+    const tenor = await download('/v1/scores/score-1/export?instrument=bb-tenor');
+
+    expect(tenor.status).toBe(200);
+    expect(tenor.bytes.subarray(0, 5).toString()).toBe('%PDF-');
+    // A transposed part is different ink from the concert chart.
+    expect(tenor.bytes.equals(concert.bytes)).toBe(false);
+    // Two renders, two keys — the instrument is what tells them apart.
+    expect(blobs.puts).toHaveLength(2);
+    expect(blobs.puts.some((key) => key.includes(':concert:'))).toBe(true);
+    expect(blobs.puts.some((key) => key.includes(':bb-tenor:'))).toBe(true);
+  });
+
+  it('names a part download after its instrument', async () => {
+    await aChart();
+    const reply = await download('/v1/scores/score-1/export?instrument=bb-tenor');
+    expect(reply.headers.get('content-disposition')).toBe('attachment; filename="Body and Soul - Bb Tenor.pdf"');
+  });
+
+  it('leaves the stored score exactly as it was — a part stores nothing (ADR-0016)', async () => {
+    await aChart();
+    const before = await json('GET', '/v1/scores/score-1');
+    await download('/v1/scores/score-1/export?instrument=eb-alto');
+    await download('/v1/scores/score-1/export?instrument=f-horn');
+    const after = await json('GET', '/v1/scores/score-1');
+
+    expect(after.version).toBe(before.version);
+    expect(after.score).toEqual(before.score);
+    // And the log carries no part among its operations.
+    expect(store.operations('local', 'score-1').map((entry) => entry.operation.type)).toEqual([
+      'score.create',
+      'note.add',
+    ]);
+  });
+});
+
 describe('the page and the face are the reader’s choice (Q38, ADR-0030)', () => {
   it('renders Letter differently from A4', async () => {
     await aChart();
@@ -307,15 +346,16 @@ describe('a format or an instrument this build cannot produce (ADR-0008)', () =>
     });
   });
 
-  it('422s an unknown instrument, and accepts the one part V3 can render', async () => {
-    // ADR-0016 makes a part a render-time view over transposition, and transposition is V6. The
-    // parameter is real now because Q81 puts it in the key.
+  it('422s an unknown instrument, and renders the parts V6 added', async () => {
+    // V6c turned the render-time part view on (ADR-0016): the five transposing instruments render,
+    // and the parameter was already in the key from V3 (Q81) so this needed no cache migration.
     await aChart();
-    const bad = await fetch(`${base}/v1/scores/score-1/export?instrument=bb-trumpet`);
+    const bad = await fetch(`${base}/v1/scores/score-1/export?instrument=tuba`);
     expect(bad.status).toBe(422);
     expect((await bad.json() as { error: { kind: string } }).error.kind).toBe('unsupported-instrument');
 
     expect((await download('/v1/scores/score-1/export?instrument=concert')).status).toBe(200);
+    expect((await download('/v1/scores/score-1/export?instrument=bb-trumpet')).status).toBe(200);
   });
 
   it('422s an unknown paper rather than quietly handing back A4', async () => {

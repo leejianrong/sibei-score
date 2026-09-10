@@ -38,6 +38,8 @@ export type {
   ExportRequest,
   Exporter,
 } from './export/export.js';
+export { PART_INSTRUMENTS, partInterval, partLabel, writtenPart } from './export/part.js';
+export type { PartInstrument } from './export/part.js';
 
 export * from './ops/operations.js';
 export * from './ops/errors.js';
