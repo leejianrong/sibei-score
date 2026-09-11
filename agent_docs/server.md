@@ -136,8 +136,8 @@ the export path decides anything about the page; it hands a `Score` to the rende
 through `@sibei/codec`'s `scoreToMusicXml` rather than `@sibei/pdf`, so paper and font do not enter
 into it (they stay in the cache key — over-keying costs a miss, never wrong bytes). `writtenPart`
 still runs first, so `?instrument=bb-trumpet&format=musicxml` exports a transposed part, the same
-instrument view a PDF part uses. The UI has no format toggle yet — booked, design-first — so this is
-reachable from `sbscore export --musicxml` and the query, not the rail.
+instrument view a PDF part uses. Reachable from `sbscore export --musicxml`, the query, and (V8e) a
+PDF | MusicXML toggle in the score view's Export rail.
 
 **The blob port has `get` and `put` and deliberately no `delete`.** Q81's cache invalidates
 implicitly through the key, so there is no invalidation logic — and offering a delete would be

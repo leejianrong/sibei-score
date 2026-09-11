@@ -252,7 +252,27 @@ export const INSTRUMENTS: readonly InstrumentOption[] = [
   { value: 'f-horn', label: 'F Horn', hint: 'written a perfect 5th up' },
 ];
 
+/**
+ * The export format (V8e). The **wire** values the export route accepts — `@sibei/api` owns
+ * `EXPORT_FORMATS`, and this bundle may not resolve it (`tests/arch`), so it is restated here the
+ * way `ExportInstrument` is. An unknown value is a 422, the same no-fallback bargain paper makes.
+ * MusicXML is a codec at the edges (ADR-0004), not a render, so it ignores paper and face.
+ */
+export type ExportFormat = 'pdf' | 'musicxml';
+
+export interface FormatOption {
+  value: ExportFormat;
+  label: string;
+}
+
+/** `pdf` first — the default, and what the sheet on screen is. */
+export const FORMATS: readonly FormatOption[] = [
+  { value: 'pdf', label: 'PDF' },
+  { value: 'musicxml', label: 'MusicXML' },
+];
+
 export interface ExportChoice {
+  format: ExportFormat;
   paper: Paper;
   font: MusicFontName;
   instrument: ExportInstrument;
@@ -273,7 +293,7 @@ function instrumentQuery(instrument: ExportInstrument): string {
  * the page you are looking at and the file you are about to download are one choice, not two.
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
-  const base = new URLSearchParams({ format: 'pdf', paper: choice.paper, font: choice.font });
+  const base = new URLSearchParams({ format: choice.format, paper: choice.paper, font: choice.font });
   return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}`;
 }
 
@@ -281,7 +301,7 @@ export function exportUrl(id: Id, choice: ExportChoice): string {
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=pdf&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}`,
+    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}`,
   };
 }
 

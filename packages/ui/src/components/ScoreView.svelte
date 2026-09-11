@@ -29,6 +29,7 @@
     exportRoute,
     exportUrl,
     FONTS,
+    FORMATS,
     getScore,
     INSTRUMENTS,
     OfflineError,
@@ -37,7 +38,7 @@
     submitOps,
     undoScore,
   } from '../lib/api.js';
-  import type { ExportInstrument, Operation } from '../lib/api.js';
+  import type { ExportFormat, ExportInstrument, Operation } from '../lib/api.js';
   import { TARGET_KEYS, keyEquals } from '../lib/keys.js';
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
@@ -86,6 +87,10 @@
   let paper = $state<Paper>(DEFAULT_PAPER);
   let font = $state<MusicFontName>(DEFAULT_MUSIC_FONT);
   let zoom = $state(100);
+
+  // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
+  // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
+  let format = $state<ExportFormat>('pdf');
 
   // The instrument part on view (V6e). `concert` is the stored score; a transposing instrument is a
   // render-time view (ADR-0016) — the sheet shows the written part and the same choice drives the
@@ -154,7 +159,8 @@
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
-  const route = $derived(exportRoute({ paper, font, instrument }));
+  const route = $derived(exportRoute({ format, paper, font, instrument }));
+  const formatLabel = $derived(FORMATS.find((f) => f.value === format)?.label ?? 'PDF');
 
   // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
   // own geometry functions with it rather than a second copy of them (../lib/hit-test.js).
@@ -739,8 +745,17 @@
 
       <div class="group">
         <h3>Export</h3>
-        <a class="export" href={exportUrl(score.id, { paper, font, instrument })} download>
-          Export {editable ? 'PDF' : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
+        <SegmentedControl
+          label="Export format"
+          options={FORMATS.map((f) => f.value)}
+          value={format}
+          display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
+          onselect={(chosen) => (format = chosen)}
+        />
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument })} download>
+          Export {editable
+            ? formatLabel
+            : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
         </a>
         <!-- The route, not the instance: the id is already in the facts above, and a
              40-character id wraps this column into nonsense. -->
@@ -748,6 +763,12 @@
           <span class="u-path">{route.path}</span>
           <span class="u-q">{route.query}</span>
         </p>
+        {#if format === 'musicxml'}
+          <p class="control-note">
+            MusicXML is a codec at the edges (ADR-0004) — lossy in known ways, and it ignores the
+            paper and face, which are page choices. A transposing part exports transposed.
+          </p>
+        {/if}
       </div>
 
       <div class="group">
@@ -1031,6 +1052,8 @@
     background: var(--accent);
     border: 0;
     padding: 10px 14px;
+    /* Below the format toggle now (V8e); the toggle takes the slot the h3's margin used to give. */
+    margin-top: 12px;
     cursor: pointer;
     font-size: 12px;
     letter-spacing: 0.09em;
