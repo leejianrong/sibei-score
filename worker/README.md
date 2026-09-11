@@ -95,10 +95,13 @@ these numbers are genuinely CPU-only. Recognition only (segmentation + extractio
 |---|---|---|---|
 | aaba-chart | 1612×2280 | 8 systems, 66 noteheads, 42 barlines, 0 rests | **321 s (5.4 min)** |
 | nasty-chart | 1612×2280 | 61 noteheads, 25 barlines, 2 rests | **336 s (5.6 min)** |
+| long-form | 1612×2280 | 99 noteheads, 32 barlines, 2 rests | **318 s (5.3 min)** |
 
-The figures cluster tightly because oemer normalises every image to ~3.67 MP before
-recognition, so wall-clock tracks that fixed pixel budget rather than chart content or
-source resolution.
+The figures cluster tightly (318–336 s) even though the charts differ in density — long-form
+detects the most yet times the fastest — because oemer normalises every image to ~3.67 MP
+before recognition, so wall-clock tracks that fixed pixel budget rather than chart content or
+source resolution. (Measured single-run, uncontended; a run sharing the CPU with the Node
+test suite came in at 452 s — a caution that these are best-case, idle-machine figures.)
 
 The image is normalised to ~3.67 megapixels before recognition
 (`oemer/inference.py:resize_image`), so wall-clock is largely independent of the source

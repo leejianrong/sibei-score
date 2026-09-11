@@ -38,9 +38,12 @@ spike times):
 |---|---|---|---|
 | aaba-chart | 1612×2280 | 8 systems, 66 noteheads, 42 barlines | **321 s (5.4 min)** |
 | nasty-chart | 1612×2280 | 61 noteheads, 25 barlines, 2 rests | **336 s (5.6 min)** |
+| long-form | 1612×2280 | 99 noteheads, 32 barlines, 2 rests | **318 s (5.3 min)** |
 
-The figures cluster because oemer normalises every image to ~3.67 MP before recognition, so
-wall-clock is driven by that fixed pixel budget, not by chart content or source resolution.
+The figures cluster tightly (318–336 s) even though the charts differ in density — the
+densest, long-form at 99 noteheads, was the fastest — because oemer normalises every image
+to ~3.67 MP before recognition, so wall-clock is driven by that fixed pixel budget, not by
+chart content or source resolution.
 This is a clean rendered chart — the best case, with no skew, shadow or JPEG noise — so it
 is a **lower bound**; real photographs will be slower and are V10 evaluation input
 (ADR-0020). The image is normalised to ~3.67 MP before recognition, so wall-clock is largely
