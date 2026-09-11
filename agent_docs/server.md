@@ -200,11 +200,22 @@ POST   /v1/scores/:id/redo   reapply the last undone batch (V8a)
 POST   /v1/scores/:id/duplicate  copy to a new score with a fresh history (V8c)
 GET    /v1/scores/:id/export ?format=pdf|musicxml&paper=a4|letter&font=normal|jazz&instrument=concert
 GET    /v1/scores/:id/events SSE: this score's changes (V4a)
+GET    (anything else)       the built UI, when serving it (V8g); else 404
 ```
 
 Every export parameter is optional and defaulted, and an unrecognised value is a **422 carrying
 the supported list** — never a silent fallback, which would hand somebody the wrong page and
 never say so.
+
+**The API can serve the built browser itself (V8g), and it does so last.** A shipped container has no
+Vite, so `sbscore serve --ui DIR` hands `createApi` an `AssetSource` and any GET no `/v1/` route claimed
+is answered from the bundle (`static.ts`), which is what makes the app and its `/v1/` calls same-origin
+the way ADR-0029's guards assume. The order is load-bearing: static is tried *after* every route and
+never for a `/v1/` path, so a file cannot shadow the API and an unknown `/v1/` path stays an API 404,
+not a missing file. ADR-0006 keeps the filesystem out of this package, so the port carries the bytes
+and the fs-backed reader is the CLI's (`packages/cli/src/static-assets.ts`); off by default, so
+development is unchanged. No SPA fallback — the browser routes on the hash, so `/` and the hashed assets
+are the only paths that reach here and a real miss is an honest 404.
 
 **Status codes carry meaning, and 409 carries a version.** 422 for an address miss or a validation
 failure (the request was fine, the content could not be applied); 400 only for a body that was not

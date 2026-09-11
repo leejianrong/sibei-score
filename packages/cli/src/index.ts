@@ -5,6 +5,13 @@ export type { ExitCode } from './exit-codes.js';
 export { createClient, CliError, DEFAULT_BASE_URL } from './client.js';
 export type { Client, Download, ExportQuery } from './client.js';
 export { fallbackName, outputPathFor, resolveWithin, safeDownloadName } from './output.js';
-export { DEFAULT_PORT, adoptLegacyDataDirectory, defaultBlobPath, defaultDataPath } from './serve.js';
+export {
+  DEFAULT_PORT,
+  adoptLegacyDataDirectory,
+  defaultBlobPath,
+  defaultDataPath,
+  resolveUiDirectory,
+} from './serve.js';
 export type { DataDirectoryAdoption } from './serve.js';
+export { loadAssets } from './static-assets.js';
 export { parseDuration, parseFlags, optionalPort } from './args.js';

@@ -87,3 +87,5 @@ export {
 export type { Authenticator, GuardVerdict, Principal } from './http/guards.js';
 export { consoleLogger, silentLogger } from './http/log.js';
 export type { Logger, RequestLine } from './http/log.js';
+export { serveStaticAsset } from './http/static.js';
+export type { Asset, AssetSource } from './http/static.js';

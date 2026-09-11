@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle) and V8f (the migration fixture test) have landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle), V8f (the migration fixture test) and V8g (serving the built UI from the API) have landed.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -39,9 +39,13 @@ verb/button — pairs with v0.2's upload boundary). From V8c the **library** gai
 **duplicate** on both surfaces: `sbscore duplicate` and the row's Duplicate/Delete controls (delete
 asks first — it destroys the log). Duplicate is a copy with a *fresh* history, built on `score.import`
 — one operation carrying a whole document (ADR-0003), server-only (never the client `/ops` route, so
-ADR-0008's anti-mangling guarantee holds), which v0.2's OMR import will reuse. Not built yet: MusicXML
-import, the container, and the whole import pipeline. Don't assume a module exists because a plan
-mentions it.
+ADR-0008's anti-mangling guarantee holds), which v0.2's OMR import will reuse. From V8g the API can
+**serve the built browser itself** — an fs-free `AssetSource` port (`packages/api/src/http/static.ts`)
+fed by a reader in the CLI (`static-assets.ts`), turned on by `sbscore serve --ui DIR` (or `SBSCORE_UI`)
+and off by default so Vite still serves the app in development; files are served last, after every
+`/v1/` route, so nothing shadows the API. Not built yet: the container that sets `--ui` (it still owes
+the ADR-0029 bind decision), MusicXML import, v0.1 docs, and the whole import pipeline. Don't assume a
+module exists because a plan mentions it.
 
 ## Layout
 
