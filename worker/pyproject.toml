@@ -39,6 +39,7 @@ dependencies = [
 
 [project.scripts]
 sibei-omr-spike = "sibei_omr.spike:main"
+sibei-omr-server = "sibei_omr.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

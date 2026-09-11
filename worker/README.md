@@ -6,6 +6,73 @@ becomes a second write path (ADR-0005, ADR-0003). It is isolated from the Node/p
 workspace — its own toolchain, its own `pyproject.toml`, its own virtualenv — so the two
 runtimes never entangle.
 
+## What's here today: the V10 worker (and the V9 spike it grew from)
+
+**V10 promotes the V9 coordinate spike into the real worker.** The recognition core — the
+in-process oemer stage sequence, stopping before oemer's lossy MusicXML build so the pixel
+coordinates survive — now lives in `sibei_omr/recognize.py`, and `sibei_omr/server.py` wraps
+it in the HTTP seam the Node API calls across (ADR-0005). `sibei_omr/spike.py` remains as a
+one-file CLI over the same core.
+
+```
+sibei_omr/
+  recognize.py   the recogniser: one image path in, an OmrDocument dict out
+  server.py      the HTTP server: POST /recognize (raw image bytes) -> OmrDocument JSON; GET /health
+  spike.py       the V9 CLI: run the recogniser on a file, write the JSON + wall-clock line
+```
+
+The API records an import as a **job** (ADR-0001), calls this worker, and lands the result;
+the worker is stateless and holds no database. **CPU-only is the hard floor (ADR-0025)** —
+the image uses the CPU `onnxruntime` wheel — and the GPU path is a separate, opt-in image
+(`Dockerfile.gpu`) that changes speed, never output. **Offline is baked in (ADR-0024):** the
+Docker image fetches and checksum-verifies every ONNX weight at build time, so a running
+container never downloads a model and an import runs with networking disabled.
+
+Below the V10 sections is the original V9 spike write-up (the gate result, the CPU
+wall-clock, and the dependency-pinning findings), kept because those measurements are still
+the reason the pins are what they are.
+
+## Running the worker
+
+### As a container (the real deployment)
+
+The worker is the second container in the compose stack (`compose.yaml`, Q44). From the repo
+root:
+
+```sh
+docker compose up --build            # builds the api and worker images, starts both
+# app on http://127.0.0.1:8080; the api reaches the worker at http://worker:8000 internally
+```
+
+The worker image bakes the weights at build time (`fetch_weights.py`, checksum-verified), so
+the build needs the network but the running container does not. GPU (opt-in, speed only):
+
+```sh
+docker compose -f compose.yaml -f compose.gpu.yaml up --build   # needs an NVIDIA GPU + toolkit
+```
+
+### Directly, in the venv (development)
+
+```sh
+cd worker
+uv venv --python 3.11 && uv pip install -e .
+python fetch_weights.py               # fetch the weights once (the image does this at build)
+python -m sibei_omr.server            # serve on 0.0.0.0:8000 (SIBEI_OMR_HOST/PORT to change)
+```
+
+Then point the API at it: `pnpm sbscore serve --worker http://127.0.0.1:8000` (or
+`SBSCORE_WORKER_URL`). Without a worker configured, the API runs fine and import is a 503
+(Q80) — every other feature works.
+
+### The worker's own tests
+
+Standalone, like the rest of `worker/` (outside the Node CI, ADR-0005). They stub the
+recogniser through `serve`'s injection seam, so they need neither oemer nor weights:
+
+```sh
+cd worker && python -m unittest discover -s tests
+```
+
 ## What's here today: the V9 coordinate spike
 
 V9 is the **oemer coordinate spike** (ADR-0023), the riskiest unknown in the project,
@@ -128,6 +195,9 @@ resolution. Peak resident memory was ~7 GB.
 
 ## Not built here
 
-MusicXML import, the real worker (offline, in a job), the OCR stages, and the beat-mapping
-of stage 3 are all V10+ (see `SLICES.md`, `agent_docs/history.md`). This directory is the
-spike and its reusable skeleton, not the pipeline.
+V10 is the worker's **plumbing** — the offline worker, in a job, over HTTP. It does not
+interpret what it recognises. Still ahead: mapping oemer's objects onto the score model and
+landing them via `score.import` (V11), preprocessing (deskew/crop/contrast, V11), the
+chord-band OCR and stage-3 beat mapping (V13), and the evaluation harness (V12). See
+`SLICES.md` and `agent_docs/history.md`. A succeeded V10 job carries the raw `OmrDocument`
+and nothing more.

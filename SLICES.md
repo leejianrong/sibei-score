@@ -594,6 +594,25 @@ wrong, V10 through V13 all change shape, which is why nothing is built before it
 
 ## V10: The worker, offline and in a job
 
+> **Update, 2026-09-11. Landed (Node side + worker + Docker authored).** OMR is now a job, not a
+> request (ADR-0001). The V9 spike is promoted into a recogniser (`worker/sibei_omr/recognize.py`)
+> behind an HTTP worker (`server.py`); the API validates an upload by decoding it (ADR-0029), stores
+> it in the BlobStore, records a durable job (the `JobStore` port + its SQLite `import_jobs` table),
+> and a background runner calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw
+> `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the
+> API is fully functional with the worker stopped, and with no worker configured import is a 503 and
+> all else works. Progress rides an SSE job stream, the sibling of V4's change stream. The `worker`
+> Dockerfile bakes + checksums the weights at build time (ADR-0024) and the compose file adds the
+> second container (Q44); GPU is a separate opt-in image (`Dockerfile.gpu` + `compose.gpu.yaml`,
+> ADR-0025). **Scope note:** V10 stores the *raw recognised objects*, as its demo says — mapping them
+> onto a `Score` and landing them via `score.import` is V11's named deliverable, so no score is
+> created here. **Two contact-with-code notes:** (1) the GPU "compose profile" the plan names is an
+> *override file*, not a `profiles:` key — a profile cannot swap a service's image without
+> duplicating the service (recorded in `compose.yaml` and ADR-0025's consequences). (2) The Docker
+> image build and the networking-disabled offline test require a Docker/Podman host; where those were
+> unavailable they are authored and reviewed, with the offline property asserted by construction (the
+> image fetches weights only at build time) rather than executed — see the worker README.
+
 **Delivers:** R7 (fully, including the offline guarantee), R5 (infrastructure)
 
 **Build plan**
