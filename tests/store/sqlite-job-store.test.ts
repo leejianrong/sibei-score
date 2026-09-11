@@ -100,17 +100,18 @@ describe('the SQLite job store', () => {
     expect(store.claim()).toBeNull(); // nothing queued now
   });
 
-  it('completes a running job with its result', () => {
+  it('completes a running job with its result and the score it produced', () => {
     const job = store.create(OWNER, ['a']);
     store.claim();
-    const done = store.complete(job.id, [aDocument()]);
+    const done = store.complete(job.id, [aDocument()], 'import-42');
     expect(done?.status).toBe('succeeded');
     expect(store.get(OWNER, job.id)?.result).toEqual([aDocument()]);
+    expect(store.get(OWNER, job.id)?.scoreId).toBe('import-42');
   });
 
   it('will not complete or fail a job that is not running', () => {
     const job = store.create(OWNER, ['a']); // still queued
-    expect(store.complete(job.id, [aDocument()])).toBeNull();
+    expect(store.complete(job.id, [aDocument()], 'import-42')).toBeNull();
     expect(store.fail(job.id, 'nope')).toBeNull();
     expect(store.get(OWNER, job.id)?.status).toBe('queued');
   });

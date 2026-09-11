@@ -6,7 +6,7 @@ import {
   memoryBlobStore,
   memoryJobStore,
 } from '@sibei/api';
-import type { BlobStore, JobBus, JobChanged, JobStore, WorkerClient } from '@sibei/api';
+import type { BlobStore, JobBus, JobChanged, JobStore, ScoreImporter, WorkerClient } from '@sibei/api';
 import { OMR_SCHEMA_VERSION } from '@sibei/model';
 import type { OmrDocument } from '@sibei/model';
 
@@ -22,6 +22,10 @@ import type { OmrDocument } from '@sibei/model';
 
 const OWNER = 'local';
 
+/**
+ * A recognised page with one staff and one note, so V11's mapper produces a real score (an empty
+ * `staves` throws `OmrMappingError` — the "no staff" case is its own test below).
+ */
 function aDocument(imagePath = 'page-1'): OmrDocument {
   return {
     schemaVersion: OMR_SCHEMA_VERSION,
@@ -34,12 +38,45 @@ function aDocument(imagePath = 'page-1'): OmrDocument {
       provider: 'CPUExecutionProvider',
       wallClockSeconds: 321,
     },
-    staves: [],
+    staves: [
+      { index: 0, track: 0, group: 0, xLeft: 100, xRight: 1000, yUpper: 100, yLower: 164, yCenter: 132, unitSize: 16 },
+    ],
     zones: [],
-    noteheads: [],
+    noteheads: [
+      {
+        id: 0,
+        bbox: [291, 120, 309, 136],
+        track: 0,
+        group: 0,
+        noteGroupId: null,
+        staffLinePos: null,
+        pitch: null,
+        hasDot: false,
+        stemUp: true,
+        invalid: false,
+        label: 'QUARTER',
+      },
+    ],
     noteGroups: [],
     barlines: [],
     rests: [],
+  };
+}
+
+/** A page with no staff at all — ADR-0018's one hard error (Q28). */
+function noStaffDocument(): OmrDocument {
+  return { ...aDocument(), staves: [], noteheads: [] };
+}
+
+/** A stub importer: records what it was asked to land and returns the document's own id as the score. */
+function stubImporter(): ScoreImporter & { calls: Array<{ owner: string; id: string }> } {
+  const calls: Array<{ owner: string; id: string }> = [];
+  return {
+    calls,
+    import(owner, document) {
+      calls.push({ owner, id: document.id });
+      return { scoreId: document.id };
+    },
   };
 }
 
@@ -58,6 +95,7 @@ interface Harness {
   jobs: JobStore;
   blobs: BlobStore;
   bus: JobBus;
+  importer: ReturnType<typeof stubImporter>;
   runner: ReturnType<typeof createJobRunner>;
   submit(imageKeys?: string[]): Promise<{ id: string }>;
   terminal(id: string): Promise<JobChanged>;
@@ -67,7 +105,8 @@ async function harness(worker: WorkerClient): Promise<Harness> {
   const jobs = memoryJobStore();
   const blobs = memoryBlobStore();
   const bus = createJobBus();
-  const runner = createJobRunner({ jobs, blobs, worker, publisher: bus });
+  const importer = stubImporter();
+  const runner = createJobRunner({ jobs, blobs, worker, importer, publisher: bus });
 
   const submit = async (imageKeys = ['img-0']): Promise<{ id: string }> => {
     for (const key of imageKeys) await blobs.put(key, pngBytes());
@@ -88,7 +127,7 @@ async function harness(worker: WorkerClient): Promise<Harness> {
       });
     });
 
-  return { jobs, blobs, bus, runner, submit, terminal };
+  return { jobs, blobs, bus, importer, runner, submit, terminal };
 }
 
 const okWorker = (doc = aDocument()): WorkerClient => ({ recognize: () => Promise.resolve(doc) });
@@ -108,8 +147,24 @@ describe('the import job runner', () => {
     expect(job?.attempts).toBe(1);
     expect(job?.diagnostic).toBeNull();
     expect(job?.result).toEqual([doc]);
-    // V10 stores the raw objects and creates no score — the map + score.import is V11.
+    // V11 maps the objects and lands a score through the applier's import path, then records its id.
+    expect(job?.scoreId).toBe(`import-${id}`);
+    expect(h.importer.calls).toEqual([{ owner: OWNER, id: `import-${id}` }]);
+  });
+
+  it('fails cleanly when no staff is detected, committing no score (ADR-0018, Q28)', async () => {
+    const h = await harness(okWorker(noStaffDocument()));
+    const { id } = await h.submit();
+
+    h.runner.start();
+    expect((await h.terminal(id)).status).toBe('failed');
+
+    const job = h.jobs.get(OWNER, id);
+    expect(job?.status).toBe('failed');
+    expect(job?.diagnostic).toContain('no staff');
+    // The mapper threw before the importer was reached: no score, and nothing to undo.
     expect(job?.scoreId).toBeNull();
+    expect(h.importer.calls).toEqual([]);
   });
 
   it('records a diagnostic and commits nothing when the worker fails (Q80)', async () => {
@@ -190,7 +245,13 @@ describe('the import job runner', () => {
     expect(claimed?.status).toBe('running');
 
     // A fresh runner starts and recovers it.
-    const runner = createJobRunner({ jobs: h.jobs, blobs: h.blobs, worker: okWorker(), publisher: h.bus });
+    const runner = createJobRunner({
+      jobs: h.jobs,
+      blobs: h.blobs,
+      worker: okWorker(),
+      importer: stubImporter(),
+      publisher: h.bus,
+    });
     runner.start();
 
     const recovered = h.jobs.get(OWNER, job.id);

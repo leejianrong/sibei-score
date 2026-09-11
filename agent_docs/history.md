@@ -6,6 +6,69 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V11 turns a recognised import into an editable draft — the first slice that interprets a
+note.** Where V10 stored raw `OmrDocument` objects and left `scoreId` null, V11 maps them onto a
+`Score` and lands it. The whole of the interpretation is a **pure, framework-free mapper**,
+`packages/model/src/omr-map.ts` (`mapOmrToScore`), which is the point worth stating: it consumes the
+worker's output schema and produces the runtime score, both owned by `model`, so it is fully
+fast-layer testable against the committed real dump (`tests/fixtures/omr/aaba-chart.omr.json`) —
+**no oemer, no weights, no Docker** — which is exactly why V11's core is buildable and verifiable in
+an environment where the worker container is not (`tests/unit/omr-map.test.ts`). The mapper collapses
+oemer's per-track staff grid into systems (using the per-staff extents and *ignoring* the unreliable
+`zones` layer — a V9 finding made load-bearing), segments each system into bars from deduplicated
+barlines trimmed to the note span (barlines over-fire on stems, a V9 finding), orders notes and rests
+by x into sequential onsets, reads pitch from staff geometry against a treble clef, computes per-bar
+metric validity and stores-and-flags an invalid bar rather than repairing it (ADR-0013), flags a
+notehead oemer doubts or whose duration it could not name (ADR-0019), and joins several pages in order
+(Q26).
+
+Landing it goes through the one writer, not around it. The runner holds a `JobWriter`, never a
+`ScoreWriter` (ADR-0003), so a new **server-only `Applier.import(owner, document)`** was added — the
+exact shape of V8c's `duplicate`, folding one `score.import` op and calling `store.create` — and the
+runner is handed it narrowed to `ScoreImporter` (just `import`). So the pipeline is recognise → map →
+import → set `job.scoreId`, all synchronous and adjacent at the end of the job so there is never a
+succeeded job without a score nor a score without a job. The transport gained multi-image support
+(`POST /v1/imports` now accepts `multipart/form-data`, a hand-rolled parser beside the upload
+boundary, keeping V10's single-raw path working), and both surfaces got their control (Q79):
+`sbscore import <file>...` (submit, poll to terminal, print the draft's id) and a **library import
+affordance** (a file picker that submits, shows a spinner while the job runs, then opens the new
+score). A no-staff image fails cleanly (ADR-0018/Q28) rather than making an empty score; the source
+images are retained in the BlobStore forever (ADR-0019).
+
+**The schema-gap decision — confirmed with the maintainer — is "default and flag, defer detection".**
+The `OmrDocument` the worker emits carries staves, noteheads, note groups, single barlines and rests
+and **nothing else**: it omits clef, key-signature accidentals and time signature (build-plan item 2's
+"key and time signature"), *and* ties and tuplets/triplets (item 2's "ties, triplets"). `recognize.py`
+computes clef/sfn layers internally but never registers them in the schema. So V11 maps what is
+actually emitted, defaults key = C major / time = 4/4, reads pitch against an assumed treble clef, and
+produces no ties or triplets — each a flagged gap the human closes (ADR-0019). Detecting any of these
+needs the worker **and** the schema (`OMR_SCHEMA_VERSION`) extended **and a fresh real-oemer fixture**,
+none producible in this environment (no oemer; the org egress policy blocks every container registry,
+so no base image is pullable and Docker builds fail). Shipping untested Python plus a fabricated
+fixture would be worse than the honest gap, so this is deferred to a host with oemer/registry access
+and recorded as a **documented deviation from ADR-0021** ("key and time signature … detected on
+import"). Build-plan item 1 (explicit deskew/perspective/crop/contrast) is likewise deferred:
+`recognize.py` already deskews and dewarps through oemer, and explicit OpenCV crop/contrast is
+untestable here.
+
+**Two plan/code discrepancies, surfaced rather than worked around (AGENTS.md's rule).** First, the
+E2E clause *"undoing an import leaves an empty score"* conflicts with ADR-0003's undo *floor*. V11
+lands an import as a **new** score (the create-from-document path, identical to `duplicate`), whose
+single `score.import` op is the floor — so undo is a no-op there and the score is removed by *delete*,
+not undo, exactly as a duplicate behaves. The replay-from-empty property still holds exactly (asserted
+in `tests/api/applier.test.ts`). Reading the clause literally would mean importing into a pre-existing
+empty score, which is not the V10 job model (a job creates a new score and fills `scoreId`). Second,
+`sbscore import` deliberately has no `--title`/`--composer`: OCR of title/composer (Q37) needs the OCR
+the pipeline does not run until V13, and `ScoreMeta` carries no review field to flag them
+low-confidence — so the title defaults empty (KAN-594) and the user sets it with `meta set` after.
+
+The live-worker demo (a real phone photo → the oemer container → a PDF) cannot run here for the
+registry reason above; it is verified against the committed dump, an API test with a stub worker, a
+CLI test with a stub worker, and a **browser E2E with a fake in-process worker** (a canned
+`OmrDocument` over the worker HTTP seam, so `sbscore serve --worker` drives the whole job pipeline —
+upload, map, land, open — without oemer). The real-container run is deferred to a host with registry
+access.
+
 **V10 is the worker, offline and in a job — the plumbing that turns the V9 spike into
 infrastructure, without yet interpreting a note.** OMR is a job, not a request (ADR-0001):
 the API validates an uploaded scan by *decoding* it at the boundary (ADR-0029: real byte and

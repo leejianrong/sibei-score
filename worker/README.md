@@ -195,9 +195,24 @@ resolution. Peak resident memory was ~7 GB.
 
 ## Not built here
 
-V10 is the worker's **plumbing** — the offline worker, in a job, over HTTP. It does not
-interpret what it recognises. Still ahead: mapping oemer's objects onto the score model and
-landing them via `score.import` (V11), preprocessing (deskew/crop/contrast, V11), the
-chord-band OCR and stage-3 beat mapping (V13), and the evaluation harness (V12). See
-`SLICES.md` and `agent_docs/history.md`. A succeeded V10 job carries the raw `OmrDocument`
-and nothing more.
+The worker recognises; it does not interpret. **V11 interpreted the objects entirely on the Node
+side** — a succeeded job now maps its `OmrDocument`s onto a `Score` and lands it — without changing a
+line of this worker, because the mapping is pure TypeScript over the worker's output schema
+(`packages/model/src/omr-map.ts`). That is the seam working as designed (ADR-0005): the worker's
+contract is the schema, and everything downstream of it is Node's.
+
+Two things the plan booked for the worker are **deferred**, both because they cannot be built or
+verified without oemer and a container registry (blocked here — see the V9 findings):
+
+- **Emitting clef, key signature, time signature, ties and tuplets.** V11's mapper needs these but the
+  `OmrDocument` schema (`packages/model/src/omr.ts`) does not carry them and `recognize.py` does not
+  emit them (it computes clef/sfn layers internally, then drops them). Adding them is a coordinated
+  change here **and** in the model schema (bump `OMR_SCHEMA_VERSION`) **and** a refreshed committed
+  fixture — so V11 defaults key/time and produces no ties/triplets, a documented ADR-0021 deviation
+  (see `SLICES.md` V11). This is the next worker task.
+- **Explicit preprocessing** (build-plan item 1: deskew, perspective, crop-to-page, contrast, Q27).
+  `recognize.py` already deskews and dewarps through oemer; explicit OpenCV crop/contrast is a small
+  addition but untestable without running oemer, so it waits for a host that can.
+
+Still ahead beyond that: the chord-band OCR and stage-3 beat mapping (V13, this worker gains
+PaddleOCR), and the evaluation harness (V12). See `SLICES.md` and `agent_docs/history.md`.

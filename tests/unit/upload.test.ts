@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_UPLOAD_BYTES, imageFormatOf, validateUpload } from '@sibei/api';
+import {
+  MAX_UPLOAD_BYTES,
+  imageFormatOf,
+  multipartBoundary,
+  parseMultipartImages,
+  validateUpload,
+} from '@sibei/api';
 
 /**
  * The upload boundary (V10, ADR-0029): validate by **decoding**, real byte and dimension caps, the
@@ -108,5 +114,58 @@ describe('imageFormatOf', () => {
     expect(imageFormatOf(jpeg(10, 10))).toBe('jpeg');
     expect(imageFormatOf(Buffer.from('nope'))).toBeNull();
     expect(imageFormatOf(Buffer.alloc(0))).toBeNull();
+  });
+});
+
+describe('multipart (several pages in one upload, Q26)', () => {
+  it('reads the boundary token, and null for a non-multipart type', () => {
+    expect(multipartBoundary('multipart/form-data; boundary=abc123')).toBe('abc123');
+    expect(multipartBoundary('multipart/form-data; boundary="quoted"')).toBe('quoted');
+    expect(multipartBoundary('image/png')).toBeNull();
+    expect(multipartBoundary(undefined)).toBeNull();
+  });
+
+  /** Assemble a minimal multipart/form-data body from a list of `[name, filename|null, bytes]` parts. */
+  function multipart(boundary: string, parts: Array<[string, string | null, Buffer]>): Buffer {
+    const chunks: Buffer[] = [];
+    for (const [name, filename, body] of parts) {
+      const disposition =
+        filename === null
+          ? `form-data; name="${name}"`
+          : `form-data; name="${name}"; filename="${filename}"`;
+      chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: ${disposition}\r\n\r\n`));
+      chunks.push(body);
+      chunks.push(Buffer.from('\r\n'));
+    }
+    chunks.push(Buffer.from(`--${boundary}--\r\n`));
+    return Buffer.concat(chunks);
+  }
+
+  it('extracts each file part in order, keeping the raw bytes intact', () => {
+    const a = png(100, 100);
+    const b = jpeg(200, 200);
+    const body = multipart('X', [
+      ['images', 'a.png', a],
+      ['images', 'b.jpg', b],
+    ]);
+    const images = parseMultipartImages(body, 'X');
+    expect(images).toHaveLength(2);
+    expect(images[0]!.equals(a)).toBe(true);
+    expect(images[1]!.equals(b)).toBe(true);
+  });
+
+  it('ignores non-file form fields (no filename)', () => {
+    const a = png(100, 100);
+    const body = multipart('X', [
+      ['title', null, Buffer.from('Blue Bossa')],
+      ['images', 'a.png', a],
+    ]);
+    const images = parseMultipartImages(body, 'X');
+    expect(images).toHaveLength(1);
+    expect(images[0]!.equals(a)).toBe(true);
+  });
+
+  it('returns an empty list for a body without the boundary', () => {
+    expect(parseMultipartImages(Buffer.from('not multipart at all'), 'X')).toEqual([]);
   });
 });

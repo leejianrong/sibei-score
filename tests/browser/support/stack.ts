@@ -1,9 +1,11 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { type Server, createServer as createHttpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { type Browser, chromium } from 'playwright';
+import type { OmrDocument } from '@sibei/model';
 
 /**
  * Booting the whole stack for the V4d end-to-end tests (SLICES.md V4, "E2E that boots the stack").
@@ -131,6 +133,16 @@ function killGroup(child: ChildProcess | undefined): void {
   }
 }
 
+export interface StackOptions {
+  /**
+   * Start a fake OMR worker that returns this document from every recognition, and point the API at
+   * it with `--worker` (V11). Injected because the real worker needs oemer, weights and minutes (V9);
+   * the API's job is to run the pipeline and land the mapped score, which a canned document exercises
+   * end to end. Omit for the default (no worker: import is 503, every other feature works).
+   */
+  readonly workerDocument?: OmrDocument;
+}
+
 export interface Stack {
   /** The API base, e.g. `http://127.0.0.1:53211`. */
   readonly apiUrl: string;
@@ -151,17 +163,21 @@ export interface Stack {
  * the reliable way to learn it; the dev server is then pointed at that URL through `SBSCORE_API`,
  * exactly the override `vite.config.ts` documents, and comes up on its own free port.
  */
-export async function startStack(): Promise<Stack> {
+export async function startStack(options: StackOptions = {}): Promise<Stack> {
   const dataDir = mkdtempSync(join(tmpdir(), 'sibei-e2e-'));
   // `--data` names the SQLite *file*, not a directory (the blob cache lands beside it). Both sit
   // inside the throwaway directory, which teardown removes whole.
   const dataFile = join(dataDir, 'scores.db');
   const spawnOptions = { cwd: REPO, detached: true } as const;
 
-  const api = spawn('pnpm', ['sbscore', 'serve', '--port', '0', '--data', dataFile, '--json'], {
-    ...spawnOptions,
-    env: { ...process.env },
-  });
+  // A fake OMR worker, when the test wants import (V11): a tiny HTTP server returning a canned
+  // OmrDocument. It lets `sbscore serve --worker` run the real job pipeline without oemer.
+  const worker = options.workerDocument === undefined ? undefined : await startFakeWorker(options.workerDocument);
+
+  const serveArgs = ['sbscore', 'serve', '--port', '0', '--data', dataFile, '--json'];
+  if (worker !== undefined) serveArgs.push('--worker', worker.url);
+
+  const api = spawn('pnpm', serveArgs, { ...spawnOptions, env: { ...process.env } });
   let vite: ChildProcess | undefined;
   let browser: Browser | undefined;
 
@@ -169,6 +185,7 @@ export async function startStack(): Promise<Stack> {
     if (browser !== undefined) await browser.close().catch(() => {});
     killGroup(vite);
     killGroup(api);
+    if (worker !== undefined) await worker.stop();
     rmSync(dataDir, { recursive: true, force: true });
   };
 
@@ -214,4 +231,42 @@ export async function startStack(): Promise<Stack> {
     await teardown();
     throw error;
   }
+}
+
+/**
+ * A stand-in OMR worker over HTTP (V11): `POST /recognize` returns the canned document, `GET /health`
+ * answers ok. It speaks the same seam the real worker does (`worker/sibei_omr/server.py`), so
+ * `sbscore serve --worker <url>` drives the whole import job against it — upload, recognise, map, land
+ * a score — without oemer. It listens on loopback so the `sbscore serve` subprocess can reach it.
+ */
+async function startFakeWorker(document: OmrDocument): Promise<{ url: string; stop: () => Promise<void> }> {
+  const server: Server = createHttpServer((request, response) => {
+    if (request.method === 'GET' && (request.url ?? '').startsWith('/health')) {
+      response.writeHead(200, { 'content-type': 'application/json' }).end('{"status":"ok"}');
+      return;
+    }
+    if (request.method === 'POST' && (request.url ?? '').startsWith('/recognize')) {
+      // Drain the uploaded bytes (we do not recognise them — the document is canned), then answer.
+      request.on('data', () => {});
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(document));
+      });
+      return;
+    }
+    response.writeHead(404).end();
+  });
+
+  const port = await new Promise<number>((resolveWith, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (address === null || typeof address === 'string') reject(new Error('the fake worker did not bind'));
+      else resolveWith(address.port);
+    });
+  });
+
+  return {
+    url: `http://127.0.0.1:${port}`,
+    stop: () => new Promise((resolveWith) => server.close(() => resolveWith())),
+  };
 }

@@ -11,7 +11,7 @@ import {
   parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
-import { validateUpload } from '../imports/upload.js';
+import { multipartBoundary, parseMultipartImages, validateUpload } from '../imports/upload.js';
 import type { UploadRejection } from '../imports/upload.js';
 import type { Applier } from '../ops/applier.js';
 import type { Batch, Operation } from '../ops/operations.js';
@@ -74,8 +74,11 @@ export interface RouteContext {
  */
 export interface ImportService {
   available: boolean;
-  /** Store the (already validated) upload and enqueue a job for it, returning the queued job. */
-  submit(owner: Owner, image: Buffer): Promise<ImportJob>;
+  /**
+   * Store the (already validated) page images — one, or several in page order (Q26) — and enqueue one
+   * job for them, returning the queued job.
+   */
+  submit(owner: Owner, images: Buffer[]): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
   retry(owner: Owner, id: JobId): ImportJob | null;
   /** Reads over the job store: list (summaries) and get (full, with the recognised objects). */
@@ -299,10 +302,21 @@ async function submitImport(
   const bytes = await readRawBody(request, response);
   if (bytes === TOO_LARGE) return 413;
 
-  const check = validateUpload(bytes, { maxBytes: MAX_UPLOAD_BODY_BYTES });
-  if (!check.ok) return send(response, badUpload(check.reason, check.message));
+  // Several pages in one `multipart/form-data` upload (Q26), or a single raw image body (the V10
+  // shape, still accepted). Either way every page is validated by *decoding* it (ADR-0029) before a
+  // job is enqueued: one bad page refuses the whole import rather than failing halfway through it.
+  const boundary = multipartBoundary(request.headers['content-type'] ?? undefined);
+  const images = boundary === null ? [bytes] : parseMultipartImages(bytes, boundary);
+  if (images.length === 0) return send(response, badUpload('empty', 'the upload contained no image'));
+  for (const [index, image] of images.entries()) {
+    const check = validateUpload(image, { maxBytes: MAX_UPLOAD_BODY_BYTES });
+    if (!check.ok) {
+      const where = images.length === 1 ? '' : ` (page ${index + 1})`;
+      return send(response, badUpload(check.reason, `${check.message}${where}`));
+    }
+  }
 
-  const job = await context.imports.submit(context.owner, bytes);
+  const job = await context.imports.submit(context.owner, images);
   response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
   // 202, not 201: the resource exists but its result does not yet — recognition runs in the
   // background. The Location points at the job to poll, not at a finished artefact.

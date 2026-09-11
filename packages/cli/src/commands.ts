@@ -1,4 +1,5 @@
-import { statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname } from 'node:path';
 import { projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
@@ -62,6 +63,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
+  sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
+              (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
@@ -172,6 +175,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return remove(flags, client, io, json);
     case 'duplicate':
       return duplicate(flags, client, io, json);
+    case 'import':
+      return importChart(flags, client, io, json, options.cwd ?? process.cwd());
     case 'meta':
       return meta(flags, client, io, json);
     case 'note':
@@ -372,6 +377,72 @@ async function duplicate(flags: Flags, client: Client, io: Io, json: boolean): P
   const result = await client.duplicate(id, flags.options.get('id'));
   io.out(json ? JSON.stringify(result) : `duplicated ${id} to ${result.scoreId}`);
   return EXIT.ok;
+}
+
+/**
+ * `sbscore import <file>...` — OMR one or more images into a new chart (V11, R5). The images become one
+ * job (ADR-0001, Q26); the CLI waits for it and reports the score it produced, or the diagnostic if the
+ * recogniser failed (Q80) or the image had no staff (ADR-0018/Q28). Every parse is a draft to correct
+ * (ADR-0019), which the success line says out loud.
+ */
+async function importChart(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  cwd: string,
+): Promise<ExitCode> {
+  const paths = flags.positional.slice(1);
+  if (paths.length === 0) {
+    throw new CliError(EXIT.usage, 'usage', 'import needs at least one image file: `sbscore import chart.png`');
+  }
+
+  const images = paths.map((path) => {
+    const resolved = isAbsolute(path) ? path : `${cwd}/${path}`;
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(resolved);
+    } catch (error) {
+      // A path the caller gave that is not there or not readable — usage, like a bad -o path.
+      throw new CliError(
+        EXIT.usage,
+        'input',
+        `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+    return { filename: basename(path), bytes, contentType: contentTypeOf(path) };
+  });
+
+  const job = await client.importImages(images);
+  if (job.status === 'failed') {
+    // A failed import committed nothing (Q80): the diagnostic is the server's, printed verbatim.
+    throw new CliError(EXIT.validation, 'import-failed', `import failed: ${job.diagnostic ?? 'unknown error'}`);
+  }
+
+  const pages = paths.length === 1 ? '1 page' : `${paths.length} pages`;
+  io.out(
+    json
+      ? JSON.stringify(job)
+      : `imported ${pages} to ${job.scoreId} — a draft: open it, check the flagged bars, set key/meter/sections`,
+  );
+  return EXIT.ok;
+}
+
+/** The media type for a part, from its extension. The server detects the real format from content. */
+function contentTypeOf(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function isAbsolute(path: string): boolean {
+  return path.startsWith('/');
 }
 
 // ---------------------------------------------------------------------------

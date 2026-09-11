@@ -13,8 +13,16 @@
    * in the empty state, and in a footer that stays put once there are charts, because the
    * library is where you notice you want another one. Q79 parity is knowingly unmet until V4c.
    */
-  import { ApiError, deleteScore, duplicateScore, listScores, OfflineError } from '../lib/api.js';
-  import type { ScoreListing } from '../lib/api.js';
+  import {
+    ApiError,
+    deleteScore,
+    duplicateScore,
+    getImport,
+    listScores,
+    OfflineError,
+    submitImport,
+  } from '../lib/api.js';
+  import type { ImportJobView, ScoreListing } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { displayKey, relativeTime } from '../lib/format.js';
   import { hashOf } from '../lib/routing.js';
@@ -38,6 +46,17 @@
   let busyId = $state<string | null>(null);
   let freshId = $state<string | null>(null);
   let actionError = $state<string | null>(null);
+
+  // The import affordance (V11): the browser's half of Q79 parity for `sbscore import`. `importing`
+  // is the recogniser working (minutes, ADR-0025), `importNote` the line shown while it runs. A hidden
+  // file input is clicked by the visible button, so the control reads as one button rather than a bare
+  // file picker.
+  let fileInput = $state<HTMLInputElement | null>(null);
+  let importing = $state(false);
+  let importNote = $state('');
+
+  /** How often the browser polls the durable job while it runs (ADR-0001). */
+  const IMPORT_POLL_MS = 800;
 
   const shown = $derived(filtered(charts ?? [], query));
 
@@ -101,6 +120,46 @@
     }
   }
 
+  /**
+   * Import one or more page images into a new draft chart (V11, Q26). Submit the files as one job,
+   * poll it to a terminal status, then open the score it produced — or surface the diagnostic if the
+   * recogniser failed (Q80) or the image had no staff (ADR-0018/Q28). Every parse is a draft
+   * (ADR-0019); the score view is where it gets corrected.
+   */
+  async function runImport(files: File[]): Promise<void> {
+    if (files.length === 0 || importing) return;
+    importing = true;
+    actionError = null;
+    importNote = `Recognising ${files.length === 1 ? 'the page' : `${files.length} pages`}… this can take a minute.`;
+    try {
+      let job: ImportJobView = await submitImport(files);
+      while (job.status === 'queued' || job.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
+        job = await getImport(job.id);
+      }
+      if (job.status === 'failed') {
+        actionError = `Import failed: ${job.diagnostic ?? 'unknown error'}`;
+        return;
+      }
+      // A draft landed. Re-read the list so it appears, then open it for correction.
+      await load();
+      if (job.scoreId !== null) open(job.scoreId);
+    } catch (error) {
+      actionError = messageFor(error, 'import');
+    } finally {
+      importing = false;
+      importNote = '';
+    }
+  }
+
+  /** The hidden file input changed: gather the chosen images and import them, then reset it. */
+  function onFilesChosen(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = input.files === null ? [] : Array.from(input.files);
+    input.value = ''; // so choosing the same file again still fires `change`.
+    void runImport(files);
+  }
+
   function messageFor(error: unknown, verb: string): string {
     if (error instanceof OfflineError) return `Could not ${verb}: the server did not answer.`;
     if (error instanceof ApiError) return error.message;
@@ -111,17 +170,46 @@
 </script>
 
 <section class="library">
+  <!-- One hidden picker, driven by every Import button below. `accept` hints images; the server is
+       the real judge and decodes the bytes to validate them (ADR-0029). `multiple` is Q26. -->
+  <input
+    class="file-picker"
+    type="file"
+    accept="image/png,image/jpeg"
+    multiple
+    bind:this={fileInput}
+    onchange={onFilesChosen}
+    aria-hidden="true"
+    tabindex="-1"
+  />
+
   <div class="lib-head">
     <h1 class="lib-title">Library</h1>
-    <span class="lib-count">
-      {#if charts === null || charts.length === 0}{:else if query.trim() === ''}
-        {charts.length}
-        {charts.length === 1 ? 'chart' : 'charts'}
-      {:else}
-        {shown.length} of {charts.length}
+    <div class="lib-head-right">
+      <span class="lib-count">
+        {#if charts === null || charts.length === 0}{:else if query.trim() === ''}
+          {charts.length}
+          {charts.length === 1 ? 'chart' : 'charts'}
+        {:else}
+          {shown.length} of {charts.length}
+        {/if}
+      </span>
+      {#if failure === null}
+        <button class="import-btn" onclick={() => fileInput?.click()} disabled={importing}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+            <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
+          </svg>
+          {importing ? 'Importing…' : 'Import a photo'}
+        </button>
       {/if}
-    </span>
+    </div>
   </div>
+
+  {#if importNote !== ''}
+    <div class="import-note" role="status">
+      <span class="spinner" aria-hidden="true"></span>{importNote}
+    </div>
+  {/if}
 
   {#if failure !== null}
     <!-- Not a state the mockup has: it only ever drew a running server. The distinction it
@@ -145,9 +233,16 @@
     <div class="state">
       <h2>No charts yet.</h2>
       <p>
-        This build reads charts. Writing one is the CLI's job for now — the two surfaces talk to
-        the same API, so a chart made in the terminal opens here immediately.
+        Import a photo or scan of a lead sheet to turn it into an editable draft (every parse is a
+        draft you correct, ADR-0019) — or author one in the terminal. Both talk to the same API, so a
+        chart made either way opens here immediately.
       </p>
+      <button class="import-btn big" onclick={() => fileInput?.click()} disabled={importing}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
+        </svg>
+        {importing ? 'Importing…' : 'Import a photo'}
+      </button>
       <div class="term"><span class="prompt">{'$ '}</span>{NEW_CHART_COMMAND}</div>
     </div>
   {:else}
@@ -255,7 +350,7 @@
     {/if}
 
     <div class="lib-foot">
-      <span>New charts come from the terminal.</span>
+      <span>Import a photo above, or author a chart in the terminal.</span>
       <code>{NEW_CHART_COMMAND}</code>
     </div>
   {/if}
@@ -297,6 +392,96 @@
     color: var(--ink-faint);
     letter-spacing: 0.05em;
     font-variant-numeric: tabular-nums;
+  }
+
+  .lib-head-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* The one visible file picker is a button; the real <input> is offscreen but focusable-by-proxy. */
+  .file-picker {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+
+  .import-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .import-btn svg {
+    width: 13px;
+    height: 13px;
+    flex: none;
+  }
+  .import-btn:hover:not(:disabled),
+  .import-btn:focus-visible {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-wash);
+  }
+  .import-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .import-btn:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+  .import-btn.big {
+    font-size: 12px;
+    padding: 9px 16px;
+    margin-bottom: 8px;
+  }
+
+  .import-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    background: var(--accent-wash);
+    border: 1px solid var(--rule);
+  }
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--rule);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    flex: none;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation-duration: 2.4s;
+    }
   }
 
   .search-wrap {

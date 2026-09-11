@@ -1,10 +1,22 @@
-import type { OmrDocument } from '@sibei/model';
+import { OmrMappingError, mapOmrToScore } from '@sibei/model';
+import type { Id, OmrDocument, Score } from '@sibei/model';
 import type { BlobStore } from '../blob/blob-store.js';
 import type { JobPublisher } from '../events/job-bus.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
+import type { Owner } from '../store/repository.js';
 import { imageFormatOf } from './upload.js';
 import { WorkerError } from './worker-client.js';
 import type { WorkerClient } from './worker-client.js';
+
+/**
+ * The one applier capability the runner is given: land a mapped document as a new score (V11). It is
+ * deliberately this narrow — the runner holds no `ScoreWriter` and cannot reach the op applier's edit
+ * surface, only its server-only import path (ADR-0003, ADR-0005). `createApi` builds it from the real
+ * applier's `import`.
+ */
+export interface ScoreImporter {
+  import(owner: Owner, document: Score): { scoreId: Id };
+}
 
 /**
  * The job runner: the in-process actor that turns queued import jobs into recognised objects, one at
@@ -47,6 +59,8 @@ export interface JobRunnerOptions {
   jobs: JobWriter;
   blobs: BlobStore;
   worker: WorkerClient;
+  /** Lands the mapped document as a new score, the only write the runner can make (V11). */
+  importer: ScoreImporter;
   publisher: JobPublisher;
   /** Where an unexpected runner failure is reported. Never re-thrown — it must not crash the API. */
   onError?: (message: string, error: unknown) => void;
@@ -57,7 +71,7 @@ export const INTERRUPTED_DIAGNOSTIC =
   'the server stopped before this import finished; it was not completed — retry it';
 
 export function createJobRunner(options: JobRunnerOptions): JobRunner {
-  const { jobs, blobs, worker, publisher } = options;
+  const { jobs, blobs, worker, importer, publisher } = options;
   const onError = options.onError ?? (() => {});
 
   let draining = false;
@@ -109,14 +123,26 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         results.push(doc);
       }
 
-      const done = jobs.complete(job.id, results);
+      // Map the recognised pages onto a Score and land it through the applier's server-only import
+      // path (V11). Mapping and landing are synchronous and adjacent — no `await` between them — so
+      // the job is completed in the same tick the score is created; there is never a succeeded job
+      // with no score, nor a score with no succeeded job. A `mapOmrToScore` throw (no staff detected,
+      // ADR-0018/Q28) or a store conflict fails the job, committing nothing (Q80), exactly like a
+      // worker error — a failed import leaves no half-written score to undo (ADR-0003).
+      const document = mapOmrToScore(results, { id: `import-${job.id}` });
+      const { scoreId } = importer.import(job.owner, document);
+
+      const done = jobs.complete(job.id, results, scoreId);
       if (done !== null) publisher.publish(done.owner, { jobId: done.id, status: 'succeeded' });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const failed = jobs.fail(job.id, message);
       if (failed !== null) publisher.publish(failed.owner, { jobId: failed.id, status: 'failed' });
-      // A worker failure is the expected Q80 path, not an API bug — recorded, not surfaced as a 500.
-      if (!(error instanceof WorkerError)) onError('an import job failed unexpectedly', error);
+      // Worker failure (Q80) and "no staff detected" (ADR-0018/Q28) are both expected outcomes,
+      // recorded as a diagnostic, not surfaced as an API bug. Anything else is unexpected.
+      if (!(error instanceof WorkerError) && !(error instanceof OmrMappingError)) {
+        onError('an import job failed unexpectedly', error);
+      }
     }
   }
 

@@ -657,6 +657,52 @@ every non-import feature still works.
 
 ## V11: Photo to editable draft
 
+> **Update, 2026-09-11. Landed (the mapper, the applier import path, the runner, both surfaces).**
+> A recognised import now becomes an editable draft `Score`. The crux is a pure, framework-free
+> **mapper** (`packages/model/src/omr-map.ts`, `mapOmrToScore`): it collapses oemer's per-track staff
+> grid into systems (ignoring the unreliable `zones` layer, V9 finding), segments bars from
+> deduplicated barlines, orders notes/rests by x into sequential onsets, reads pitch from staff
+> geometry against a treble clef, computes per-bar metric validity, flags what it is unsure of
+> (ADR-0013, ADR-0019), and joins several pages in order (Q26). Being pure TS over the committed real
+> dump, it is fully fast-layer tested here without oemer (`tests/unit/omr-map.test.ts`). The runner
+> maps → lands the score through a new **server-only `Applier.import`** (folds one `score.import`,
+> like `duplicate`, ADR-0003/0008) → records `job.scoreId` (V10's `null` is gone). The transport now
+> accepts several images as `multipart/form-data` (Q26); `sbscore import <file>...` and a **library
+> import affordance** both land (Q79). A no-staff image fails cleanly (ADR-0018/Q28); the source
+> images are retained in the BlobStore (ADR-0019). See `agent_docs/history.md` for the cut.
+>
+> **The schema-gap decision (confirmed with the maintainer): default and flag, defer detection.**
+> The `OmrDocument` the worker emits carries staves, noteheads, note groups, single barlines and rests
+> — and **nothing else**. It omits clef, key-signature accidentals, time signature (build-plan item 2's
+> "key and time signature"), **and ties and tuplets/triplets** (build-plan item 2's "ties, triplets").
+> The worker computes clef/sfn layers internally but does not register them in the schema. So V11 maps
+> what is actually emitted, defaults key = C major / time = 4/4, reads pitch against a treble clef, and
+> produces no ties or triplets — every gap a flagged draft the human corrects (ADR-0019). Detecting
+> clef/key/time/ties/triplets needs the worker **and** the schema (`packages/model/src/omr.ts`,
+> `OMR_SCHEMA_VERSION`) extended **and a fresh real-oemer fixture** — none of which can be produced or
+> verified in the current environment (no oemer, no Docker: the org egress policy blocks every
+> container registry, so no base image is pullable). Rather than ship untested Python and a fabricated
+> fixture, this is deferred to a host with oemer/registry access, and it is a **documented deviation
+> from ADR-0021**'s "key and time signature … detected on import". Build-plan item 1 (explicit
+> preprocessing) is likewise deferred: `recognize.py` already deskews/dewarps via oemer, and explicit
+> crop/contrast is untestable here.
+>
+> **Two plan/code discrepancies, surfaced per AGENTS.md rather than worked around:**
+> - The E2E clause "undoing an import leaves an empty score" conflicts with ADR-0003's undo *floor*.
+>   V11 lands import as a **new** score (the create-from-document path, exactly like `duplicate`), so
+>   its single `score.import` op is the floor: undo is a no-op there and the score is removed by
+>   *delete*, not undo — the same behaviour `duplicate` has. The replay property still holds exactly
+>   (asserted in `tests/api/applier.test.ts`). Reading the clause literally would mean import-into-an-
+>   existing-empty-score, which is not the V10 job model (a job creates a new score and fills `scoreId`).
+> - `sbscore import` does not take `--title`/`--composer`: OCR of title/composer (Q37) needs OCR the
+>   pipeline does not run until V13, and `ScoreMeta` has no review field to flag them low-confidence.
+>   The title defaults empty (KAN-594); the user sets it with `meta set` after. Deferred with the OCR.
+>
+> The live-worker end-to-end demo (a real phone photo through the real oemer container to a PDF) cannot
+> run here for the same registry reason; it is verified against the committed dump and a fake-worker
+> browser E2E instead, and the real-container run is deferred to a host with registry access. Read the
+> build plan below as the plan it was.
+
 **Delivers:** R5
 
 **Build plan**

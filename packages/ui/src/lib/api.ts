@@ -112,6 +112,49 @@ export async function duplicateScore(id: Id): Promise<DuplicateResult> {
 }
 
 /**
+ * OMR import (V11, R5). The one library affordance that *creates* a chart from the browser: pick one
+ * or more page images (Q26), and the server recognises them into a new draft score (ADR-0019).
+ *
+ * The images go up as `multipart/form-data`, exactly what a file `<input multiple>` produces — the
+ * one place this client sends something other than JSON, so it has its own small poster below rather
+ * than bending `postJson`. The job is durable (ADR-0001), so the caller submits, then polls
+ * `getImport` to a terminal status while the recogniser runs (minutes, ADR-0025). The **wire** shape
+ * is restated here for the same reason `ScoreListing` is: the browser bundle may not resolve
+ * `@sibei/api`.
+ */
+export interface ImportJobView {
+  id: Id;
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  imageKeys: string[];
+  attempts: number;
+  diagnostic: string | null;
+  /** The score the import produced, once it has succeeded (V11); null while running or on failure. */
+  scoreId: Id | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function submitImport(files: readonly File[]): Promise<ImportJobView> {
+  const form = new FormData();
+  for (const file of files) form.append('images', file, file.name);
+
+  let response: Response;
+  try {
+    response = await fetch(`${V1}/imports`, { method: 'POST', body: form, headers: { accept: 'application/json' } });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) throw await failureFrom(response);
+  return ((await response.json()) as { job: ImportJobView }).job;
+}
+
+export async function getImport(id: Id): Promise<ImportJobView> {
+  const body = await getJson<{ job: ImportJobView }>(`${V1}/imports/${encodeURIComponent(id)}`);
+  return body.job;
+}
+
+/**
  * The write side (V4c). Declared here rather than imported from `@sibei/api`'s
  * `packages/api/src/ops/operations.ts` — the same reason `ScoreListing` and `ScoreRecord` above
  * are the wire shape rather than an import: `@sibei/api` also holds the store and the applier,

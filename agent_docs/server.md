@@ -304,13 +304,36 @@ What is *not* closed is a page holding connections open; that is resource exhaus
 ADR-0029's threat model, and it is booked as a cap (KAN-601) rather than paid for by widening the
 Origin rule.
 
-## The import pipeline, and the job that is not an op (V10)
+## The import pipeline, and the job that is not an op (V10, V11)
 
 `packages/api/src/imports/` and `packages/api/src/store/{jobs,sqlite-jobs,memory-job-store}.ts`.
 This is the server side of "OMR is a job, not a request" (ADR-0001). A scan comes in, a job goes on a
-queue, a background runner hands the image to the Python worker (ADR-0005), and the raw recognised
-objects — an `OmrDocument` — land on the job. **Mapping those objects to a `Score` and landing them
-via `score.import` is V11, not V10**; a succeeded V10 job carries the objects and creates no score.
+queue, a background runner hands the image to the Python worker (ADR-0005), the raw recognised objects
+— an `OmrDocument` per page — land on the job, and (from V11) the runner **maps them onto a `Score`
+and lands it**, filling `job.scoreId`. V10 was the plumbing (store the objects, `scoreId` null); V11
+is the interpretation.
+
+**The mapping is pure and lives in `model`, not here** (`packages/model/src/omr-map.ts`,
+`mapOmrToScore`). It is framework-free TS over the `OmrDocument` schema, so it is fast-layer testable
+against the committed real dump without oemer; the runner just calls it. It defaults key/time and
+produces no clef/ties/triplets, because the worker's schema does not carry them (deferred detection,
+a documented ADR-0021 deviation — see `SLICES.md` V11 and `agent_docs/history.md`).
+
+**The runner lands the score through the one writer, not around it.** It holds a `JobWriter`, never a
+`ScoreWriter` (ADR-0003), so landing a mapped document goes through a new **server-only
+`Applier.import(owner, document)`** — the exact shape of V8c's `duplicate`: it folds one `score.import`
+op and calls `store.create`, so the import is a single, replay-exact, undoable-at-the-floor unit. The
+runner is handed the applier narrowed to `ScoreImporter` (just `import`), so it still cannot reach the
+edit surface. The sequence is recognise → `mapOmrToScore` → `Applier.import` → `jobs.complete(id,
+results, scoreId)`, all synchronous and adjacent, so there is never a succeeded job without a score
+nor a committed score without a succeeded job. A `mapOmrToScore` throw ("no staff detected",
+ADR-0018/Q28) fails the job like a worker error — committing nothing (Q80).
+
+**Undoing an import is a no-op at the floor, not an emptying.** Because import creates a *new* score
+whose whole log is one `score.import`, undo stops there exactly as it does on a `score.create` or a
+`duplicate` (V8a) — a score is removed by *delete*, never by undoing it into non-existence. The V11
+test-plan wording "undoing an import leaves an empty score" predates this create-from-document shape;
+the replay property it cares about (log replays to the stored document) holds exactly.
 
 **A job is durable state, not an op.** It lives in its own `import_jobs` table behind a `JobStore`
 port (`store/jobs.ts`), because the API is stateless and the process is not (ADR-0001 #7): a `queued`
@@ -355,14 +378,17 @@ moves on.
 "payload-is-a-nudge-to-re-read" contract, same catch-up-first-frame and no-`id:`-no-replay decisions
 — read the change-stream section above; the only difference is the payload, `{jobId, status}` where
 the score stream carries `{scoreId, version}`. A client repaints its progress from `status` and
-re-reads the job for the recognised objects on `succeeded` or the diagnostic on `failed`.
+re-reads the job for the recognised objects on `succeeded`, its `scoreId` (V11) to open the draft, or
+the diagnostic on `failed`.
 
 **The routes** (`http/routes.ts`), all under `/v1/imports`:
 
 ```
-POST   /v1/imports            upload a scan (raw image body) -> 202 with the queued job
+POST   /v1/imports            upload a scan -> 202 with the queued job. One raw image body (V10), or
+                              several as multipart/form-data in page order (V11, Q26). Every page is
+                              validated by decoding before a job is enqueued (ADR-0029).
 GET    /v1/imports            this owner's jobs (summaries, no result)
-GET    /v1/imports/:id        one job in full, with the recognised objects when succeeded
+GET    /v1/imports/:id        one job in full, with the recognised objects and (V11) the scoreId when succeeded
 GET    /v1/imports/:id/events SSE: this job's progress
 POST   /v1/imports/:id/retry  requeue a failed job (Q80) -> 200; 409 if it is not failed
 ```

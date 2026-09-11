@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { LOCAL_OWNER, OperationError, createApplier, replayLog } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Applier, ApplyResult, Operation, ScoreStore } from '@sibei/api';
-import { dur, notesOf } from '@sibei/model';
+import { dur, makeBar, makeScore, notesOf } from '@sibei/model';
+import type { Score } from '@sibei/model';
 
 /**
  * The applier against a real store (ADR-0003). Three properties get asserted here that cannot be
@@ -665,5 +666,46 @@ describe('duplicate: a copy with a fresh history (V8c, ADR-0003)', () => {
         expectedVersion: version,
       }),
     ).toThrow(/score\.import|no such operation/);
+  });
+});
+
+describe('import: landing a whole document as a new score (V11, ADR-0003)', () => {
+  const docOf = (ctx: Fixture, id: string) => ctx.store.get(LOCAL_OWNER, id)!.score;
+
+  // A tiny document the OMR mapper could have produced: it arrives with its id already set.
+  const imported = (id: string): Score =>
+    makeScore({ id, title: 'From a photo', bars: [makeBar({ id: 'bar-1', number: 1 })] });
+
+  it('creates the score from the document, at version 1', () => {
+    const ctx = fresh();
+    const result = ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    expect(result).toEqual({ scoreId: 'import-1', version: 1 });
+    expect(docOf(ctx, 'import-1').meta.title).toBe('From a photo');
+  });
+
+  it('gives it a single score.import log that replays to it exactly', () => {
+    const ctx = fresh();
+    ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    const log = ctx.store.operations(LOCAL_OWNER, 'import-1');
+    expect(log).toHaveLength(1);
+    expect(log[0]!.operation.type).toBe('score.import');
+    expect(replayLog(log)).toEqual(docOf(ctx, 'import-1'));
+  });
+
+  it('undoing an import leaves an empty score and the log still replays exactly (V11 test plan)', () => {
+    const ctx = fresh();
+    ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    const version = ctx.store.get(LOCAL_OWNER, 'import-1')!.version;
+    // The import is a single undoable unit; undoing it is the floor (a score.import at the base is
+    // like a score.create — undo stops there rather than deleting the score), so it does not move.
+    const undone = ctx.applier.undo(LOCAL_OWNER, 'import-1', version);
+    expect(undone.moved).toBe(false);
+    expect(replayLog(ctx.store.operations(LOCAL_OWNER, 'import-1'))).toEqual(docOf(ctx, 'import-1'));
+  });
+
+  it('refuses an id already taken, rather than overwriting', () => {
+    const ctx = fresh();
+    ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    expect(() => ctx.applier.import(LOCAL_OWNER, imported('import-1'))).toThrow(/already exists/);
   });
 });
