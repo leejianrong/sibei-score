@@ -4,6 +4,7 @@ import type { MusicFontName } from '@sibei/engrave';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Id, Score } from '@sibei/model';
+import { scoreToMusicXml } from '@sibei/codec';
 import { renderScoreToPdf } from '@sibei/pdf';
 import type { BlobKey, BlobStore } from '../blob/blob-store.js';
 import type { Owner, ScoreReader, ScoreRecord } from '../store/repository.js';
@@ -24,7 +25,7 @@ import type { PartInstrument } from '@sibei/music';
  * edit, the same distinction ADR-0028's migration write-back turns on.
  */
 
-export const EXPORT_FORMATS = ['pdf'] as const;
+export const EXPORT_FORMATS = ['pdf', 'musicxml'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /**
@@ -89,6 +90,9 @@ export interface Exporter {
 
 const CONTENT_TYPES: Record<ExportFormat, string> = {
   pdf: 'application/pdf',
+  // The registered type for uncompressed MusicXML (a `.musicxml` file), which is what MuseScore and
+  // the like sniff for. `application/xml` would open too, but this is the one the format owns.
+  musicxml: 'application/vnd.recordare.musicxml+xml',
 };
 
 /**
@@ -178,6 +182,10 @@ function render(score: Score, request: ExportRequest): Promise<Buffer> {
       // about the page — that is `layout`'s, and the seam only holds while the API stays a
       // conduit for the choice rather than a second opinion about it (ADR-0014).
       return renderScoreToPdf(score, { paper: request.paper }, { font: request.font });
+    case 'musicxml':
+      // A codec at the edge (ADR-0004), not a render: MusicXML is text off the score, so paper and
+      // font do not enter into it. `writtenPart` already applied above, so a part exports transposed.
+      return Promise.resolve(Buffer.from(scoreToMusicXml(score), 'utf8'));
     default:
       return exhaustive(request.format);
   }

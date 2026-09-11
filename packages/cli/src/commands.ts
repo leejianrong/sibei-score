@@ -57,7 +57,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore list
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
-  sbscore export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]
+  sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
@@ -84,7 +84,8 @@ Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
-Export:  --pdf is the only format this build has, and it is the default.
+Export:  --pdf (the default) or --musicxml. MusicXML is a codec at the edges (ADR-0004);
+  it is lossy in known ways and ignores --paper and --font, which are page choices.
   Without -o the file is written to the working directory, named after the chart's
   title — "Body and Soul" becomes ./Body and Soul.pdf. -o takes a file path, or a
   directory to put that name in.
@@ -290,9 +291,14 @@ async function exportScore(
   const id = requiredPositional(flags, 1, 'a score id', 'export');
 
   const query: ExportQuery = {};
-  // The switch says pdf; absent, the server's default says pdf too. Only what was asked for goes
-  // on the query, so there is one place that decides what a default is.
-  if (flags.switches.has('pdf')) query.format = 'pdf';
+  // `--pdf` (the default) or `--musicxml` (V8d), never both. Only what was asked for goes on the
+  // query, so the server stays the one place that decides what a default is — but a chosen format is
+  // sent, and it also fixes the fallback filename's extension below.
+  if (flags.switches.has('pdf') && flags.switches.has('musicxml')) {
+    throw new CliError(EXIT.usage, 'usage', 'choose one of --pdf or --musicxml, not both');
+  }
+  const format = flags.switches.has('musicxml') ? 'musicxml' : 'pdf';
+  if (flags.switches.has('pdf') || flags.switches.has('musicxml')) query.format = format;
   const paper = flags.options.get('paper');
   if (paper !== undefined) query.paper = paper;
   const font = flags.options.get('font');
@@ -307,7 +313,7 @@ async function exportScore(
     out: flags.options.get('out'),
     // A name off a socket is a suggestion, never a path (`output.ts`).
     suggested: artefact.filename,
-    fallback: fallbackName(id, 'pdf'),
+    fallback: fallbackName(id, format),
     cwd,
     isDirectory,
   });

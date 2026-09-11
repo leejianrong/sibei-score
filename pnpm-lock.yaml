@@ -71,6 +71,9 @@ importers:
 
   packages/api:
     dependencies:
+      '@sibei/codec':
+        specifier: workspace:*
+        version: link:../codec
       '@sibei/engrave':
         specifier: workspace:*
         version: link:../engrave

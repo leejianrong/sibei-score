@@ -36,6 +36,15 @@ own batch of one. This is the KAN-510 shape decision, made at the point of use r
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
 
+**V8d wired MusicXML export — V8b's booked debt, minus the UI.** The codec landed pure at V8b; V8d
+reached it from `GET …/export?format=musicxml` and `sbscore export --musicxml`. In the exporter it is
+a codec at the edge, not a render: it branches to `scoreToMusicXml` rather than `@sibei/pdf`, so paper
+and font do not touch the bytes (they stay in the cache key, harmless over-keying). `writtenPart` runs
+first, so a transposing part exports transposed — the same instrument view a PDF part uses. The one
+gotcha was the CLI arg parser: `--musicxml` had to join the `SWITCHES` set or it read as an option
+wanting a value. The UI export-format toggle is deferred to a design-first sub-slice rather than
+shipped as a fourth rail control without a mockup; MusicXML *import* waits for v0.2's upload boundary.
+
 **V8c is the library's delete and duplicate, and it was design-first.** Delete's backend already
 existed (V2's `ScoreLibrary.delete`, the DELETE route, `sbscore rm`) — the slice was the browser
 control and duplicate. Duplicate needed a decision (put to the user): a copy with a *fresh* history,
