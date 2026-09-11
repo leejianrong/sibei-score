@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle), V8f (the migration fixture test) and V8g (serving the built UI from the API) have landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle), V8f (the migration fixture test), V8g (serving the built UI from the API) and V8h (the container) have landed.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -43,9 +43,14 @@ ADR-0008's anti-mangling guarantee holds), which v0.2's OMR import will reuse. F
 **serve the built browser itself** — an fs-free `AssetSource` port (`packages/api/src/http/static.ts`)
 fed by a reader in the CLI (`static-assets.ts`), turned on by `sbscore serve --ui DIR` (or `SBSCORE_UI`)
 and off by default so Vite still serves the app in development; files are served last, after every
-`/v1/` route, so nothing shadows the API. Not built yet: the container that sets `--ui` (it still owes
-the ADR-0029 bind decision), MusicXML import, v0.1 docs, and the whole import pipeline. Don't assume a
-module exists because a plan mentions it.
+`/v1/` route, so nothing shadows the API. From V8h the app **ships as a container**: a `Dockerfile` and
+`compose.yaml` run `sbscore serve --ui` on `127.0.0.1:8080` with a named volume for the SQLite library
+and its blobs. `Api.listen(port, host?)` now takes a bind address (default `127.0.0.1`, unchanged for
+every existing caller); `sbscore serve` exposes it as `--host`/`SBSCORE_HOST` and the container sets
+`0.0.0.0`, while the compose file publishes to the host's loopback only — the ADR-0029 amendment that
+separates the *bind* address from the *publish* address (`docs/adr/0029`, `docs/hosting.md`). Not built
+yet: MusicXML import, v0.1 docs (install/CLI reference/offline claim), and the whole import pipeline.
+Don't assume a module exists because a plan mentions it.
 
 ## Layout
 

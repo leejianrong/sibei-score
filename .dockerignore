@@ -1,0 +1,20 @@
+# Keep the build context small, and — critically — never copy the host's node_modules or built
+# artifacts into the image. The host's native modules (better-sqlite3) are built for the host OS and
+# would break inside the Linux image; the image installs and builds its own.
+node_modules
+**/node_modules
+dist
+**/dist
+out
+**/out
+*.tsbuildinfo
+.git
+.github
+.githooks
+.DS_Store
+
+# Local data and dev scratch that has no business in an image.
+*.db
+*.db-wal
+*.db-shm
+blobs/

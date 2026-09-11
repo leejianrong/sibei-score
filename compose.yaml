@@ -1,0 +1,30 @@
+# The local single-container deployment (V8, SLICES.md step 5). `docker compose up` builds the image
+# and serves the app on http://127.0.0.1:8080 — the UI and the /v1/ API on one origin — with the CLI
+# able to reach it at the same address (SBSCORE_BASE_URL=http://127.0.0.1:8080). ADR-0001's
+# single-container MVP; V10 extends this rather than replacing it.
+services:
+  sbscore:
+    build: .
+    # Publish to the host's LOOPBACK ONLY (ADR-0029, and its V8h amendment). Never a bare
+    # "8080:8080" — that binds 0.0.0.0 on the host and exposes the app to the LAN, which is exactly
+    # what the threat model forbids. The container binds 0.0.0.0 internally so this forward can reach
+    # it; the safety lives here, on the publish address, where a container can enforce it.
+    ports:
+      - "127.0.0.1:8080:8080"
+    # One named volume holds everything stateful: the SQLite library and its cached-export blobs,
+    # both under /data (SBSCORE_DATA=/data/scores.db, blobs beside it). Survives restarts and
+    # rebuilds.
+    volumes:
+      - sbscore-data:/data
+    restart: unless-stopped
+    # The app makes no outbound network connections at runtime — the published loopback port above is
+    # the only ingress, and there is no egress it needs. (Build time does need the network, to install
+    # dependencies.) A dedicated network keeps it off the default bridge with other containers.
+    networks:
+      - sbscore
+
+volumes:
+  sbscore-data:
+
+networks:
+  sbscore:

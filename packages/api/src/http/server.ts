@@ -63,12 +63,15 @@ export interface ApiOptions {
 export interface Api {
   server: Server;
   /**
-   * Bind and start. **`127.0.0.1` only, never `0.0.0.0`** (ADR-0029) — the host is deliberately not
-   * a parameter, because the one thing that must never happen is somebody passing the wrong one,
-   * and a compose file's default would otherwise expose the port on the host's network. Port 0 asks
-   * the OS for a free one, which is what tests use.
+   * Bind and start. **Defaults to `127.0.0.1`**, and every caller that omits `host` still binds
+   * loopback exactly as before (ADR-0029). `host` is a parameter only because a container has to
+   * (ADR-0029 amendment, V8h): Docker forwards a published port to the container's *bridge*
+   * interface, so a loopback-only process is unreachable from the host, and the LAN-unreachability
+   * ADR-0029 wants moves to the *publish* address (`127.0.0.1:PORT:PORT` in the compose file), which
+   * is where a container can actually enforce it. Binding `0.0.0.0` is the container's job to ask
+   * for, deliberately — never a default here. Port 0 asks the OS for a free one, which tests use.
    */
-  listen(port: number): Promise<{ port: number }>;
+  listen(port: number, host?: string): Promise<{ port: number }>;
   close(): Promise<void>;
 }
 
@@ -153,10 +156,10 @@ export function createApi(options: ApiOptions): Api {
 
   return {
     server,
-    listen(port) {
+    listen(port, host = LOOPBACK) {
       return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(port, LOOPBACK, () => {
+        server.listen(port, host, () => {
           const address = server.address();
           if (address === null || typeof address === 'string') {
             reject(new Error('the server did not bind to a port'));

@@ -59,20 +59,34 @@ function productFiles(): string[] {
   );
 }
 
-describe('the bind address (ADR-0029)', () => {
-  it('is loopback wherever it appears, and 0.0.0.0 appears nowhere', () => {
-    // A compose file's default would expose the port on the host's network, so this is the check
-    // that has to survive the arrival of a compose file in V8.
-    const offenders = productFiles().filter((file) => /0\.0\.0\.0/.test(codeOf(join(REPO, file))));
+describe('the bind address (ADR-0029, amended V8h)', () => {
+  it('is never hardcoded wide — no `0.0.0.0` string literal in the code', () => {
+    // The V8h amendment lets a container *bind* 0.0.0.0, but only ever via --host / SBSCORE_HOST or
+    // the compose file — never as a default baked into the code, which is what a quoted literal in
+    // packages/ or scripts/ would be. The word may appear in help text and comments (both fine, and
+    // comments are stripped before this runs); a string literal may not.
+    const offenders = productFiles().filter((file) => /['"]0\.0\.0\.0['"]/.test(codeOf(join(REPO, file))));
     expect(offenders).toEqual([]);
   });
 
-  it('is not a parameter of listen, so nobody can pass the wrong one', () => {
+  it('defaults the bind to loopback, so omitting the host still binds 127.0.0.1', () => {
+    // The host is a parameter now, because a container has to bind 0.0.0.0 for Docker's published
+    // port to reach the process (the amendment). But it *defaults* to loopback, so every caller that
+    // omits it binds 127.0.0.1 exactly as before — the risk the original rule guarded against is the
+    // wrong *default*, and that default is still loopback.
     const server = codeOf(join(REPO, SERVER));
-    expect(server).toMatch(/server\.listen\(port, LOOPBACK/);
-    // `listen(port: number)` and nothing else. A host argument is the whole risk.
-    expect(server).toMatch(/listen\(port: number\): Promise/);
-    expect(server).not.toMatch(/listen\([^)]*host/);
+    expect(server).toMatch(/listen\(port,\s*host = LOOPBACK\)/);
+    expect(server).toMatch(/server\.listen\(port, host,/);
+    // The public signature makes the host optional, never required.
+    expect(server).toMatch(/listen\(port: number, host\?: string\): Promise/);
+  });
+
+  it('never lets the CLI default the bind wide — an unset host stays undefined', () => {
+    // resolveBindHost returns undefined unless --host / SBSCORE_HOST is set, so the API's loopback
+    // default applies and the container has to opt in explicitly. serve passes that value straight
+    // through, adding no default of its own.
+    const serve = codeOf(join(REPO, 'packages/cli/src/serve.ts'));
+    expect(serve).toMatch(/api\.listen\(port, bindHost\)/);
   });
 });
 

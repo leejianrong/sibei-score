@@ -21,7 +21,7 @@ change and no new store method.
 | V8e | The PDF \| MusicXML export-format toggle in the score view (design-first) | **done** |
 | V8f | A migration fixture through every schema version | **done** |
 | V8g | Serving the built UI from the API — the `AssetSource` port, `sbscore serve --ui` | **done** |
-| V8h | The container: Dockerfile + compose + a persistent volume, networking-disabled-except-port | planned |
+| V8h | The container: Dockerfile + compose + a persistent volume; the ADR-0029 bind amendment | **done** |
 | V8i | v0.1 docs: install, the CLI reference, the offline claim | planned |
 
 The sub-slices ran ahead of the up-front V8d–V8f labels once the codec split export from its UI and
@@ -41,6 +41,25 @@ and no schema change: the existing `type`/`payload`/`batch` columns carry a cont
 own batch of one. This is the KAN-510 shape decision, made at the point of use rather than up front.
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
+
+**V8h ships the container, and its one real decision was a flaw in ADR-0029's wording.** The rule said
+&ldquo;bind `127.0.0.1`, never `0.0.0.0`, including in the compose file&rdquo; — but Docker forwards a
+published port to the container's *bridge* interface, so a loopback-only process is unreachable from the
+host and the container looks dead. The fix (an amendment recorded in `docs/adr/0029`, put to the user
+before writing code because it touches an ADR): separate the **bind** address from the **publish**
+address. `Api.listen(port, host?)` gained a host parameter that **defaults to `127.0.0.1`**, so every
+existing caller binds loopback exactly as before; `sbscore serve` exposes it as `--host`/`SBSCORE_HOST`;
+the container sets `0.0.0.0` so the forwarded port reaches the process, and `compose.yaml` publishes
+`127.0.0.1:8080:8080` — LAN-unreachability now lives on the publish address, where a container can
+actually enforce it, and the Origin/Host guards are untouched (the browser still reaches it as
+`localhost`). The image runs the app from source (Node 22 type-stripping / tsx, no compile step — honest
+for v0.1; production hardening is booked in `docs/hosting.md`) and serves the built UI via V8g's `--ui`.
+A named volume holds the SQLite library and its blobs under `/data`. The registry was unreachable from
+the build sandbox so the image build itself was not run here, but the runtime path the container uses —
+bind `0.0.0.0`, same-origin UI, `/v1/health`, data persistence across a restart — was smoke-tested
+directly through the CLI, and `docker compose config` confirms the loopback-only publish. Residual,
+noted in the ADR: `0.0.0.0` also reaches other containers on the same Docker network; a dedicated
+compose network closes it.
 
 **V8g lets the API serve the built browser, which is the container's prerequisite, not the container.**
 A shipped image has no Vite, so the API serves the bundle itself — and serving the app and its `/v1/`

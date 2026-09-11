@@ -53,3 +53,38 @@ something that is not the user.
 - None of this substitutes for authentication. It is the minimum that makes an
   unauthenticated local server not trivially abusable, and it says nothing about the
   hosted case.
+
+## Amendment (2026-09-11, V8h): bind address vs. publish address
+
+Shipping the container (V8's step 5) exposed a flaw in the original wording. &ldquo;Bind
+`127.0.0.1`, never `0.0.0.0`, including in the compose file&rdquo; conflated two separate things
+that were the same knob only because there was no container yet:
+
+- the **bind address** — where the server process listens, *inside* the container;
+- the **publish address** — what Docker exposes to the host, *outside* the container.
+
+Docker forwards a published port to the container's **bridge** interface (a `172.x.x.x` address),
+not to loopback. A process bound to `127.0.0.1` inside the container is therefore listening on the
+wrong interface and is unreachable from the host — the container looks dead. Binding `0.0.0.0`
+inside the container is the only way the forwarded request reaches the process.
+
+**The property this ADR actually protects — the app is unreachable from other devices on the LAN —
+is a property of the publish address, not the bind address.** So:
+
+- The bind address becomes a parameter (`Api.listen(port, host?)`), **defaulting to `127.0.0.1`**.
+  Every non-container caller omits it and binds loopback exactly as before. `sbscore serve` exposes
+  it as `--host` / `SBSCORE_HOST`, default `127.0.0.1`.
+- The **container** sets `SBSCORE_HOST=0.0.0.0` so the forwarded port reaches the process.
+- The **compose file publishes to the host's loopback only** — `127.0.0.1:8080:8080`, never a bare
+  `8080:8080`. This is where LAN-unreachability is now enforced, and where a container can actually
+  enforce it. The original rule's *intent* — no bare `0.0.0.0` publish that exposes the port on the
+  host's network — stands unchanged; only its location moves from the bind to the publish line.
+- The **Origin and Host guards are untouched** and still run. The browser reaches the container as
+  `localhost:8080` (via the loopback publish), so the loopback Host allow-list still passes; nothing
+  loosens for the local container. Widening that allow-list for a real domain is the hosted
+  transition's job, not this one.
+
+Residual, and accepted: binding `0.0.0.0` also exposes the port to other containers on the same
+Docker network. For a single-container deployment that is negligible, and a dedicated Compose
+network with no other services on it closes it. See `docs/hosting.md` for how the same `0.0.0.0`
+bind is reused, behind a TLS edge and real auth, in the hosted future.
