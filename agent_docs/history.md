@@ -17,9 +17,15 @@ change and no new store method.
 | V8a | Undo/redo by replay of the op log — control ops, `POST …/undo\|redo`, `sbscore undo\|redo`, ctrl-Z | **done** |
 | V8b | The `codec` package: MusicXML export + import, single-voice, every lossy case named | **done** |
 | V8c | Library delete + duplicate (design-first UI) | **done** |
-| V8d | A migration fixture through every schema version | planned |
-| V8e | The container: Dockerfile + compose + a persistent volume, networking-disabled-except-port | planned |
-| V8f | v0.1 docs: install, the CLI reference, the offline claim | planned |
+| V8d | MusicXML export wired: `GET …/export?format=musicxml`, `sbscore export --musicxml` | **done** |
+| V8e | The PDF \| MusicXML export-format toggle in the score view (design-first) | **done** |
+| V8f | A migration fixture through every schema version | **done** |
+| V8g | Serving the built UI from the API — the `AssetSource` port, `sbscore serve --ui` | **done** |
+| V8h | The container: Dockerfile + compose + a persistent volume, networking-disabled-except-port | planned |
+| V8i | v0.1 docs: install, the CLI reference, the offline claim | planned |
+
+The sub-slices ran ahead of the up-front V8d–V8f labels once the codec split export from its UI and
+the migration fixture came late; the rows above are the cut as it actually landed, newest work last.
 
 **V8a's one real decision was how undo persists, and the append-only log forced it.** ADR-0003 keeps
 the log append-only forever — `sqlite-store.ts` has no UPDATE or DELETE against it, and
@@ -35,6 +41,25 @@ and no schema change: the existing `type`/`payload`/`batch` columns carry a cont
 own batch of one. This is the KAN-510 shape decision, made at the point of use rather than up front.
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
+
+**V8g lets the API serve the built browser, which is the container's prerequisite, not the container.**
+A shipped image has no Vite, so the API serves the bundle itself — and serving the app and its `/v1/`
+calls from one origin is exactly what ADR-0029's Origin/Host guards assume. The constraint that shaped
+it is ADR-0006's blob seam: `packages/api` may not name the filesystem (`blob-seam.test.ts` allows the
+one directory blob adapter and nothing else), so the bytes arrive through an `AssetSource` **port** —
+`asset(path) -> {bytes, contentType} | null` — and the fs-backed reader lives in `packages/cli`
+(`static-assets.ts`), where naming a directory is a legitimate argument. The reader hoists the whole
+bundle into a `Map` at startup, so a request is a lookup that never touches disk and a crafted
+`/../../etc/passwd` has nothing to traverse: it hits a key or misses. Routing serves a file **last** —
+only a GET, only once every `/v1/` route declined, and never for a `/v1/` path — so a file can never
+shadow the API, proven by a test whose fake bundle *would* answer `/v1/health` and is never consulted
+there. There is **no SPA fallback**: the browser routes on the URL hash (`App.svelte`), so the only
+paths that reach the server are `/` and the hashed assets, and a real path miss is an honest 404 rather
+than a masked one. Off by default (`serve` without `--ui` is unchanged, for Vite-in-dev); `sbscore
+serve --ui DIR` (or `SBSCORE_UI`) turns it on and fails fast on a directory that is missing or has no
+`index.html`, the same stance `--data` takes. Smoke-tested against a real `pnpm --filter @sibei/ui
+build`. The container that sets `--ui` is the next slice; it still owes the ADR-0029 bind question
+(a published port needs a `0.0.0.0` bind inside the container, which the loopback-only rule forbids).
 
 **V8f is the migration fixture test, and it earned its keep by catching a real bug.** ADR-0028's
 standing tax is a fixture carried through every schema step; `tests/fixtures/score-v1.json` is a whole

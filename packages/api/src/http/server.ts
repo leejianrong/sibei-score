@@ -12,6 +12,7 @@ import { LOOPBACK, checkHost, checkOrigin, resolveLocalPrincipal } from './guard
 import type { Authenticator } from './guards.js';
 import { problem, problemForUnknown } from './problems.js';
 import { pathOf, route, send } from './routes.js';
+import type { AssetSource } from './static.js';
 import { consoleLogger } from './log.js';
 import type { Logger } from './log.js';
 
@@ -49,6 +50,14 @@ export interface ApiOptions {
    * `DEFAULT_HEARTBEAT_MS`; injected because a test cannot wait fifteen seconds to watch one.
    */
   heartbeatMs?: number;
+  /**
+   * The built browser UI, served from this same origin (V8g). Omitted in development — Vite serves
+   * the app and proxies `/v1/` here — and supplied by `sbscore serve --ui` for a shipped container,
+   * which is what makes the browser same-origin with the API the way ADR-0029's guards assume. A
+   * port, never a path: the bytes are read by the caller (`packages/cli`), since ADR-0006 keeps the
+   * filesystem out of this package. When absent, non-`/v1/` paths 404 as they always did.
+   */
+  assets?: AssetSource;
 }
 
 export interface Api {
@@ -132,6 +141,7 @@ export function createApi(options: ApiOptions): Api {
         exporter,
         events,
         owner: principal.owner,
+        ...(options.assets === undefined ? {} : { assets: options.assets }),
       });
     } catch (error) {
       const outcome = problemForUnknown(error);

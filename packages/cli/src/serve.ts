@@ -1,7 +1,8 @@
-import { mkdirSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createApi, openDirectoryBlobStore } from '@sibei/api';
+import type { AssetSource } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
@@ -9,6 +10,7 @@ import { CliError } from './client.js';
 import type { Io } from './commands.js';
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
+import { loadAssets } from './static-assets.js';
 
 /**
  * `sbscore serve` — the thing that runs the API.
@@ -18,8 +20,10 @@ import type { ExitCode } from './exit-codes.js';
  * CLI", and without this there is nothing for the CLI to talk to, so the slice would not have been
  * demonstrable. Noting it rather than pretending it was in the plan.
  *
- * V8 ships the container that runs this; nothing here anticipates that beyond keeping the store path
- * a parameter.
+ * V8 ships the container that runs this. From V8g it can also serve the built browser UI itself
+ * (`--ui`/`SBSCORE_UI`), which is what lets a shipped image answer both the app and its `/v1/` calls
+ * on one origin — the arrangement ADR-0029's Origin/Host guards assume. In development this stays
+ * off: Vite serves the app and proxies `/v1/` here.
  */
 
 export const DEFAULT_PORT = 4321;
@@ -151,6 +155,39 @@ export function defaultBlobPath(databaseFile: string): string {
   return join(dirname(databaseFile), 'blobs');
 }
 
+/**
+ * The built-UI directory to serve, or `undefined` when none was asked for (the development default,
+ * where Vite serves the app). `--ui` or `SBSCORE_UI` names a directory; the container sets it.
+ *
+ * **A named-but-wrong directory is a hard error, not a silent skip.** An operator who passed `--ui`
+ * wants the UI served, so a path that is not a directory, or a directory with no `index.html` in it
+ * (an unbuilt or half-copied bundle), stops the server rather than starting one that answers `/`
+ * with a 404 and looks broken for a reason nothing explains — the same stance `--data` takes.
+ */
+export function resolveUiDirectory(flags: Flags): string | undefined {
+  const chosen = flags.options.get('ui') ?? process.env.SBSCORE_UI;
+  if (chosen === undefined || chosen === '') return undefined;
+
+  const directory = resolve(chosen);
+  if (!isDirectory(directory)) {
+    throw new CliError(
+      EXIT.usage,
+      'no-ui-directory',
+      `--ui (or SBSCORE_UI) points at ${directory}, which is not a directory. Build the browser ` +
+        `with \`pnpm --filter @sibei/ui build\` and point it at the \`dist\` that produces.`,
+    );
+  }
+  if (!existsSync(join(directory, 'index.html'))) {
+    throw new CliError(
+      EXIT.usage,
+      'no-ui-index',
+      `--ui (or SBSCORE_UI) points at ${directory}, which has no index.html — that is not a built ` +
+        `UI bundle. Point it at the \`dist\` from \`pnpm --filter @sibei/ui build\`.`,
+    );
+  }
+  return directory;
+}
+
 export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCode> {
   const port = optionalPort(flags, 'port') ?? DEFAULT_PORT;
 
@@ -165,8 +202,17 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   mkdirSync(dirname(filename), { recursive: true });
   const blobDirectory = defaultBlobPath(filename);
 
+  // Resolved before opening the store, so a bad --ui fails fast rather than after binding a port.
+  const uiDirectory = resolveUiDirectory(flags);
+  const assets: AssetSource | undefined =
+    uiDirectory === undefined ? undefined : loadAssets(uiDirectory);
+
   const store = openSqliteStore({ filename });
-  const api = createApi({ store, blobs: openDirectoryBlobStore({ directory: blobDirectory }) });
+  const api = createApi({
+    store,
+    blobs: openDirectoryBlobStore({ directory: blobDirectory }),
+    ...(assets === undefined ? {} : { assets }),
+  });
   const bound = await api.listen(port);
 
   // The one place a store path is legitimately printed: the operator asked to start a server and
@@ -182,11 +228,14 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           listening: `http://127.0.0.1:${bound.port}`,
           data: filename,
           blobs: blobDirectory,
+          ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
           `sbscore listening on http://127.0.0.1:${bound.port}\n  charts in ${filename}\n` +
-          `  cached exports in ${blobDirectory}\n  stop with ctrl-c`,
+          `  cached exports in ${blobDirectory}\n` +
+          (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
+          `  stop with ctrl-c`,
   );
 
   const stop = () => {

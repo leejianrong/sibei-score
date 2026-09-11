@@ -17,6 +17,8 @@ import type { Owner, ScoreLibrary, ScoreReader } from '../store/repository.js';
 import type { EventStreams } from './event-stream.js';
 import { problem } from './problems.js';
 import type { Problem } from './problems.js';
+import { serveStaticAsset } from './static.js';
+import type { AssetSource } from './static.js';
 
 /**
  * The routes.
@@ -43,6 +45,12 @@ export interface RouteContext {
    */
   events: EventStreams;
   owner: Owner;
+  /**
+   * The built browser UI, served for any GET that no `/v1/` route claimed (V8g). Absent in
+   * development, where Vite serves the app; present in a shipped container. A path outside `/v1/`
+   * can only ever reach a file, never an API surface, because this is tried *after* every route.
+   */
+  assets?: AssetSource;
 }
 
 /** A body larger than this is refused unread. An op batch is kilobytes (ADR-0029: real caps). */
@@ -151,6 +159,15 @@ export async function route(
     const result = context.applier.duplicate(context.owner, duplicateFor, newIdFrom(body));
     response.setHeader('location', `${SCORES}/${encodeURIComponent(result.scoreId)}`);
     return sendJson(response, 201, result);
+  }
+
+  // The built UI, last (V8g). Only a GET, and only once every `/v1/` route above has declined, so a
+  // file can never shadow the API — `serveStaticAsset` also returns null for a path the bundle has
+  // no asset for, which falls through to the same 404 as before. `/v1/` is never served from here:
+  // an unknown `/v1/` path is an API miss and must read as one, not as a missing file.
+  if (method === 'GET' && context.assets && !path.startsWith('/v1/')) {
+    const served = serveStaticAsset(response, context.assets, path);
+    if (served !== null) return served;
   }
 
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));

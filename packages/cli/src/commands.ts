@@ -51,7 +51,7 @@ export interface RunOptions {
 
 const USAGE = `sbscore — a jazz lead sheet, from the command line
 
-  sbscore serve [--port N] [--data PATH]   run the local API
+  sbscore serve [--port N] [--data PATH] [--ui DIR]   run the local API (--ui also serves the built browser)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
   sbscore list
