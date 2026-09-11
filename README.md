@@ -4,9 +4,13 @@ A local-only jazz lead sheet notation app: a single staff with chord symbols abo
 to a line, the way a Real Book prints it — authored and edited **equally from a browser and a
 command line**, and exported as a print-ready PDF.
 
-> **Status:** in development, local-only by design (ADR-0001). The score model, layout engine,
-> engraver, PDF export, store, `/v1/` API, CLI, and an editing browser with live updates are all
-> built (V1–V4). Chords, transposition, and photo import are planned — see [`SLICES.md`](SLICES.md).
+> **Status: v0.1 is complete**, and local-only by design (ADR-0001). Built and landed (V1–V8): the
+> score model, layout engine, our own engraver, PDF **and MusicXML** export, the store, the `/v1/`
+> API, the CLI, and an editing browser with live updates; jazz **chords**, enharmonic **spelling**
+> and **transposition**, instrument **parts**, **structure** (sections, rehearsal letters, repeat and
+> ending barlines), **undo/redo**, a **library** with duplicate and delete, and a **container** you
+> can `docker compose up`. Photo (OMR) import is v0.2 — see [`SLICES.md`](SLICES.md); the hosted,
+> multi-user direction is sketched in [`docs/hosting.md`](docs/hosting.md).
 
 <p align="center">
   <img src="screenshots/score-view.png" alt="The sibei-score browser: a rail of chart metadata and controls beside an engraved lead sheet, four bars to a line" width="860">
@@ -38,6 +42,23 @@ flowchart LR
 
 ## Quick start
 
+Two ways to run it, both entirely on your own machine (see [Offline](#offline-by-design) below).
+
+### The container — just run the app
+
+Requires only [Docker](https://docs.docker.com/get-docker/). From the repo root:
+
+```sh
+docker compose up          # builds the image, serves the app on http://127.0.0.1:8080
+```
+
+Open <http://127.0.0.1:8080> — the browser UI and the `/v1/` API are one origin. Your charts and
+cached exports live in a named volume and survive restarts. The port is published to **loopback
+only**, so nothing on your LAN can reach it (ADR-0029). To drive it from the CLI, point the CLI at
+that port: `SBSCORE_URL=http://127.0.0.1:8080 pnpm sbscore list`.
+
+### From source — for the CLI and development
+
 Requires Node ≥ 22 and [pnpm](https://pnpm.io).
 
 ```sh
@@ -51,8 +72,10 @@ Then, in another terminal, author a chart entirely from the CLI:
 pnpm sbscore new --id soul --title "Body and Soul" --composer "Johnny Green" --key Db --bars 8
 pnpm sbscore note add soul bar1.beat1 --pitch Db5 --dur 8
 pnpm sbscore note add soul bar1.beat2 --pitch F5  --dur 4
+pnpm sbscore chord set soul bar1.beat1 --text "Ebm7"
 pnpm sbscore show soul                       # the text projection: a four-bar grid with addresses
 pnpm sbscore export soul -o .                # writes ./Body and Soul.pdf
+pnpm sbscore export soul --musicxml -o .     # or MusicXML, to open in MuseScore/Finale/Sibelius
 ```
 
 Or open it in the browser and edit it there:
@@ -62,6 +85,9 @@ pnpm ui                    # Vite dev server on 127.0.0.1:5173 (proxies /v1 to t
 # visit http://127.0.0.1:5173/#/score/soul, click a note, change its pitch — the store updates,
 # and any other open tab (or `sbscore show`) reflects it without a reload.
 ```
+
+The full command surface is in **[`docs/cli.md`](docs/cli.md)**, and `pnpm sbscore --help` prints the
+live list of verbs, address forms and exit codes.
 
 ## Usage
 
@@ -74,14 +100,27 @@ note-17        a stable id
 ```
 
 A beat with nothing on it is an *error* that lists the bar's real onsets, never a snap to the
-nearest note — the error is the feature. `sbscore --help` lists every verb, the address forms, and
-the exit codes (which are a contract). The two live surfaces:
+nearest note — the error is the feature. See **[`docs/cli.md`](docs/cli.md)** for the full reference;
+`sbscore --help` prints the live list of verbs, the address forms, and the exit codes (which are a
+contract). The two live surfaces:
 
-- **CLI** — `sbscore new | show | open | export | note add|set|rm | rest add|rm | meta set | list | rm`.
-  `--json` on every verb for machine-readable output.
-- **Browser** — a library view with search and a score view that renders through the *same* layout
-  and engrave packages the PDF does, edits notes and rests, and repaints live when the chart changes
-  elsewhere.
+- **CLI** — charts (`new`, `list`, `open`, `show`, `duplicate`, `rm`, `meta set`), notes and rests
+  (`note add|set|rm`, `rest add|rm`), chords (`chord set|rm`), `transpose`, structure
+  (`section`, `barline`, `repeat`, `ending`), `undo`/`redo`, `batch`, and `export` (PDF or
+  `--musicxml`, with `--for` an instrument part). `--json` on every verb for machine-readable output.
+- **Browser** — a library view with search, duplicate and delete, and a score view that renders
+  through the *same* layout and engrave packages the PDF does. It edits notes, rests and chords,
+  transposes, sets structure from a bar's panel, exports (a PDF | MusicXML toggle), undoes with
+  ctrl-Z, and repaints live when the chart changes elsewhere.
+
+## Offline by design
+
+sibei-score makes **no network connection at runtime** — not for fonts (they are vendored), not for
+rendering, not for export, and there is no telemetry and no account. Everything is your own machine
+talking to a server on your own machine. The container publishes its port to `127.0.0.1` only, so
+the app is never reachable from your LAN (ADR-0029). MusicXML and PDF are produced locally and are
+yours to keep. (Building from source and building the image do use the network to fetch
+dependencies; *running* the app does not.)
 
 ## Screenshots
 
