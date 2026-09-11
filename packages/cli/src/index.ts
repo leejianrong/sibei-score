@@ -10,6 +10,7 @@ export {
   adoptLegacyDataDirectory,
   defaultBlobPath,
   defaultDataPath,
+  resolveBindHost,
   resolveUiDirectory,
 } from './serve.js';
 export type { DataDirectoryAdoption } from './serve.js';

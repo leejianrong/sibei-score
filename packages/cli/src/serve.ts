@@ -23,7 +23,9 @@ import { loadAssets } from './static-assets.js';
  * V8 ships the container that runs this. From V8g it can also serve the built browser UI itself
  * (`--ui`/`SBSCORE_UI`), which is what lets a shipped image answer both the app and its `/v1/` calls
  * on one origin — the arrangement ADR-0029's Origin/Host guards assume. In development this stays
- * off: Vite serves the app and proxies `/v1/` here.
+ * off: Vite serves the app and proxies `/v1/` here. From V8h `--host`/`SBSCORE_HOST` (default
+ * `127.0.0.1`) chooses the bind address so the container can bind `0.0.0.0` (ADR-0029 amendment);
+ * the compose file keeps the LAN out by publishing only to the host's loopback.
  */
 
 export const DEFAULT_PORT = 4321;
@@ -164,6 +166,21 @@ export function defaultBlobPath(databaseFile: string): string {
  * (an unbuilt or half-copied bundle), stops the server rather than starting one that answers `/`
  * with a 404 and looks broken for a reason nothing explains — the same stance `--data` takes.
  */
+/**
+ * The address to bind, or `undefined` to let the API keep its loopback default (ADR-0029). `--host`
+ * or `SBSCORE_HOST` overrides it; the container sets `0.0.0.0`.
+ *
+ * **This is the one knob ADR-0029's amendment (V8h) opened, and it opens deliberately.** A container
+ * has to bind `0.0.0.0` so Docker's published port (forwarded to the bridge interface) can reach the
+ * process; the LAN-unreachability ADR-0029 wants then lives on the *publish* address in the compose
+ * file (`127.0.0.1:PORT:PORT`), not on the bind. The default stays `127.0.0.1`, so a bare
+ * `sbscore serve` binds loopback exactly as before — nothing widens unless someone asks for it.
+ */
+export function resolveBindHost(flags: Flags): string | undefined {
+  const chosen = flags.options.get('host') ?? process.env.SBSCORE_HOST;
+  return chosen === undefined || chosen === '' ? undefined : chosen;
+}
+
 export function resolveUiDirectory(flags: Flags): string | undefined {
   const chosen = flags.options.get('ui') ?? process.env.SBSCORE_UI;
   if (chosen === undefined || chosen === '') return undefined;
@@ -207,13 +224,18 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const assets: AssetSource | undefined =
     uiDirectory === undefined ? undefined : loadAssets(uiDirectory);
 
+  const bindHost = resolveBindHost(flags);
+  // What to print. The default binds loopback and reads as `127.0.0.1`; a container binds `0.0.0.0`
+  // and the honest line names that address — the operator reaches it through the published mapping.
+  const shownHost = bindHost ?? '127.0.0.1';
+
   const store = openSqliteStore({ filename });
   const api = createApi({
     store,
     blobs: openDirectoryBlobStore({ directory: blobDirectory }),
     ...(assets === undefined ? {} : { assets }),
   });
-  const bound = await api.listen(port);
+  const bound = await api.listen(port, bindHost);
 
   // The one place a store path is legitimately printed: the operator asked to start a server and
   // wants to know where their charts are. It never reaches a log line or a response body (ADR-0029).
@@ -225,14 +247,14 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   io.out(
     json
       ? JSON.stringify({
-          listening: `http://127.0.0.1:${bound.port}`,
+          listening: `http://${shownHost}:${bound.port}`,
           data: filename,
           blobs: blobDirectory,
           ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
-          `sbscore listening on http://127.0.0.1:${bound.port}\n  charts in ${filename}\n` +
+          `sbscore listening on http://${shownHost}:${bound.port}\n  charts in ${filename}\n` +
           `  cached exports in ${blobDirectory}\n` +
           (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
           `  stop with ctrl-c`,

@@ -479,6 +479,17 @@ render correctly, and the pickup sits outside the grid.
 > operation** that `replayLog` resolves, which needs no schema change and no inverse operations. This
 > also settled KAN-510 (the op log's read shape): the surface is `ScoreReader.operations`, read
 > inside the applier, with `POST /v1/scores/:id/undo|redo` as the write routes.
+>
+> **Update, 2026-09-11.** The cut ran past the V8a–V8f labels above; `agent_docs/history.md` carries
+> the real order. Done through **V8h**: V8e became the export-format toggle, V8f the migration fixture,
+> V8g the API serving the built UI (`sbscore serve --ui`, an fs-free `AssetSource` port), and V8h
+> **the container** (step 5) — a `Dockerfile` + `compose.yaml` running `sbscore serve --ui` on
+> `127.0.0.1:8080` with a named volume. The container forced an **amendment to ADR-0029**: it separates
+> the *bind* address (the container binds `0.0.0.0` so Docker's published port reaches it) from the
+> *publish* address (the compose file publishes to the host's loopback only), which is where
+> LAN-unreachability is now enforced. The forward-looking hosting plan this deployment is Phase 0 of is
+> written up in `docs/hosting.md`. Still to come: **v0.1 docs** (install, CLI reference, the offline
+> claim) and, in v0.2, MusicXML import and the OMR pipeline.
 
 **Build plan**
 
