@@ -539,6 +539,44 @@ Arising from the round-1 answers.
     matched separately by pattern (a lone capital, often boxed). Chord symbols placed
     anywhere other than the band above the staff are **missed** in the MVP; the user adds
     them by hand, and the side-by-side view (Q3) is what makes that discoverable.
+- **Q82.** `P2` `OPEN` **Should there be an opt-in "standards lookup" backend** — the web, or
+  a curated database — **that derives or corrects a chart's notes and chords for known
+  tunes** where OMR struggles? Raised after the V9 spike (Q71): on a genuinely hard chart
+  (mixed staves, prose, drum notation — the "Shaw 'Nuff" class), oemer recovers little that
+  is usable, yet the tune's melody and changes are well-known, so a lookup could seed or
+  repair the import in exactly the cases hand-correction is most painful.
+  - **Not decided, and it conflicts with decisions of record — do not build before an ADR
+    settles it.** (1) It is a **runtime network dependency**, which contradicts local-first
+    (ADR-0001), the baked-in-offline guarantee (ADR-0024) and REQS R0. (2) Published lead
+    sheets are **copyrighted**; ADR-0020 is explicit that "no corpus of copyrighted charts
+    is retained or shared", and fetching/caching third-party transcriptions is precisely
+    that exposure. (3) It needs a tune-identity step (which standard is this?) that OMR
+    alone does not give. If pursued, the shape that fits the existing architecture is an
+    **opt-in, off-by-default, online-only enrichment** that never weakens the offline core,
+    never ships or caches copyrighted transcriptions (link-out, or a user-supplied licensed
+    database), and rides in as one more parser backend behind the ADR-0019 "parse is a
+    draft" seam and the ADR-0005 worker boundary — the import already treats a parse as a
+    correctable draft, so a second source of a draft is an addition, not a rewrite. Needs a
+    new ADR that squares ADR-0001/0020/0024.
+- **Q83.** `P2` `OPEN` **Should there be an opt-in vision-language-model (VLM) recognition
+  backend for hard pages**, alongside (not replacing) the local oemer pipeline? The V9
+  spike (Q71) confirmed oemer's coordinates are reachable and usable on clean single-staff
+  charts, but a VLM may be the only thing that copes with the "Shaw 'Nuff" class — grand
+  staves, two voices, drum notation, dense prose — and could read chord symbols directly.
+  - **Not decided, and it conflicts head-on with a decision of record — do not build before
+    an ADR settles it.** ADR-0010 states, in as many words, "**No vision-model path, opt-in
+    or otherwise. The runtime requires no network.**" A VLM backend reverses that, and also
+    crosses the offline requirement (ADR-0001/ADR-0024/REQS R0), the raster-only single
+    pipeline (ADR-0018), and — because it sends a user's uploaded, often copyrighted chart
+    to a third party — the copyright/privacy stance in ADR-0020 ("no corpus is built from
+    user uploads should the app ever be hosted"). If pursued, the shape that fits is an
+    **opt-in, off-by-default, online "cloud assist" tier**: the local pipeline stays the
+    default and always works offline, and the VLM is a second parser backend behind the
+    same ADR-0019 draft seam / ADR-0005 worker boundary, emitting the same worker-output
+    schema (`packages/model/src/omr.ts`) so nothing downstream changes. It requires a new
+    ADR that supersedes or amends ADR-0010 and squares ADR-0018/0024/0020. Note ADR-0027's
+    dependency register would also gain an external-service entry, which every prior ADR
+    deliberately avoided.
 
 ## Renderer follow-ups
 
