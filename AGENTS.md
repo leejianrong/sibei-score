@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle), V8f (the migration fixture test), V8g (serving the built UI from the API) and V8h (the container) have landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle), V8f (the migration fixture test), V8g (serving the built UI from the API), V8h (the container) and V8i (the v0.1 docs) have landed — **v0.1 is complete.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -48,9 +48,10 @@ and off by default so Vite still serves the app in development; files are served
 and its blobs. `Api.listen(port, host?)` now takes a bind address (default `127.0.0.1`, unchanged for
 every existing caller); `sbscore serve` exposes it as `--host`/`SBSCORE_HOST` and the container sets
 `0.0.0.0`, while the compose file publishes to the host's loopback only — the ADR-0029 amendment that
-separates the *bind* address from the *publish* address (`docs/adr/0029`, `docs/hosting.md`). Not built
-yet: MusicXML import, v0.1 docs (install/CLI reference/offline claim), and the whole import pipeline.
-Don't assume a module exists because a plan mentions it.
+separates the *bind* address from the *publish* address (`docs/adr/0029`, `docs/hosting.md`). From V8i
+the **v0.1 docs** are current: the README (install both ways, the offline claim stated plainly), the
+full CLI reference (`docs/cli.md`), and the hosted direction (`docs/hosting.md`). Not built yet (v0.2):
+MusicXML import and the whole OMR import pipeline. Don't assume a module exists because a plan mentions it.
 
 ## Layout
 
@@ -181,6 +182,7 @@ Loaded when the task reaches them; the root file stays a table of contents.
 | `agent_docs/proofing.md` | Looking at engraving output (do this after any render change) |
 | `agent_docs/testing.md` | Writing tests, or deciding which suite layer a directory joins |
 | `agent_docs/history.md` | The per-slice build history and the "not built yet" roadmap |
+| `docs/cli.md` | The user-facing `sbscore` CLI reference: running it (from source or the container), every verb with examples, addresses, export, concurrency, exit codes. `sbscore --help` is the live source of truth |
 | `docs/hosting.md` | Planning the hosted, multi-user future: the target architecture, the local→hosted seam map, and best practices (a direction doc, not a decision of record — the ADRs it cites are) |
 
 MIT licensed — see `LICENSE`.

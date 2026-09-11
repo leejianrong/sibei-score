@@ -22,7 +22,7 @@ change and no new store method.
 | V8f | A migration fixture through every schema version | **done** |
 | V8g | Serving the built UI from the API — the `AssetSource` port, `sbscore serve --ui` | **done** |
 | V8h | The container: Dockerfile + compose + a persistent volume; the ADR-0029 bind amendment | **done** |
-| V8i | v0.1 docs: install, the CLI reference, the offline claim | planned |
+| V8i | v0.1 docs: install (both ways), the CLI reference, the offline claim | **done** |
 
 The sub-slices ran ahead of the up-front V8d–V8f labels once the codec split export from its UI and
 the migration fixture came late; the rows above are the cut as it actually landed, newest work last.
@@ -41,6 +41,17 @@ and no schema change: the existing `type`/`payload`/`batch` columns carry a cont
 own batch of one. This is the KAN-510 shape decision, made at the point of use rather than up front.
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
+
+**V8i is the v0.1 docs, and it completes v0.1.** The README had drifted to a V1–V4 status ("chords,
+transposition, and photo import are planned") while V5–V8 had all landed; it now states v0.1 as
+complete, documents both ways to run the app (the container via `docker compose up`, and from source
+for the CLI and development), and states the offline claim plainly — no network at runtime, no
+telemetry, no account, loopback-only publish. The full CLI reference moved to `docs/cli.md` (every
+verb group with examples, the address forms, export, concurrency and the exit-code contract), with
+`sbscore --help` named as the live source of truth so the two do not drift. Docs-only slice; no code.
+With it, everything SLICES.md's V8 planned is done and v0.1 is finished — the roadmap now points at
+v0.2 (MusicXML import, then the OMR pipeline) and, further out, the hosted transition in
+`docs/hosting.md`.
 
 **V8h ships the container, and its one real decision was a flaw in ADR-0029's wording.** The rule said
 &ldquo;bind `127.0.0.1`, never `0.0.0.0`, including in the compose file&rdquo; — but Docker forwards a
