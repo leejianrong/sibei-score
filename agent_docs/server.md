@@ -132,6 +132,13 @@ does something whole: a chart authored through the CLI comes out as a printable 
 `@sibei/pdf` on the other, and `layout`, `engrave` and `pdf` staying pure behind it. Nothing in
 the export path decides anything about the page; it hands a `Score` to the renderer (ADR-0014).
 
+**`format=musicxml` is a second export format, and it is a codec not a render (V8d).** It goes
+through `@sibei/codec`'s `scoreToMusicXml` rather than `@sibei/pdf`, so paper and font do not enter
+into it (they stay in the cache key — over-keying costs a miss, never wrong bytes). `writtenPart`
+still runs first, so `?instrument=bb-trumpet&format=musicxml` exports a transposed part, the same
+instrument view a PDF part uses. The UI has no format toggle yet — booked, design-first — so this is
+reachable from `sbscore export --musicxml` and the query, not the rail.
+
 **The blob port has `get` and `put` and deliberately no `delete`.** Q81's cache invalidates
 implicitly through the key, so there is no invalidation logic — and offering a delete would be
 offering somewhere to write some. `tests/arch/blob-seam.test.ts` holds filesystem knowledge to
@@ -191,7 +198,7 @@ POST   /v1/scores/:id/ops    one operation, or a transactional list
 POST   /v1/scores/:id/undo   undo the last batch by replay (V8a); redo is the sibling
 POST   /v1/scores/:id/redo   reapply the last undone batch (V8a)
 POST   /v1/scores/:id/duplicate  copy to a new score with a fresh history (V8c)
-GET    /v1/scores/:id/export ?format=pdf&paper=a4|letter&font=normal|jazz&instrument=concert
+GET    /v1/scores/:id/export ?format=pdf|musicxml&paper=a4|letter&font=normal|jazz&instrument=concert
 GET    /v1/scores/:id/events SSE: this score's changes (V4a)
 ```
 

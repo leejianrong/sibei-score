@@ -271,3 +271,21 @@ describe('a filename that came off a socket is not a path', () => {
     expect(readdirSync(directory)).toEqual(['-etc-passwd.pdf']);
   });
 });
+
+describe('sbscore export --musicxml (V8d)', () => {
+  it('writes a .musicxml file named after the chart', async () => {
+    await aChart();
+    const result = await sbscore('export', 'soul', '--musicxml');
+    expect(result.code).toBe(EXIT.ok);
+    expect(readdirSync(work)).toEqual(['Body and Soul.musicxml']);
+    const xml = readFileSync(join(work, 'Body and Soul.musicxml'), 'utf8');
+    expect(xml.startsWith('<?xml')).toBe(true);
+    expect(xml).toContain('<score-partwise');
+  });
+
+  it('refuses --pdf and --musicxml together rather than guessing', async () => {
+    await aChart();
+    const result = await sbscore('export', 'soul', '--pdf', '--musicxml');
+    expect(result.code).toBe(EXIT.usage);
+  });
+});

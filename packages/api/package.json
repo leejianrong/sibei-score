@@ -11,6 +11,7 @@
   "types": "./src/index.ts",
   "sideEffects": false,
   "dependencies": {
+    "@sibei/codec": "workspace:*",
     "@sibei/engrave": "workspace:*",
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",

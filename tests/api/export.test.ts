@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, memoryBlobStore, silentLogger } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, BlobKey, BlobStore, Operation, ScoreStore } from '@sibei/api';
+import { musicXmlToScore } from '@sibei/codec';
 import { dur } from '@sibei/model';
 
 /**
@@ -116,9 +117,11 @@ describe('exporting a chart as a PDF (V3, R0)', () => {
     expect(reply.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
-  it('defaults the format, because pdf is the only one there is', async () => {
+  it('defaults the format to pdf when none is asked for', async () => {
     await aChart();
-    expect((await download('/v1/scores/score-1/export')).status).toBe(200);
+    const reply = await download('/v1/scores/score-1/export');
+    expect(reply.status).toBe(200);
+    expect(reply.headers.get('content-type')).toBe('application/pdf');
   });
 
   it('names the download after the chart, with the title sanitised for the header', async () => {
@@ -155,6 +158,34 @@ describe('exporting a chart as a PDF (V3, R0)', () => {
     const response = await fetch(`${base}/v1/scores/score-1/export`, { method: 'POST' });
     expect(response.status).toBe(405);
     expect(response.headers.get('allow')).toBe('GET');
+  });
+});
+
+describe('exporting a chart as MusicXML (V8d, ADR-0004)', () => {
+  it('answers with a MusicXML document the codec reads back', async () => {
+    await aChart();
+    const reply = await download('/v1/scores/score-1/export?format=musicxml');
+
+    expect(reply.status).toBe(200);
+    expect(reply.headers.get('content-type')).toBe('application/vnd.recordare.musicxml+xml');
+    expect(reply.headers.get('content-disposition')).toMatch(/\.musicxml"$/);
+
+    const xml = reply.bytes.toString('utf8');
+    expect(xml.startsWith('<?xml')).toBe(true);
+    // Round the export back through the importer: the melody the chart holds is really in there.
+    const { score } = musicXmlToScore(xml);
+    const pitches = score.bars.flatMap((bar) =>
+      bar.items.filter((i) => i.kind === 'note').map((i) => `${i.pitch.step}${i.pitch.octave}`),
+    );
+    expect(pitches).toContain('E5');
+  });
+
+  it('exports a transposing part transposed, the same instrument view a PDF part uses', async () => {
+    await aChart();
+    const concert = (await download('/v1/scores/score-1/export?format=musicxml')).bytes.toString('utf8');
+    const trumpet = (await download('/v1/scores/score-1/export?format=musicxml&instrument=bb-trumpet')).bytes.toString('utf8');
+    // A B♭ trumpet part is written up a major second, so its bytes differ from the concert score's.
+    expect(trumpet).not.toBe(concert);
   });
 });
 
@@ -342,7 +373,7 @@ describe('a format or an instrument this build cannot produce (ADR-0008)', () =>
     expect(response.status).toBe(422);
     expect((await response.json() as { error: unknown }).error).toMatchObject({
       kind: 'unsupported-format',
-      detail: { kind: 'unsupported-format', requested: 'midi', supported: ['pdf'] },
+      detail: { kind: 'unsupported-format', requested: 'midi', supported: ['pdf', 'musicxml'] },
     });
   });
 
