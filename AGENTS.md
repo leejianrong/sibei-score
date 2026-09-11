@@ -176,5 +176,6 @@ Loaded when the task reaches them; the root file stays a table of contents.
 | `agent_docs/proofing.md` | Looking at engraving output (do this after any render change) |
 | `agent_docs/testing.md` | Writing tests, or deciding which suite layer a directory joins |
 | `agent_docs/history.md` | The per-slice build history and the "not built yet" roadmap |
+| `docs/hosting.md` | Planning the hosted, multi-user future: the target architecture, the local→hosted seam map, and best practices (a direction doc, not a decision of record — the ADRs it cites are) |
 
 MIT licensed — see `LICENSE`.
