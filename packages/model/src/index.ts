@@ -10,3 +10,4 @@ export * from './migrate.js';
 export * from './address.js';
 export * from './review.js';
 export * from './projection.js';
+export * from './omr.js';

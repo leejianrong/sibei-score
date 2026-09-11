@@ -538,6 +538,20 @@ MuseScore.
 
 ## V9: The oemer coordinate spike
 
+> **Update, 2026-09-11. Done. Gate: PROCEED TO V10.** The coordinates are reachable
+> in-process, as a library, without a vendored fork — Q71 is verified true and ADR-0023's
+> exit condition is met (recorded as a status update on ADR-0023). The worker lives at a new
+> top-level `worker/` (Python, outside the pnpm workspace, ADR-0005); `worker/sibei_omr/spike.py`
+> replicates oemer's stage sequence up to its `layers` registry and dumps every
+> `Staff`/`NoteHead`/`NoteGroup`/`Barline`/`Rest` with pixel coordinates to JSON. The output
+> schema is model-owned (`packages/model/src/omr.ts`), and the three test-plan checks below run
+> in CI against the committed real dump (`tests/fixtures/omr/aaba-chart.omr.json`) as pure
+> TypeScript — the spike needs Python + weights and stays standalone. CPU wall-clock and the
+> dependency-pinning findings (oemer 0.1.8 not 0.1.7; onnxruntime < 1.19; opencv < 5; numpy < 2)
+> are in `worker/README.md` and on ADR-0023. There are no real photos in the repo, so the spike
+> ran on a rendered fixture (ADR-0018/ADR-0020); the wall-clock is a best-case lower bound and
+> real-photo robustness is V10 evaluation work.
+
 **Delivers:** the exit condition for ADR-0023, and the measurement ADR-0025 needs
 
 The riskiest unknown in the entire project, confronted before anything is built on it. If

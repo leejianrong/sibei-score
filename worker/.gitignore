@@ -1,0 +1,15 @@
+# The Python worker is isolated from the Node/pnpm workspace (ADR-0005). Its virtualenv,
+# caches and fetched model weights never enter git.
+.venv/
+__pycache__/
+*.pyc
+# oemer downloads ~104 MB of ONNX weights on first run; V10 bakes them into the image at
+# build time with pinned checksums (ADR-0024). Never commit them.
+checkpoints/
+weights/
+*.onnx
+*.h5
+# Spike scratch output. The committed sample dump lives at tests/fixtures/omr/ (it is what
+# the CI tests validate); everything the spike emits here is throwaway.
+out/
+*.pkl

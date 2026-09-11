@@ -1,0 +1,48 @@
+[project]
+name = "sibei-omr"
+version = "0.2.0-dev"
+description = "The sibei-score OMR worker. Python owns oemer and OCR only; it never touches the score store (ADR-0005)."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+# V9 is the oemer coordinate spike (ADR-0023). These pins are the compatible set the
+# spike actually ran on, discovered on contact with the code — not aspirations:
+#
+#   * oemer is pinned exactly, as ADR-0023 requires ("an oemer upgrade can break us
+#     silently"). 0.1.8 (2024-11-16) is the last release; the ADRs cite "October 2023 /
+#     0.1.7", which is stale — see docs/adr/0023 status note.
+#   * onnxruntime is the CPU wheel, not onnxruntime-gpu (oemer's own default dependency).
+#     CPU-only is the ADR-0025 floor; oemer/inference.py only does `import onnxruntime`
+#     and asks for CUDA-then-CPU providers, so the CPU wheel is a drop-in.
+#   * onnxruntime is ALSO pinned low on purpose. onnxruntime >= ~1.19 tightened ONNX
+#     shape-inference and refuses oemer's bundled ConvTranspose nodes with
+#     "Attribute pads must not contain negative values". 1.16.3 (contemporaneous with
+#     oemer) loads them. This is a V9 finding for V10's pinned-weights work (ADR-0024):
+#     the runtime that reads the weights has to be pinned alongside the weights.
+#   * numpy is pinned < 2. oemer predates the numpy 2 API removals, and onnxruntime
+#     1.16.3 is built against numpy 1.x.
+#   * opencv is pinned < 5. opencv 5.x changed cv2.HoughLinesP's return shape, and
+#     oemer/bbox.py:find_lines iterates it the 4.x way ("IndexError: invalid index to
+#     scalar variable" during staffline extraction). 4.10.0.84 works and stays numpy-1.x
+#     compatible. Another V9 pinning finding, same shape as the onnxruntime one.
+dependencies = [
+  "oemer==0.1.8",
+  "onnxruntime==1.16.3",
+  "numpy==1.26.4",
+  "opencv-python-headless>=4.5.3.56,<5",
+  "pillow",
+  "scipy",
+  "scikit-learn>=1.2",
+  "matplotlib",
+  "typing-extensions",
+]
+
+[project.scripts]
+sibei-omr-spike = "sibei_omr.spike:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sibei_omr"]

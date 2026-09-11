@@ -6,6 +6,44 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V9 is the oemer coordinate spike, and it passed its gate: the coordinates are reachable
+in-process, so v0.2 proceeds to V10 without vendoring a fork of oemer.** This is the first
+v0.2 slice and, by ADR-0023's design, a spike rather than a feature — the riskiest unknown
+in the project (Q71: are oemer's note and barline pixel coordinates actually reachable?)
+confronted before any import code is written. The answer is yes, and cheaply: oemer's own
+`ete.py:extract` stashes the recognised `Staff`/`NoteHead`/`NoteGroup`/`Barline`/`Rest`
+objects in a process-global `layers` registry before it builds MusicXML, and each carries a
+`.bbox` reachable by plain attribute access. The spike (`worker/sibei_omr/spike.py`) copies
+that stage sequence, stops before the lossy MusicXML step, and dumps every object with its
+coordinates to JSON. The fork contingency — the thing this slice existed to decide on —
+stays unused.
+
+The worker is a new top-level `worker/` (not `packages/`), deliberately outside the pnpm
+workspace: it is Python, isolated from the Node runtime (ADR-0005), with its own
+`pyproject.toml` and virtualenv. It never touches the store; the spike is a standalone
+script, not wired into the API, and does not run in CI. What runs in CI is TypeScript: the
+worker's output schema is owned by the `model` package (`packages/model/src/omr.ts`,
+`OmrDocument` + `parseOmrDocument`), and the V9 test plan's three checks run against the
+committed real dump (`tests/fixtures/omr/aaba-chart.omr.json`) as pure fast-layer tests —
+the same pattern as the committed SVG snapshots.
+
+The spike earned its keep the way a spike should: by finding what the plan could not. The
+plan describes intent, and three things had drifted by contact with the code. oemer's last
+release is **0.1.8 (Nov 2024)**, not the "0.1.7 / Oct 2023" the ADRs cite. And the runtime
+that reads the weights has to be pinned alongside them (extending ADR-0024's pinned-weights
+rule): onnxruntime ≥ ~1.19 refuses oemer's bundled ConvTranspose nodes, opencv 5 changed
+`HoughLinesP`'s return shape and breaks staffline extraction, and both drag numpy across the
+1→2 line — so the CPU floor (ADR-0025) is not just "install the CPU wheel" but a specific
+compatible set (oemer 0.1.8 / onnxruntime 1.16.3 / opencv 4.10 / numpy 1.26). Two findings
+were booked for V10 rather than fixed here: oemer's `zones` layer covered only the top of the
+page, so stage 3 should use per-staff extents; and the `staffs` layer repeats each system
+across a track grid the consumer must collapse. Neither touches the gate. There are no real
+lead-sheet photos in the repo — the fixtures are hand-authored JSON scores — so the spike
+ran on a rendered `aaba-chart` page (a genuine printed chart, ADR-0018's input class, and
+ADR-0020's synthetic-first strategy); the honest cost is that the CPU wall-clock is a
+best-case lower bound and real-photo robustness is unexercised, which is V10's evaluation
+work. Details and the wall-clock figures: `worker/README.md`.
+
 **V8 is undo, MusicXML, the library, the container and the docs, cut into vertical sub-slices the
 way V2–V7 were.** The verification pass paid off the way V7's did: the read surface over the op log
 (`ScoreReader.operations`) and the library `delete` already existed, the `batch` column has grouped
