@@ -51,8 +51,9 @@ export interface RunOptions {
 
 const USAGE = `sbscore — a jazz lead sheet, from the command line
 
-  sbscore serve [--port N] [--data PATH] [--ui DIR] [--host ADDR]   run the local API
-              (--ui serves the built browser; --host defaults to 127.0.0.1, the container sets 0.0.0.0)
+  sbscore serve [--port N] [--data PATH] [--ui DIR] [--host ADDR] [--worker URL]   run the local API
+              (--ui serves the built browser; --host defaults to 127.0.0.1, the container sets 0.0.0.0;
+               --worker is the OMR worker's URL — without one, import is unavailable and all else works)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
   sbscore list

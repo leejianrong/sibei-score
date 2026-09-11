@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createApi, openDirectoryBlobStore } from '@sibei/api';
-import type { AssetSource } from '@sibei/api';
-import { openSqliteStore } from '@sibei/api/sqlite';
+import { createApi, createHttpWorkerClient, openDirectoryBlobStore } from '@sibei/api';
+import type { AssetSource, WorkerClient } from '@sibei/api';
+import { openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
 import { CliError } from './client.js';
@@ -181,6 +181,19 @@ export function resolveBindHost(flags: Flags): string | undefined {
   return chosen === undefined || chosen === '' ? undefined : chosen;
 }
 
+/**
+ * The OMR worker's base URL, or `undefined` when none was configured — in which case import is off
+ * (`POST /v1/imports` is a 503) and every other feature is unaffected (V10, Q80). `--worker` or
+ * `SBSCORE_WORKER_URL` names it; the container's compose file sets `http://worker:8000`, the private
+ * service address on the compose network (ADR-0005: two containers, the worker isolated). There is
+ * no default URL on purpose: a bare `pnpm serve` has no worker running, and pointing at one that is
+ * not there would turn every import into a failed job instead of an honest "not configured".
+ */
+export function resolveWorkerUrl(flags: Flags): string | undefined {
+  const chosen = flags.options.get('worker') ?? process.env.SBSCORE_WORKER_URL;
+  return chosen === undefined || chosen === '' ? undefined : chosen;
+}
+
 export function resolveUiDirectory(flags: Flags): string | undefined {
   const chosen = flags.options.get('ui') ?? process.env.SBSCORE_UI;
   if (chosen === undefined || chosen === '') return undefined;
@@ -229,10 +242,21 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   // and the honest line names that address — the operator reaches it through the published mapping.
   const shownHost = bindHost ?? '127.0.0.1';
 
+  // The OMR worker (V10). A URL, resolved here in the composition root; the API package names no
+  // address (ADR-0001) — it takes the client as a port. Absent means import is unavailable and every
+  // other feature works (Q80). The job store shares the library's database file (one volume), behind
+  // its own connection (ADR-0006).
+  const workerUrl = resolveWorkerUrl(flags);
+  const worker: WorkerClient | undefined =
+    workerUrl === undefined ? undefined : createHttpWorkerClient({ url: workerUrl });
+
   const store = openSqliteStore({ filename });
+  const jobStore = openSqliteJobStore({ filename });
   const api = createApi({
     store,
+    jobs: jobStore,
     blobs: openDirectoryBlobStore({ directory: blobDirectory }),
+    ...(worker === undefined ? {} : { worker }),
     ...(assets === undefined ? {} : { assets }),
   });
   const bound = await api.listen(port, bindHost);
@@ -251,17 +275,22 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           data: filename,
           blobs: blobDirectory,
           ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
+          ...(workerUrl === undefined ? {} : { worker: workerUrl }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
           `sbscore listening on http://${shownHost}:${bound.port}\n  charts in ${filename}\n` +
           `  cached exports in ${blobDirectory}\n` +
           (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
+          (workerUrl === undefined
+            ? '  no OMR worker configured — import is unavailable (set --worker or SBSCORE_WORKER_URL)\n'
+            : `  OMR worker at ${workerUrl}\n`) +
           `  stop with ctrl-c`,
   );
 
   const stop = () => {
     void api.close().then(() => {
+      jobStore.close();
       store.close();
       process.exit(EXIT.ok);
     });

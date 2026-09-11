@@ -11,10 +11,14 @@ import {
   parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
+import { validateUpload } from '../imports/upload.js';
+import type { UploadRejection } from '../imports/upload.js';
 import type { Applier } from '../ops/applier.js';
 import type { Batch, Operation } from '../ops/operations.js';
+import type { ImportJob, JobId, JobReader } from '../store/jobs.js';
 import type { Owner, ScoreLibrary, ScoreReader } from '../store/repository.js';
 import type { EventStreams } from './event-stream.js';
+import type { JobStreams } from './job-stream.js';
 import { problem } from './problems.js';
 import type { Problem } from './problems.js';
 import { serveStaticAsset } from './static.js';
@@ -46,6 +50,13 @@ export interface RouteContext {
   events: EventStreams;
   owner: Owner;
   /**
+   * The OMR import pipeline (V10), or absent when this server was built without one. The routes get
+   * a *service*, not the job store and the runner directly: submitting stores the upload and enqueues
+   * a job, and it holds no `ScoreWriter` — the same narrowing every other capability here gets. A
+   * failed import commits nothing (ADR-0003, Q80), so nothing this can do writes a score.
+   */
+  imports?: ImportService;
+  /**
    * The built browser UI, served for any GET that no `/v1/` route claimed (V8g). Absent in
    * development, where Vite serves the app; present in a shipped container. A path outside `/v1/`
    * can only ever reach a file, never an API surface, because this is tried *after* every route.
@@ -53,10 +64,39 @@ export interface RouteContext {
   assets?: AssetSource;
 }
 
+/**
+ * The import capability handed to the routes. `available` is whether a worker was configured: the
+ * job store, the listing and the streams exist regardless (you can always inspect past imports), but
+ * *submitting* one needs a worker to run it, so `POST /v1/imports` is a 503 when there is none. When
+ * a worker *is* configured but its container is down, a submit still succeeds and the job fails with
+ * a diagnostic — that is the Q80 path, and it is the runner's to record, not this boundary's to
+ * pre-empt.
+ */
+export interface ImportService {
+  available: boolean;
+  /** Store the (already validated) upload and enqueue a job for it, returning the queued job. */
+  submit(owner: Owner, image: Buffer): Promise<ImportJob>;
+  /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
+  retry(owner: Owner, id: JobId): ImportJob | null;
+  /** Reads over the job store: list (summaries) and get (full, with the recognised objects). */
+  reader: JobReader;
+  /** The SSE progress streams. Subscribe-only from here, like the score event streams. */
+  streams: JobStreams;
+}
+
 /** A body larger than this is refused unread. An op batch is kilobytes (ADR-0029: real caps). */
 export const MAX_BODY_BYTES = 1_000_000;
 
 const SCORES = '/v1/scores';
+const IMPORTS = '/v1/imports';
+
+/**
+ * The cap on an uploaded image, at the transport. Larger than an op batch's 1 MB because an image is
+ * the one thing that is legitimately big (ADR-0018: printed raster). `validateUpload` re-checks the
+ * size as content — the two agree — but this one refuses the bytes *unread* so a hostile stream is
+ * not buffered whole before being rejected, the same stance `readJsonBody` takes.
+ */
+const MAX_UPLOAD_BODY_BYTES = 25_000_000;
 
 export async function route(
   request: IncomingMessage,
@@ -161,6 +201,38 @@ export async function route(
     return sendJson(response, 201, result);
   }
 
+  // The OMR import pipeline (V10). Submit a scan and it becomes a job the client polls or subscribes
+  // to (ADR-0001); the raw recognised objects land on the job, and mapping them to a score is V11.
+  if (path === IMPORTS) {
+    if (method === 'GET') {
+      if (context.imports === undefined) return send(response, noImportPipeline());
+      return sendJson(response, 200, { jobs: context.imports.reader.list(context.owner) });
+    }
+    if (method === 'POST') return await submitImport(request, response, context);
+    return methodNotAllowed(response, ['GET', 'POST']);
+  }
+
+  const importEventsFor = match(path, /^\/v1\/imports\/([^/]+)\/events$/);
+  if (importEventsFor !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return openImportStream(request, response, context, importEventsFor);
+  }
+
+  const importRetryFor = match(path, /^\/v1\/imports\/([^/]+)\/retry$/);
+  if (importRetryFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    return retryImport(response, context, importRetryFor);
+  }
+
+  const importFor = match(path, /^\/v1\/imports\/([^/]+)$/);
+  if (importFor !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    if (context.imports === undefined) return send(response, noImportPipeline());
+    const job = context.imports.reader.get(context.owner, importFor);
+    if (job === null) return send(response, noSuchImport(importFor));
+    return sendJson(response, 200, { job });
+  }
+
   // The built UI, last (V8g). Only a GET, and only once every `/v1/` route above has declined, so a
   // file can never shadow the API — `serveStaticAsset` also returns null for a path the bundle has
   // no asset for, which falls through to the same 404 as before. `/v1/` is never served from here:
@@ -204,6 +276,81 @@ function openEventStream(
   const record = context.reader.get(context.owner, scoreId);
   if (record === null) return send(response, noSuchScore(scoreId));
   return context.events.open(request, response, context.owner, scoreId, record.version);
+}
+
+/**
+ * `POST /v1/imports` — submit a scan for OMR (ADR-0001: a job, not a request).
+ *
+ * The upload boundary (ADR-0029): the raw bytes are read under a cap, then **decoded** to prove they
+ * are a PNG or JPEG within the dimension caps — the format from content, never from the declared
+ * `Content-Type`. A body that is not a decodable image is refused here, not three layers deep inside
+ * oemer. What passes is stored and enqueued, and the queued job comes back with `202 Accepted`: the
+ * work has not happened yet, and the client polls `GET …/:id` or subscribes to `…/:id/events`.
+ */
+async function submitImport(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RouteContext,
+): Promise<number> {
+  if (context.imports === undefined || !context.imports.available) {
+    return send(response, noImportPipeline());
+  }
+
+  const bytes = await readRawBody(request, response);
+  if (bytes === TOO_LARGE) return 413;
+
+  const check = validateUpload(bytes, { maxBytes: MAX_UPLOAD_BODY_BYTES });
+  if (!check.ok) return send(response, badUpload(check.reason, check.message));
+
+  const job = await context.imports.submit(context.owner, bytes);
+  response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
+  // 202, not 201: the resource exists but its result does not yet — recognition runs in the
+  // background. The Location points at the job to poll, not at a finished artefact.
+  return sendJson(response, 202, { job });
+}
+
+/**
+ * `POST /v1/imports/:id/retry` — requeue a failed import (Q80). A retry is a user action, so it is
+ * owner-scoped. A job that is not failed cannot be retried — a running or succeeded one is a 409
+ * carrying its current status, the same "branch on data, not prose" shape an address miss has
+ * (ADR-0008), so a client is told *why* rather than left to guess.
+ */
+function retryImport(response: ServerResponse, context: RouteContext, id: JobId): number {
+  if (context.imports === undefined || !context.imports.available) {
+    return send(response, noImportPipeline());
+  }
+  const existing = context.imports.reader.get(context.owner, id);
+  if (existing === null) return send(response, noSuchImport(id));
+  if (existing.status !== 'failed') {
+    return send(
+      response,
+      problem(409, 'job-not-retryable', `import ${JSON.stringify(id)} is ${existing.status}, not failed`, {
+        detail: { kind: 'job-not-retryable', status: existing.status },
+      }),
+    );
+  }
+  const job = context.imports.retry(context.owner, id);
+  // The read above passed, so a null here is a lost race (someone else moved it); re-report as a miss.
+  if (job === null) return send(response, noSuchImport(id));
+  return sendJson(response, 200, { job });
+}
+
+/**
+ * `GET /v1/imports/:id/events` — the job's progress stream (ADR-0001's "subscribe"). The sibling of
+ * the score event stream, and a read like it: a 404 for a job that is not there rather than a stream
+ * that could never carry anything, and the job's current status seeds the first frame so opening the
+ * connection is itself the catch-up.
+ */
+function openImportStream(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RouteContext,
+  id: JobId,
+): number {
+  if (context.imports === undefined) return send(response, noImportPipeline());
+  const job = context.imports.reader.get(context.owner, id);
+  if (job === null) return send(response, noSuchImport(id));
+  return context.imports.streams.open(request, response, context.owner, id, job.status);
 }
 
 /**
@@ -283,6 +430,29 @@ function noSuchScore(scoreId: Id): Problem {
   return problem(404, 'no-such-score', `there is no score with the id ${JSON.stringify(scoreId)}`);
 }
 
+function noSuchImport(id: JobId): Problem {
+  return problem(404, 'no-such-import', `there is no import job with the id ${JSON.stringify(id)}`);
+}
+
+/** This build was started without an OMR worker, so import is unavailable (but nothing else is). */
+function noImportPipeline(): Problem {
+  return problem(
+    503,
+    'worker-unavailable',
+    'this server was started without an OMR worker, so import is unavailable; every other feature works',
+  );
+}
+
+/**
+ * An upload the boundary refused (ADR-0029). The `too-large` case is a 413 (it is about size, like
+ * `readJsonBody`'s cap); everything else is a 422 — the request was readable, its content was not a
+ * usable image. The reason travels in `detail` so a client branches on it (ADR-0008).
+ */
+function badUpload(reason: UploadRejection, message: string): Problem {
+  const status = reason === 'too-large' ? 413 : 422;
+  return problem(status, `bad-upload-${reason}`, message, { detail: { kind: 'bad-upload', reason } });
+}
+
 function match(path: string, pattern: RegExp): Id | null {
   const found = pattern.exec(path);
   return found?.[1] === undefined ? null : decodeURIComponent(found[1]);
@@ -354,6 +524,35 @@ async function readJsonBody(
     send(response, problem(400, 'malformed-json', 'the request body is not valid JSON'));
     return MALFORMED;
   }
+}
+
+/** The raw-body reader's "I already answered 413" sentinel, the binary sibling of `MALFORMED`. */
+const TOO_LARGE = Symbol('too-large');
+
+/**
+ * Read a raw binary body (an image upload), capped like `readJsonBody` but at the larger image cap.
+ * No parsing: an upload is bytes, and what those bytes *are* is `validateUpload`'s decision, not this
+ * reader's. On the cap it answers 413 and hangs up rather than draining a body it has already
+ * refused, for the same reason `readJsonBody` does.
+ */
+async function readRawBody(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<Buffer | typeof TOO_LARGE> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = chunk as Buffer;
+    size += buffer.length;
+    if (size > MAX_UPLOAD_BODY_BYTES) {
+      response.setHeader('connection', 'close');
+      send(response, problem(413, 'body-too-large', `an upload is capped at ${MAX_UPLOAD_BODY_BYTES} bytes`));
+      request.destroy();
+      return TOO_LARGE;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 function methodNotAllowed(response: ServerResponse, allowed: string[]): number {

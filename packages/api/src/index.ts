@@ -9,6 +9,18 @@
 
 export * from './store/repository.js';
 
+export type {
+  ImportJob,
+  ImportJobSummary,
+  JobId,
+  JobReader,
+  JobStatus,
+  JobStore,
+  JobWriter,
+} from './store/jobs.js';
+export { memoryJobStore } from './store/memory-job-store.js';
+export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
+
 export type { BlobKey, BlobStore } from './blob/blob-store.js';
 export { memoryBlobStore } from './blob/memory-blob-store.js';
 export { openDirectoryBlobStore } from './blob/directory-blob-store.js';
@@ -57,11 +69,35 @@ export type { Applied, UndoState } from './ops/apply.js';
 export { createApplier } from './ops/applier.js';
 export type { Applier, ApplyResult, UndoResult, DuplicateResult } from './ops/applier.js';
 
+// The OMR import pipeline (V10): the upload boundary, the worker port, and the job runner. The
+// worker receives an image and returns raw recognised objects; it never touches the store (ADR-0005).
+export {
+  MAX_IMAGE_DIMENSION,
+  MAX_IMAGE_PIXELS,
+  MAX_UPLOAD_BYTES,
+  imageFormatOf,
+  validateUpload,
+} from './imports/upload.js';
+export type {
+  ImageFormat,
+  UploadCaps,
+  UploadOk,
+  UploadRefused,
+  UploadRejection,
+  UploadResult,
+} from './imports/upload.js';
+export { WorkerError, createHttpWorkerClient } from './imports/worker-client.js';
+export type { HttpWorkerClientOptions, WorkerClient } from './imports/worker-client.js';
+export { INTERRUPTED_DIAGNOSTIC, createJobRunner } from './imports/runner.js';
+export type { JobRunner, JobRunnerOptions } from './imports/runner.js';
+
 export {
   createChangeBus,
   publishingApplier,
   publishingLibrary,
 } from './events/change-bus.js';
+export { createJobBus } from './events/job-bus.js';
+export type { JobBus, JobBusOptions, JobChanged, JobListener, JobPublisher, JobSubscriber } from './events/job-bus.js';
 export type {
   ChangeBus,
   ChangeBusOptions,
@@ -77,6 +113,8 @@ export { createApi } from './http/server.js';
 export type { Api, ApiOptions } from './http/server.js';
 export { DEFAULT_HEARTBEAT_MS, createEventStreams } from './http/event-stream.js';
 export type { EventStreamOptions, EventStreams } from './http/event-stream.js';
+export { DEFAULT_JOB_HEARTBEAT_MS, createJobStreams } from './http/job-stream.js';
+export type { JobStreamOptions, JobStreams } from './http/job-stream.js';
 export {
   LOOPBACK,
   checkHost,

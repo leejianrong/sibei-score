@@ -18,7 +18,15 @@ const REPO = resolve(import.meta.dirname, '../..');
  * The only files permitted to know. Exactly two, and the list being short is the point — a
  * third one has to show up in a diff and be argued for.
  */
-const THE_IMPLEMENTATION = ['packages/api/src/store/sqlite-store.ts', 'packages/api/src/store/sqlite-schema.ts'];
+const THE_IMPLEMENTATION = [
+  'packages/api/src/store/sqlite-store.ts',
+  'packages/api/src/store/sqlite-schema.ts',
+  // The third, argued for (V10): the import-job queue is durable state (ADR-0001 #7), so it needs a
+  // real adapter behind the `JobStore` port. It is a separate file — and a separate connection to
+  // the same database — rather than more methods on `sqlite-store.ts`, because a mutable job is not
+  // the append-only op log that file guards (ADR-0003). See its header.
+  'packages/api/src/store/sqlite-jobs.ts',
+];
 
 const DRIVER = 'better-sqlite3';
 

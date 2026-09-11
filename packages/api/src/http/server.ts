@@ -1,17 +1,26 @@
+import { createHash } from 'node:crypto';
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { BlobStore } from '../blob/blob-store.js';
 import { memoryBlobStore } from '../blob/memory-blob-store.js';
 import { createChangeBus, publishingApplier, publishingLibrary } from '../events/change-bus.js';
+import { createJobBus } from '../events/job-bus.js';
 import { createExporter } from '../export/export.js';
+import { createJobRunner } from '../imports/runner.js';
+import type { JobRunner } from '../imports/runner.js';
+import type { WorkerClient } from '../imports/worker-client.js';
 import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
-import type { ScoreStore } from '../store/repository.js';
+import { memoryJobStore } from '../store/memory-job-store.js';
+import type { JobStore } from '../store/jobs.js';
+import type { Owner, ScoreStore } from '../store/repository.js';
 import { createEventStreams } from './event-stream.js';
+import { createJobStreams } from './job-stream.js';
 import { LOOPBACK, checkHost, checkOrigin, resolveLocalPrincipal } from './guards.js';
 import type { Authenticator } from './guards.js';
 import { problem, problemForUnknown } from './problems.js';
 import { pathOf, route, send } from './routes.js';
+import type { ImportService } from './routes.js';
 import type { AssetSource } from './static.js';
 import { consoleLogger } from './log.js';
 import type { Logger } from './log.js';
@@ -42,6 +51,22 @@ export interface ApiOptions {
    * caller's to name — this package takes a port, never a path (ADR-0001).
    */
   blobs?: BlobStore;
+  /**
+   * The durable import-job queue (V10, ADR-0001). Defaults to a process-lifetime in-memory store —
+   * the honest default, since a queue that outlives the process needs a database and a database is
+   * the caller's to name (`sbscore serve` supplies the SQLite one). All import state lives here, so
+   * the API process stays stateless (ADR-0001 #7).
+   */
+  jobs?: JobStore;
+  /**
+   * The OMR worker (ADR-0005). When omitted, the import feature is *off* — `POST /v1/imports` is a
+   * 503 and no runner runs — and every other feature is unaffected (the milestone split, Q76, made
+   * that more than theoretical). When supplied, imports are accepted and run; if the worker's
+   * container is then down, a job fails with a diagnostic and is retryable (Q80). A port, never a
+   * URL: the CLI composition root builds the HTTP client and injects it, so this package names no
+   * address (ADR-0001).
+   */
+  worker?: WorkerClient;
   /** Defaults to resolving `local` (ADR-0029). */
   authenticate?: Authenticator;
   logger?: Logger;
@@ -98,9 +123,55 @@ export function createApi(options: ApiOptions): Api {
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
   });
 
+  // One blob store, shared: the exporter caches rendered artefacts in it (Q81), and the import
+  // pipeline stores uploaded scans in it and reads them back to hand to the worker. Hoisted so both
+  // reach the same bytes rather than each falling back to its own `Map`.
+  const blobs = options.blobs ?? memoryBlobStore();
+
   // Narrowed on the way in: the exporter is handed the store as a `ScoreReader`, so the export
   // path is a read by construction and not by intention (ADR-0003).
-  const exporter = createExporter(store, options.blobs ?? memoryBlobStore());
+  const exporter = createExporter(store, blobs);
+
+  // The import pipeline (V10). Its own change bus and streams, the sibling of the score ones — a job
+  // moving is announced the same way a score moving is (ADR-0001's "subscribe"). The job store and
+  // streams exist whether or not a worker was configured, so imports can always be *inspected*; the
+  // runner, and therefore the ability to *submit*, exists only when a worker was.
+  const jobs = options.jobs ?? memoryJobStore();
+  const jobBus = createJobBus({ onError: (error) => logger.error('a job subscriber failed', error) });
+  const jobStreams = createJobStreams({
+    subscriber: jobBus,
+    ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
+  });
+  const runner: JobRunner | undefined =
+    options.worker === undefined
+      ? undefined
+      : createJobRunner({
+          jobs,
+          blobs,
+          worker: options.worker,
+          publisher: jobBus,
+          onError: (message, error) => logger.error(message, error),
+        });
+  const imports: ImportService = {
+    available: runner !== undefined,
+    async submit(owner: Owner, image: Buffer) {
+      // Content-addressed: identical rescans dedupe, and the key names the exact bytes it stands for
+      // (the same principle as the export cache's document digest, Q81). The BlobStore hashes the key
+      // to a filename anyway, so any stable string does — this one is also provenance.
+      const key = `import-source:${createHash('sha256').update(image).digest('hex')}`;
+      await blobs.put(key, image);
+      const job = jobs.create(owner, [key]);
+      runner?.wake();
+      return job;
+    },
+    retry(owner: Owner, id) {
+      const job = jobs.retry(owner, id);
+      if (job !== null) runner?.wake();
+      return job;
+    },
+    reader: jobs,
+    streams: jobStreams,
+  };
 
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
@@ -143,6 +214,7 @@ export function createApi(options: ApiOptions): Api {
         applier,
         exporter,
         events,
+        imports,
         owner: principal.owner,
         ...(options.assets === undefined ? {} : { assets: options.assets }),
       });
@@ -165,6 +237,10 @@ export function createApi(options: ApiOptions): Api {
             reject(new Error('the server did not bind to a port'));
             return;
           }
+          // Serving is the point at which processing durable jobs is correct: `start` recovers any
+          // job left running by a previous process and drains whatever is queued (ADR-0001 #7).
+          // Constructing the API does not touch the queue; binding a port does.
+          runner?.start();
           resolve({ port: address.port });
         });
       });
@@ -174,8 +250,11 @@ export function createApi(options: ApiOptions): Api {
       // accepting and then waits for open connections to finish, and an SSE stream never finishes —
       // so before V4a this line hung forever the moment anything had subscribed. Closing what this
       // server opened, rather than reaching for `closeAllConnections()`, leaves an ordinary
-      // in-flight request to complete the way it always did.
+      // in-flight request to complete the way it always did. The job streams are the second kind of
+      // stream that never finishes (V10), so they close here too.
+      runner?.stop();
       events.closeAll();
+      jobStreams.closeAll();
       return new Promise((resolve) => server.close(() => resolve()));
     },
   };

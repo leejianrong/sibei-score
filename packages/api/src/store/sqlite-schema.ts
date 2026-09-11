@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 2;
+export const TABLE_SCHEMA_VERSION = 3;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -63,6 +63,42 @@ CREATE TABLE IF NOT EXISTS operations (
   created_at  TEXT    NOT NULL,
   PRIMARY KEY (score_id, seq)
 );
+
+-- The import-job queue (V10, ADR-0001: "OMR is a job, not a request"). All job state lives here so
+-- the API process stays stateless (ADR-0001 #7) — a queued or running job survives a restart, and
+-- the runner recovers an interrupted one on the next boot rather than losing it. It is deliberately
+-- NOT in the operation log: an import job is not a mutation of a score, and its result is landed as
+-- a score.import op only once V11 maps the recognised objects to a document. Nothing here references
+-- the scores table -- a job outlives, and may never produce, a score (Q80: a failed import commits
+-- nothing), and score_id is a soft back-pointer filled in by the importer, not a foreign key.
+--
+--   * image_keys are BlobStore keys for the 1..n uploaded source images, in page order (Q26).
+--   * result holds the raw recognised objects (an OmrDocument per image) once succeeded -- this is
+--     what V10's demo means by "the raw recognised objects stored". Large, and read only on demand,
+--     so the listing query never selects it.
+--   * diagnostic carries the human-readable failure reason when status = 'failed' (Q80).
+--   * version is optimistic-concurrency, the same idea as a score's: it lets a claim be a
+--     conditional write, so the shape survives the hosted transition's real worker pool where two
+--     processes could race for one job (docs/hosting.md). Locally there is one process, so it never
+--     actually contends -- but the seam is cheaper to build now than to retrofit (ADR-0001).
+CREATE TABLE IF NOT EXISTS import_jobs (
+  id          TEXT    NOT NULL PRIMARY KEY,
+  owner       TEXT    NOT NULL,
+  status      TEXT    NOT NULL,
+  image_keys  TEXT    NOT NULL CHECK (json_valid(image_keys)),
+  attempts    INTEGER NOT NULL,
+  diagnostic  TEXT,
+  result      TEXT    CHECK (result IS NULL OR json_valid(result)),
+  score_id    TEXT,
+  version     INTEGER NOT NULL,
+  created_at  TEXT    NOT NULL,
+  updated_at  TEXT    NOT NULL
+);
+
+-- Every read filters on owner (ADR-0001), so the listing index leads with it.
+CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, created_at DESC);
+-- The runner claims the oldest queued job across all owners; this index is that claim's scan.
+CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
 `;
 
 /**
