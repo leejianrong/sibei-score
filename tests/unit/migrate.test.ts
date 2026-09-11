@@ -16,10 +16,11 @@ import type { DocumentMigration, RawDocument } from '@sibei/model';
  * The migration runner (ADR-0028). Forward-only, on read, and loud in both directions it can
  * fail.
  *
- * `DOCUMENT_MIGRATIONS` is still empty — SCHEMA_VERSION has been 1 since the first commit —
- * so most of this drives the runner against a *synthetic* chain. That is the point: the
- * machinery gets proven before there is a real migration riding on it, which is the whole
- * argument for paying ADR-0028's near-zero cost now rather than guessing later.
+ * The real chain now has one step (`v1 -> v2`, ADR-0017, since V6d), covered against the real
+ * migration below and end to end against a whole-chart fixture in `migrate-fixture.test.ts`. The
+ * *synthetic* chain here still earns its keep: it proves the runner over multiple steps, holes and
+ * bad migrations — cases one real step cannot exercise — which is the machinery the next schema
+ * bump will lean on.
  */
 
 function aScore() {

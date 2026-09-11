@@ -9,8 +9,8 @@
 /**
  * Bumped by any change to the document shape, with a forward-only migration (ADR-0028).
  *
- * v2 (V6d) gave `Chord` a `spellingPinned` flag, backfilled `false` onto every chord written
- * before it — the first real shape change since the first commit.
+ * v2 (V6d) gave `Note` and `Chord` a `spellingPinned` flag, backfilled `false` onto every one
+ * written before it — the first real shape change since the first commit.
  */
 export const SCHEMA_VERSION = 2;
 

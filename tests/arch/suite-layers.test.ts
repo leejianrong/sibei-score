@@ -46,9 +46,11 @@ describe('the suite layers', () => {
 
   it('cover every test directory, so none can go silently unrun', () => {
     const covered = new Set(configuredProjects().flatMap(directoriesOf));
-    // `snapshots` holds committed .svg files, not tests, and is deliberately not a layer.
+    // Committed *data*, not tests, and deliberately not a layer: `snapshots` holds .svg files and
+    // `fixtures` a v1 score document the migration test reads (V8f).
+    const data = new Set(['snapshots', 'fixtures']);
     const uncovered = testDirectories().filter(
-      (directory) => directory !== 'snapshots' && !covered.has(directory),
+      (directory) => !data.has(directory) && !covered.has(directory),
     );
     expect(uncovered).toEqual([]);
   });

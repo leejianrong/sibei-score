@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired) and V8e (the export-format toggle) have landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle) and V8f (the migration fixture test) have landed.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,

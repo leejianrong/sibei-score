@@ -35,20 +35,34 @@ export interface DocumentMigration {
 }
 
 /**
- * v1 -> v2: give every chord a `spellingPinned` flag, off for everything written before it (V6d,
- * ADR-0017). The commonest shape a real migration takes — a new field, backfilled onto the objects
- * that predate it — and the one the synthetic chain in the tests was rehearsing all along.
+ * v1 -> v2: give every **note and chord** a `spellingPinned` flag, off for everything written
+ * before it (V6d, ADR-0017). The commonest shape a real migration takes — a new field, backfilled
+ * onto the objects that predate it.
+ *
+ * **Notes as well as chords, which the first cut of this migration missed (KAN, V8f).** V6d added
+ * `spellingPinned` to `Note` *and* `Chord` in the same commit that bumped the schema to 2, but this
+ * only backfilled chords — so a v1 chart with notes migrated to a v2 document whose notes lacked a
+ * field the `Note` type promises. The existing test never caught it because its v1 fixture had a
+ * chord and no notes; V8f's fixture (a real chart, with both) is what surfaced it. Rests carry no
+ * pin, so only `note` items are touched.
  */
-const PIN_CHORDS: DocumentMigration = {
+const PIN_SPELLINGS: DocumentMigration = {
   from: 1,
-  note: 'v2 gave every chord a `spellingPinned` flag (ADR-0017); off for chords written before it',
+  note: 'v2 gave every note and chord a `spellingPinned` flag (ADR-0017); off for those written before it',
   migrate(document) {
     const bars = (document.bars as RawDocument[] | undefined) ?? [];
     return {
       ...document,
       bars: bars.map((bar) => {
+        const items = (bar.items as RawDocument[] | undefined) ?? [];
         const chords = (bar.chords as RawDocument[] | undefined) ?? [];
-        return { ...bar, chords: chords.map((chord) => ({ spellingPinned: false, ...chord })) };
+        return {
+          ...bar,
+          items: items.map((item) =>
+            item.kind === 'note' ? { spellingPinned: false, ...item } : item,
+          ),
+          chords: chords.map((chord) => ({ spellingPinned: false, ...chord })),
+        };
       }),
     };
   },
@@ -58,7 +72,7 @@ const PIN_CHORDS: DocumentMigration = {
  * The chain, in order — one migration per version step, so a document from any older build climbs
  * to the current shape (ADR-0028).
  */
-export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [PIN_CHORDS];
+export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [PIN_SPELLINGS];
 
 /** Why a document could not be read. Distinguished so a caller can say something useful. */
 export type MigrationFailure =
