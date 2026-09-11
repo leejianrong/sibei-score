@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired), V8e (the export-format toggle), V8f (the migration fixture test), V8g (serving the built UI from the API), V8h (the container) and V8i (the v0.1 docs) have landed — **v0.1 is complete.**
+**V1–V8 are done and v0.1 is complete; V9 (the first v0.2 slice) has landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds to V10 without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. See the ADR-0023 status update and `worker/README.md` (gate result, CPU wall-clock, dependency-pinning findings).
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -50,8 +50,13 @@ every existing caller); `sbscore serve` exposes it as `--host`/`SBSCORE_HOST` an
 `0.0.0.0`, while the compose file publishes to the host's loopback only — the ADR-0029 amendment that
 separates the *bind* address from the *publish* address (`docs/adr/0029`, `docs/hosting.md`). From V8i
 the **v0.1 docs** are current: the README (install both ways, the offline claim stated plainly), the
-full CLI reference (`docs/cli.md`), and the hosted direction (`docs/hosting.md`). Not built yet (v0.2):
-MusicXML import and the whole OMR import pipeline. Don't assume a module exists because a plan mentions it.
+full CLI reference (`docs/cli.md`), and the hosted direction (`docs/hosting.md`). From V9 the **oemer
+coordinate spike** (ADR-0023) has proven oemer's pixel coordinates reachable in-process: a standalone
+Python spike in a top-level `worker/` (`worker/sibei_omr/spike.py`) dumps every detected
+`Staff`/`NoteHead`/`NoteGroup`/`Barline`/`Rest` with coordinates to JSON, validated against the
+model-owned schema (`packages/model/src/omr.ts`, `OmrDocument`). Not built yet (v0.2): MusicXML import,
+and the OMR pipeline proper — the offline worker in a job (V10), the chord-band OCR, and stage-3 beat
+mapping. Don't assume a module exists because a plan mentions it.
 
 ## Layout
 
@@ -69,10 +74,13 @@ packages/
   ui         the browser: Svelte 5 + Vite. Renders through layout + engrave, never @sibei/pdf
   fixtures   hand-authored scores: nasty-chart, every-glyph, long-form (spills to page 2), untitled,
              aaba-chart (V7's structure demo: pickup, rehearsal letters, a repeat with 1st/2nd endings)
+worker/      the OMR worker (Python, ADR-0005) — OUTSIDE the pnpm workspace, its own pyproject/venv.
+             From V9: the oemer coordinate spike (`sibei_omr/spike.py`). Never touches the store; not in CI
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer
   snapshots/                           committed .svg files
+  fixtures/                            committed inputs: a v1 score for migration, and omr/ spike dumps
 scripts/     development entry points, not product surface
 ```
 
