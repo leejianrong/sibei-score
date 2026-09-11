@@ -577,6 +577,28 @@ Arising from the round-1 answers.
     ADR that supersedes or amends ADR-0010 and squares ADR-0018/0024/0020. Note ADR-0027's
     dependency register would also gain an external-service entry, which every prior ADR
     deliberately avoided.
+- **Q84.** `P2` `OPEN` **Should we build our own local vision model and score-vision pipeline**,
+  eventually replacing the oemer dependency rather than assisting it? This is the "build our
+  own" option ADR-0010 considered and declined for the MVP, revisited with the V9 spike's
+  evidence: oemer recovers noteheads well on single-staff charts but its page-level structure
+  (barlines, staff zoning, which staff is the lead) collapses on the "Shaw 'Nuff" class. The
+  proposed shape: **decompose a score into bars and phrases and recognise at that granularity**
+  (not the whole page at once), with **object detection across every element class** — bars,
+  title, tempo/text markings, chords, rehearsal marks, endings — not notes and barlines alone.
+  Trained on the **synthetic corpus and ground truth** the project already commits to (ADR-0020:
+  render known scores, degrade them; the render→raster path used by the V9 spike is the seed).
+  - **Not decided — record as a direction, not a plan.** Unlike Q83, an *own model that runs
+    locally does NOT conflict with the offline guarantee* (ADR-0001/ADR-0024) — it bakes in like
+    oemer's weights (ADR-0024) and needs no network at runtime, and training on owned synthetic
+    data sidesteps the copyright exposure in ADR-0020. What it does reopen is **ADR-0010's engine
+    choice** (oemer over building one) and touch **ADR-0011** (staged chord recognition) and
+    **ADR-0023** (oemer-as-library / fork contingency) — an own pipeline is a third option beyond
+    "oemer library" and "vendored fork". It is a large build (a detection model, a training loop,
+    an eval harness — ADR-0020's synthetic generator is the shared dependency, and is itself not
+    built yet). If pursued it slots in as one more parser backend behind the ADR-0019 "parse is a
+    draft" seam and the ADR-0005 worker boundary, emitting the same `OmrDocument` schema
+    (`packages/model/src/omr.ts`) — so it can be developed and A/B'd against oemer without
+    disturbing anything downstream. Needs an ADR that revisits ADR-0010/0011/0023 before any build.
 
 ## Renderer follow-ups
 
