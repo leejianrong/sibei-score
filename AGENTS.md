@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo) and V8b (the MusicXML codec) have landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec) and V8c (library delete + duplicate) have landed.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -32,9 +32,13 @@ resolved by `replayLog`, the `POST /v1/scores/:id/undo|redo` routes, `sbscore un
 codec** (`packages/codec`): `scoreToMusicXml`/`musicXmlToScore` for single-voice lead sheets, with
 its own dependency-free XML reader and a round-trip whose every lossy case is named in a test — but
 **not yet wired to a surface** (no `export --musicxml`, no import verb/button yet: booked debt, the
-V6a pattern of landing a pure engine before its ops). Not built yet: the codec's surface wiring, the
-library's delete/duplicate controls, the container, and the whole import pipeline. Don't assume a
-module exists because a plan mentions it.
+V6a pattern of landing a pure engine before its ops). From V8c the **library** gained **delete** and
+**duplicate** on both surfaces: `sbscore duplicate` and the row's Duplicate/Delete controls (delete
+asks first — it destroys the log). Duplicate is a copy with a *fresh* history, built on `score.import`
+— one operation carrying a whole document (ADR-0003), server-only (never the client `/ops` route, so
+ADR-0008's anti-mangling guarantee holds), which v0.2's OMR import will reuse. Not built yet: the
+codec's surface wiring, the container, and the whole import pipeline. Don't assume a module exists
+because a plan mentions it.
 
 ## Layout
 

@@ -30,6 +30,14 @@ export interface Applier {
    */
   undo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): UndoResult;
   redo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): UndoResult;
+  /**
+   * Copy a score to a new one with a fresh, single-operation log (V8c). A library-lifecycle call
+   * like delete — but where delete cannot be an op (it destroys a log), duplicate *creates* one, so
+   * it goes through the applier, the only writer (ADR-0003). The copy's log is one `score.import`
+   * carrying the snapshot, so it replays to the copy exactly and has nothing to undo — the "fresh
+   * history" a duplicate is expected to have. `newId` is minted from the source id when omitted.
+   */
+  duplicate(owner: Owner, scoreId: Id, newId: Id | undefined): DuplicateResult;
 }
 
 export interface ApplyResult {
@@ -63,6 +71,14 @@ export interface UndoResult {
   canRedo: boolean;
 }
 
+/** The outcome of a duplicate (V8c): the new score's id and its starting version (always 1). */
+export interface DuplicateResult {
+  scoreId: Id;
+  version: number;
+  /** The chart this was copied from, echoed so a caller need not remember what it asked. */
+  sourceId: Id;
+}
+
 /**
  * Construct the applier with the two halves of the store port. Taking a `ScoreWriter`
  * *explicitly* is what makes "only the applier writes" a wiring fact rather than a convention: a
@@ -79,6 +95,14 @@ export function createApplier(
           kind: 'validation',
           detail: 'a batch needs at least one operation',
         });
+      }
+
+      // `score.import` is server-only (`operations.ts`): accepting a whole document from a client is
+      // the document-patch anti-pattern ADR-0008 rejected. It reaches the log only via `duplicate`.
+      for (const operation of batch.operations) {
+        if (operation.type === 'score.import') {
+          throw new OperationError({ kind: 'unknown-operation', type: 'score.import' });
+        }
       }
 
       if (isCreateBatch(batch)) return create(store, owner, batch, now);
@@ -98,7 +122,49 @@ export function createApplier(
     redo(owner, scoreId, expectedVersion) {
       return move(store, owner, scoreId, expectedVersion, 'redo', now);
     },
+
+    duplicate(owner, scoreId, newId) {
+      return duplicate(store, owner, scoreId, newId, now);
+    },
   };
+}
+
+/**
+ * Copy a score to a new one with a single-operation log (V8c). The copy's document is the source's
+ * current document under a new id; its log is one `score.import` carrying that document, so
+ * replay-from-empty reproduces the copy and there is nothing to undo. The write is one transaction
+ * through the store's `create`, the same path `score.create` takes.
+ */
+function duplicate(
+  store: ScoreReader & ScoreWriter,
+  owner: Owner,
+  sourceId: Id,
+  newId: Id | undefined,
+  now: () => Date,
+): DuplicateResult {
+  const source = store.get(owner, sourceId);
+  if (source === null) throw new OperationError({ kind: 'no-such-score', id: sourceId });
+
+  const id = newId ?? freeCopyId(store, owner, sourceId);
+  const document = { ...source.score, id };
+  const applied = applyOperation(null, { type: 'score.import', payload: { document } });
+
+  const outcome = store.create(owner, applied.score, stamp([applied.operation], now));
+  if (!outcome.ok) {
+    if (outcome.reason === 'already-exists') throw new OperationError({ kind: 'conflict-exists', id });
+    throw new OperationError({ kind: 'validation', detail: `the store refused: ${outcome.reason}` });
+  }
+  return { scoreId: id, version: outcome.version, sourceId };
+}
+
+/** The first free `<id>-copy`, `<id>-copy-2`, … — readable, and it does not collide on a re-run. */
+function freeCopyId(store: ScoreReader, owner: Owner, sourceId: Id): Id {
+  const base = `${sourceId}-copy`;
+  if (!store.exists(owner, base)) return base;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base}-${n}`;
+    if (!store.exists(owner, candidate)) return candidate;
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import type {
   EndingRole,
   Id,
   KeySignature,
+  Score,
   StartBarline,
   TieRole,
   TimeSignature,
@@ -171,6 +172,22 @@ export interface EndingSetPayload {
 export type EndingRmPayload = Record<string, never>;
 
 /**
+ * Create a whole score from a document in one operation (V8c, ADR-0003). "An import is itself one
+ * operation, carrying the whole parsed document" — the ADR's own words — and duplicate is exactly
+ * that: an internal import of a copy. v0.2's OMR import will reuse this op rather than inventing a
+ * second create-from-document path.
+ *
+ * **It is deliberately not a client-submittable verb.** It is missing from `OPERATION_TYPES`, and
+ * the applier refuses it on the `/ops` route, because accepting a whole document from a client is
+ * the document-patch anti-pattern ADR-0008 rejected — an LLM regenerating a document drops and
+ * mangles fields, and one accept/reject tells it nothing. It reaches the log only through the
+ * `duplicate` lifecycle call (V8c) and, later, the import pipeline (v0.2), both server-owned.
+ */
+export interface ScoreImportPayload {
+  document: Score;
+}
+
+/**
  * The verbs implemented so far. V2 built the note and rest verbs; V5 added `chord.set` and
  * `chord.rm`; V6 added `transpose`; V7 adds `section.set`/`section.rm` and the barline and ending
  * verbs — `barline.set`, `ending.set` and `ending.rm`. `tie` and `tuplet` each belong to a later
@@ -180,9 +197,14 @@ export type EndingRmPayload = Record<string, never>;
  * folded by `applyOperation` as a pure `(score, op) -> score`.** Undo and redo are deliberately not
  * in this union — they are `ControlOperation`s (below), because they cannot be folded from the score
  * alone: their result depends on the whole log, which the pure applier never sees.
+ *
+ * `score.import` is in the union — it folds like any create — but not in `OPERATION_TYPES`, because
+ * it is server-only (see its payload): the client verb set is `OPERATION_TYPES`, and `score.import`
+ * is reached through the `duplicate` lifecycle call, not the `/ops` route.
  */
 export type Operation =
   | { type: 'score.create'; payload: ScoreCreatePayload }
+  | { type: 'score.import'; payload: ScoreImportPayload }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'note.add'; target: string; payload: NoteAddPayload }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }

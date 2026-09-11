@@ -463,10 +463,12 @@ render correctly, and the pickup sits outside the grid.
 
 > **Note, 2026-09-10.** Being cut into sub-slices V8a–V8f, landed as separate PRs the way V2–V7
 > were: (V8a) undo/redo, (V8b) the `codec` package, (V8c) library delete/duplicate, (V8d) the
-> migration fixture test, (V8e) the container, (V8f) the docs. **V8a and V8b are done** — V8b
+> migration fixture test, (V8e) the container, (V8f) the docs. **V8a, V8b and V8c are done** — V8b
 > landed the `codec` package (score ↔ MusicXML string, single-voice) as a pure engine the way V6a
 > landed the spelling engine, with its surface wiring (`export --musicxml`, an import verb/button) to
-> follow in a later sub-slice rather than as dead code in the package's own PR. Two corrections
+> follow in a later sub-slice rather than as dead code in the package's own PR; V8c added library
+> delete and duplicate (duplicate as a fresh-history copy via a server-only `score.import` op).
+> Two corrections
 > against contact with the code (AGENTS.md's "trust the code"): step 1 reads "minus the last
 > *operation*", but ADR-0003 makes a **batch** one undoable unit, so undo drops the last *batch* —
 > the demo's eight-edit batch reverts as one. And because the op log is append-only forever

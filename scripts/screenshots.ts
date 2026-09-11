@@ -224,6 +224,18 @@ async function main(): Promise<void> {
       await filter.first().fill('bossa');
       await library.waitForTimeout(300);
       await shoot(library, 'library-search.png');
+      await filter.first().fill('');
+      await library.waitForTimeout(200);
+    }
+    // A row with its actions revealed, and the delete confirm — the V8c library polish.
+    const firstRow = library.locator('.row').first();
+    if (await firstRow.count()) {
+      await firstRow.hover();
+      await library.waitForTimeout(200);
+      await shoot(library, 'library-actions.png');
+      await firstRow.locator('.act.del').click();
+      await library.waitForTimeout(200);
+      await shoot(library, 'library-delete-confirm.png');
     }
     await library.close();
 

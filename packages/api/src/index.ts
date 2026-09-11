@@ -55,7 +55,7 @@ export {
 } from './ops/apply.js';
 export type { Applied, UndoState } from './ops/apply.js';
 export { createApplier } from './ops/applier.js';
-export type { Applier, ApplyResult, UndoResult } from './ops/applier.js';
+export type { Applier, ApplyResult, UndoResult, DuplicateResult } from './ops/applier.js';
 
 export {
   createChangeBus,

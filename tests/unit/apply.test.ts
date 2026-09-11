@@ -379,6 +379,30 @@ describe('unknown operations', () => {
   });
 });
 
+describe('score.import: a whole document as one operation (V8c, ADR-0003)', () => {
+  it('creates the document it carries, recorded so replay reproduces it exactly', () => {
+    const source = create({ id: 'src', barCount: 4 });
+    const applied = applyOperation(null, { type: 'score.import', payload: { document: source } });
+    expect(applied.score).toEqual(source);
+    // Recorded in the payload → replay leans on the log, not on anything outside it.
+    expect(replay([applied.operation])).toEqual(source);
+  });
+
+  it('is a first operation like score.create: it refuses a score that already exists', () => {
+    const existing = create();
+    expect(() =>
+      applyOperation(existing, { type: 'score.import', payload: { document: create({ id: 'other' }) } }),
+    ).toThrow(/already exists/);
+  });
+
+  it('does not alias the document it was given, so the store and the log cannot drift', () => {
+    const source = create({ id: 'src' });
+    const applied = applyOperation(null, { type: 'score.import', payload: { document: source } });
+    expect(applied.score).not.toBe(source);
+    expect(applied.score.bars).not.toBe(source.bars);
+  });
+});
+
 describe('replay from empty (ADR-0003)', () => {
   /** The log a small authoring session would have produced. */
   const session: Operation[] = [

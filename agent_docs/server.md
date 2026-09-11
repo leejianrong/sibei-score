@@ -98,6 +98,17 @@ about: a score's bar count is fixed at creation (there is no `bar.append` yet), 
 is *not* an operation — it destroys the log an entry would live in, so it is a library lifecycle call
 instead.
 
+**Duplicate is a lifecycle call that *creates* (V8c), so unlike delete it goes through the applier.**
+`Applier.duplicate` copies the source's current document under a new id and gives the copy a
+single-operation log — one `score.import` carrying that document (ADR-0003's "import is itself one
+operation"). So the copy replays from empty to itself and has nothing to undo: the fresh history a
+duplicate is expected to have. The new id is minted `<id>-copy`, `<id>-copy-2`, … when the caller
+names none. **`score.import` is server-only**: it is a valid `Operation` (it folds like a create) but
+absent from `OPERATION_TYPES`, and `apply` refuses it on the `/ops` route — accepting a whole
+document from a client is the document-patch anti-pattern ADR-0008 rejected. It reaches the log only
+through `duplicate`, and v0.2's OMR import will reuse it. Duplicate publishes no change event: the bus
+is per-score and a brand-new id has no subscribers, so the library that asked re-reads its own list.
+
 **Undo and redo are the applier's, not the routes' (V8a).** They append `undo`/`redo` *control*
 operations — a `LoggedOperation` that is not one of the content verbs above, because it cannot be
 folded from the score alone: computing its result needs the whole log, which the pure applier in
@@ -179,6 +190,7 @@ DELETE /v1/scores/:id        library lifecycle, not an operation
 POST   /v1/scores/:id/ops    one operation, or a transactional list
 POST   /v1/scores/:id/undo   undo the last batch by replay (V8a); redo is the sibling
 POST   /v1/scores/:id/redo   reapply the last undone batch (V8a)
+POST   /v1/scores/:id/duplicate  copy to a new score with a fresh history (V8c)
 GET    /v1/scores/:id/export ?format=pdf&paper=a4|letter&font=normal|jazz&instrument=concert
 GET    /v1/scores/:id/events SSE: this score's changes (V4a)
 ```

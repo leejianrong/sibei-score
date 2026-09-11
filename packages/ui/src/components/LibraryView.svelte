@@ -13,7 +13,7 @@
    * in the empty state, and in a footer that stays put once there are charts, because the
    * library is where you notice you want another one. Q79 parity is knowingly unmet until V4c.
    */
-  import { listScores, OfflineError } from '../lib/api.js';
+  import { ApiError, deleteScore, duplicateScore, listScores, OfflineError } from '../lib/api.js';
   import type { ScoreListing } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { displayKey, relativeTime } from '../lib/format.js';
@@ -29,6 +29,15 @@
   let failure = $state<'offline' | 'error' | null>(null);
   let message = $state('');
   let query = $state('');
+
+  // The lifecycle actions (V8c). `confirmingId` is the one row asking to confirm a delete — delete
+  // destroys the op log and cannot be undone (ADR-0003), so it asks first. `busyId` disables a row
+  // mid-request. `freshId` is a just-made duplicate, marked until the next action so the eye finds
+  // where it landed. `actionError` surfaces a refusal without disturbing the list.
+  let confirmingId = $state<string | null>(null);
+  let busyId = $state<string | null>(null);
+  let freshId = $state<string | null>(null);
+  let actionError = $state<string | null>(null);
 
   const shown = $derived(filtered(charts ?? [], query));
 
@@ -59,6 +68,43 @@
 
   function open(id: string): void {
     window.location.hash = hashOf({ view: 'score', id });
+  }
+
+  /** Duplicate a chart, then re-read the list and mark the copy. Trust the id, never the list shape. */
+  async function duplicate(id: string): Promise<void> {
+    busyId = id;
+    actionError = null;
+    try {
+      const result = await duplicateScore(id);
+      await load();
+      freshId = result.scoreId;
+    } catch (error) {
+      actionError = messageFor(error, 'duplicate');
+    } finally {
+      busyId = null;
+    }
+  }
+
+  /** Delete after the row's own confirm. Irreversible — it destroys the log (ADR-0003). */
+  async function confirmDelete(id: string): Promise<void> {
+    busyId = id;
+    actionError = null;
+    try {
+      await deleteScore(id);
+      if (freshId === id) freshId = null;
+      confirmingId = null;
+      await load();
+    } catch (error) {
+      actionError = messageFor(error, 'delete');
+    } finally {
+      busyId = null;
+    }
+  }
+
+  function messageFor(error: unknown, verb: string): string {
+    if (error instanceof OfflineError) return `Could not ${verb}: the server did not answer.`;
+    if (error instanceof ApiError) return error.message;
+    return error instanceof Error ? error.message : String(error);
   }
 
   void load();
@@ -132,25 +178,72 @@
       {/if}
     </div>
 
+    {#if actionError !== null}
+      <div class="action-error" role="alert">{actionError}</div>
+    {/if}
+
     <div class="rows">
       {#each shown as chart (chart.id)}
-        <button class="row" onclick={() => open(chart.id)}>
-          <span class="row-name">
-            {#if chart.title === ''}
-              <span><em>Untitled</em></span>
-              <span class="row-id">{chart.id}</span>
-            {:else}
-              <span>{chart.title}</span>
-            {/if}
-            {#if chart.composer !== ''}<span class="row-by">{chart.composer}</span>{/if}
-          </span>
-          <span class="row-meta">
-            <span class="key-chip">{displayKey(chart.key)}</span>
-            <span class="row-ver">v{chart.version}</span>
-            <span class="row-when">{relativeTime(chart.updatedAt)}</span>
-            <span class="row-go" aria-hidden="true">›</span>
-          </span>
-        </button>
+        <div class="row" class:fresh={freshId === chart.id}>
+          <button class="open" onclick={() => open(chart.id)}>
+            <span class="row-name">
+              {#if chart.title === ''}
+                <span><em>Untitled</em></span>
+                <span class="row-id">{chart.id}</span>
+              {:else}
+                <span>{chart.title}</span>
+              {/if}
+              {#if chart.composer !== ''}<span class="row-by">{chart.composer}</span>{/if}
+            </span>
+            <span class="row-meta">
+              {#if freshId === chart.id}<span class="fresh-tag">duplicated</span>{/if}
+              <span class="key-chip">{displayKey(chart.key)}</span>
+              <span class="row-ver">v{chart.version}</span>
+              <span class="row-when">{relativeTime(chart.updatedAt)}</span>
+            </span>
+          </button>
+
+          {#if confirmingId === chart.id}
+            <span class="confirm" role="group" aria-label="Confirm delete">
+              <span class="warn">Delete this chart? Its edit history goes with it.</span>
+              <button class="go" onclick={() => confirmDelete(chart.id)} disabled={busyId === chart.id}>
+                Delete
+              </button>
+              <button class="cancel" onclick={() => (confirmingId = null)} disabled={busyId === chart.id}>
+                Cancel
+              </button>
+            </span>
+          {:else}
+            <span class="actions">
+              <button
+                class="act dup"
+                onclick={() => duplicate(chart.id)}
+                disabled={busyId !== null}
+                aria-label={`Duplicate ${chart.title === '' ? chart.id : chart.title}`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
+                  <path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+                </svg>
+                Duplicate
+              </button>
+              <button
+                class="act del"
+                onclick={() => {
+                  confirmingId = chart.id;
+                  actionError = null;
+                }}
+                disabled={busyId !== null}
+                aria-label={`Delete ${chart.title === '' ? chart.id : chart.title}`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+                  <path d="M3 4.5h10M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8" />
+                </svg>
+                Delete
+              </button>
+            </span>
+          {/if}
+        </div>
       {/each}
     </div>
 
@@ -257,19 +350,25 @@
     margin-top: 6px;
   }
 
+  .action-error {
+    margin-top: 14px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--danger);
+    background: var(--danger-wash);
+    border: 1px solid var(--danger);
+  }
+
+  /* The row was a single <button>; a button cannot hold the action buttons, so it is now a grid
+     whose name-and-meta is the one clickable "open" control and whose actions sit beside it (V8c). */
   .row {
     display: grid;
     grid-template-columns: 1fr auto;
-    align-items: baseline;
-    gap: 8px 20px;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: 0;
+    align-items: center;
+    gap: 8px 14px;
     border-bottom: 1px solid var(--rule-soft);
-    padding: 17px 12px 16px;
+    padding: 12px 12px 11px;
     margin: 0 -12px;
-    cursor: pointer;
     position: relative;
   }
   .row::before {
@@ -278,13 +377,35 @@
     inset: 0;
     background: var(--accent-wash);
     opacity: 0;
+    pointer-events: none;
   }
   .row:hover::before,
-  .row:focus-visible::before {
+  .row:focus-within::before {
     opacity: 1;
   }
   .row > :global(*) {
     position: relative;
+  }
+
+  /* The open control: the whole name + meta block, a transparent button. */
+  .open {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 6px 20px;
+    min-width: 0;
+    background: none;
+    border: 0;
+    padding: 5px 0;
+    margin: 0;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+  .open:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   .row-name {
@@ -347,16 +468,133 @@
     text-align: right;
   }
 
-  .row-go {
-    color: var(--accent);
-    opacity: 0;
-    font-size: 14px;
-    width: 10px;
-    text-align: right;
+  /* The two per-row actions, quiet until the row is hovered or something in it is focused — so a
+     resting list reads as cleanly as it did before this slice, then the actions fade in. */
+  .actions {
+    display: flex;
+    gap: 2px;
+    align-items: center;
   }
-  .row:hover .row-go,
-  .row:focus-visible .row-go {
+  .act {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: 5px 9px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .row:hover .act,
+  .row:focus-within .act {
     opacity: 1;
+  }
+  .act svg {
+    width: 13px;
+    height: 13px;
+    flex: none;
+  }
+  .act.dup:hover,
+  .act.dup:focus-visible {
+    color: var(--accent);
+    border-color: var(--rule);
+    background: var(--panel-2);
+  }
+  .act.del:hover,
+  .act.del:focus-visible {
+    color: var(--danger);
+    border-color: var(--danger);
+    background: var(--danger-wash);
+  }
+  .act:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .act:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  /* Delete is irreversible, so it asks inline — replacing the actions rather than floating a popover
+     a keyboard user has to chase. */
+  .confirm {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-self: end;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .confirm .warn {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+  .confirm button {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 3px;
+    padding: 5px 11px;
+    cursor: pointer;
+  }
+  .confirm .go {
+    background: var(--danger);
+    border: 1px solid var(--danger);
+    color: var(--panel);
+  }
+  .confirm .cancel {
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+  }
+  .confirm button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .confirm button:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  /* A just-duplicated row: a one-shot wash so the eye finds where the copy landed, and a small tag. */
+  .row.fresh {
+    animation: settle 1.4s ease;
+  }
+  @keyframes settle {
+    from {
+      background: var(--accent-wash);
+    }
+    to {
+      background: transparent;
+    }
+  }
+  .fresh-tag {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 1px 5px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row.fresh {
+      animation: none;
+    }
+    .act {
+      transition: none;
+    }
   }
 
   .lib-foot {
@@ -387,12 +625,23 @@
     .row {
       grid-template-columns: 1fr;
     }
+    .open {
+      grid-template-columns: 1fr;
+    }
     .row-meta {
       justify-content: flex-start;
     }
     .row-when {
       text-align: left;
       min-width: 0;
+    }
+    /* No hover on touch, so the actions stay visible rather than hiding behind a gesture. */
+    .act {
+      opacity: 1;
+    }
+    .confirm {
+      justify-self: start;
+      flex-wrap: wrap;
     }
   }
 </style>

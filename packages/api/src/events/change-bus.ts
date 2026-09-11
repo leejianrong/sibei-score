@@ -160,6 +160,13 @@ export function publishingApplier(applier: Applier, publisher: ChangePublisher):
     redo(owner, scoreId, expectedVersion) {
       return publishMove(applier.redo(owner, scoreId, expectedVersion), owner, publisher);
     },
+
+    // Duplicate creates a *new* score, and the change bus is per-score (subscribers key on an id
+    // they already hold open), so a brand-new id has no one to tell — the library that asked
+    // re-reads its own list. A pass-through, published to nobody, is the honest wiring.
+    duplicate(owner, scoreId, newId) {
+      return applier.duplicate(owner, scoreId, newId);
+    },
   };
 }
 

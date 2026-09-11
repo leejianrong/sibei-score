@@ -92,6 +92,26 @@ export async function getScore(id: Id): Promise<ScoreRecord> {
 }
 
 /**
+ * Library lifecycle (V8c). Delete destroys a chart and its log (ADR-0003) — irreversible, which is
+ * why the library asks first. Duplicate copies a chart to a new one with a fresh history; the server
+ * mints the new id, and the caller re-reads the list rather than trusting the returned shape, the
+ * same discipline as an edit.
+ */
+export async function deleteScore(id: Id): Promise<void> {
+  await sendNoBody('DELETE', `${V1}/scores/${encodeURIComponent(id)}`);
+}
+
+export interface DuplicateResult {
+  scoreId: Id;
+  version: number;
+  sourceId: Id;
+}
+
+export async function duplicateScore(id: Id): Promise<DuplicateResult> {
+  return await postJson<DuplicateResult>(`${V1}/scores/${encodeURIComponent(id)}/duplicate`, {});
+}
+
+/**
  * The write side (V4c). Declared here rather than imported from `@sibei/api`'s
  * `packages/api/src/ops/operations.ts` — the same reason `ScoreListing` and `ScoreRecord` above
  * are the wire shape rather than an import: `@sibei/api` also holds the store and the applier,
@@ -283,6 +303,17 @@ async function getJson<T>(path: string): Promise<T> {
 
   if (!response.ok) throw await failureFrom(response);
   return (await response.json()) as T;
+}
+
+/** A request with no request or response body worth parsing — DELETE (V8c), which answers 204. */
+async function sendNoBody(method: string, path: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(path, { method, headers: { accept: 'application/json' } });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) throw await failureFrom(response);
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {

@@ -50,6 +50,7 @@ import type {
   Operation,
   RestAddPayload,
   ScoreCreatePayload,
+  ScoreImportPayload,
   SectionSetPayload,
   StoredOperation,
   TransposePayload,
@@ -106,6 +107,15 @@ function dispatch(score: Score | null, operation: Operation): Applied {
     return createScore(operation.payload);
   }
 
+  if (operation.type === 'score.import') {
+    // A whole document in one operation (ADR-0003), the create-from-snapshot behind `duplicate` and
+    // v0.2's import. It is a first operation like `score.create`, so it too needs an empty score.
+    if (score !== null) {
+      throw new OperationError({ kind: 'conflict-exists', id: score.id });
+    }
+    return importScore(operation.payload);
+  }
+
   if (score === null) {
     throw new OperationError({
       kind: 'bad-first-operation',
@@ -160,6 +170,26 @@ function dispatch(score: Score | null, operation: Operation): Applied {
  * is a 32-bar chart.
  */
 export const DEFAULT_BAR_COUNT = 32;
+
+/**
+ * Import a whole document as one operation (V8c, ADR-0003) — the create-from-snapshot behind
+ * `duplicate`. The document is *recorded in the payload*, so replay reproduces it exactly with no
+ * dependence on anything outside the log, which is the property duplicate rests on: the copy's log
+ * is a single `score.import`, so replaying it from empty is the copy, and the copy has nothing to
+ * undo. The returned score is cloned off the payload so the stored document and the logged operation
+ * never alias.
+ */
+function importScore(payload: ScoreImportPayload): Applied {
+  const document = payload.document;
+  if (typeof document?.id !== 'string' || document.id === '') {
+    throw new OperationError({ kind: 'validation', detail: 'score.import needs a document with an id' });
+  }
+  return {
+    score: structuredClone(document),
+    operation: { type: 'score.import', payload: { document } },
+    changed: [document.id],
+  };
+}
 
 /**
  * Score creation is an operation like any other, which is what keeps replay-from-empty true as a

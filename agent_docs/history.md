@@ -16,7 +16,7 @@ change and no new store method.
 |---|---|---|
 | V8a | Undo/redo by replay of the op log — control ops, `POST …/undo\|redo`, `sbscore undo\|redo`, ctrl-Z | **done** |
 | V8b | The `codec` package: MusicXML export + import, single-voice, every lossy case named | **done** |
-| V8c | Library delete + duplicate (design-first UI) | planned |
+| V8c | Library delete + duplicate (design-first UI) | **done** |
 | V8d | A migration fixture through every schema version | planned |
 | V8e | The container: Dockerfile + compose + a persistent volume, networking-disabled-except-port | planned |
 | V8f | v0.1 docs: install, the CLI reference, the offline claim | planned |
@@ -35,6 +35,20 @@ and no schema change: the existing `type`/`payload`/`batch` columns carry a cont
 own batch of one. This is the KAN-510 shape decision, made at the point of use rather than up front.
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
+
+**V8c is the library's delete and duplicate, and it was design-first.** Delete's backend already
+existed (V2's `ScoreLibrary.delete`, the DELETE route, `sbscore rm`) — the slice was the browser
+control and duplicate. Duplicate needed a decision (put to the user): a copy with a *fresh* history,
+so ctrl-Z on a just-made duplicate does nothing. That is built on `score.import` — one operation
+carrying a whole document, ADR-0003's sanctioned create-from-document, which v0.2's OMR import will
+reuse. `score.import` is a real `Operation` (it folds like a create) but kept off the client `/ops`
+route: `apply` refuses it, because accepting a whole document from a client is the document-patch
+anti-pattern ADR-0008 rejected. It reaches the log only through the `duplicate` lifecycle call, which
+goes through the applier (unlike delete, it *creates* a log rather than destroying one). The copy's
+id is minted `<id>-copy`. The UI followed the design-first rule: a published mockup approved first,
+then implementation with `pnpm screenshots` grown by `library-actions.png` and
+`library-delete-confirm.png` checked against it — the row became a grid (a `<button>` cannot hold the
+action buttons), actions stay quiet until hover, and delete asks inline because it is irreversible.
 
 **V8b is the MusicXML codec, and it is a pure engine landed before its wiring — the V6a pattern.**
 `packages/codec` is `scoreToMusicXml` and `musicXmlToScore` for a single-voice lead sheet, plus its

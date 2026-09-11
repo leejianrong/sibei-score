@@ -591,3 +591,79 @@ describe('undo and redo, by replay of the op log (V8a, ADR-0003)', () => {
     expect(() => ctx.applier.undo(LOCAL_OWNER, 'nope', 1)).toThrow(/no score/);
   });
 });
+
+describe('duplicate: a copy with a fresh history (V8c, ADR-0003)', () => {
+  const docOf = (ctx: Fixture, id: string) => ctx.store.get(LOCAL_OWNER, id)!.score;
+
+  it('copies the document under a new id, at version 1', () => {
+    const ctx = authorAChart();
+    const result = ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined);
+    expect(result).toEqual({ scoreId: 'score-1-copy', version: 1, sourceId: 'score-1' });
+
+    const copy = docOf(ctx, 'score-1-copy');
+    const source = docOf(ctx, 'score-1');
+    expect(copy).toEqual({ ...source, id: 'score-1-copy' });
+    // The source is untouched.
+    expect(source.id).toBe('score-1');
+  });
+
+  it("gives the copy a single-operation log that replays to it — the property duplicate rests on", () => {
+    const ctx = authorAChart();
+    ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
+    const log = ctx.store.operations(LOCAL_OWNER, 'copy');
+    expect(log).toHaveLength(1);
+    expect(log[0]!.operation.type).toBe('score.import');
+    expect(replayLog(log)).toEqual(docOf(ctx, 'copy'));
+  });
+
+  it('leaves the copy with nothing to undo — the fresh history a duplicate is expected to have', () => {
+    const ctx = authorAChart();
+    ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
+    const version = ctx.store.get(LOCAL_OWNER, 'copy')!.version;
+    const undone = ctx.applier.undo(LOCAL_OWNER, 'copy', version);
+    expect(undone.moved).toBe(false);
+  });
+
+  it('mints a distinct id for each duplicate of the same source', () => {
+    const ctx = authorAChart();
+    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined).scoreId).toBe('score-1-copy');
+    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined).scoreId).toBe('score-1-copy-2');
+    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined).scoreId).toBe('score-1-copy-3');
+  });
+
+  it('honours an explicit id, and refuses one already taken', () => {
+    const ctx = authorAChart();
+    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'ballad').scoreId).toBe('ballad');
+    expect(() => ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'ballad')).toThrow(/already exists/);
+  });
+
+  it('refuses to duplicate a score that does not exist', () => {
+    const ctx = fresh();
+    expect(() => ctx.applier.duplicate(LOCAL_OWNER, 'nope', undefined)).toThrow(/no score/);
+  });
+
+  it('editing the copy does not touch the source (independent documents)', () => {
+    const ctx = authorAChart();
+    ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
+    const copyVersion = ctx.store.get(LOCAL_OWNER, 'copy')!.version;
+    ctx.applier.apply(LOCAL_OWNER, 'copy', {
+      operations: [note('bar1.beat4', 'B5')],
+      expectedVersion: copyVersion,
+    });
+    // The copy grew a note; the source has the three it always had.
+    expect(notesOf(docOf(ctx, 'copy').bars[0]!)).toHaveLength(4);
+    expect(notesOf(docOf(ctx, 'score-1').bars[0]!)).toHaveLength(3);
+  });
+
+  it('refuses score.import on the client ops route (ADR-0008)', () => {
+    // A whole document from a client is the document-patch anti-pattern; only duplicate may write one.
+    const ctx = authorAChart();
+    const version = ctx.store.get(LOCAL_OWNER, 'score-1')!.version;
+    expect(() =>
+      ctx.applier.apply(LOCAL_OWNER, 'score-1', {
+        operations: [{ type: 'score.import', payload: { document: docOf(ctx, 'score-1') } } as never],
+        expectedVersion: version,
+      }),
+    ).toThrow(/score\.import|no such operation/);
+  });
+});
