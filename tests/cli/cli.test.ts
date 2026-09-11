@@ -109,6 +109,28 @@ describe('the library verbs', () => {
     expect((await sbscore('show', 'soul')).code).toBe(EXIT.notFound);
   });
 
+  it('duplicates a chart to a new one (V8c)', async () => {
+    await aChart();
+    const result = await sbscore('duplicate', 'soul');
+    expect(result.code).toBe(EXIT.ok);
+    expect(result.out).toBe('duplicated soul to soul-copy');
+    expect((await sbscore('list')).out.split('\n')).toHaveLength(2);
+
+    // The copy is a real chart with the same title, its own id.
+    const copy = json<{ score: { meta: { title: string } } }>((await sbscore('open', 'soul-copy')).out);
+    expect(copy.score.meta.title).toBe('Body and Soul');
+  });
+
+  it('takes an explicit id for the copy, and reports it in --json', async () => {
+    await aChart();
+    const result = await sbscore('duplicate', 'soul', '--id', 'ballad', '--json');
+    expect(json<{ scoreId: string }>(result.out).scoreId).toBe('ballad');
+  });
+
+  it('exits not-found duplicating a chart that is not there', async () => {
+    expect((await sbscore('duplicate', 'nope')).code).toBe(EXIT.notFound);
+  });
+
   it('sets metadata, and can clear the style line', async () => {
     await aChart();
     await sbscore('meta', 'set', 'soul', '--style', 'Ballad');

@@ -28,6 +28,9 @@
   --accent-wash: rgba(34, 64, 156, 0.09);
   --flag: #8a5a06;
   --flag-wash: rgba(138, 90, 6, 0.1);
+  /* Destructive, distinct from the amber review flag: delete cannot be undone (ADR-0003, V8c). */
+  --danger: #a3271d;
+  --danger-wash: rgba(163, 39, 29, 0.09);
   --live: #3f7f4e;
   --sheet-shadow:
     0 1px 2px rgba(20, 18, 12, 0.14), 0 10px 28px rgba(20, 18, 12, 0.13);
@@ -58,6 +61,8 @@
     --accent-wash: rgba(128, 152, 255, 0.13);
     --flag: #d7a548;
     --flag-wash: rgba(215, 165, 72, 0.12);
+    --danger: #f2907f;
+    --danger-wash: rgba(242, 144, 127, 0.14);
     --live: #5da96e;
     --sheet-shadow:
       0 0 0 1px rgba(255, 255, 255, 0.06), 0 14px 40px rgba(0, 0, 0, 0.6);

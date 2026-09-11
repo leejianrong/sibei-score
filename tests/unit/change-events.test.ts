@@ -31,13 +31,16 @@ function resultOf(scoreId: string, version: number): ApplyResult {
   return { scoreId, version, changed: [], applied: [] };
 }
 
-/** Undo/redo are unused by most doubles here; these stubs keep them off the `Applier` type. */
+/** Undo/redo/duplicate are unused by most doubles here; these stubs keep them off the `Applier` type. */
 const NO_MOVES = {
   undo: (): never => {
     throw new Error('undo not used in this test');
   },
   redo: (): never => {
     throw new Error('redo not used in this test');
+  },
+  duplicate: (): never => {
+    throw new Error('duplicate not used in this test');
   },
 };
 

@@ -140,6 +140,19 @@ export async function route(
     return sendJson(response, 200, context.applier.redo(context.owner, redoFor, expectedVersionFrom(body)));
   }
 
+  // Duplicate (V8c). A library-lifecycle call that *creates* a score, so it goes through the applier
+  // (the only writer) rather than beside it — unlike delete, which destroys and cannot be an op. The
+  // new id is minted from the source when the body names none; a 201 with a Location like a create.
+  const duplicateFor = match(path, /^\/v1\/scores\/([^/]+)\/duplicate$/);
+  if (duplicateFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    const result = context.applier.duplicate(context.owner, duplicateFor, newIdFrom(body));
+    response.setHeader('location', `${SCORES}/${encodeURIComponent(result.scoreId)}`);
+    return sendJson(response, 201, result);
+  }
+
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));
 }
 
@@ -285,6 +298,12 @@ export function batchFrom(body: unknown): Batch {
 function expectedVersionFrom(body: unknown): number | undefined {
   const value = (body as { expectedVersion?: unknown } | null)?.expectedVersion;
   return typeof value === 'number' ? value : undefined;
+}
+
+/** The id a duplicate should take, when the client names one; otherwise the applier mints it. */
+function newIdFrom(body: unknown): string | undefined {
+  const value = (body as { id?: unknown } | null)?.id;
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 const MALFORMED = Symbol('malformed');

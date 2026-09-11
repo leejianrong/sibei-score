@@ -60,6 +60,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore export <id> [--pdf] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
+  sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
@@ -166,6 +167,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return exportScore(flags, client, io, json, options.cwd ?? process.cwd());
     case 'rm':
       return remove(flags, client, io, json);
+    case 'duplicate':
+      return duplicate(flags, client, io, json);
     case 'meta':
       return meta(flags, client, io, json);
     case 'note':
@@ -348,6 +351,18 @@ async function remove(flags: Flags, client: Client, io: Io, json: boolean): Prom
   const id = requiredPositional(flags, 1, 'a score id', 'rm');
   await client.remove(id);
   io.out(json ? JSON.stringify({ removed: id }) : `removed ${id}`);
+  return EXIT.ok;
+}
+
+/**
+ * `duplicate` copies a chart to a new one with a fresh history (V8c). `--id` names the copy;
+ * without it the server mints one from the source (`<id>-copy`). It carries no `--if-version`: a
+ * duplicate creates rather than overwrites, so there is nothing to be stale against.
+ */
+async function duplicate(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'duplicate');
+  const result = await client.duplicate(id, flags.options.get('id'));
+  io.out(json ? JSON.stringify(result) : `duplicated ${id} to ${result.scoreId}`);
   return EXIT.ok;
 }
 

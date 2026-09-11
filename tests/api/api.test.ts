@@ -479,6 +479,52 @@ describe('undo and redo over HTTP (V8a, ADR-0003)', () => {
   });
 });
 
+describe('duplicate over HTTP (V8c)', () => {
+  it('copies a chart to a new id and points at it', async () => {
+    await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/duplicate', {});
+    expect(reply.status).toBe(201);
+    expect(reply.headers.get('location')).toBe('/v1/scores/score-1-copy');
+    expect(reply.body).toMatchObject({ scoreId: 'score-1-copy', version: 1, sourceId: 'score-1' });
+
+    // The copy is a real, readable chart.
+    const copy = await call('GET', '/v1/scores/score-1-copy');
+    expect(copy.status).toBe(200);
+    expect((copy.body.score as { id: string }).id).toBe('score-1-copy');
+  });
+
+  it('honours an explicit id in the body', async () => {
+    await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/duplicate', { id: 'ballad' });
+    expect(reply.body).toMatchObject({ scoreId: 'ballad' });
+  });
+
+  it('is a 404 for a source that does not exist', async () => {
+    expect((await call('POST', '/v1/scores/nope/duplicate', {})).status).toBe(404);
+  });
+
+  it('rejects a foreign-origin duplicate as a state change (ADR-0029)', async () => {
+    await aChart();
+    const reply = await call('POST', '/v1/scores/score-1/duplicate', {}, { origin: 'https://evil.example' });
+    expect(reply.status).toBe(403);
+    // And nothing was created.
+    expect((await call('GET', '/v1/scores')).body.scores).toHaveLength(1);
+  });
+});
+
+describe('score.import is not a client operation (ADR-0008, V8c)', () => {
+  it('is refused on the /ops route rather than accepting a whole document from a client', async () => {
+    const version = await aChart();
+    const doc = (await call('GET', '/v1/scores/score-1')).body.score;
+    const reply = await call('POST', '/v1/scores/score-1/ops', {
+      operation: { type: 'score.import', payload: { document: doc } },
+      expectedVersion: version,
+    });
+    expect(reply.status).toBe(422);
+    expect((reply.body.error as { kind: string }).kind).toBe('unknown-operation');
+  });
+});
+
 describe('the Origin check (ADR-0029)', () => {
   it('rejects a state-changing request from a foreign origin', async () => {
     // The drive-by path: a page the user happens to be visiting, issuing a write.

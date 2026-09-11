@@ -72,6 +72,12 @@ export interface Client {
    */
   undo(id: string, expectedVersion: number): Promise<UndoWire>;
   redo(id: string, expectedVersion: number): Promise<UndoWire>;
+  /**
+   * Copy a chart to a new one with a fresh history (V8c). A library-lifecycle call, so it carries no
+   * `expectedVersion` — it creates rather than mutates. `newId` is optional; the server mints one
+   * from the source id when it is omitted.
+   */
+  duplicate(id: string, newId?: string): Promise<DuplicateWire>;
   exportScore(id: string, query: ExportQuery): Promise<Download>;
   health(): Promise<{ status: string; api: string }>;
 }
@@ -128,6 +134,13 @@ export interface UndoWire {
   moved: boolean;
   canUndo: boolean;
   canRedo: boolean;
+}
+
+/** `POST /v1/scores/:id/duplicate` (V8c): the new chart's id and its starting version. */
+export interface DuplicateWire {
+  scoreId: string;
+  version: number;
+  sourceId: string;
 }
 
 export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
@@ -205,6 +218,8 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
       call('POST', `/v1/scores/${encodeURIComponent(id)}/undo`, { expectedVersion }),
     redo: (id, expectedVersion) =>
       call('POST', `/v1/scores/${encodeURIComponent(id)}/redo`, { expectedVersion }),
+    duplicate: (id, newId) =>
+      call('POST', `/v1/scores/${encodeURIComponent(id)}/duplicate`, newId === undefined ? {} : { id: newId }),
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that
       // have to agree about what a default is, and the query is the export cache's key (Q81).
