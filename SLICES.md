@@ -468,7 +468,9 @@ render correctly, and the pickup sits outside the grid.
 > landed the spelling engine; V8c added library delete and duplicate (duplicate as a fresh-history
 > copy via a server-only `score.import` op); V8d wired MusicXML **export** through the API route and
 > `sbscore export --musicxml`, and V8e added its **PDF | MusicXML rail toggle** in the score view
-> (MusicXML *import* is the only codec surface still to follow). Two corrections
+> (MusicXML *import* is the only codec surface still to follow); V8f added the migration fixture test
+> — a whole v1 chart carried to the current schema — which caught and fixed a real gap (the v1→v2
+> step had backfilled `spellingPinned` onto chords but not notes). Two corrections
 > against contact with the code (AGENTS.md's "trust the code"): step 1 reads "minus the last
 > *operation*", but ADR-0003 makes a **batch** one undoable unit, so undo drops the last *batch* —
 > the demo's eight-edit batch reverts as one. And because the op log is append-only forever

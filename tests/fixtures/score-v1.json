@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "id": "blue-bossa-v1",
+  "meta": {
+    "title": "Blue Bossa",
+    "composer": "Kenny Dorham",
+    "style": "Bossa",
+    "key": { "tonic": "C", "alter": 0, "mode": "minor" },
+    "time": { "beats": 4, "beatValue": 4 }
+  },
+  "bars": [
+    {
+      "id": "bar-1",
+      "number": 1,
+      "items": [
+        {
+          "kind": "note",
+          "id": "note-1",
+          "onset": 0,
+          "duration": { "value": 4, "dots": 0 },
+          "pitch": { "step": "C", "alter": 0, "octave": 5 },
+          "accidental": "auto",
+          "tie": "none",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        },
+        {
+          "kind": "rest",
+          "id": "rest-1",
+          "onset": 480,
+          "duration": { "value": 4, "dots": 0 },
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        },
+        {
+          "kind": "note",
+          "id": "note-2",
+          "onset": 960,
+          "duration": { "value": 2, "dots": 0 },
+          "pitch": { "step": "E", "alter": -1, "octave": 5 },
+          "accidental": "auto",
+          "tie": "start",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "tuplets": [],
+      "chords": [
+        {
+          "id": "chord-1",
+          "onset": 0,
+          "text": "Cm7",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "annotations": [],
+      "startBarline": "repeat-start",
+      "endBarline": "single",
+      "ending": null,
+      "review": { "flagged": false, "reasons": [] }
+    },
+    {
+      "id": "bar-2",
+      "number": 2,
+      "items": [
+        {
+          "kind": "note",
+          "id": "note-3",
+          "onset": 0,
+          "duration": { "value": 2, "dots": 0 },
+          "pitch": { "step": "E", "alter": -1, "octave": 5 },
+          "accidental": "auto",
+          "tie": "stop",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        },
+        {
+          "kind": "note",
+          "id": "note-4",
+          "onset": 960,
+          "duration": { "value": 2, "dots": 0 },
+          "pitch": { "step": "D", "alter": 0, "octave": 5 },
+          "accidental": "auto",
+          "tie": "none",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "tuplets": [],
+      "chords": [
+        {
+          "id": "chord-2",
+          "onset": 0,
+          "text": "Fm7",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        },
+        {
+          "id": "chord-3",
+          "onset": 960,
+          "text": "Dm7b5",
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "annotations": [],
+      "startBarline": "none",
+      "endBarline": "repeat-end",
+      "ending": { "numbers": [1], "role": "start-stop" },
+      "review": { "flagged": false, "reasons": [] }
+    }
+  ],
+  "sections": [{ "id": "section-1", "startBar": 1, "letter": "A", "name": "Head" }]
+}

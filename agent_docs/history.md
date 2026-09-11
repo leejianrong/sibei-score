@@ -36,6 +36,16 @@ own batch of one. This is the KAN-510 shape decision, made at the point of use r
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
 
+**V8f is the migration fixture test, and it earned its keep by catching a real bug.** ADR-0028's
+standing tax is a fixture carried through every schema step; `tests/fixtures/score-v1.json` is a whole
+chart as a v1 build wrote it — notes, a rest, chords, a section, a repeat with an ending, and no
+`spellingPinned` anywhere. Migrating it surfaced that the v1→v2 step backfilled `spellingPinned` onto
+chords but **not onto notes**, though V6d added the field to both; the old test never saw it because
+its v1 fixture had a chord and no notes. Fixed in `migrate.ts` (the step now backfills note items too;
+rests carry no pin) and guarded by the fixture's deep-equal assertion — the "every bug becomes a test
+first" rule, met by the test that found it. The new `tests/fixtures/` is committed data like
+`snapshots/`, so `suite-layers` learned to treat it as data rather than an unrun test layer.
+
 **V8e gave the export rail a PDF | MusicXML toggle — design-first, and reuse.** It is the same
 `SegmentedControl` the rail already uses for face and paper (an approved pattern, so the mockup was a
 faithful reuse rather than net-new design), placed in the Export group above the download button.
