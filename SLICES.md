@@ -467,7 +467,8 @@ render correctly, and the pickup sits outside the grid.
 > V8b landed the `codec` package (score ↔ MusicXML string, single-voice) as a pure engine the way V6a
 > landed the spelling engine; V8c added library delete and duplicate (duplicate as a fresh-history
 > copy via a server-only `score.import` op); V8d wired MusicXML **export** through the API route and
-> `sbscore export --musicxml` (a UI rail toggle and MusicXML *import* still to follow). Two corrections
+> `sbscore export --musicxml`, and V8e added its **PDF | MusicXML rail toggle** in the score view
+> (MusicXML *import* is the only codec surface still to follow). Two corrections
 > against contact with the code (AGENTS.md's "trust the code"): step 1 reads "minus the last
 > *operation*", but ADR-0003 makes a **batch** one undoable unit, so undo drops the last *batch* —
 > the demo's eight-edit batch reverts as one. And because the op log is append-only forever

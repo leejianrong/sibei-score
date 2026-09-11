@@ -36,6 +36,15 @@ own batch of one. This is the KAN-510 shape decision, made at the point of use r
 A batch undoes as one unit because it *is* one unit in the log; undo at the `score.create` floor and
 redo past the head are `moved: false` no-ops, not errors.
 
+**V8e gave the export rail a PDF | MusicXML toggle — design-first, and reuse.** It is the same
+`SegmentedControl` the rail already uses for face and paper (an approved pattern, so the mockup was a
+faithful reuse rather than net-new design), placed in the Export group above the download button.
+`format` joined `ExportChoice`, so `exportUrl`/`exportRoute` thread it through and the printed route
+matches the file — "one choice, not two". MusicXML doesn't change the sheet on screen (it is not a
+render), so paper and face stay live and a note says the file ignores them. Verified against the
+mockup with `export-musicxml.png`; a browser E2E fetches the export link and confirms the bytes are
+MusicXML. This closes V8d's booked UI gap; MusicXML *import* remains the only booked codec surface.
+
 **V8d wired MusicXML export — V8b's booked debt, minus the UI.** The codec landed pure at V8b; V8d
 reached it from `GET …/export?format=musicxml` and `sbscore export --musicxml`. In the exporter it is
 a codec at the edge, not a render: it branches to `scoreToMusicXml` rather than `@sibei/pdf`, so paper

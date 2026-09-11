@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate) and V8d (MusicXML export wired) have landed.**
+**V1–V7 are done; V8 (undo, MusicXML, the library) is underway — V8a (undo/redo), V8b (the MusicXML codec), V8c (library delete + duplicate), V8d (MusicXML export wired) and V8e (the export-format toggle) have landed.**
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -33,14 +33,15 @@ codec** (`packages/codec`): `scoreToMusicXml`/`musicXmlToScore` for single-voice
 its own dependency-free XML reader and a round-trip whose every lossy case is named in a test. From
 V8d **MusicXML export is wired**: `GET …/export?format=musicxml` (a codec at the edge, not a render —
 it ignores paper/font, honours `--for` via `writtenPart`, cached like the PDF) and `sbscore export
---musicxml`. Still booked: the **UI** export-format control (a rail toggle, design-first next) and
-**MusicXML import** (a verb/button — pairs with v0.2's upload boundary). From V8c the **library** gained **delete** and
+--musicxml`, and from V8e a **PDF | MusicXML toggle** in the score view's Export rail (the
+SegmentedControl the rail already uses for face and paper). Still booked: **MusicXML import** (a
+verb/button — pairs with v0.2's upload boundary). From V8c the **library** gained **delete** and
 **duplicate** on both surfaces: `sbscore duplicate` and the row's Duplicate/Delete controls (delete
 asks first — it destroys the log). Duplicate is a copy with a *fresh* history, built on `score.import`
 — one operation carrying a whole document (ADR-0003), server-only (never the client `/ops` route, so
-ADR-0008's anti-mangling guarantee holds), which v0.2's OMR import will reuse. Not built yet: the
-UI MusicXML export toggle and MusicXML import, the container, and the whole import pipeline. Don't
-assume a module exists because a plan mentions it.
+ADR-0008's anti-mangling guarantee holds), which v0.2's OMR import will reuse. Not built yet: MusicXML
+import, the container, and the whole import pipeline. Don't assume a module exists because a plan
+mentions it.
 
 ## Layout
 
@@ -109,8 +110,8 @@ Breaking one of these breaks a decision of record. Ask before deviating from any
 - **Never `measureText` or `getBBox()`** — they exist only in a real browser and would drift
   screen from print (ADR-0015). Place text with SVG `text-anchor`. See `agent_docs/architecture.md`.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built (Q79).
-  The knowing exceptions: `score.create` and `meta.set` have a CLI verb and no UI control yet, and
-  V8d's `export --musicxml` has the CLI flag but no rail toggle yet (booked, design-first next). (V6's `transpose`, part export and `--spell` pins, and V7c's structure panel —
+  The one remaining knowing exception: `score.create` and `meta.set` have a CLI verb and no UI
+  control yet. (V8e gave `export --musicxml` its rail toggle, so export format now has both.) (V6's `transpose`, part export and `--spell` pins, and V7c's structure panel —
   section, barlines and endings, reached by clicking a bar — each have a control in the score view.)
 - **The two surfaces must not disagree about a user-facing *string* either.** The browser's
   `CLI_BINARY` is asserted equal to the `bin` key in `packages/cli/package.json`. If two in-flight

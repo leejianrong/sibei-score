@@ -256,6 +256,16 @@ async function main(): Promise<void> {
       await score.waitForTimeout(300);
     }
 
+    // 3b. The export-format toggle set to MusicXML — the V8e rail control.
+    const formats = score.getByRole('group', { name: 'Export format' });
+    if (await formats.count()) {
+      await formats.getByRole('button', { name: 'MusicXML' }).click();
+      await score.waitForTimeout(250);
+      await shoot(score, 'export-musicxml.png');
+      await formats.getByRole('button', { name: 'PDF' }).click();
+      await score.waitForTimeout(200);
+    }
+
     // 4. A note selected, the inspector open.
     const record = cli(['open', 'body-and-soul']) as { score: Score };
     const target = firstNoteFraction(record.score);
