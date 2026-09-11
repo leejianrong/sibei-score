@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V8 are done and v0.1 is complete; V9 (the first v0.2 slice) has landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds to V10 without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. See the ADR-0023 status update and `worker/README.md` (gate result, CPU wall-clock, dependency-pinning findings).
+**V1–V8 are done and v0.1 is complete; V9 and V10 (the first two v0.2 slices) have landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. **V10 is the worker, offline and in a job:** the V9 spike is promoted into a real recogniser (`worker/sibei_omr/recognize.py`) behind an HTTP worker (`worker/sibei_omr/server.py`), and the API side records an import as a durable **job** (ADR-0001) — an upload validated by decoding at the boundary (ADR-0029), stored in the BlobStore, enqueued, and run by a background runner that calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the API is fully functional with the worker stopped. The worker is a second compose container with weights baked + checksummed at build time (ADR-0024, offline) and CPU-only as the floor with an opt-in GPU image (ADR-0025). **Mapping the recognised objects onto a `Score` via `score.import` is V11, not V10** — a succeeded V10 job carries the raw objects and creates no score. See the ADR-0023 status update, `worker/README.md`, and `agent_docs/server.md` (the import job section).
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -54,9 +54,14 @@ full CLI reference (`docs/cli.md`), and the hosted direction (`docs/hosting.md`)
 coordinate spike** (ADR-0023) has proven oemer's pixel coordinates reachable in-process: a standalone
 Python spike in a top-level `worker/` (`worker/sibei_omr/spike.py`) dumps every detected
 `Staff`/`NoteHead`/`NoteGroup`/`Barline`/`Rest` with coordinates to JSON, validated against the
-model-owned schema (`packages/model/src/omr.ts`, `OmrDocument`). Not built yet (v0.2): MusicXML import,
-and the OMR pipeline proper — the offline worker in a job (V10), the chord-band OCR, and stage-3 beat
-mapping. Don't assume a module exists because a plan mentions it.
+model-owned schema (`packages/model/src/omr.ts`, `OmrDocument`). From V10 the **worker is real and
+in a job**: `worker/sibei_omr/{recognize,server}.py`, and on the Node side the `JobStore` port and its
+SQLite adapter (`packages/api/src/store/{jobs,sqlite-jobs}.ts`, the import_jobs table), the upload
+boundary (`imports/upload.ts`), the `WorkerClient` port (`imports/worker-client.ts`), the runner
+(`imports/runner.ts`), the job SSE bus/stream, and the `/v1/imports` routes. Not built yet (v0.2):
+MusicXML import; and the rest of the OMR pipeline — mapping the recognised objects to a `Score` and
+landing them via `score.import` (V11), preprocessing (V11), the chord-band OCR and stage-3 beat
+mapping (V13), and the eval harness (V12). Don't assume a module exists because a plan mentions it.
 
 ## Layout
 
@@ -75,7 +80,9 @@ packages/
   fixtures   hand-authored scores: nasty-chart, every-glyph, long-form (spills to page 2), untitled,
              aaba-chart (V7's structure demo: pickup, rehearsal letters, a repeat with 1st/2nd endings)
 worker/      the OMR worker (Python, ADR-0005) — OUTSIDE the pnpm workspace, its own pyproject/venv.
-             From V9: the oemer coordinate spike (`sibei_omr/spike.py`). Never touches the store; not in CI
+             V10: the recogniser (`sibei_omr/recognize.py`) behind an HTTP server (`server.py`); the V9
+             spike (`spike.py`) is a CLI over the same core. A Dockerfile bakes weights; GPU is Dockerfile.gpu.
+             Never touches the store; stateless; its own `unittest`s, not in the Node CI
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer

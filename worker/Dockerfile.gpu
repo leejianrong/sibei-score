@@ -1,0 +1,60 @@
+# The OMR worker, GPU variant (ADR-0025). **GPU changes speed, never output.** It runs the same
+# oemer stages on the same baked ONNX weights; only the onnxruntime execution provider differs
+# (CUDA instead of CPU), so the recognised coordinates are identical to the CPU image's on any
+# fixture — the parity property ADR-0025 requires a test to assert on at least one fixture.
+#
+# It is a **separate image**, not a runtime flag, because the GPU path needs a different base (CUDA +
+# cuDNN) and a different wheel (onnxruntime-gpu). ADR-0025 anticipated exactly this: "a separate
+# image variant rather than a runtime flag — build both or document the GPU image as
+# build-it-yourself." This file is that variant. It is opt-in via compose.gpu.yaml, and it requires:
+#
+#   * an NVIDIA GPU on the host and the NVIDIA Container Toolkit installed;
+#   * a CUDA/cuDNN combination onnxruntime-gpu 1.16.3 supports (CUDA 11.8, cuDNN 8).
+#
+# It is authored but NOT built or tested in this repo's CI (no GPU there, and CPU is the floor). Build
+# it on a GPU host: `docker build -f Dockerfile.gpu -t sibei-omr-gpu .`
+
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+# Ubuntu 22.04 ships Python 3.10, but the worker pins >=3.11,<3.12 (pyproject), so install 3.11 from
+# deadsnakes. The system libraries are the same two the CPU image needs (glib for opencv-headless,
+# libgomp for scipy/scikit-learn).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends software-properties-common ca-certificates \
+  && add-apt-repository -y ppa:deadsnakes/ppa \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+       python3.11 python3.11-venv python3.11-distutils \
+       libglib2.0-0 libgomp1 curl \
+  && rm -rf /var/lib/apt/lists/*
+
+# A venv on 3.11, so `python`/`pip` are unambiguous under a CUDA base whose default is 3.10.
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade pip
+
+WORKDIR /app
+COPY . .
+
+# Install the pinned set, then swap the CPU onnxruntime wheel for the GPU one at the SAME version.
+# Same version is load-bearing: 1.16.3 is what loads oemer's ONNX ConvTranspose nodes (the V9
+# finding); a newer onnxruntime-gpu would refuse them exactly as a newer CPU one does.
+RUN pip install --no-cache-dir . \
+  && pip uninstall -y onnxruntime \
+  && pip install --no-cache-dir onnxruntime-gpu==1.16.3
+
+# Bake the weights at build time and verify checksums (ADR-0024) — identical to the CPU image; the
+# weights are the same files, read by a different provider.
+RUN python fetch_weights.py
+
+RUN useradd --create-home --uid 10001 worker && chown -R worker:worker /app
+USER worker
+
+ENV SIBEI_OMR_HOST=0.0.0.0 \
+    SIBEI_OMR_PORT=8000
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"
+
+CMD ["sibei-omr-server"]

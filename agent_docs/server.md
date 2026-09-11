@@ -303,3 +303,73 @@ whole mechanism is one header nobody wrote — which is precisely the kind of th
 What is *not* closed is a page holding connections open; that is resource exhaustion rather than
 ADR-0029's threat model, and it is booked as a cap (KAN-601) rather than paid for by widening the
 Origin rule.
+
+## The import pipeline, and the job that is not an op (V10)
+
+`packages/api/src/imports/` and `packages/api/src/store/{jobs,sqlite-jobs,memory-job-store}.ts`.
+This is the server side of "OMR is a job, not a request" (ADR-0001). A scan comes in, a job goes on a
+queue, a background runner hands the image to the Python worker (ADR-0005), and the raw recognised
+objects — an `OmrDocument` — land on the job. **Mapping those objects to a `Score` and landing them
+via `score.import` is V11, not V10**; a succeeded V10 job carries the objects and creates no score.
+
+**A job is durable state, not an op.** It lives in its own `import_jobs` table behind a `JobStore`
+port (`store/jobs.ts`), because the API is stateless and the process is not (ADR-0001 #7): a `queued`
+or `running` job survives a restart. It is deliberately **not** in the operation log — an import is
+not a mutation of a score, and folding a mutable `status` column into the append-only log would blur
+the line ADR-0003's single writer exists to hold. So the job store is a *separate* SQLite connection
+to the same database file (`sqlite-jobs.ts`, the third and argued-for file in the store seam,
+`tests/arch/store-seam.test.ts`), never a method on the score store. The two connections never
+contend — better-sqlite3 is synchronous, so one Node process serialises every statement.
+
+**The state machine is small and guarded in the store.** `queued → running → succeeded | failed`,
+with `failed → queued` for a retry (Q80). `claim()` is one conditional `UPDATE … RETURNING` that
+takes the oldest queued job to `running`, so even a future multi-process pool cannot claim one job
+twice; `complete`/`fail` guard on `status = 'running'` so a job cannot be moved twice. `recover()`
+runs at startup and fails every orphaned `running` job (retryable) — an interrupted import committed
+nothing, so there is nothing to undo.
+
+**The upload boundary is the one place untrusted bytes enter** (`imports/upload.ts`, ADR-0029). It
+validates by **decoding**: format from content (a hand-rolled PNG/JPEG header reader, no image
+dependency — the same habit as the codec's own XML reader), real byte and dimension caps, and a
+*dimension bomb* refused by reading the header rather than decompressing the pixels. A bad upload
+fails here with a 422 (413 for oversized), not three layers deep inside oemer.
+
+**The worker is a port, and the schema guard lives at it** (`imports/worker-client.ts`, ADR-0005).
+`WorkerClient.recognize` POSTs the image and runs whatever comes back through `parseOmrDocument`
+before handing it on — so off-schema worker output fails at the language boundary, which is the
+schema-conformance test ADR-0005 asks for. The HTTP adapter has no timeout: a CPU recognition is ~5.4
+minutes (ADR-0025) and a job is asynchronous precisely so that is a progress bar, not a hang; a dead
+worker fails the fetch, which is the Q80 path. The API package names no worker URL — the CLI builds
+the client and injects it (`sbscore serve --worker`), the same way it names the store's path.
+
+**The runner is not a second write path** (`imports/runner.ts`). It holds a `JobWriter`, never a
+`ScoreWriter`: it moves a job's status and stores the recognised objects, and touches no score.
+Concurrency is **one**, deliberately — oemer's peak RSS is ~7 GB and its wall-clock is
+content-independent (V9), so two at once buys no throughput a single-user app can use. It drains on a
+`wake()` after each submit and recovers-then-drains on `start()` (called when the API begins
+serving); a failed worker call becomes a `failed` job with the error as its diagnostic, and the loop
+moves on.
+
+**Progress rides an SSE job stream, the change stream's sibling** (`events/job-bus.ts`,
+`http/job-stream.ts`). Same halves (the runner publishes, the routes subscribe), same
+"payload-is-a-nudge-to-re-read" contract, same catch-up-first-frame and no-`id:`-no-replay decisions
+— read the change-stream section above; the only difference is the payload, `{jobId, status}` where
+the score stream carries `{scoreId, version}`. A client repaints its progress from `status` and
+re-reads the job for the recognised objects on `succeeded` or the diagnostic on `failed`.
+
+**The routes** (`http/routes.ts`), all under `/v1/imports`:
+
+```
+POST   /v1/imports            upload a scan (raw image body) -> 202 with the queued job
+GET    /v1/imports            this owner's jobs (summaries, no result)
+GET    /v1/imports/:id        one job in full, with the recognised objects when succeeded
+GET    /v1/imports/:id/events SSE: this job's progress
+POST   /v1/imports/:id/retry  requeue a failed job (Q80) -> 200; 409 if it is not failed
+```
+
+The routes get an `ImportService`, not the job store and runner directly — the same narrowing every
+capability here gets. It holds no `ScoreWriter`, so nothing an import route can do writes a score.
+**The API is fully functional with the worker stopped:** a submit with a down worker still enqueues
+and then fails cleanly (Q80), and a server started with no worker at all answers `POST /v1/imports`
+with a 503 while every non-import route is untouched — the milestone split (Q76) made that more than
+theoretical.

@@ -6,6 +6,56 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V10 is the worker, offline and in a job — the plumbing that turns the V9 spike into
+infrastructure, without yet interpreting a note.** OMR is a job, not a request (ADR-0001):
+the API validates an uploaded scan by *decoding* it at the boundary (ADR-0029: real byte and
+dimension caps, format from content, a dimension-bomb refused by reading the header not the
+pixels), stores it in the BlobStore, records a durable job, and a background runner hands the
+image to the Python worker across a `WorkerClient` port (ADR-0005) and stores the raw
+`OmrDocument` it gets back. The worker is the V9 spike promoted: its stage sequence moved into
+`worker/sibei_omr/recognize.py`, wrapped in a stdlib HTTP server (`server.py`) that the API
+calls; `spike.py` stays as a CLI over the same core.
+
+The slice boundary is the thing worth stating, because the plan's own wording invites the
+wrong read. V10's demo is *"see the raw recognised objects stored"*, and V11's build plan is
+*"map oemer's objects to the score model"* + *"import as one op carrying the whole document"*.
+So **V10 lands the objects and creates no score** — the `score.import` mapping is V11's named
+deliverable, and pulling it forward would blur two slices whose whole point is that recognition
+and interpretation are separable. A succeeded V10 job carries an `OmrDocument` and a null
+`scoreId`; the column exists so V11 fills it without a migration.
+
+The job is durable because the API is stateless (ADR-0001 #7): the `import_jobs` table (a new
+`JobStore` port and its SQLite adapter — the third, argued-for file in the store seam) survives
+a restart, and the runner recovers an interrupted `running` job into a retryable `failed` on
+the next boot. A failed import records a diagnostic, is retryable, and commits nothing (Q80) —
+trivially true here, since no score is written until V11. The API is fully functional with the
+worker stopped: a submit still enqueues and then fails cleanly with a diagnostic, and with no
+worker configured at all `POST /v1/imports` is a 503 while every other route is untouched.
+Progress rides an SSE job stream that is the change stream's sibling (V4a) — same halves, same
+`payload-is-a-nudge-to-re-read` contract, `{jobId,status}` instead of `{scoreId,version}`.
+
+Two things drifted from the plan on contact with the code, and are recorded rather than worked
+around. First, the **GPU "compose profile"** the plan (and ADR-0025) names cannot be a compose
+`profiles:` key: a profile *adds* a service, it cannot swap this one's image (a CUDA base,
+onnxruntime-gpu) without duplicating it and leaving two workers for the API to choose between.
+The honest mechanism is an **override file** — `docker compose -f compose.yaml -f
+compose.gpu.yaml up` — which keeps the `worker` service name (so `SBSCORE_WORKER_URL` is
+unchanged) and replaces only the build and the GPU reservation. It still changes speed only,
+never output, because it runs the same baked ONNX weights through the CUDA provider. Second,
+**the image build and the networking-disabled offline test need a container host** (Docker or
+Podman), which was not available where this was cut; the Dockerfiles and compose are authored
+and reviewed, and the offline property is true *by construction* — the image fetches weights
+only at build time (ADR-0024), `fetch_weights.py` checksum-verifies them, and nothing in the
+worker's runtime path opens a socket except the one the API calls — but that is asserted by
+reading the build, not yet by running `--network none`. The worker README says so plainly.
+
+The runtime pins the V9 spike measured are carried into the image verbatim (extending
+ADR-0024): oemer 0.1.8, onnxruntime 1.16.3 (newer refuses oemer's ConvTranspose nodes),
+opencv 4.10 (opencv 5 breaks staffline extraction), numpy 1.26 — the CPU wheel, since CPU is
+the floor (ADR-0025). No new dependency entered the Node side: the upload boundary hand-rolls
+PNG/JPEG header parsing rather than pull an image library into the package ADR-0006 keeps thin,
+the same habit as the codec's own XML reader.
+
 **V9 is the oemer coordinate spike, and it passed its gate: the coordinates are reachable
 in-process, so v0.2 proceeds to V10 without vendoring a fork of oemer.** This is the first
 v0.2 slice and, by ADR-0023's design, a spike rather than a feature — the riskiest unknown

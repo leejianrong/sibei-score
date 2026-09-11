@@ -1,7 +1,11 @@
-# The local single-container deployment (V8, SLICES.md step 5). `docker compose up` builds the image
-# and serves the app on http://127.0.0.1:8080 — the UI and the /v1/ API on one origin — with the CLI
-# able to reach it at the same address (SBSCORE_BASE_URL=http://127.0.0.1:8080). ADR-0001's
-# single-container MVP; V10 extends this rather than replacing it.
+# The local deployment. `docker compose up` builds the images and serves the app on
+# http://127.0.0.1:8080 — the UI and the /v1/ API on one origin — with the CLI able to reach it at
+# the same address (SBSCORE_BASE_URL=http://127.0.0.1:8080).
+#
+# V8h shipped this as a single container (api only). V10 adds the second container of Q44's "two
+# containers via compose" topology: the Python OMR worker (ADR-0005). The api calls the worker over
+# the private compose network; the worker never touches the store and publishes no port to the host.
+# The GPU variant is opt-in via compose.gpu.yaml (ADR-0025) — see the note on the `worker` service.
 services:
   sbscore:
     build: .
@@ -11,15 +15,47 @@ services:
     # it; the safety lives here, on the publish address, where a container can enforce it.
     ports:
       - "127.0.0.1:8080:8080"
-    # One named volume holds everything stateful: the SQLite library and its cached-export blobs,
-    # both under /data (SBSCORE_DATA=/data/scores.db, blobs beside it). Survives restarts and
-    # rebuilds.
+    # One named volume holds everything stateful: the SQLite library (and, from V10, the import-job
+    # queue, in the same database file), plus its cached-export blobs and the uploaded source images,
+    # all under /data. Survives restarts and rebuilds.
     volumes:
       - sbscore-data:/data
+    # The API calls the worker at its service name on the compose network (Q44). SBSCORE_WORKER_URL
+    # is what turns import on; without it the API runs fine and import is a 503 (Q80), which is the
+    # api-only V8h deployment unchanged.
+    environment:
+      SBSCORE_WORKER_URL: http://worker:8000
+    # Ordering only, not a health gate: the API is fully functional before the worker is ready (Q80),
+    # and a submit that arrives early fails-and-retries cleanly rather than blocking startup. Making
+    # the API wait on the worker's health would contradict the invariant that it works without it.
+    depends_on:
+      - worker
     restart: unless-stopped
-    # The app makes no outbound network connections at runtime — the published loopback port above is
-    # the only ingress, and there is no egress it needs. (Build time does need the network, to install
-    # dependencies.) A dedicated network keeps it off the default bridge with other containers.
+    # The API makes no outbound network connections except to the worker on this private network. The
+    # published loopback port above is its only ingress; there is no egress it needs.
+    networks:
+      - sbscore
+
+  # The OMR worker (V10, ADR-0005). CPU-only by default — the hard floor (ADR-0025) — so `docker
+  # compose up` gives a working import stack on any machine with no special hardware.
+  #
+  # **GPU is opt-in and it changes speed only, never output (ADR-0025).** It needs a different image
+  # (a CUDA base, onnxruntime-gpu — Dockerfile.gpu), which a bare compose *profile* cannot swap in
+  # for this service without duplicating it, so it is an override file instead:
+  #
+  #     docker compose -f compose.yaml -f compose.gpu.yaml up --build
+  #
+  # The override keeps this service name (so the API's SBSCORE_WORKER_URL is unchanged) and only
+  # replaces the build and adds the GPU reservation. That an override file, not a `profiles:` key, is
+  # the honest mechanism here is a V10 finding against the plan's wording — recorded in
+  # docs/hosting.md and the ADR-0025 note rather than worked around silently.
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    # No `ports:` — the worker is reachable only by the api over the private network, never from the
+    # host or the LAN (ADR-0029: it binds 0.0.0.0 inside the container, but nothing publishes it).
+    restart: unless-stopped
     networks:
       - sbscore
 

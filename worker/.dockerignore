@@ -1,0 +1,12 @@
+# Keep the build context small and the image clean: the venv, caches, scratch output, and any
+# locally-fetched weights (the image fetches its own at build time, checksum-verified — ADR-0024).
+.venv/
+__pycache__/
+*.pyc
+checkpoints/
+weights/
+*.onnx
+*.h5
+out/
+*.pkl
+tests/

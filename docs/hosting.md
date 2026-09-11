@@ -75,7 +75,7 @@ existing interface; "New" = a genuinely new subsystem.
 | **Stateless API** (no in-memory score cache) | One process, all state in the store | N replicas behind a load balancer; scale horizontally, no sticky sessions | Swap |
 | **Boundary guards** (Origin/Host/no-CORS) | Loopback allow-list, same-origin UI | Allow-list the real domain(s); real CORS only if the API is a separate origin; add rate limits | Swap |
 | **Change stream** (in-process bus → SSE) | One process fans out to its own subscribers | Publish to Redis; every replica's SSE relays it — fan-out across the fleet | **New** |
-| **Import as a job** (ADR-0005 worker split) | Not built in v0.1 (booked for v0.2) | Queue + Python worker pool; presigned upload in, `score.import` op out | **New** |
+| **Import as a job** (ADR-0005 worker split) | V10: a durable `JobStore`, an in-process runner, and a Python worker container — one process, one worker | Queue (Redis/SQS) + Python worker pool; presigned upload in, `score.import` op out | Swap the queue + scale the pool |
 
 ## Uploads are jobs, not requests
 

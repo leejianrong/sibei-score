@@ -1,0 +1,28 @@
+# The GPU override (V10, ADR-0025). Opt-in, and it changes speed only — the recognised output is
+# identical to the CPU worker's, because it runs the same oemer stages on the same baked ONNX
+# weights, only with the CUDA execution provider instead of CPU.
+#
+#     docker compose -f compose.yaml -f compose.gpu.yaml up --build
+#
+# It overrides ONLY the `worker` service — same service name, so the API's SBSCORE_WORKER_URL and the
+# whole rest of the stack are unchanged — swapping the image for the CUDA build and reserving the
+# GPU. An override file rather than a compose `profiles:` key because a profile cannot replace a
+# service's image without duplicating the service, and duplication would leave two workers for the
+# API to choose between (a V10 finding, see compose.yaml's note).
+#
+# Requires an NVIDIA GPU on the host and the NVIDIA Container Toolkit. See worker/Dockerfile.gpu.
+services:
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile.gpu
+    # Reserve the host GPU for this container (Compose's device-reservation form, which the NVIDIA
+    # runtime honours). CDI-based setups may instead need `--gpus all` at run time; this is the
+    # portable declaration.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
