@@ -38,6 +38,21 @@ export interface Applier {
    * history" a duplicate is expected to have. `newId` is minted from the source id when omitted.
    */
   duplicate(owner: Owner, scoreId: Id, newId: Id | undefined): DuplicateResult;
+  /**
+   * Land a whole document as a new score in one operation (V11, R5). The server-only counterpart of
+   * `duplicate`: where duplicate copies an existing score's current document, this takes a document
+   * the OMR importer produced (`mapOmrToScore`) and creates a score from it. It folds one
+   * `score.import` op carrying the document, so the import is a single undoable unit — undoing it
+   * leaves an empty score and the log still replays exactly (ADR-0003, ADR-0008) — exactly the
+   * property the V11 test plan names ("undoing an import leaves an empty score").
+   *
+   * Like duplicate, it reaches `score.import` only here, never the `/ops` route: accepting a whole
+   * document from a client is the document-patch anti-pattern ADR-0008 rejected. The runner (the OMR
+   * job runner, the only caller) holds a `JobWriter`, never a `ScoreWriter`, so this narrow applier
+   * capability is the one path by which a recognised chart becomes a score without a second writer.
+   * The document already carries the id the caller minted for it.
+   */
+  import(owner: Owner, document: Score): ImportResult;
 }
 
 export interface ApplyResult {
@@ -77,6 +92,12 @@ export interface DuplicateResult {
   version: number;
   /** The chart this was copied from, echoed so a caller need not remember what it asked. */
   sourceId: Id;
+}
+
+/** The outcome of an import (V11): the created score's id and its starting version (always 1). */
+export interface ImportResult {
+  scoreId: Id;
+  version: number;
 }
 
 /**
@@ -126,7 +147,33 @@ export function createApplier(
     duplicate(owner, scoreId, newId) {
       return duplicate(store, owner, scoreId, newId, now);
     },
+
+    import(owner, document) {
+      return importDocument(store, owner, document, now);
+    },
   };
+}
+
+/**
+ * Create a new score from a whole document in one `score.import` op (V11). The same one-transaction
+ * `store.create` path duplicate and `score.create` take, so the import is atomic and its single-op
+ * log replays to exactly this document. The document arrives with its id already set (the runner
+ * mints it from the job); a clash with an existing id is a conflict, not a silent overwrite.
+ */
+function importDocument(
+  store: ScoreReader & ScoreWriter,
+  owner: Owner,
+  document: Score,
+  now: () => Date,
+): ImportResult {
+  const applied = applyOperation(null, { type: 'score.import', payload: { document } });
+
+  const outcome = store.create(owner, applied.score, stamp([applied.operation], now));
+  if (!outcome.ok) {
+    if (outcome.reason === 'already-exists') throw new OperationError({ kind: 'conflict-exists', id: document.id });
+    throw new OperationError({ kind: 'validation', detail: `the store refused: ${outcome.reason}` });
+  }
+  return { scoreId: document.id, version: outcome.version };
 }
 
 /**

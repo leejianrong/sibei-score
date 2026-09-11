@@ -137,6 +137,75 @@ function detectFormat(bytes: Buffer): ImageFormat | null {
   return imageFormatOf(bytes);
 }
 
+// ---------------------------------------------------------------------------
+// Multipart: several images in one upload (Q26)
+//
+// A chart may span several pages, applied in page order (ADR-0018, Q26). The job model has been
+// n-image-ready since V10 (`imageKeys[]`); V11 opens the transport to match, so `sbscore import a.png
+// b.png` and the browser's multi-file picker both land one job whose pages are in order.
+//
+// `multipart/form-data` is the interoperable envelope for that — it is exactly what a browser
+// `<input type="file" multiple>` produces and what `fetch` sends for a `FormData` — so it is parsed
+// here rather than inventing a private framing. Like the rest of this module it is hand-rolled and
+// dependency-free (the codec owns its XML reader, the engraver its metrics): the subset a file upload
+// actually uses is a short, total byte scan, and it keeps the one package ADR-0006 holds thin free of
+// a body-parser dependency.
+// ---------------------------------------------------------------------------
+
+/** The `boundary=…` token of a `multipart/form-data` content-type header, or `null` if it is not one. */
+export function multipartBoundary(contentType: string | undefined): string | null {
+  if (contentType === undefined) return null;
+  const [type, ...params] = contentType.split(';').map((s) => s.trim());
+  if (type?.toLowerCase() !== 'multipart/form-data') return null;
+  for (const param of params) {
+    const match = /^boundary=("?)([^"]+)\1$/i.exec(param);
+    if (match) return match[2]!;
+  }
+  return null;
+}
+
+/**
+ * Pull the file parts out of a `multipart/form-data` body, in order. A file part is one whose
+ * `Content-Disposition` carries a `filename` (a plain form field has none); its raw bytes are
+ * returned untouched, for `validateUpload` to decode. Non-file fields are ignored. Total: it never
+ * throws, and a malformed body yields whatever complete parts it could read (an empty list refuses
+ * the upload at the route).
+ */
+export function parseMultipartImages(bytes: Buffer, boundary: string): Buffer[] {
+  const delimiter = Buffer.from(`--${boundary}`);
+  const images: Buffer[] = [];
+
+  let cursor = bytes.indexOf(delimiter);
+  if (cursor === -1) return images;
+  cursor += delimiter.length;
+
+  const CRLF = Buffer.from('\r\n');
+  const HEADER_END = Buffer.from('\r\n\r\n');
+
+  while (cursor < bytes.length) {
+    // Right after a delimiter: `--` closes the body; otherwise a CRLF then the part's headers.
+    if (bytes[cursor] === 0x2d && bytes[cursor + 1] === 0x2d) break;
+    if (bytes.subarray(cursor, cursor + 2).equals(CRLF)) cursor += 2;
+
+    const headerEnd = bytes.indexOf(HEADER_END, cursor);
+    if (headerEnd === -1) break;
+    const headers = bytes.subarray(cursor, headerEnd).toString('utf8');
+    const bodyStart = headerEnd + HEADER_END.length;
+
+    const nextDelimiter = bytes.indexOf(delimiter, bodyStart);
+    if (nextDelimiter === -1) break;
+    // The bytes between the header block and the next delimiter, less the CRLF that precedes it.
+    let bodyEnd = nextDelimiter;
+    if (bytes.subarray(bodyEnd - 2, bodyEnd).equals(CRLF)) bodyEnd -= 2;
+
+    if (/content-disposition:[^\n]*\bfilename=/i.test(headers)) {
+      images.push(Buffer.from(bytes.subarray(bodyStart, bodyEnd)));
+    }
+    cursor = nextDelimiter + delimiter.length;
+  }
+  return images;
+}
+
 /**
  * PNG dimensions live in the IHDR chunk, which the spec requires to be first: an 8-byte signature,
  * then the chunk's 4-byte length, the 4-byte type `IHDR`, then width and height as big-endian

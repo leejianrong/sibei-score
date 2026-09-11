@@ -167,6 +167,13 @@ export function publishingApplier(applier: Applier, publisher: ChangePublisher):
     duplicate(owner, scoreId, newId) {
       return applier.duplicate(owner, scoreId, newId);
     },
+
+    // Import creates a *new* score, so like duplicate it has no open subscriber to tell — the job
+    // stream is what tells the client its import finished, and the client then opens the new id. A
+    // pass-through, published to nobody, is the honest wiring (V11).
+    import(owner, document) {
+      return applier.import(owner, document);
+    },
   };
 }
 

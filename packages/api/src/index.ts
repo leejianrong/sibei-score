@@ -67,7 +67,7 @@ export {
 } from './ops/apply.js';
 export type { Applied, UndoState } from './ops/apply.js';
 export { createApplier } from './ops/applier.js';
-export type { Applier, ApplyResult, UndoResult, DuplicateResult } from './ops/applier.js';
+export type { Applier, ApplyResult, UndoResult, DuplicateResult, ImportResult } from './ops/applier.js';
 
 // The OMR import pipeline (V10): the upload boundary, the worker port, and the job runner. The
 // worker receives an image and returns raw recognised objects; it never touches the store (ADR-0005).
@@ -76,6 +76,8 @@ export {
   MAX_IMAGE_PIXELS,
   MAX_UPLOAD_BYTES,
   imageFormatOf,
+  multipartBoundary,
+  parseMultipartImages,
   validateUpload,
 } from './imports/upload.js';
 export type {
@@ -89,7 +91,7 @@ export type {
 export { WorkerError, createHttpWorkerClient } from './imports/worker-client.js';
 export type { HttpWorkerClientOptions, WorkerClient } from './imports/worker-client.js';
 export { INTERRUPTED_DIAGNOSTIC, createJobRunner } from './imports/runner.js';
-export type { JobRunner, JobRunnerOptions } from './imports/runner.js';
+export type { JobRunner, JobRunnerOptions, ScoreImporter } from './imports/runner.js';
 
 export {
   createChangeBus,

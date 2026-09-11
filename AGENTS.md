@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V8 are done and v0.1 is complete; V9 and V10 (the first two v0.2 slices) have landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. **V10 is the worker, offline and in a job:** the V9 spike is promoted into a real recogniser (`worker/sibei_omr/recognize.py`) behind an HTTP worker (`worker/sibei_omr/server.py`), and the API side records an import as a durable **job** (ADR-0001) — an upload validated by decoding at the boundary (ADR-0029), stored in the BlobStore, enqueued, and run by a background runner that calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the API is fully functional with the worker stopped. The worker is a second compose container with weights baked + checksummed at build time (ADR-0024, offline) and CPU-only as the floor with an opt-in GPU image (ADR-0025). **Mapping the recognised objects onto a `Score` via `score.import` is V11, not V10** — a succeeded V10 job carries the raw objects and creates no score. See the ADR-0023 status update, `worker/README.md`, and `agent_docs/server.md` (the import job section).
+**V1–V8 are done and v0.1 is complete; V9, V10 and V11 (the first three v0.2 slices) have landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. **V10 is the worker, offline and in a job:** the V9 spike is promoted into a real recogniser (`worker/sibei_omr/recognize.py`) behind an HTTP worker (`worker/sibei_omr/server.py`), and the API side records an import as a durable **job** (ADR-0001) — an upload validated by decoding at the boundary (ADR-0029), stored in the BlobStore, enqueued, and run by a background runner that calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the API is fully functional with the worker stopped. The worker is a second compose container with weights baked + checksummed at build time (ADR-0024, offline) and CPU-only as the floor with an opt-in GPU image (ADR-0025). **Mapping the recognised objects onto a `Score` via `score.import` is V11, not V10** — a succeeded V10 job carries the raw objects and creates no score. See the ADR-0023 status update, `worker/README.md`, and `agent_docs/server.md` (the import job section).
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -58,10 +58,21 @@ model-owned schema (`packages/model/src/omr.ts`, `OmrDocument`). From V10 the **
 in a job**: `worker/sibei_omr/{recognize,server}.py`, and on the Node side the `JobStore` port and its
 SQLite adapter (`packages/api/src/store/{jobs,sqlite-jobs}.ts`, the import_jobs table), the upload
 boundary (`imports/upload.ts`), the `WorkerClient` port (`imports/worker-client.ts`), the runner
-(`imports/runner.ts`), the job SSE bus/stream, and the `/v1/imports` routes. Not built yet (v0.2):
-MusicXML import; and the rest of the OMR pipeline — mapping the recognised objects to a `Score` and
-landing them via `score.import` (V11), preprocessing (V11), the chord-band OCR and stage-3 beat
-mapping (V13), and the eval harness (V12). Don't assume a module exists because a plan mentions it.
+(`imports/runner.ts`), the job SSE bus/stream, and the `/v1/imports` routes. From V11 an import
+**becomes an editable draft**: a pure, framework-free **mapper** (`packages/model/src/omr-map.ts`,
+`mapOmrToScore`) turns the recognised objects into a `Score` — systems from the collapsed staff grid,
+bars from deduplicated barlines, notes/rests by x-order with sequential onsets, pitch from staff
+geometry (treble), per-bar metric flags (ADR-0013), low-confidence flags (ADR-0019), pages joined in
+order (Q26); the runner maps → lands it through the new server-only `Applier.import` (folds one
+`score.import` like `duplicate`) → fills `job.scoreId`; `POST /v1/imports` accepts several images as
+`multipart/form-data`; and `sbscore import <file>...` plus a **library import affordance** both land
+(Q79). The mapper defaults key/time and produces no clef/ties/triplets: **the `OmrDocument` schema does
+not carry them** (nor does the worker emit them), so their detection is deferred — a documented
+deviation from ADR-0021, since it needs the worker + schema + a real-oemer fixture the current
+environment (no oemer, no Docker: blocked container registries) cannot produce. Not built yet (v0.2):
+MusicXML import; clef/key/time/tie/triplet **detection** (worker + `OMR_SCHEMA_VERSION` bump + fixture);
+title/composer OCR (Q37, needs V13's OCR + a meta review field); the chord-band OCR and stage-3 beat
+mapping (V13); and the eval harness (V12). Don't assume a module exists because a plan mentions it.
 
 ## Layout
 

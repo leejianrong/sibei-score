@@ -149,18 +149,28 @@ export function createApi(options: ApiOptions): Api {
           jobs,
           blobs,
           worker: options.worker,
+          // The runner's one write: land the mapped document as a new score through the applier's
+          // server-only import path (V11). It is handed the applier, narrowed by `ScoreImporter` to
+          // exactly `import` — it cannot reach the edit surface or a `ScoreWriter` (ADR-0003).
+          importer: applier,
           publisher: jobBus,
           onError: (message, error) => logger.error(message, error),
         });
   const imports: ImportService = {
     available: runner !== undefined,
-    async submit(owner: Owner, image: Buffer) {
-      // Content-addressed: identical rescans dedupe, and the key names the exact bytes it stands for
+    async submit(owner: Owner, images: Buffer[]) {
+      // Content-addressed: identical rescans dedupe, and each key names the exact bytes it stands for
       // (the same principle as the export cache's document digest, Q81). The BlobStore hashes the key
-      // to a filename anyway, so any stable string does — this one is also provenance.
-      const key = `import-source:${createHash('sha256').update(image).digest('hex')}`;
-      await blobs.put(key, image);
-      const job = jobs.create(owner, [key]);
+      // to a filename anyway, so any stable string does — this one is also provenance. The images are
+      // stored and keyed in page order (Q26), and the source images are retained permanently for
+      // re-parse and side-by-side correction (ADR-0019): nothing here or elsewhere deletes them.
+      const keys: string[] = [];
+      for (const image of images) {
+        const key = `import-source:${createHash('sha256').update(image).digest('hex')}`;
+        await blobs.put(key, image);
+        keys.push(key);
+      }
+      const job = jobs.create(owner, keys);
       runner?.wake();
       return job;
     },

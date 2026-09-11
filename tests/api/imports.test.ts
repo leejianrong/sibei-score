@@ -25,25 +25,47 @@ function pngBytes(width: number, height: number): Buffer {
   return Buffer.concat([sig, ihdr]);
 }
 
-function aDocument(): OmrDocument {
+/** A recognised page with one staff and one note, so V11's mapper produces a real score. */
+function aDocument(imagePath = 'page-1'): OmrDocument {
   return {
     schemaVersion: OMR_SCHEMA_VERSION,
     source: {
       engine: 'oemer',
       engineVersion: '0.1.8',
-      imagePath: 'page-1',
+      imagePath,
       imageWidth: 1612,
       imageHeight: 2280,
       provider: 'CPUExecutionProvider',
       wallClockSeconds: 321,
     },
-    staves: [],
+    staves: [
+      { index: 0, track: 0, group: 0, xLeft: 100, xRight: 1000, yUpper: 100, yLower: 164, yCenter: 132, unitSize: 16 },
+    ],
     zones: [],
-    noteheads: [],
+    noteheads: [
+      {
+        id: 0,
+        bbox: [291, 120, 309, 136],
+        track: 0,
+        group: 0,
+        noteGroupId: null,
+        staffLinePos: null,
+        pitch: null,
+        hasDot: false,
+        stemUp: true,
+        invalid: false,
+        label: 'QUARTER',
+      },
+    ],
     noteGroups: [],
     barlines: [],
     rests: [],
   };
+}
+
+/** A page with no staff at all — ADR-0018's one hard error (Q28). */
+function noStaffDocument(): OmrDocument {
+  return { ...aDocument(), staves: [], noteheads: [] };
 }
 
 let store: ScoreStore;
@@ -95,6 +117,17 @@ async function upload(bytes: Buffer, contentType = 'image/png'): Promise<Reply> 
   return { status: response.status, body: text === '' ? {} : JSON.parse(text), headers: response.headers };
 }
 
+/** POST several images as multipart/form-data, the way the CLI and the browser picker do (Q26). */
+async function uploadMany(images: Buffer[]): Promise<Reply> {
+  const form = new FormData();
+  for (const [i, image] of images.entries()) {
+    form.append('images', new Blob([new Uint8Array(image)], { type: 'image/png' }), `page-${i + 1}.png`);
+  }
+  const response = await fetch(`${base}/v1/imports`, { method: 'POST', body: form });
+  const text = await response.text();
+  return { status: response.status, body: text === '' ? {} : JSON.parse(text), headers: response.headers };
+}
+
 async function get(path: string): Promise<Reply> {
   const response = await fetch(`${base}${path}`);
   const text = await response.text();
@@ -133,9 +166,37 @@ describe('POST /v1/imports (the upload boundary, ADR-0029)', () => {
 
     const done = await settle(job.id as string);
     expect(done.status).toBe('succeeded');
-    // "The raw recognised objects stored" (V10 demo): the result is on the job.
+    // The raw recognised objects are still stored on the job (kept for re-parse / provenance).
     expect((done.result as OmrDocument[])[0]!.source.engine).toBe('oemer');
-    // V10 creates no score — the map + score.import is V11.
+    // V11 maps them onto a score, lands it through score.import, and records its id on the job.
+    expect(done.scoreId).toBe(`import-${job.id}`);
+    // The score is a real, openable chart: it round-trips through the score API.
+    const opened = await get(`/v1/scores/${done.scoreId as string}`);
+    expect(opened.status).toBe(200);
+    expect((opened.body.score as { bars: unknown[] }).bars.length).toBeGreaterThan(0);
+  });
+
+  it('imports several pages in one job as one chart (Q26)', async () => {
+    const created = await uploadMany([A_PNG, A_PNG]);
+    expect(created.status).toBe(202);
+    const job = created.body.job as Record<string, unknown>;
+    expect((job.imageKeys as string[]).length).toBe(2);
+
+    const done = await settle(job.id as string);
+    expect(done.status).toBe('succeeded');
+    expect((done.result as OmrDocument[]).length).toBe(2);
+    const opened = await get(`/v1/scores/${done.scoreId as string}`);
+    // Two pages of one bar each -> two bars, numbered straight through.
+    expect((opened.body.score as { bars: { number: number }[] }).bars.map((b) => b.number)).toEqual([1, 2]);
+  });
+
+  it('fails an import with no detectable staff, creating no score (ADR-0018, Q28)', async () => {
+    behave = () => Promise.resolve(noStaffDocument());
+    const created = await upload(A_PNG);
+    const job = created.body.job as Record<string, unknown>;
+    const done = await settle(job.id as string);
+    expect(done.status).toBe('failed');
+    expect(done.diagnostic).toContain('no staff');
     expect(done.scoreId).toBeNull();
   });
 

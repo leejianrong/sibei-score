@@ -91,8 +91,13 @@ export interface JobWriter {
    * is not owner-scoped. Atomic so that even a future multi-process pool cannot claim one job twice.
    */
   claim(): ImportJob | null;
-  /** `running` → `succeeded`, storing the recognised objects. No-op (returns `null`) if not running. */
-  complete(id: JobId, result: OmrDocument[]): ImportJob | null;
+  /**
+   * `running` → `succeeded`, storing the recognised objects and the score the import landed (V11).
+   * The runner maps the objects onto a `Score` and lands it through the applier *before* completing,
+   * so a succeeded job always names the score it produced (V10's `scoreId: null` is gone). No-op
+   * (returns `null`) if not running.
+   */
+  complete(id: JobId, result: OmrDocument[], scoreId: Id): ImportJob | null;
   /** `running` → `failed`, storing the diagnostic. No-op (returns `null`) if not running. */
   fail(id: JobId, diagnostic: string): ImportJob | null;
   /**

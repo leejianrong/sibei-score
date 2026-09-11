@@ -79,8 +79,39 @@ export interface Client {
    */
   duplicate(id: string, newId?: string): Promise<DuplicateWire>;
   exportScore(id: string, query: ExportQuery): Promise<Download>;
+  /**
+   * Import one or more page images as one chart (V11, Q26). Submits them as a single job (ADR-0001)
+   * and polls it to a terminal status, returning the finished job — a `succeeded` one names the score
+   * it produced, a `failed` one carries the diagnostic. Recognition is minutes long (ADR-0025), so a
+   * caller runs this and waits, the CLI's equivalent of the browser's progress bar.
+   */
+  importImages(images: ImportImage[]): Promise<ImportJobWire>;
   health(): Promise<{ status: string; api: string }>;
 }
+
+/** One page to import: its bytes, a filename for provenance, and the media type from its extension. */
+export interface ImportImage {
+  filename: string;
+  bytes: Buffer;
+  contentType: string;
+}
+
+/** `GET /v1/imports/:id` and the submit reply (V10/V11). Only the fields the CLI reads are typed. */
+export interface ImportJobWire {
+  id: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  imageKeys: string[];
+  attempts: number;
+  diagnostic: string | null;
+  /** The score the import produced, once it has succeeded (V11); null while running or on failure. */
+  scoreId: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** How often the import verb polls the job while it runs. Recognition is minutes, so this is unhurried. */
+const IMPORT_POLL_MS = 500;
 
 /**
  * The export query, as strings, straight from the command line.
@@ -220,6 +251,35 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
       call('POST', `/v1/scores/${encodeURIComponent(id)}/redo`, { expectedVersion }),
     duplicate: (id, newId) =>
       call('POST', `/v1/scores/${encodeURIComponent(id)}/duplicate`, newId === undefined ? {} : { id: newId }),
+    async importImages(images: ImportImage[]): Promise<ImportJobWire> {
+      const form = new FormData();
+      for (const image of images) {
+        form.append('images', new Blob([new Uint8Array(image.bytes)], { type: image.contentType }), image.filename);
+      }
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/v1/imports`, { method: 'POST', body: form });
+      } catch (error) {
+        throw new CliError(
+          EXIT.noServer,
+          'no-server',
+          `cannot reach the sbscore server at ${baseUrl}. Start it with \`sbscore serve\`, or point this ` +
+            `at a running one with --url or SBSCORE_URL.`,
+          { detail: error instanceof Error ? error.message : undefined },
+        );
+      }
+      const text = await response.text();
+      if (!response.ok) fail(response.status, text);
+      let job = (safeParse(text) as { job: ImportJobWire }).job;
+
+      // Poll to a terminal status. The job is durable server-side (ADR-0001), so this is a read loop,
+      // not the work — the work runs in the background whether or not the CLI is watching.
+      while (job.status === 'queued' || job.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
+        job = (await call<{ job: ImportJobWire }>('GET', `/v1/imports/${encodeURIComponent(job.id)}`)).job;
+      }
+      return job;
+    },
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that
       // have to agree about what a default is, and the query is the export cache's key (Q81).

@@ -1,7 +1,12 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
-import type { Api, RequestLine, ScoreStore } from '@sibei/api';
+import type { Api, RequestLine, ScoreStore, WorkerClient } from '@sibei/api';
+import { OMR_SCHEMA_VERSION } from '@sibei/model';
+import type { OmrDocument } from '@sibei/model';
 import { EXIT, run } from '@sibei/cli';
 
 /**
@@ -563,5 +568,118 @@ describe('help', () => {
     const result = await sbscore();
     expect(result.code).toBe(EXIT.usage);
     expect(result.out).toContain('sbscore serve');
+  });
+});
+
+describe('the import verb (V11)', () => {
+  // A worker-enabled server of its own: the module-level `api` above has no worker (import is 503).
+  let importApi: Api;
+  let importStore: ScoreStore;
+  let importBase: string;
+  let dir: string;
+
+  /** A recognised page with one staff and one note, so the mapper lands a real one-bar chart. */
+  const aDocument = (): OmrDocument => ({
+    schemaVersion: OMR_SCHEMA_VERSION,
+    source: {
+      engine: 'oemer',
+      engineVersion: '0.1.8',
+      imagePath: 'page-1',
+      imageWidth: 1200,
+      imageHeight: 400,
+      provider: 'CPUExecutionProvider',
+      wallClockSeconds: 1,
+    },
+    staves: [
+      { index: 0, track: 0, group: 0, xLeft: 100, xRight: 1000, yUpper: 100, yLower: 164, yCenter: 132, unitSize: 16 },
+    ],
+    zones: [],
+    noteheads: [
+      { id: 0, bbox: [291, 120, 309, 136], track: 0, group: 0, noteGroupId: null, staffLinePos: null, pitch: null, hasDot: false, stemUp: true, invalid: false, label: 'QUARTER' },
+    ],
+    noteGroups: [],
+    barlines: [],
+    rests: [],
+  });
+
+  const pngBytes = (): Buffer => {
+    const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ihdr = Buffer.alloc(25);
+    ihdr.writeUInt32BE(13, 0);
+    ihdr.write('IHDR', 4, 'ascii');
+    ihdr.writeUInt32BE(1200, 8);
+    ihdr.writeUInt32BE(400, 12);
+    return Buffer.concat([sig, ihdr]);
+  };
+
+  let behave: () => Promise<OmrDocument>;
+  const worker: WorkerClient = { recognize: () => behave() };
+
+  beforeEach(async () => {
+    behave = () => Promise.resolve(aDocument());
+    importStore = openSqliteStore({ filename: ':memory:' });
+    importApi = createApi({ store: importStore, worker, logger: { request: () => {}, error: () => {} } });
+    const { port } = await importApi.listen(0);
+    importBase = `http://127.0.0.1:${port}`;
+    dir = mkdtempSync(join(tmpdir(), 'sbscore-import-'));
+  });
+
+  afterEach(async () => {
+    await importApi.close();
+    importStore.close();
+  });
+
+  const runImport = async (...argv: string[]): Promise<{ code: number; out: string; err: string }> => {
+    const o: string[] = [];
+    const e: string[] = [];
+    const code = await run(argv, { baseUrl: importBase, io: { out: (t) => o.push(t), err: (t) => e.push(t) } });
+    return { code, out: o.join('\n'), err: e.join('\n') };
+  };
+
+  it('imports an image into a new, openable draft chart', async () => {
+    const path = join(dir, 'chart.png');
+    writeFileSync(path, pngBytes());
+
+    const result = await runImport('import', path, '--json');
+    expect(result.code).toBe(EXIT.ok);
+    const job = json<{ status: string; scoreId: string }>(result.out);
+    expect(job.status).toBe('succeeded');
+    expect(job.scoreId).toMatch(/^import-/);
+
+    // The score it produced opens through the ordinary read path.
+    const opened = await runImport('open', job.scoreId, '--json');
+    expect(opened.code).toBe(EXIT.ok);
+    expect(json<{ score: { bars: unknown[] } }>(opened.out).score.bars.length).toBeGreaterThan(0);
+  });
+
+  it('imports several pages as one chart, in order (Q26)', async () => {
+    const a = join(dir, 'p1.png');
+    const b = join(dir, 'p2.png');
+    writeFileSync(a, pngBytes());
+    writeFileSync(b, pngBytes());
+
+    const result = await runImport('import', a, b, '--json');
+    expect(result.code).toBe(EXIT.ok);
+    const job = json<{ scoreId: string; imageKeys: string[] }>(result.out);
+    expect(job.imageKeys.length).toBe(2);
+    const opened = await runImport('open', job.scoreId, '--json');
+    expect(json<{ score: { bars: unknown[] } }>(opened.out).score.bars.length).toBe(2);
+  });
+
+  it('reports a failed import (no staff) with a non-zero code (ADR-0018, Q28)', async () => {
+    behave = () => Promise.resolve({ ...aDocument(), staves: [], noteheads: [] });
+    const path = join(dir, 'blank.png');
+    writeFileSync(path, pngBytes());
+
+    const result = await runImport('import', path);
+    expect(result.code).toBe(EXIT.validation);
+    expect(result.err).toContain('import failed');
+    expect(result.err).toContain('no staff');
+  });
+
+  it('errors clearly when a file is missing', async () => {
+    const result = await runImport('import', join(dir, 'nope.png'));
+    expect(result.code).toBe(EXIT.usage);
+    expect(result.err).toContain('cannot read');
   });
 });

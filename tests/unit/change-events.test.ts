@@ -42,6 +42,9 @@ const NO_MOVES = {
   duplicate: (): never => {
     throw new Error('duplicate not used in this test');
   },
+  import: (): never => {
+    throw new Error('import not used in this test');
+  },
 };
 
 function moveResultOf(scoreId: string, version: number, moved: boolean): UndoResult {

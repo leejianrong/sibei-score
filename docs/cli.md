@@ -61,12 +61,22 @@ sbscore list                                 # every chart: id, title, composer,
 sbscore open <id>                            # the full document, as JSON
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
+sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
 `new` and `meta set` have no browser control yet (Q79's one knowing exception).
+
+`import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
+stack); without one it is a 503 and every other feature still works (Q80). It takes several files as
+one chart, in page order (Q26), waits for the recogniser (CPU-only recognition is minutes, ADR-0025),
+and prints the new chart's id. **Every parse is a draft** (ADR-0019): open it, fix the bars flagged
+`!` by `show`, and set the key, meter and sections — import defaults the key to C major and the meter
+to 4/4 and never detects sections (ADR-0021), so the four-bar layout is wrong until you add them
+(ADR-0015). An image with no staff fails with exit 2 and creates nothing (ADR-0018). The source images
+are kept forever (ADR-0019), so a chart can be re-parsed later by a better engine.
 
 ## Notes, rests and chords
 
