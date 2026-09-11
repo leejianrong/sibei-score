@@ -1,0 +1,3381 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "engine": "oemer",
+    "engineVersion": "0.1.8",
+    "imagePath": "aaba-chart.png",
+    "imageWidth": 1612,
+    "imageHeight": 2280,
+    "provider": "CPUExecutionProvider",
+    "wallClockSeconds": 321.051
+  },
+  "staves": [
+    {
+      "index": 0,
+      "track": 0,
+      "group": 0,
+      "xLeft": 109.0,
+      "xRight": 278.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.35089268851425,
+      "unitSize": 16.097619731997426
+    },
+    {
+      "index": 1,
+      "track": 0,
+      "group": 1,
+      "xLeft": 112.0,
+      "xRight": 278.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 617.000603506702,
+      "unitSize": 16.25055427399718
+    },
+    {
+      "index": 2,
+      "track": 0,
+      "group": 2,
+      "xLeft": 108.0,
+      "xRight": 278.0,
+      "yUpper": 833.0,
+      "yLower": 900.0,
+      "yCenter": 867.0758632733847,
+      "unitSize": 16.282520538034618
+    },
+    {
+      "index": 3,
+      "track": 0,
+      "group": 3,
+      "xLeft": 113.0,
+      "xRight": 278.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.7514393436154,
+      "unitSize": 16.253565897282158
+    },
+    {
+      "index": 4,
+      "track": 0,
+      "group": 4,
+      "xLeft": 110.0,
+      "xRight": 278.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.9011945939558,
+      "unitSize": 16.24957445697578
+    },
+    {
+      "index": 5,
+      "track": 0,
+      "group": 5,
+      "xLeft": 113.0,
+      "xRight": 278.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4498249086141,
+      "unitSize": 16.23813356164385
+    },
+    {
+      "index": 6,
+      "track": 0,
+      "group": 6,
+      "xLeft": 110.0,
+      "xRight": 278.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.6402799239172,
+      "unitSize": 16.2214334107627
+    },
+    {
+      "index": 7,
+      "track": 0,
+      "group": 7,
+      "xLeft": 112.0,
+      "xRight": 278.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.102992993931,
+      "unitSize": 16.251058665564926
+    },
+    {
+      "index": 8,
+      "track": 0,
+      "group": 0,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 368.0,
+      "yLower": 436.0,
+      "yCenter": 402.3906767044494,
+      "unitSize": 16.22038506240841
+    },
+    {
+      "index": 9,
+      "track": 0,
+      "group": 1,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 616.9999759102485,
+      "unitSize": 16.25
+    },
+    {
+      "index": 10,
+      "track": 0,
+      "group": 2,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.1002693137677,
+      "unitSize": 16.24928571428572
+    },
+    {
+      "index": 11,
+      "track": 0,
+      "group": 3,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.763730251333,
+      "unitSize": 16.25071428571431
+    },
+    {
+      "index": 12,
+      "track": 0,
+      "group": 4,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.899440687291,
+      "unitSize": 16.25071428571431
+    },
+    {
+      "index": 13,
+      "track": 0,
+      "group": 5,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4283016855004,
+      "unitSize": 16.161165620094152
+    },
+    {
+      "index": 14,
+      "track": 0,
+      "group": 6,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.697707603423,
+      "unitSize": 16.25
+    },
+    {
+      "index": 15,
+      "track": 0,
+      "group": 7,
+      "xLeft": 279.0,
+      "xRight": 454.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.0999844275575,
+      "unitSize": 16.24928571428569
+    },
+    {
+      "index": 16,
+      "track": 0,
+      "group": 0,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.4204545544688,
+      "unitSize": 16.19169792460997
+    },
+    {
+      "index": 17,
+      "track": 0,
+      "group": 1,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 616.9986025163561,
+      "unitSize": 16.249639769452443
+    },
+    {
+      "index": 18,
+      "track": 0,
+      "group": 2,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.099706744868,
+      "unitSize": 16.25
+    },
+    {
+      "index": 19,
+      "track": 0,
+      "group": 3,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.7633544424182,
+      "unitSize": 16.25
+    },
+    {
+      "index": 20,
+      "track": 0,
+      "group": 4,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.9000004829518,
+      "unitSize": 16.250718390804593
+    },
+    {
+      "index": 21,
+      "track": 0,
+      "group": 5,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4616371898348,
+      "unitSize": 16.202840909090924
+    },
+    {
+      "index": 22,
+      "track": 0,
+      "group": 6,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.6976484500178,
+      "unitSize": 16.249281609195407
+    },
+    {
+      "index": 23,
+      "track": 0,
+      "group": 7,
+      "xLeft": 455.0,
+      "xRight": 630.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.09941856043,
+      "unitSize": 16.24963976945247
+    },
+    {
+      "index": 24,
+      "track": 0,
+      "group": 0,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.38344467878693,
+      "unitSize": 16.143209343138523
+    },
+    {
+      "index": 25,
+      "track": 0,
+      "group": 1,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 617.0002640946865,
+      "unitSize": 16.249639769452443
+    },
+    {
+      "index": 26,
+      "track": 0,
+      "group": 2,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.1002676716914,
+      "unitSize": 16.24964387464388
+    },
+    {
+      "index": 27,
+      "track": 0,
+      "group": 3,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.7669867269785,
+      "unitSize": 16.25071428571431
+    },
+    {
+      "index": 28,
+      "track": 0,
+      "group": 4,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.8991403869907,
+      "unitSize": 16.25071428571431
+    },
+    {
+      "index": 29,
+      "track": 0,
+      "group": 5,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4063051298958,
+      "unitSize": 16.133100878422567
+    },
+    {
+      "index": 30,
+      "track": 0,
+      "group": 6,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.6955416335172,
+      "unitSize": 16.25035816618913
+    },
+    {
+      "index": 31,
+      "track": 0,
+      "group": 7,
+      "xLeft": 631.0,
+      "xRight": 806.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.0999860695533,
+      "unitSize": 16.24964387464388
+    },
+    {
+      "index": 32,
+      "track": 0,
+      "group": 0,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.4261435057681,
+      "unitSize": 16.188137641972745
+    },
+    {
+      "index": 33,
+      "track": 0,
+      "group": 1,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 617.0003439626012,
+      "unitSize": 16.250753012048193
+    },
+    {
+      "index": 34,
+      "track": 0,
+      "group": 2,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.0985522359173,
+      "unitSize": 16.25071428571428
+    },
+    {
+      "index": 35,
+      "track": 0,
+      "group": 3,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.764641460058,
+      "unitSize": 16.25187687687685
+    },
+    {
+      "index": 36,
+      "track": 0,
+      "group": 4,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.90059184549,
+      "unitSize": 16.25
+    },
+    {
+      "index": 37,
+      "track": 0,
+      "group": 5,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4561606947725,
+      "unitSize": 16.21036493604214
+    },
+    {
+      "index": 38,
+      "track": 0,
+      "group": 6,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.7005763246548,
+      "unitSize": 16.25
+    },
+    {
+      "index": 39,
+      "track": 0,
+      "group": 7,
+      "xLeft": 807.0,
+      "xRight": 982.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.098573681878,
+      "unitSize": 16.251112759643945
+    },
+    {
+      "index": 40,
+      "track": 0,
+      "group": 0,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.3912904244572,
+      "unitSize": 16.152040987268265
+    },
+    {
+      "index": 41,
+      "track": 0,
+      "group": 1,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 616.9992792464897,
+      "unitSize": 16.25035612535612
+    },
+    {
+      "index": 42,
+      "track": 0,
+      "group": 2,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.0993902439025,
+      "unitSize": 16.25
+    },
+    {
+      "index": 43,
+      "track": 0,
+      "group": 3,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.766909975669,
+      "unitSize": 16.25
+    },
+    {
+      "index": 44,
+      "track": 0,
+      "group": 4,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.8975308641975,
+      "unitSize": 16.25
+    },
+    {
+      "index": 45,
+      "track": 0,
+      "group": 5,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4278218709258,
+      "unitSize": 16.160919165580196
+    },
+    {
+      "index": 46,
+      "track": 0,
+      "group": 6,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.696551724138,
+      "unitSize": 16.25
+    },
+    {
+      "index": 47,
+      "track": 0,
+      "group": 7,
+      "xLeft": 983.0,
+      "xRight": 1158.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.0993902439027,
+      "unitSize": 16.25
+    },
+    {
+      "index": 48,
+      "track": 0,
+      "group": 0,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.42404431811894,
+      "unitSize": 16.19456176588463
+    },
+    {
+      "index": 49,
+      "track": 0,
+      "group": 1,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 616.9991095699337,
+      "unitSize": 16.251086956521732
+    },
+    {
+      "index": 50,
+      "track": 0,
+      "group": 2,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.1002949852507,
+      "unitSize": 16.25
+    },
+    {
+      "index": 51,
+      "track": 0,
+      "group": 3,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.7653367328628,
+      "unitSize": 16.25
+    },
+    {
+      "index": 52,
+      "track": 0,
+      "group": 4,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.9018072289157,
+      "unitSize": 16.25
+    },
+    {
+      "index": 53,
+      "track": 0,
+      "group": 5,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 1513.0,
+      "yLower": 1580.0,
+      "yCenter": 1546.4350495799504,
+      "unitSize": 16.17013611691692
+    },
+    {
+      "index": 54,
+      "track": 0,
+      "group": 6,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.6994184817981,
+      "unitSize": 16.24964183381087
+    },
+    {
+      "index": 55,
+      "track": 0,
+      "group": 7,
+      "xLeft": 1159.0,
+      "xRight": 1334.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.1000088596716,
+      "unitSize": 16.25
+    },
+    {
+      "index": 56,
+      "track": 0,
+      "group": 0,
+      "xLeft": 1335.0,
+      "xRight": 1504.0,
+      "yUpper": 369.0,
+      "yLower": 436.0,
+      "yCenter": 402.3878530407552,
+      "unitSize": 16.155265567765568
+    },
+    {
+      "index": 57,
+      "track": 0,
+      "group": 1,
+      "xLeft": 1335.0,
+      "xRight": 1503.0,
+      "yUpper": 584.0,
+      "yLower": 650.0,
+      "yCenter": 617.0040898289304,
+      "unitSize": 16.25
+    },
+    {
+      "index": 58,
+      "track": 0,
+      "group": 2,
+      "xLeft": 1335.0,
+      "xRight": 1504.0,
+      "yUpper": 834.0,
+      "yLower": 900.0,
+      "yCenter": 867.0975290797044,
+      "unitSize": 16.249629080118694
+    },
+    {
+      "index": 59,
+      "track": 0,
+      "group": 3,
+      "xLeft": 1335.0,
+      "xRight": 1503.0,
+      "yUpper": 1049.0,
+      "yLower": 1115.0,
+      "yCenter": 1081.7820538938265,
+      "unitSize": 16.251323579854727
+    },
+    {
+      "index": 60,
+      "track": 0,
+      "group": 4,
+      "xLeft": 1335.0,
+      "xRight": 1504.0,
+      "yUpper": 1299.0,
+      "yLower": 1365.0,
+      "yCenter": 1331.927191272216,
+      "unitSize": 16.248387096774195
+    },
+    {
+      "index": 61,
+      "track": 0,
+      "group": 5,
+      "xLeft": 1335.0,
+      "xRight": 1503.0,
+      "yUpper": 1513.0,
+      "yLower": 1579.0,
+      "yCenter": 1546.2821559682336,
+      "unitSize": 16.034315221815234
+    },
+    {
+      "index": 62,
+      "track": 0,
+      "group": 6,
+      "xLeft": 1335.0,
+      "xRight": 1504.0,
+      "yUpper": 1764.0,
+      "yLower": 1830.0,
+      "yCenter": 1796.5970187730563,
+      "unitSize": 16.164756695972187
+    },
+    {
+      "index": 63,
+      "track": 0,
+      "group": 7,
+      "xLeft": 1335.0,
+      "xRight": 1499.0,
+      "yUpper": 1978.0,
+      "yLower": 2044.0,
+      "yCenter": 2011.107753208226,
+      "unitSize": 16.263686131386862
+    }
+  ],
+  "zones": [
+    [
+      103,
+      279
+    ],
+    [
+      279,
+      455
+    ],
+    [
+      455,
+      631
+    ],
+    [
+      631,
+      807
+    ],
+    [
+      807,
+      983
+    ],
+    [
+      983,
+      1159
+    ],
+    [
+      1159,
+      1335
+    ],
+    [
+      1335,
+      1513
+    ]
+  ],
+  "noteheads": [
+    {
+      "id": 0,
+      "bbox": [
+        492,
+        410,
+        511,
+        426
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 0,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 1,
+      "bbox": [
+        1342,
+        1805,
+        1361,
+        1820
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 1,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 2,
+      "bbox": [
+        229,
+        378,
+        247,
+        394
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 2,
+      "staffLinePos": 7,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "EIGHTH"
+    },
+    {
+      "id": 3,
+      "bbox": [
+        774,
+        410,
+        793,
+        426
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 3,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 4,
+      "bbox": [
+        665,
+        1555,
+        684,
+        1571
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 4,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 5,
+      "bbox": [
+        1342,
+        1554,
+        1361,
+        1570
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 5,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 6,
+      "bbox": [
+        270,
+        361,
+        288,
+        378
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 6,
+      "staffLinePos": 9,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 7,
+      "bbox": [
+        1004,
+        1805,
+        1022,
+        1820
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 7,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 8,
+      "bbox": [
+        329,
+        1341,
+        348,
+        1356
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 8,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 9,
+      "bbox": [
+        1004,
+        1340,
+        1023,
+        1355
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 9,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 10,
+      "bbox": [
+        329,
+        1805,
+        348,
+        1820
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 10,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 11,
+      "bbox": [
+        1069,
+        410,
+        1088,
+        426
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 11,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 12,
+      "bbox": [
+        665,
+        1805,
+        684,
+        1820
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 12,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 13,
+      "bbox": [
+        1004,
+        625,
+        1023,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 13,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 14,
+      "bbox": [
+        183,
+        585,
+        202,
+        601
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 14,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 15,
+      "bbox": [
+        329,
+        1090,
+        348,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 15,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 16,
+      "bbox": [
+        329,
+        625,
+        348,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 16,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 17,
+      "bbox": [
+        666,
+        875,
+        685,
+        891
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 17,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 18,
+      "bbox": [
+        1342,
+        1090,
+        1361,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 18,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 19,
+      "bbox": [
+        329,
+        875,
+        348,
+        892
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 19,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 20,
+      "bbox": [
+        1342,
+        1340,
+        1361,
+        1356
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 20,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 21,
+      "bbox": [
+        183,
+        833,
+        202,
+        850
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 21,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 22,
+      "bbox": [
+        1004,
+        1554,
+        1023,
+        1570
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 22,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 23,
+      "bbox": [
+        665,
+        1340,
+        685,
+        1356
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 23,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 24,
+      "bbox": [
+        1342,
+        625,
+        1361,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 24,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 25,
+      "bbox": [
+        329,
+        1554,
+        348,
+        1570
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 25,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 26,
+      "bbox": [
+        517,
+        1779,
+        536,
+        1796
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 26,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 27,
+      "bbox": [
+        665,
+        1090,
+        685,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 27,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 28,
+      "bbox": [
+        183,
+        1979,
+        202,
+        1995
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 28,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 29,
+      "bbox": [
+        1004,
+        875,
+        1023,
+        892
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 29,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 30,
+      "bbox": [
+        665,
+        625,
+        685,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 30,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 31,
+      "bbox": [
+        666,
+        2019,
+        685,
+        2035
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 31,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 32,
+      "bbox": [
+        1342,
+        2019,
+        1361,
+        2036
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 32,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 33,
+      "bbox": [
+        1364,
+        410,
+        1383,
+        426
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 33,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 34,
+      "bbox": [
+        1342,
+        875,
+        1361,
+        892
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 34,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 35,
+      "bbox": [
+        855,
+        833,
+        874,
+        851
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 35,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 36,
+      "bbox": [
+        855,
+        1978,
+        875,
+        1995
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 36,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 37,
+      "bbox": [
+        855,
+        583,
+        875,
+        601
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 37,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 38,
+      "bbox": [
+        855,
+        1763,
+        875,
+        1780
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 38,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 39,
+      "bbox": [
+        183,
+        1299,
+        202,
+        1316
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 39,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 40,
+      "bbox": [
+        183,
+        1763,
+        202,
+        1780
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 40,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 41,
+      "bbox": [
+        855,
+        1049,
+        874,
+        1066
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 41,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 42,
+      "bbox": [
+        183,
+        1049,
+        202,
+        1066
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 42,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 43,
+      "bbox": [
+        855,
+        1513,
+        874,
+        1531
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 43,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 44,
+      "bbox": [
+        855,
+        1299,
+        875,
+        1316
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 44,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 45,
+      "bbox": [
+        1004,
+        1090,
+        1023,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 45,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 46,
+      "bbox": [
+        329,
+        2019,
+        348,
+        2035
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 46,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 47,
+      "bbox": [
+        183,
+        1513,
+        202,
+        1531
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 47,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 48,
+      "bbox": [
+        942,
+        369,
+        961,
+        387
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 48,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 49,
+      "bbox": [
+        1193,
+        1779,
+        1213,
+        1796
+      ],
+      "track": 0,
+      "group": 6,
+      "noteGroupId": 49,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 50,
+      "bbox": [
+        1004,
+        2019,
+        1023,
+        2036
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 50,
+      "staffLinePos": 3,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": true,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 51,
+      "bbox": [
+        517,
+        1529,
+        536,
+        1547
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 51,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 52,
+      "bbox": [
+        517,
+        850,
+        536,
+        867
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 52,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 53,
+      "bbox": [
+        517,
+        1994,
+        536,
+        2011
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 53,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 54,
+      "bbox": [
+        517,
+        600,
+        536,
+        617
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 54,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 55,
+      "bbox": [
+        517,
+        1065,
+        536,
+        1082
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 55,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 56,
+      "bbox": [
+        517,
+        1315,
+        536,
+        1332
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 56,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 57,
+      "bbox": [
+        1193,
+        1065,
+        1213,
+        1082
+      ],
+      "track": 0,
+      "group": 3,
+      "noteGroupId": 57,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 58,
+      "bbox": [
+        1193,
+        1315,
+        1213,
+        1332
+      ],
+      "track": 0,
+      "group": 4,
+      "noteGroupId": 58,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 59,
+      "bbox": [
+        1193,
+        600,
+        1213,
+        617
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": 59,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 60,
+      "bbox": [
+        1193,
+        850,
+        1213,
+        868
+      ],
+      "track": 0,
+      "group": 2,
+      "noteGroupId": 60,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 61,
+      "bbox": [
+        1193,
+        1995,
+        1213,
+        2012
+      ],
+      "track": 0,
+      "group": 7,
+      "noteGroupId": 61,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 62,
+      "bbox": [
+        1194,
+        1530,
+        1213,
+        1547
+      ],
+      "track": 0,
+      "group": 5,
+      "noteGroupId": 62,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 63,
+      "bbox": [
+        647,
+        385,
+        666,
+        403
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 63,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 64,
+      "bbox": [
+        1237,
+        385,
+        1256,
+        403
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 64,
+      "staffLinePos": 6,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    },
+    {
+      "id": 65,
+      "bbox": [
+        378,
+        369,
+        398,
+        386
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": 65,
+      "staffLinePos": 8,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": false,
+      "invalid": false,
+      "label": "HALF"
+    }
+  ],
+  "noteGroups": [
+    {
+      "id": 0,
+      "bbox": [
+        493,
+        361,
+        512,
+        427
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        0
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 1,
+      "bbox": [
+        1343,
+        1755,
+        1362,
+        1821
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        1
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 2,
+      "bbox": [
+        229,
+        379,
+        247,
+        441
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        2
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 3,
+      "bbox": [
+        775,
+        361,
+        794,
+        427
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        3
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 4,
+      "bbox": [
+        666,
+        1505,
+        686,
+        1570
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        4
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 5,
+      "bbox": [
+        1343,
+        1505,
+        1362,
+        1571
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        5
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 6,
+      "bbox": [
+        270,
+        362,
+        287,
+        433
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        6
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 7,
+      "bbox": [
+        1005,
+        1755,
+        1024,
+        1821
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        7
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 8,
+      "bbox": [
+        330,
+        1290,
+        349,
+        1358
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        8
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 9,
+      "bbox": [
+        1005,
+        1290,
+        1024,
+        1357
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        9
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 10,
+      "bbox": [
+        330,
+        1755,
+        349,
+        1821
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        10
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 11,
+      "bbox": [
+        1070,
+        361,
+        1089,
+        427
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        11
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 12,
+      "bbox": [
+        666,
+        1755,
+        686,
+        1821
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        12
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 13,
+      "bbox": [
+        1005,
+        575,
+        1024,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        13
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 14,
+      "bbox": [
+        184,
+        585,
+        202,
+        650
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        14
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 15,
+      "bbox": [
+        330,
+        1040,
+        349,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        15
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 16,
+      "bbox": [
+        330,
+        575,
+        349,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        16
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 17,
+      "bbox": [
+        666,
+        826,
+        686,
+        891
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        17
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 18,
+      "bbox": [
+        1343,
+        1040,
+        1362,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        18
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 19,
+      "bbox": [
+        330,
+        826,
+        349,
+        891
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        19
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 20,
+      "bbox": [
+        1343,
+        1291,
+        1362,
+        1356
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        20
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 21,
+      "bbox": [
+        183,
+        834,
+        202,
+        900
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        21
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 22,
+      "bbox": [
+        1005,
+        1505,
+        1024,
+        1571
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        22
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 23,
+      "bbox": [
+        666,
+        1290,
+        686,
+        1356
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        23
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 24,
+      "bbox": [
+        1343,
+        576,
+        1362,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        24
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 25,
+      "bbox": [
+        330,
+        1505,
+        349,
+        1571
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        25
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 26,
+      "bbox": [
+        517,
+        1780,
+        536,
+        1846
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        26
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 27,
+      "bbox": [
+        666,
+        1040,
+        686,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        27
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 28,
+      "bbox": [
+        183,
+        1978,
+        202,
+        2044
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        28
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 29,
+      "bbox": [
+        1005,
+        826,
+        1024,
+        891
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        29
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 30,
+      "bbox": [
+        666,
+        575,
+        686,
+        641
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        30
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 31,
+      "bbox": [
+        666,
+        1970,
+        686,
+        2035
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        31
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 32,
+      "bbox": [
+        1343,
+        1970,
+        1362,
+        2035
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        32
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 33,
+      "bbox": [
+        1365,
+        361,
+        1384,
+        427
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        33
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 34,
+      "bbox": [
+        1343,
+        826,
+        1362,
+        891
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        34
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 35,
+      "bbox": [
+        856,
+        833,
+        874,
+        900
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        35
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 36,
+      "bbox": [
+        856,
+        1979,
+        874,
+        2044
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        36
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 37,
+      "bbox": [
+        856,
+        584,
+        874,
+        650
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        37
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 38,
+      "bbox": [
+        856,
+        1764,
+        874,
+        1829
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        38
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 39,
+      "bbox": [
+        184,
+        1300,
+        202,
+        1365
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        39
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 40,
+      "bbox": [
+        184,
+        1764,
+        202,
+        1829
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        40
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 41,
+      "bbox": [
+        856,
+        1050,
+        874,
+        1114
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        41
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 42,
+      "bbox": [
+        184,
+        1050,
+        202,
+        1114
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        42
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 43,
+      "bbox": [
+        856,
+        1514,
+        874,
+        1579
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        43
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 44,
+      "bbox": [
+        856,
+        1300,
+        874,
+        1365
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        44
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 45,
+      "bbox": [
+        1005,
+        1040,
+        1024,
+        1106
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        45
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 46,
+      "bbox": [
+        330,
+        1970,
+        349,
+        2035
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        46
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 47,
+      "bbox": [
+        184,
+        1514,
+        202,
+        1579
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        47
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 48,
+      "bbox": [
+        942,
+        370,
+        961,
+        435
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        48
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 49,
+      "bbox": [
+        1194,
+        1780,
+        1212,
+        1846
+      ],
+      "track": 0,
+      "group": 6,
+      "noteIds": [
+        49
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 50,
+      "bbox": [
+        1005,
+        1970,
+        1024,
+        2035
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        50
+      ],
+      "stemUp": true,
+      "hasStem": true
+    },
+    {
+      "id": 51,
+      "bbox": [
+        517,
+        1530,
+        536,
+        1595
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        51
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 52,
+      "bbox": [
+        517,
+        849,
+        536,
+        917
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        52
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 53,
+      "bbox": [
+        517,
+        1995,
+        536,
+        2061
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        53
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 54,
+      "bbox": [
+        517,
+        601,
+        536,
+        667
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        54
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 55,
+      "bbox": [
+        517,
+        1066,
+        536,
+        1131
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        55
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 56,
+      "bbox": [
+        517,
+        1316,
+        536,
+        1381
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        56
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 57,
+      "bbox": [
+        1194,
+        1066,
+        1212,
+        1131
+      ],
+      "track": 0,
+      "group": 3,
+      "noteIds": [
+        57
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 58,
+      "bbox": [
+        1194,
+        1316,
+        1212,
+        1381
+      ],
+      "track": 0,
+      "group": 4,
+      "noteIds": [
+        58
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 59,
+      "bbox": [
+        1194,
+        601,
+        1212,
+        667
+      ],
+      "track": 0,
+      "group": 1,
+      "noteIds": [
+        59
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 60,
+      "bbox": [
+        1194,
+        851,
+        1212,
+        917
+      ],
+      "track": 0,
+      "group": 2,
+      "noteIds": [
+        60
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 61,
+      "bbox": [
+        1194,
+        1994,
+        1212,
+        2061
+      ],
+      "track": 0,
+      "group": 7,
+      "noteIds": [
+        61
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 62,
+      "bbox": [
+        1194,
+        1529,
+        1212,
+        1595
+      ],
+      "track": 0,
+      "group": 5,
+      "noteIds": [
+        62
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 63,
+      "bbox": [
+        647,
+        386,
+        666,
+        451
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        63
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 64,
+      "bbox": [
+        1237,
+        386,
+        1256,
+        452
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        64
+      ],
+      "stemUp": false,
+      "hasStem": true
+    },
+    {
+      "id": 65,
+      "bbox": [
+        379,
+        368,
+        397,
+        435
+      ],
+      "track": 0,
+      "group": 0,
+      "noteIds": [
+        65
+      ],
+      "stemUp": false,
+      "hasStem": true
+    }
+  ],
+  "barlines": [
+    {
+      "bbox": [
+        490,
+        588,
+        491,
+        649
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        270,
+        374,
+        271,
+        435
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        1169,
+        1766,
+        1170,
+        1829
+      ],
+      "group": 6
+    },
+    {
+      "bbox": [
+        335,
+        371,
+        336,
+        434
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        1167,
+        1765,
+        1168,
+        1829
+      ],
+      "group": 6
+    },
+    {
+      "bbox": [
+        830,
+        1765,
+        831,
+        1829
+      ],
+      "group": 6
+    },
+    {
+      "bbox": [
+        490,
+        1765,
+        493,
+        1829
+      ],
+      "group": 6
+    },
+    {
+      "bbox": [
+        1167,
+        1515,
+        1169,
+        1579
+      ],
+      "group": 5
+    },
+    {
+      "bbox": [
+        829,
+        1515,
+        832,
+        1579
+      ],
+      "group": 5
+    },
+    {
+      "bbox": [
+        490,
+        1515,
+        493,
+        1579
+      ],
+      "group": 5
+    },
+    {
+      "bbox": [
+        1167,
+        1050,
+        1170,
+        1114
+      ],
+      "group": 3
+    },
+    {
+      "bbox": [
+        829,
+        1050,
+        832,
+        1114
+      ],
+      "group": 3
+    },
+    {
+      "bbox": [
+        490,
+        1050,
+        493,
+        1114
+      ],
+      "group": 3
+    },
+    {
+      "bbox": [
+        1162,
+        586,
+        1169,
+        650
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        1210,
+        371,
+        1213,
+        435
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        915,
+        371,
+        918,
+        435
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        620,
+        371,
+        623,
+        435
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        1168,
+        1979,
+        1170,
+        2044
+      ],
+      "group": 7
+    },
+    {
+      "bbox": [
+        829,
+        1979,
+        832,
+        2044
+      ],
+      "group": 7
+    },
+    {
+      "bbox": [
+        490,
+        1979,
+        493,
+        2044
+      ],
+      "group": 7
+    },
+    {
+      "bbox": [
+        1167,
+        1300,
+        1170,
+        1365
+      ],
+      "group": 4
+    },
+    {
+      "bbox": [
+        829,
+        1300,
+        831,
+        1365
+      ],
+      "group": 4
+    },
+    {
+      "bbox": [
+        490,
+        1300,
+        493,
+        1365
+      ],
+      "group": 4
+    },
+    {
+      "bbox": [
+        1167,
+        835,
+        1170,
+        900
+      ],
+      "group": 2
+    },
+    {
+      "bbox": [
+        829,
+        835,
+        832,
+        900
+      ],
+      "group": 2
+    },
+    {
+      "bbox": [
+        490,
+        835,
+        493,
+        900
+      ],
+      "group": 2
+    },
+    {
+      "bbox": [
+        1152,
+        585,
+        1155,
+        650
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        829,
+        585,
+        832,
+        650
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        492,
+        585,
+        493,
+        650
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        343,
+        370,
+        345,
+        435
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        1507,
+        370,
+        1508,
+        436
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        1500,
+        1978,
+        1508,
+        2045
+      ],
+      "group": 7
+    },
+    {
+      "bbox": [
+        1490,
+        1978,
+        1494,
+        2045
+      ],
+      "group": 7
+    },
+    {
+      "bbox": [
+        1505,
+        1299,
+        1508,
+        1366
+      ],
+      "group": 4
+    },
+    {
+      "bbox": [
+        1505,
+        834,
+        1508,
+        901
+      ],
+      "group": 2
+    },
+    {
+      "bbox": [
+        1504,
+        1763,
+        1508,
+        1831
+      ],
+      "group": 6
+    },
+    {
+      "bbox": [
+        1496,
+        1049,
+        1501,
+        1117
+      ],
+      "group": 3
+    },
+    {
+      "bbox": [
+        1494,
+        1049,
+        1498,
+        1117
+      ],
+      "group": 3
+    },
+    {
+      "bbox": [
+        1505,
+        1048,
+        1508,
+        1116
+      ],
+      "group": 3
+    },
+    {
+      "bbox": [
+        1505,
+        583,
+        1508,
+        651
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        1505,
+        369,
+        1506,
+        437
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        1504,
+        1512,
+        1507,
+        1581
+      ],
+      "group": 5
+    }
+  ],
+  "rests": []
+}
