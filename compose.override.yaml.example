@@ -1,0 +1,45 @@
+# Optional, personal, gitignored: route this stack through a machine-wide Traefik proxy so it is
+# reachable at a stable http://sibei-score.localhost/ instead of a fixed host port — no more worrying
+# which project owns 8080. Copy this file to `compose.override.yaml` and `docker compose` loads it
+# automatically alongside `compose.yaml` (no extra flag).
+#
+# Nothing here is required. `compose.yaml` keeps working standalone with no override present — that is
+# what a fresh clone, CI, and any real deployment get, publishing sbscore on 127.0.0.1:8080 directly
+# (ADR-0029: loopback only). This file only layers a second, hostname-based way in on top for local dev.
+#
+# Prerequisite: the machine-wide Traefik instance must already be up, owning an external `proxy`
+# network. See the traefik-dev-proxy setup (a one-time `docker compose up -d` in ~/dev-proxy).
+#
+# NOTE ON THE THREAT MODEL (ADR-0029). The base file publishes to the host's loopback only. The shared
+# Traefik instead listens on 0.0.0.0:80, so reaching the app through this override is a broader exposure
+# than the base's loopback bind — fine as a laptop dev convenience, but it is why this stays a personal,
+# gitignored override and never the committed default. What ships is `compose.yaml`, unchanged.
+services:
+  sbscore:
+    # An override's `networks:` replaces the base list rather than merging, so BOTH are listed here:
+    # `sbscore` is the base's private network (the API reaches the worker at http://worker:8000 over
+    # it), and `proxy` is Traefik's network so it can route to this container.
+    networks:
+      - sbscore
+      - proxy
+    # OPTIONAL — this is the line that actually removes host-port collisions. `!reset []` drops the
+    # published 127.0.0.1:8080 from the merged config entirely (Compose v2.24+ / v5), so nothing binds
+    # a host port and access is ONLY via the hostname below. Comment it out to keep 8080 published too
+    # (both paths live at once) — but then 8080 can still collide with another project at `up` time.
+    ports: !reset []
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.sibei-score.rule=Host(`sibei-score.localhost`)
+      - traefik.http.services.sibei-score.loadbalancer.server.port=8080
+      # sbscore enforces ADR-0029: it answers only to a loopback Host, and rejects a state-changing
+      # request whose Origin is not loopback. Traefik would forward the browser's `sibei-score.localhost`
+      # Host/Origin, which the app 403s. This middleware rewrites both to loopback so requests proxied
+      # through Traefik are accepted. It does mean everything arriving via Traefik is trusted — fine for
+      # this personal, loopback dev proxy, and the reason this stays gitignored, never the committed default.
+      - traefik.http.routers.sibei-score.middlewares=sibei-score-loopback
+      - traefik.http.middlewares.sibei-score-loopback.headers.customrequestheaders.Host=127.0.0.1
+      - traefik.http.middlewares.sibei-score-loopback.headers.customrequestheaders.Origin=http://127.0.0.1
+
+networks:
+  proxy:
+    external: true

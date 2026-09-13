@@ -9,7 +9,7 @@ command line**, and exported as a print-ready PDF.
 > API, the CLI, and an editing browser with live updates; jazz **chords**, enharmonic **spelling**
 > and **transposition**, instrument **parts**, **structure** (sections, rehearsal letters, repeat and
 > ending barlines), **undo/redo**, a **library** with duplicate and delete, and a **container** you
-> can `docker compose up`. Photo (OMR) import is v0.2 — see [`SLICES.md`](SLICES.md); the hosted,
+> can bring up with `make up`. Photo (OMR) import is v0.2 — see [`SLICES.md`](SLICES.md); the hosted,
 > multi-user direction is sketched in [`docs/hosting.md`](docs/hosting.md).
 
 <p align="center">
@@ -42,49 +42,43 @@ flowchart LR
 
 ## Quick start
 
-Two ways to run it, both entirely on your own machine (see [Offline](#offline-by-design) below).
-
-### The container — just run the app
-
-Requires only [Docker](https://docs.docker.com/get-docker/). From the repo root:
+Requires only [Docker](https://docs.docker.com/get-docker/) and `make`. Everything runs on your own
+machine (see [Offline by design](#offline-by-design) below). One command:
 
 ```sh
-docker compose up          # builds the image, serves the app on http://127.0.0.1:8080
+make up                    # builds the image and runs the app (Ctrl-C stops it)
 ```
 
-Open <http://127.0.0.1:8080> — the browser UI and the `/v1/` API are one origin. Your charts and
-cached exports live in a named volume and survive restarts. The port is published to **loopback
-only**, so nothing on your LAN can reach it (ADR-0029). To drive it from the CLI, point the CLI at
-that port: `SBSCORE_URL=http://127.0.0.1:8080 pnpm sbscore list`.
+Open **<http://127.0.0.1:8080>** — the browser UI and the `/v1/` API on one origin, published to
+**loopback only** so nothing on your LAN can reach it (ADR-0029). Charts and cached exports live in a
+named volume and survive restarts. Run **`make`** on its own to list every command. (The first `make up`
+also builds the OMR import worker, so it takes a few minutes; later runs are instant.)
 
-### From source — for the CLI and development
-
-Requires Node ≥ 22 and [pnpm](https://pnpm.io).
+The library starts empty, so seed a chart to look at — in a second terminal, once `make up` is running:
 
 ```sh
-pnpm install
-pnpm serve                 # starts the local API on 127.0.0.1:4321 (leave it running)
+make sample                # creates a "Body and Soul" demo chart in the running app
 ```
 
-Then, in another terminal, author a chart entirely from the CLI:
+Reload the browser, open the chart, click a note, and change its pitch: the store updates and every
+open tab reflects it live. Export a PDF or MusicXML from the score view's **Export** rail. You can also
+drive the CLI without installing anything — it runs inside the container:
 
 ```sh
-pnpm sbscore new --id soul --title "Body and Soul" --composer "Johnny Green" --key Db --bars 8
-pnpm sbscore note add soul bar1.beat1 --pitch Db5 --dur 8
-pnpm sbscore note add soul bar1.beat2 --pitch F5  --dur 4
-pnpm sbscore chord set soul bar1.beat1 --text "Ebm7"
-pnpm sbscore show soul                       # the text projection: a four-bar grid with addresses
-pnpm sbscore export soul -o .                # writes ./Body and Soul.pdf
-pnpm sbscore export soul --musicxml -o .     # or MusicXML, to open in MuseScore/Finale/Sibelius
+make cli ARGS="list"                    # list charts
+make cli ARGS="show soul"               # the text projection: a four-bar grid with addresses
+make cli ARGS='new --title "Blue Monk" --composer "Thelonious Monk" --key Bb --bars 12'
 ```
 
-Or open it in the browser and edit it there:
+> **No port juggling (optional).** Running several projects locally? Copy `compose.override.yaml.example`
+> to `compose.override.yaml` (gitignored) and `make up` publishes **no host port at all** — a
+> machine-wide [Traefik](https://traefik.io) proxy auto-detects the container and serves it at
+> **<http://sibei-score.localhost/>** instead, so nothing can ever collide on 8080. The `.example` file
+> has the one-time proxy setup. This routes through a proxy that listens beyond loopback, so it stays a
+> personal, gitignored convenience; the committed default remains loopback-only on 8080.
 
-```sh
-pnpm ui                    # Vite dev server on 127.0.0.1:5173 (proxies /v1 to the API)
-# visit http://127.0.0.1:5173/#/score/soul, click a note, change its pitch — the store updates,
-# and any other open tab (or `sbscore show`) reflects it without a reload.
-```
+Prefer to run from source (Node ≥ 22 + [pnpm](https://pnpm.io)) for development? `make check` runs the
+full test gate and `make` lists the source-based targets; see [`AGENTS.md`](AGENTS.md) for the layout.
 
 The full command surface is in **[`docs/cli.md`](docs/cli.md)**, and `pnpm sbscore --help` prints the
 live list of verbs, address forms and exit codes.
