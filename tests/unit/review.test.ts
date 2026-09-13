@@ -2,6 +2,7 @@ import { invalidBarChart, nastyChart } from '@sibei/fixtures';
 import {
   barReview,
   dur,
+  makeAnnotation,
   makeBar,
   makeNote,
   makeScore,
@@ -89,6 +90,34 @@ describe('reviewSummary', () => {
               duration: dur(1),
               pitch: 'C5',
               review: { flagged: true, reasons: ['low-confidence'] },
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const summary = reviewSummary(score);
+    expect(summary.invalidBars).toEqual([]);
+    expect(summary.meterNote).toBeNull();
+    expect(summary.anythingFlagged).toBe(true);
+  });
+
+  it('flags on a reviewed annotation, though it is not a bar, an item or a chord (KAN-611)', () => {
+    // Same shape as KAN-597, one object smaller: `packages/layout` carries an annotation's
+    // `review.flagged` through to the page (drawn as flagged), so a summary that misses
+    // annotations can claim nothing needs review while the page shows otherwise.
+    const score = makeScore({
+      id: 'score-flagged-annotation',
+      bars: [
+        makeBar({
+          id: 'bar-1',
+          number: 1,
+          annotations: [
+            makeAnnotation({
+              id: 'annotation-1',
+              onset: 0,
+              text: 'Solo',
+              review: { flagged: true, reasons: ['unrecognised-text'] },
             }),
           ],
         }),

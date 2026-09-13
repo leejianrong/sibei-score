@@ -62,9 +62,9 @@ export function barReview(bar: Bar, time: TimeSignature): Review {
 
 export interface ReviewSummary {
   /**
-   * Whether anything at all carries a review flag — a bar, an item or a chord. Wider than
-   * `invalidBars`, because an imported chart can flag a note or a chord symbol on its own
-   * (ADR-0011, ADR-0013) without any bar failing to fill the meter.
+   * Whether anything at all carries a review flag — a bar, an item, a chord or an annotation.
+   * Wider than `invalidBars`, because an imported chart can flag a note, a chord symbol or a piece
+   * of non-chord text on its own (ADR-0011, ADR-0013) without any bar failing to fill the meter.
    */
   anythingFlagged: boolean;
   /**
@@ -106,6 +106,7 @@ function anythingFlagged(score: Score): boolean {
     (bar) =>
       barReview(bar, score.meta.time).flagged ||
       bar.items.some((item) => item.review.flagged) ||
-      bar.chords.some((chord) => chord.review.flagged),
+      bar.chords.some((chord) => chord.review.flagged) ||
+      bar.annotations.some((annotation) => annotation.review.flagged),
   );
 }
