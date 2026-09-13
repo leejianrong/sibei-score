@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "id": "green-dolphin-v2",
+  "meta": {
+    "title": "On Green Dolphin Street",
+    "composer": "Bronislau Kaper",
+    "style": null,
+    "key": { "tonic": "C", "alter": 0, "mode": "major" },
+    "time": { "beats": 4, "beatValue": 4 }
+  },
+  "bars": [
+    {
+      "id": "bar-1",
+      "number": 1,
+      "items": [
+        {
+          "kind": "note",
+          "id": "note-1",
+          "onset": 0,
+          "duration": { "value": 4, "dots": 0 },
+          "pitch": { "step": "C", "alter": 0, "octave": 5 },
+          "accidental": "auto",
+          "tie": "none",
+          "spellingPinned": false,
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "tuplets": [],
+      "chords": [
+        {
+          "id": "chord-1",
+          "onset": 0,
+          "text": "Cmaj7",
+          "spellingPinned": false,
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "annotations": [],
+      "startBarline": "none",
+      "endBarline": "single",
+      "ending": null,
+      "review": { "flagged": true, "reasons": ["metrically-invalid"] }
+    },
+    {
+      "id": "bar-2",
+      "number": 2,
+      "items": [
+        {
+          "kind": "note",
+          "id": "note-2",
+          "onset": 0,
+          "duration": { "value": 1, "dots": 0 },
+          "pitch": { "step": "A", "alter": -1, "octave": 4 },
+          "accidental": "auto",
+          "tie": "none",
+          "spellingPinned": false,
+          "confidence": null,
+          "review": { "flagged": true, "reasons": ["low-confidence"] }
+        }
+      ],
+      "tuplets": [],
+      "chords": [
+        {
+          "id": "chord-2",
+          "onset": 0,
+          "text": "Fm6",
+          "spellingPinned": false,
+          "confidence": null,
+          "review": { "flagged": false, "reasons": [] }
+        }
+      ],
+      "annotations": [],
+      "startBarline": "none",
+      "endBarline": "single",
+      "ending": null,
+      "review": { "flagged": false, "reasons": [] }
+    }
+  ],
+  "sections": [{ "id": "section-1", "startBar": 1, "letter": "A", "name": "Head" }]
+}

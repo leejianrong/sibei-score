@@ -69,10 +69,44 @@ const PIN_SPELLINGS: DocumentMigration = {
 };
 
 /**
+ * v2 -> v3: drop a bar's stored `metrically-invalid` review reason (V9's KAN-597, this migration
+ * KAN-610). Metric validity has been derived at read, by every reader, since KAN-597 — `barReview`
+ * in `review.ts` recomputes it fresh from a bar's contents and the score's meter. The applier kept
+ * writing a copy into the document anyway, a write-through cache nothing consulted; this migration
+ * is what finally removes it, so a document written before KAN-610 does not carry a fact that could
+ * someday be trusted again by mistake.
+ *
+ * Only that one reason goes. A bar's *other* stored reasons — `low-confidence`, `unparsed-chord`,
+ * `unrecognised-text`, all of the import pipeline's and none of them recomputable — pass through
+ * untouched, and so does a bar with no `metrically-invalid` to begin with.
+ */
+const DROP_METRICALLY_INVALID: DocumentMigration = {
+  from: 2,
+  note:
+    'v3 stopped storing the derivable `metrically-invalid` review reason on a bar (KAN-610) — ' +
+    'every reader has derived it fresh, through `barReview`, since KAN-597',
+  migrate(document) {
+    const bars = (document.bars as RawDocument[] | undefined) ?? [];
+    return {
+      ...document,
+      bars: bars.map((bar) => {
+        const review = bar.review as { reasons?: unknown } | undefined;
+        if (review === undefined || !Array.isArray(review.reasons)) return bar;
+        const reasons = review.reasons.filter((reason) => reason !== 'metrically-invalid');
+        return { ...bar, review: { flagged: reasons.length > 0, reasons } };
+      }),
+    };
+  },
+};
+
+/**
  * The chain, in order — one migration per version step, so a document from any older build climbs
  * to the current shape (ADR-0028).
  */
-export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [PIN_SPELLINGS];
+export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [
+  PIN_SPELLINGS,
+  DROP_METRICALLY_INVALID,
+];
 
 /** Why a document could not be read. Distinguished so a caller can say something useful. */
 export type MigrationFailure =

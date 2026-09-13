@@ -2,7 +2,6 @@ import {
   DEFAULT_KEY,
   DEFAULT_TIME,
   SCHEMA_VERSION,
-  barReview,
   makeBar,
   makeChord,
   makeNote,
@@ -264,8 +263,11 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     },
   };
 
-  // Changing the meter changes which bars are metrically valid without touching a single note,
-  // so the flags have to be recomputed rather than left where they were.
+  // Changing the meter used to mean recomputing every bar's stored metric-validity flag; since
+  // KAN-610 that flag is not stored at all, so a reader derives it fresh from the new
+  // `score.meta.time` and there is nothing here for a meter change to update. reflagAllBars still
+  // runs, the same invariant-preserving pass every bar rewrite gets, so a bar's stored review can
+  // never end up carrying the one reason the applier promises never to write.
   return {
     score: reflagAllBars(next),
     operation: { type: 'meta.set', payload },
@@ -458,9 +460,10 @@ function removeChord(score: Score, target: string): Applied {
  * respelling is a pure function of the score's key at apply time and the target, and replay
  * reproduces both, so recording per-object results would add nothing replay does not already have.
  *
- * Rhythm is untouched, so metric validity cannot change — but the bars are reflagged anyway, the
- * same no-op `meta.set` performs, so the stored write-through flag can never fall out of step with
- * the rule that derives it.
+ * Rhythm is untouched, and since KAN-610 there is no stored metric-validity flag left to fall out
+ * of step in the first place — but the bars are reflagged anyway, the same no-op `meta.set`
+ * performs, so a bar's stored review can never end up carrying the one reason the applier promises
+ * never to write.
  */
 function transpose(score: Score, payload: TransposePayload): Applied {
   const to = validKey(payload.to);
@@ -479,7 +482,7 @@ function transpose(score: Score, payload: TransposePayload): Applied {
       changed.push(chord.id);
       return { ...chord, text: moved };
     });
-    return reflag({ ...bar, items, chords }, score.meta.time);
+    return reflag({ ...bar, items, chords });
   });
 
   const next: Score = { ...score, meta: { ...score.meta, key: to }, bars };
@@ -697,40 +700,39 @@ function chordReview(text: string): Review {
 }
 
 // ---------------------------------------------------------------------------
-// Bar rewriting, and the metric flag
+// Bar rewriting, and its stored review
 // ---------------------------------------------------------------------------
 
-/** Rewrite one bar, then bring its review flag back in line with its rhythm. */
+/** Rewrite one bar, then normalise its stored review: the derivable reason never survives a rewrite. */
 function mapBar(score: Score, barId: Id, change: (bar: Bar) => Bar): Score {
   return {
     ...score,
-    bars: score.bars.map((bar) => (bar.id === barId ? reflag(change(bar), score.meta.time) : bar)),
+    bars: score.bars.map((bar) => (bar.id === barId ? reflag(change(bar)) : bar)),
   };
 }
 
 function reflagAllBars(score: Score): Score {
-  return { ...score, bars: score.bars.map((bar) => reflag(bar, score.meta.time)) };
+  return { ...score, bars: score.bars.map((bar) => reflag(bar)) };
 }
 
 /**
- * Metric validity is derived, never an invariant (ADR-0013). This is the *flagging* half of
- * "stored and flagged": a bar that does not sum to the meter carries `metrically-invalid` in its
- * review, and one that does no longer carries it.
+ * Metric validity is derived, never an invariant (ADR-0013), and since KAN-610 it is never stored
+ * either. `barReview` in `@sibei/model` computes `metrically-invalid` fresh from a bar's contents
+ * and `score.meta.time`, and that is now the *only* place the reason exists — every reader has
+ * gone through it since KAN-597, so the copy this function used to write into the document was a
+ * write-through cache nothing consulted. Dropping it was the document shape change KAN-610 owed a
+ * migration for (ADR-0028; see `migrate.ts`'s `DROP_METRICALLY_INVALID` step for documents written
+ * before it).
  *
- * The rule itself is `barReview` in `@sibei/model`, not a second copy of it here. That matters
- * because as of KAN-597 the model **derives** this reason at read time in every consumer, and the
- * stored copy this function writes is a write-through cache rather than the authority. Two
- * implementations of one rule is how the authority and the cache came to disagree in the first
- * place; borrowing the model's means the stored copy can only ever be out of date, never wrong in
- * principle. Dropping the stored copy altogether is a document shape change owing a migration and a
- * fixture (ADR-0028), so it is booked separately.
- *
- * Only the derivable reason is touched, which is `barReview`'s guarantee: v0.2 sets
- * `low-confidence` and friends from the import pipeline, and a rhythm edit has no business
- * clearing those.
+ * What is left to do on a rewrite is narrower: strip a stale `metrically-invalid` if one somehow
+ * survives (a migrated document never carries one, so this is normally a no-op) and leave every
+ * other stored reason alone. `low-confidence`, `unparsed-chord` and `unrecognised-text` come from
+ * the import pipeline and nothing here can recompute them, so a rhythm edit, a key change or a
+ * transpose has no business clearing them.
  */
-function reflag(bar: Bar, time: TimeSignature): Bar {
-  return { ...bar, review: barReview(bar, time) };
+function reflag(bar: Bar): Bar {
+  const reasons = bar.review.reasons.filter((reason) => reason !== 'metrically-invalid');
+  return { ...bar, review: { flagged: reasons.length > 0, reasons } };
 }
 
 // ---------------------------------------------------------------------------

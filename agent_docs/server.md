@@ -40,10 +40,11 @@ edit, and bumping it would make a plain read look like somebody else's write. Th
 there is a separate SQL statement for it with `version` conspicuously absent from the SET
 clause, and no general "update the document" statement that could do it by accident.
 
-The chain is a *parameter* of the store, not an import, so the write-back path is tested
-against a synthetic migration while `DOCUMENT_MIGRATIONS` is still empty. Every model change
-that alters the document shape owes a migration and a fixture. That is a standing tax and it
-is the point.
+The chain is a *parameter* of the store, not an import, so the write-back path's own test can
+still exercise a synthetic migration alongside the real chain in `DOCUMENT_MIGRATIONS` (two
+steps so far: V6d's `spellingPinned` backfill, KAN-610's drop of the stored
+`metrically-invalid` reason). Every model change that alters the document shape owes a
+migration and a fixture. That is a standing tax and it is the point.
 
 ## The op log, and the one write path
 
