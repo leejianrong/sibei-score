@@ -141,6 +141,32 @@ export function validBarsRatio(score: Score): number {
   return bars.filter((bar) => bar.valid).length / bars.length;
 }
 
+/** The mean of a set of per-chart metrics — one row of the `make eval` table. */
+export interface AggregateMetrics {
+  count: number;
+  noteF1: number;
+  noteAccuracy: number;
+  chordF1: number;
+  validBarsRatio: number;
+}
+
+/** Average per-chart metrics into a single row. An empty set aggregates to zeros. */
+export function aggregate(all: readonly OmrMetrics[]): AggregateMetrics {
+  const count = all.length;
+  if (count === 0) {
+    return { count: 0, noteF1: 0, noteAccuracy: 0, chordF1: 0, validBarsRatio: 0 };
+  }
+  const mean = (select: (m: OmrMetrics) => number): number =>
+    all.reduce((sum, m) => sum + select(m), 0) / count;
+  return {
+    count,
+    noteF1: mean((m) => m.note.f1),
+    noteAccuracy: mean((m) => m.note.accuracy),
+    chordF1: mean((m) => m.chord.f1),
+    validBarsRatio: mean((m) => m.validBarsRatio),
+  };
+}
+
 /** Score a recognised chart against ground truth: note accuracy, chord accuracy, valid bars. */
 export function scoreOmr(predicted: Score, truth: Score): OmrMetrics {
   const predLabels = extractLabels(predicted);
