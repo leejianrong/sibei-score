@@ -9,3 +9,6 @@ allowBuilds:
   # data ADR-0028 calls irreplaceable.
   better-sqlite3: true
   esbuild: true
+  # sharp (V12b): the synthetic-corpus image degrader. A native libvips binding fetched at
+  # install — a build-time dev tool only (@sibei/synth, ADR-0031), never in a shipped bundle.
+  sharp: true
