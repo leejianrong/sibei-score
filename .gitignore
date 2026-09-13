@@ -3,3 +3,6 @@ dist/
 out/
 *.tsbuildinfo
 .DS_Store
+
+# Personal, machine-local Traefik dev-proxy wiring. Commit compose.override.yaml.example instead.
+compose.override.yaml
