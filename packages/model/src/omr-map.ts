@@ -1,6 +1,5 @@
 import { DEFAULT_KEY, DEFAULT_TIME, makeBar, makeNote, makeRest, makeScore } from './build.js';
 import { durationTicks } from './duration.js';
-import { barMetrics } from './metrics.js';
 import type { OmrBarline, OmrDocument, OmrNotehead, OmrRest, OmrStaff } from './omr.js';
 import type {
   Bar,
@@ -359,8 +358,11 @@ const NOTE_VALUE_OF_LABEL: Record<string, NoteValue> = {
 /**
  * Build a numbered model bar from a raw one. Onsets are laid end to end from the start of the bar in
  * reading (x) order — the melody is monophonic, so left-to-right is time order. When the durations do
- * not sum to the meter the bar is *still stored*, flagged metrically invalid rather than repaired
- * (ADR-0013): a wrong rhythm is exactly what a human corrects against the source image.
+ * not sum to the meter the bar is *still stored*, rather than repaired (ADR-0013): a wrong rhythm is
+ * exactly what a human corrects against the source image. Metric validity is derived at read
+ * (`barReview` in `review.ts`), never stored — the mapper follows the same rule the applier does
+ * (KAN-610) rather than mirroring a stored copy that would immediately go stale the moment a note
+ * in the bar is corrected.
  */
 function buildBar(raw: RawBar, number: number): Bar {
   const items: BarItem[] = [];
@@ -394,13 +396,7 @@ function buildBar(raw: RawBar, number: number): Bar {
     onset += durationTicks(item.duration);
   }
 
-  const bar = makeBar({ id: `bar-${number}`, number, items });
-  // Stamp the bar's own review with the derived metric flag, mirroring what the applier writes on
-  // every edit (`review.ts`): readers derive `metrically-invalid` fresh, but storing it keeps an
-  // imported document consistent with an authored one.
-  const metrics = barMetrics(bar, DEFAULT_TIME);
-  if (!metrics.valid) bar.review = flagged('metrically-invalid');
-  return bar;
+  return makeBar({ id: `bar-${number}`, number, items });
 }
 
 function flagged(reason: ReviewReason): Review {

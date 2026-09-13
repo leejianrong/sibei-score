@@ -88,6 +88,72 @@ describe('the real chain', () => {
     expect(chord).toMatchObject({ id: 'chord-1', text: 'Cmaj7', spellingPinned: false });
   });
 
+  it('drops a stored metrically-invalid reason from a v2 bar (the real v2 -> v3 step, KAN-610)', () => {
+    // A document written before KAN-610, with a bar an older applier flagged `metrically-invalid`
+    // on write. The migration must drop that one reason and nothing else — a coexisting stored
+    // reason nothing can derive (`low-confidence`, from the import pipeline) passes through
+    // untouched, and a clean bar stays clean.
+    const v2: RawDocument = {
+      schemaVersion: 2,
+      id: 'score-1',
+      meta: {
+        title: 'T',
+        composer: '',
+        style: null,
+        key: { tonic: 'C', alter: 0, mode: 'major' },
+        time: { beats: 4, beatValue: 4 },
+      },
+      bars: [
+        {
+          id: 'bar-1',
+          number: 1,
+          items: [],
+          tuplets: [],
+          chords: [],
+          annotations: [],
+          startBarline: 'none',
+          endBarline: 'single',
+          ending: null,
+          review: { flagged: true, reasons: ['metrically-invalid', 'low-confidence'] },
+        },
+        {
+          id: 'bar-2',
+          number: 2,
+          items: [],
+          tuplets: [],
+          chords: [],
+          annotations: [],
+          startBarline: 'none',
+          endBarline: 'single',
+          ending: null,
+          review: { flagged: true, reasons: ['metrically-invalid'] },
+        },
+        {
+          id: 'bar-3',
+          number: 3,
+          items: [],
+          tuplets: [],
+          chords: [],
+          annotations: [],
+          startBarline: 'none',
+          endBarline: 'single',
+          ending: null,
+          review: { flagged: false, reasons: [] },
+        },
+      ],
+      sections: [],
+    };
+
+    const result = migrateDocument(v2);
+    expect(result.migrated).toBe(true);
+    expect(result.score.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(result.score.bars.map((bar) => bar.review)).toEqual([
+      { flagged: true, reasons: ['low-confidence'] },
+      { flagged: false, reasons: [] },
+      { flagged: false, reasons: [] },
+    ]);
+  });
+
   it('refuses a document from a newer schema version, rather than guessing', () => {
     // The worst available outcome is a quiet misread of irreplaceable data, so this is a hard
     // error and the message says what to do about it.
