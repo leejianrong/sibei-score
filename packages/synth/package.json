@@ -1,0 +1,16 @@
+{
+  "name": "@sibei/synth",
+  "version": "0.1.0-dev",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only synthetic lead-sheet data and OMR-evaluation metrics. A build-time tool, not runtime: it may use Node APIs (ADR-0031) and must never enter a product bundle (guarded by tests/arch).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "dependencies": {
+    "@sibei/model": "workspace:*",
+    "@sibei/music": "workspace:*"
+  }
+}
