@@ -872,6 +872,198 @@ this is the slice that grows a crop UI. Q42 (the gate itself).
 
 ---
 
+# v0.3 — the bespoke recogniser
+
+> **Added, 2026-09-13.** oemer ships as v0.2's engine (V9–V14) and works, but it is
+> unsatisfactory on two axes the maintainer cares about: recognition accuracy on real
+> photos, and the RAM its full-page dual-U-Net segmentation demands (ADR-0025's CPU floor
+> is a floor on *speed*, not on memory). This milestone explores replacing it with a
+> **bespoke, staged pipeline we train ourselves** — layout detection, then per-crop
+> recognisers — sized for CPU and low RAM. It is planning of record, not yet built.
+
+The whole milestone rests on one insight and one constraint.
+
+**The insight: we own a ground-truth data generator.** `engrave` + `layout` + `model` +
+`music` render a `Score` to a pixel-exact page. Run that in reverse-gear as a *labeller*:
+generate plausible lead sheets, render them, and read off both the detection boxes and the
+note/chord sequences for free. Infinite, perfectly-labelled, in-domain training data — the
+thing that normally makes "train our own OMR" a multi-year labelling slog. The synthetic→real
+gap is bridged by domain randomisation (fonts, spacing, skew, blur, JPEG noise, paper
+texture, shadow) and a small real control set, exactly as V12's harness already demands.
+
+**The constraint: the engine boundary does not move.** A bespoke engine must emit the same
+`OmrDocument` (`packages/model/src/omr.ts`), coordinates and all, so `mapOmrToScore`
+(V11), the `WorkerClient` port, the job runner, the `/v1/imports` routes and both surfaces
+are **untouched** — this is the ADR-0005 boundary doing its job. Where the bespoke output
+genuinely cannot fit the schema, the schema is *evolved* (bump `OMR_SCHEMA_VERSION`), never
+bypassed. oemer stays a selectable engine behind a new selection seam; the swap of the
+**default** is *earned on the V12 harness* (ADR-0020), never decided by eye.
+
+New ADRs this milestone writes: **ADR-0031** (the bespoke recogniser — the staged
+architecture, the engine-selection seam, and the "conform to `OmrDocument`" rule); and a
+note that `packages/synth` is a **deliberate exception** to the `model`/`layout`/`music`
+"no Node APIs" invariant — it is a build-time data tool, not runtime, and must stay out of
+every product bundle (`tests/arch` guards this, the way it guards the framework-free
+packages today). Training code and the corpus never enter git or the shipped image; they
+follow the `worker/fetch_weights.py` pattern — `.gitignore`d, produced/fetched on demand,
+baked and checksummed into the worker image at build (ADR-0024).
+
+**This milestone depends on V12.** You cannot earn an engine swap without the harness that
+scores it. V12 is therefore a hard prerequisite for V15, not merely prior art.
+
+## V15: The synthetic-data gate
+
+**Delivers:** the exit condition for ADR-0031, and the go/no-go on training our own
+
+The riskiest unknown in the milestone, taken first, the way V1/V1b/V9 were. Everything
+here rests on synthetic renders transferring to real photos. If a recogniser trained on
+**synthetic data only** cannot read **real** staves within striking distance of oemer, the
+"train our own" strategy collapses and the honest move is to stay on oemer (or go find real
+labelled data). This slice buys that evidence before a line of the full pipeline is built.
+The staff recogniser is chosen as the probe because monophonic single-staff recognition is
+the most-solved sub-problem in the OMR literature — a small CRNN+CTC — so a failure here is
+a failure of the *data strategy*, not of an over-ambitious model.
+
+**Build plan**
+
+1. `packages/synth` (NEW): a dev-only TypeScript tool reusing `model` + `music` + `layout`
+   + `engrave`. Generate plausible lead sheets (random progressions over the chord grammar,
+   melodies within range) → render → emit `(image, labels)` pairs, the labels carrying both
+   pixel boxes and the ordered note/rest sequence. Node APIs allowed; asserted out of every
+   product bundle by `tests/arch`.
+2. Domain randomisation: music face, staff spacing, line weight, skew, blur, JPEG noise,
+   paper texture, shadow — seeded and deterministic (a seed in, the same corpus out).
+3. Train **one** stage — the staff recogniser (a system crop → note/rest sequence with
+   x-positions) — on synthetic data only. Small, CPU-inference, low RAM.
+4. The engine-selection seam in the worker: `sibei_omr/engines/{oemer,bespoke}/`,
+   `oemer` moved intact from `recognize.py`, chosen by config, `oemer` the default.
+5. **Gate:** run the staff recogniser through the **V12 harness** on the *real* control
+   set against oemer's notes. Within a threshold recorded on ADR-0031 → proceed to V16.
+   Not within it → stop; record whether the fix is more/better synthetic data or a return
+   to oemer, on ADR-0031.
+
+**Demo:** `make eval` scoring the bespoke staff recogniser beside oemer on the real control
+set, note-level, with the synthetic→real gap visible — the same table V12 prints, one column
+richer.
+
+**Rests on assumptions:** the ground-truth-generator insight above, and Q41 (synthetic
+ground truth is representative enough) — which is precisely what this slice exists to test.
+If wrong, V16 and V17 do not happen and oemer stays the engine.
+
+### Test plan
+
+#### End-to-end
+- The generator emits an image whose committed labels match the `Score` it rendered, box
+  for box and note for note.
+- `make eval` scores the bespoke staff recogniser on the real control set and prints it
+  beside oemer.
+
+#### Integration
+- `packages/synth` imports no product-runtime code path that would pull it into a bundle,
+  and the `no-Node` packages still import nothing from it — asserted by `tests/arch`.
+- The engine seam returns a schema-valid `OmrDocument` for both `oemer` and `bespoke`.
+
+#### Unit
+- Each degradation is deterministic given its seed, so two corpus builds compare.
+- Label extraction: a tie, a triplet and a two-chord bar produce the correct sequence.
+
+---
+
+## V16: The bespoke engine
+
+**Delivers:** R5 (re-delivered at a lower RAM floor), and the earned default-engine swap
+for notes and bars
+
+V15 proved the data. This slice builds the rest of the pipeline and assembles a real engine
+— the one that has to *beat oemer on the harness* to earn the default.
+
+**Build plan**
+
+1. Stage 1, the layout detector (`worker/sibei_omr/engines/bespoke/layout.py`): a small
+   object detector (YOLO-nano class, CPU) trained on synthetic data to find staff systems,
+   barlines, the chord band, and title/text blocks. Bars and four-bar phrases are *derived*
+   from barlines + system breaks, not detected as objects (they are a layout convention,
+   not a thing on the page).
+2. Assembly (`assemble.py`): stage 1 + V15's staff recogniser → an `OmrDocument` carrying
+   staves, noteheads, note groups, single barlines and rests with coordinates — the exact
+   shape the schema already defines, so `mapOmrToScore` and the API are untouched.
+3. Measure on the **V12 harness** against oemer: note accuracy, barline counts, percentage
+   of metrically valid bars — **and peak RAM**, the axis this milestone exists to move.
+4. Flip the default engine to `bespoke` **only if** it wins the harness; oemer stays
+   selectable as the fallback. Record the numbers on ADR-0031.
+
+**Demo:** import the same real photo twice, once per engine, and open both drafts beside the
+`make eval` table — the bespoke draft is at least as good, at a fraction of the RAM.
+
+**Rests on assumptions:** V15's gate passed. Q26 (multi-image imports still join in order,
+unchanged from V11). Barline *type* is still not detected (ADR-0021), same as oemer.
+
+### Test plan
+
+#### End-to-end
+- The bespoke engine imports a fixture photo to a draft whose bar count matches ground
+  truth, opening/editing/exporting like any other score.
+- An image with no detectable staff fails cleanly, same contract as V11.
+
+#### Integration
+- The bespoke engine's document validates against the `model` schema across the control
+  set, and `mapOmrToScore` consumes it with no bespoke-specific branch.
+- Peak RAM for a full-page import is recorded and is below oemer's on the same image.
+
+#### Unit
+- Bars/phrases are derived correctly from detected barlines + system breaks, including a
+  section whose length is not a multiple of four.
+- Coordinate sanity: every detected object lands inside the source image bounds.
+
+---
+
+## V17: Bespoke chords, and the swap
+
+**Delivers:** R5 (completes the bespoke pipeline), R6 (the harness now scores a whole
+bespoke import)
+
+V13 built the chord pipeline on oemer's coordinates with PaddleOCR on the band (ADR-0027).
+Because the bespoke engine emits the *same* coordinates, V13's stage-3 beat mapping and the
+V5 grammar corrector ride on top unchanged — so this slice only replaces the OCR itself,
+which is the remaining PaddleOCR RAM/accuracy cost, and closes the loop.
+
+**Build plan**
+
+1. Stage 2b (`engines/bespoke/chords.py`): a bespoke chord-band recogniser trained on
+   synthetic chord renders (the generator already emits the chord sequence as a label),
+   feeding the V5 grammar corrector (ADR-0011) — reusing the mechanism, not building a
+   second one, exactly as V13 reused it for PaddleOCR.
+2. Reuse V13's beat mapping (chord box → note/barline X-coordinate) verbatim; it depends on
+   coordinates, which the bespoke engine already provides.
+3. Non-chord band text and rehearsal letters handled as in V13 (Q56), unchanged.
+4. Re-run `make eval` for chord accuracy; record the bespoke figure beside V13's PaddleOCR
+   baseline on ADR-0031.
+
+**Demo:** import a dense-chord chart through the fully-bespoke engine and see chords land on
+the right beats with the uncertain ones flagged; `make eval` reports chord accuracy at or
+above the PaddleOCR baseline, at lower RAM.
+
+**Rests on assumptions:** V16 shipped. Q56 (chords above the staff), and Q71 transitively —
+beat mapping still needs coordinates, which the bespoke engine supplies.
+
+### Test plan
+
+#### End-to-end
+- A dense-chord fixture imports through the bespoke engine with chords at the correct beats,
+  measured against ground truth.
+- Non-chord band text survives as a flagged annotation, not a bogus chord.
+
+#### Integration
+- The grammar corrector improves bespoke chord accuracy over raw bespoke OCR, and the
+  harness shows by how much.
+- A whole bespoke import (notes + chords) scores on the harness at or above the oemer +
+  PaddleOCR baseline, at lower peak RAM.
+
+#### Unit
+- Beat mapping on bespoke coordinates matches V13's behaviour on a shared fixture.
+
+---
+
 ## Sequencing notes
 
 - **V1, V1b and V9 are gates, not features.** Each has an explicit decision as its exit
@@ -888,3 +1080,10 @@ this is the slice that grows a crop UI. Q42 (the gate itself).
 - **v0.1 must carry v0.2's fields.** Confidence and review flags exist in the model from
   V1 even though nothing sets them until V11, because adding them later would mean
   migrating a library of hand-corrected charts (ADR-0026, ADR-0028).
+- **V15 is a gate, and v0.3 depends on V12.** The bespoke recogniser earns its keep only on
+  the evaluation harness, so V12 must exist first, and V15 is a hypothesis about synthetic
+  data tested before V16/V17 are built on it — the same discipline as V1/V1b/V9.
+- **The engine boundary is what makes v0.3 safe.** Every v0.3 slice conforms to
+  `OmrDocument` (ADR-0005, ADR-0031), so `mapOmrToScore`, the runner and both surfaces never
+  learn which engine ran. That is what lets oemer and the bespoke engine be compared on the
+  harness and kept side by side, with the default swapped only when the numbers say so.
