@@ -679,11 +679,14 @@ every non-import feature still works.
 > what is actually emitted, defaults key = C major / time = 4/4, reads pitch against a treble clef, and
 > produces no ties or triplets — every gap a flagged draft the human corrects (ADR-0019). Detecting
 > clef/key/time/ties/triplets needs the worker **and** the schema (`packages/model/src/omr.ts`,
-> `OMR_SCHEMA_VERSION`) extended **and a fresh real-oemer fixture** — none of which can be produced or
-> verified in the current environment (no oemer, no Docker: the org egress policy blocks every
-> container registry, so no base image is pullable). Rather than ship untested Python and a fabricated
-> fixture, this is deferred to a host with oemer/registry access, and it is a **documented deviation
-> from ADR-0021**'s "key and time signature … detected on import". Build-plan item 1 (explicit
+> `OMR_SCHEMA_VERSION`) extended **and a fresh real-oemer fixture** — none of which could be produced or
+> verified in the environment V11 was built in (no oemer, no Docker: that host's org egress policy
+> blocked every container registry, so no base image was pullable). [**Corrected at V12:** that was a
+> property of *that* build host, not the project. On a host with Docker + registry access the worker
+> image builds and oemer runs (V9's pins hold), so the blocker on a real-oemer fixture is registry
+> access plus RAM, not a standing limitation — see the V12 note.] Rather than ship untested Python and a
+> fabricated fixture, this is deferred to a host with oemer/registry access, and it is a **documented
+> deviation from ADR-0021**'s "key and time signature … detected on import". Build-plan item 1 (explicit
 > preprocessing) is likewise deferred: `recognize.py` already deskews/dewarps via oemer, and explicit
 > crop/contrast is untestable here.
 >
@@ -746,6 +749,43 @@ Q37, Q26.
 ---
 
 ## V12: The evaluation harness
+
+> **Update, 2026-09-14. Landed (the harness; the real oemer baseline as far as the host allows).**
+> The measurement now exists. It is built in four sub-slices (V12a–d) landed as stacked PRs the way
+> V2–V11 were, and around **one deviation confirmed with the maintainer: `packages/synth` is created
+> here, a slice ahead of V15's build-plan-item-1**, so v0.3's synthetic generator *extends* it rather
+> than duplicating the render+degrade kernel (the ADR-0031 §"One invariant exception" grant, taken up
+> early). **V12a** is the pure core (`packages/synth`: a seeded PRNG, `generateScore` — plausible
+> diatonic lead sheets with metrically-valid bars, ground-truth `labels`, and note/chord/valid-bar
+> `metrics` by LCS+Levenshtein alignment), plus the inverse `tests/arch` guard that keeps the
+> build-time tool out of every shipped bundle. **V12b** is the imaging half behind `@sibei/synth/imaging`
+> (native, so it is kept off the fast layer's dlopen trap): `renderScoreToPng` (the layout+engrave
+> composition, not `@sibei/pdf`, ADR-0014) and a seeded, deterministic `degrade` — perspective (a
+> hand-rolled homography, since sharp has no perspective op), blur, shadow, paper texture, noise, JPEG.
+> **V12c** is `runEval` + `scripts/eval.ts` + `pnpm eval`/`make eval` + `docs/eval.md` (the metric
+> definitions and the human-time ship gate as a repeatable stopwatch procedure) + the
+> `tests/fixtures/eval/real/` control-set scaffold + per-run `eval/history.jsonl`. **V12d** is this
+> status note and the rest of the docs.
+>
+> **Two corrections against contact with the code (AGENTS.md's "trust the code"):**
+> - Build-plan item 1 says "render known **MusicXML** to images". The generator renders a `Score`
+>   directly through `layout`+`engrave` — MusicXML is a codec at the edges (ADR-0004), not the render
+>   input, and the `Score` *is* the ground truth for free, which is the whole point (ADR-0020/0031). So
+>   the corpus is generated `Score`s, not round-tripped MusicXML.
+> - The recogniser is an **injected `Predict` seam**, so the harness scores oemer today and v0.3's
+>   bespoke engine later unchanged (ADR-0005) — and is fully testable without oemer (a fake predictor
+>   proves the sensitivity: a degraded corpus scores below a clean one).
+>
+> **The "no oemer / no Docker" limitation in the V10/V11 notes below was true on *that* build host, not
+> on all of them.** On a host with Docker + registry access (this one), the worker image builds and
+> oemer runs — verified: the image built, the worker came up healthy (oemer 0.1.8, CPU provider). So
+> reaching a real baseline is a question of **RAM, not access.** oemer peaks ~7 GB (V9), and on this
+> 8 GB / earlyoom host the real recognition **was OOM-killed** — the container exited 137 as oemer
+> loaded its model, and the harness failed cleanly with a diagnostic (the Q80 mid-import-death
+> behaviour, reached through the real path). So the real oemer **baseline is deferred to a bigger host**;
+> the synthetic-per-level table stands on its own, and `make eval --engine fixture` exercises the whole
+> harness without oemer. The OOM is not a bug — it is direct evidence for v0.3's RAM premise (ADR-0031),
+> the very reason the milestone exists.
 
 **Delivers:** R6 (the measurement), and the gate ADR-0011 stage 2 depends on
 

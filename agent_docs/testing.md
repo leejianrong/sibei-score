@@ -5,8 +5,11 @@ is specific.
 
 - **The suite is two layers** (`vitest.config.ts`), split by what a test needs in order to run
   rather than by what it is about. `fast` is `unit`, `integration`, `e2e` and `arch`; `infra` is
-  `store`, `api`, `cli` and `browser`, and needs better-sqlite3's native binding, a listening
-  socket, a real subprocess, and — for `browser` (V4d) — a real Chromium that Playwright drives.
+  `store`, `api`, `cli`, `browser`, `imaging` and `eval`, and needs better-sqlite3's native binding, a
+  listening socket, a real subprocess, and — for `browser` (V4d) — a real Chromium that Playwright
+  drives. `imaging` and `eval` (V12) need the `@resvg/resvg-js` and `sharp` native bindings that
+  `@sibei/synth/imaging` loads — which is exactly why the pure `@sibei/synth` core (generator, labels,
+  metrics) is a separate subpath and stays in the fast layer.
   **The pre-push hook runs `fast` only** — a slow gate gets bypassed and then it protects nothing.
   `pnpm test` and CI run both.
 - **The `fast` layer really is infra-free, and it is measured rather than intended** (KAN-514).
@@ -30,6 +33,13 @@ is specific.
   `playwright install --with-deps chromium`. A jsdom simulation was rejected on purpose: it would
   pass while the product is broken. `playwright@1.56.0` is pinned to match the pre-installed
   Chromium build (1194).
+- **The eval harness is tested without oemer, and its oemer path self-skips** (V12, `tests/eval/`).
+  The harness takes an injected recogniser (`Predict`), so its plumbing and its sensitivity — a
+  degraded corpus must score below a clean one — are proven with a deterministic *fake* recogniser
+  that needs no worker. The one test that runs the real oemer worker end to end probes
+  `SBSCORE_WORKER_URL`'s `/health` and **skips itself** when nothing answers, the same honest-report
+  discipline as the dlopen skip and `tests/e2e/omr-spike.test.ts`: on a machine without oemer (or one
+  where its ~7 GB is OOM-killed) the run it exists to check cannot happen, so red would be noise.
 - **Every bug and every flake becomes a test first**, then gets fixed.
 - **Prove a new guard by watching it fail.** A guard that has never gone red is a guard you are
   guessing about. Break the thing it protects, check the failure names the right thing, restore
