@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { OperationError, applyOperation, replay } from '@sibei/api';
 import type { Operation } from '@sibei/api';
-import { TICKS_PER_QUARTER, barMetrics, dur, formatPitch, notesOf, reviewSummary } from '@sibei/model';
+import {
+  TICKS_PER_QUARTER,
+  barMetrics,
+  barReview,
+  dur,
+  formatPitch,
+  notesOf,
+  reviewSummary,
+} from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -243,14 +251,20 @@ describe('removing', () => {
 });
 
 describe('metric validity is flagged, never repaired or refused (ADR-0013)', () => {
-  it('flags a bar that does not fill the meter', () => {
+  it('derives a flag for a bar that does not fill the meter, but stores none of it (KAN-610)', () => {
     const score = applyOperation(create(), quarterAt('bar1.beat1', 'Eb5')).score;
     const bar = score.bars[0]!;
     expect(barMetrics(bar, score.meta.time).status).toBe('under');
-    expect(bar.review).toEqual({ flagged: true, reasons: ['metrically-invalid'] });
+    expect(barReview(bar, score.meta.time)).toEqual({
+      flagged: true,
+      reasons: ['metrically-invalid'],
+    });
+    // The applier no longer writes the derivable reason at all (KAN-610): every reader derives it
+    // fresh through `barReview`, and the stored document itself stays clean.
+    expect(bar.review).toEqual({ flagged: false, reasons: [] });
   });
 
-  it('flags a bar that overflows it, and still stores every note', () => {
+  it('derives a flag for a bar that overflows it, and still stores every note', () => {
     const score = applyAll(create(), [
       { type: 'note.add', target: 'bar1.beat1', payload: { pitch: 'Eb5', duration: dur(1) } },
       { type: 'note.add', target: 'bar1.beat2', payload: { pitch: 'F5', duration: dur(1) } },
@@ -258,10 +272,11 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
     const bar = score.bars[0]!;
     expect(barMetrics(bar, score.meta.time).status).toBe('over');
     expect(bar.items).toHaveLength(2);
-    expect(bar.review.reasons).toContain('metrically-invalid');
+    expect(barReview(bar, score.meta.time).reasons).toContain('metrically-invalid');
+    expect(bar.review.reasons).not.toContain('metrically-invalid');
   });
 
-  it('clears the flag when the bar comes right', () => {
+  it('is unflagged, stored and derived alike, when the bar comes right', () => {
     const score = applyAll(create(), [
       quarterAt('bar1.beat1', 'Eb5'),
       quarterAt('bar1.beat2', 'F5'),
@@ -269,6 +284,7 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
       quarterAt('bar1.beat4', 'Ab5'),
     ]);
     expect(score.bars[0]!.review).toEqual({ flagged: false, reasons: [] });
+    expect(barReview(score.bars[0]!, score.meta.time)).toEqual({ flagged: false, reasons: [] });
   });
 
   it('leaves a blank chart unflagged, because an empty bar is not a review case (KAN-597)', () => {
@@ -293,9 +309,10 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
     expect(score.bars[0]!.review.flagged).toBe(false);
   });
 
-  it('re-flags every bar when the meter changes, without touching a note', () => {
+  it('re-derives every bar when the meter changes, without touching a note or the document', () => {
     // A bar of four quarters is exact in 4/4 and overflowing in 3/4. Nothing about the notes
-    // changed, so a flag that lived on the notes would now be wrong.
+    // changed, and — since KAN-610 — nothing about the stored document does either: there is no
+    // stored metric-validity flag left to fall out of step, only a reader's derived answer.
     let score = applyAll(create(), [
       quarterAt('bar1.beat1', 'Eb5'),
       quarterAt('bar1.beat2', 'F5'),
@@ -308,7 +325,8 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
       type: 'meta.set',
       payload: { time: { beats: 3, beatValue: 4 } },
     }).score;
-    expect(score.bars[0]!.review.reasons).toContain('metrically-invalid');
+    expect(score.bars[0]!.review).toEqual({ flagged: false, reasons: [] });
+    expect(barReview(score.bars[0]!, score.meta.time).reasons).toContain('metrically-invalid');
     expect(score.bars[0]!.items).toHaveLength(4);
   });
 
@@ -327,6 +345,23 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
       quarterAt('bar1.beat3', 'G5'),
       quarterAt('bar1.beat4', 'Ab5'),
     ]);
+    expect(applied.bars[0]!.review).toEqual({ flagged: true, reasons: ['low-confidence'] });
+  });
+
+  it('never lets a stale stored metrically-invalid reason survive a bar rewrite (KAN-610)', () => {
+    // Shaped like a document an older build (or an unmigrated read) left behind: a bar that still
+    // carries the stored reason KAN-610 stops writing. Any rewrite through the applier must drop
+    // it rather than pass it through as if it were just another stored reason.
+    const score = create();
+    const seeded: Score = {
+      ...score,
+      bars: score.bars.map((bar, index) =>
+        index === 0
+          ? { ...bar, review: { flagged: true, reasons: ['metrically-invalid', 'low-confidence'] } }
+          : bar,
+      ),
+    };
+    const applied = applyOperation(seeded, quarterAt('bar1.beat2', 'F5')).score;
     expect(applied.bars[0]!.review).toEqual({ flagged: true, reasons: ['low-confidence'] });
   });
 });

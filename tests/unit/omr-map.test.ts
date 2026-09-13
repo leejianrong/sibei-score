@@ -6,6 +6,7 @@ import {
   DEFAULT_TIME,
   OmrMappingError,
   TICKS_PER_QUARTER,
+  barReview,
   mapOmrToScore,
   parseOmrDocument,
   reviewSummary,
@@ -229,7 +230,7 @@ describe('mapOmrToScore — rests', () => {
 });
 
 describe('mapOmrToScore — metric validity is flagged, never repaired (ADR-0013)', () => {
-  it('a bar that fills the meter is not flagged; one that does not is flagged and kept', () => {
+  it('a bar that fills the meter is not flagged; one that does not is derived flagged and kept', () => {
     const score = mapOmrToScore(
       [
         page({
@@ -244,9 +245,11 @@ describe('mapOmrToScore — metric validity is flagged, never repaired (ADR-0013
       ],
       { id: 's' },
     );
-    expect(score.bars[0]!.review.flagged).toBe(false);
-    expect(score.bars[1]!.review.flagged).toBe(true);
-    expect(score.bars[1]!.review.reasons).toContain('metrically-invalid');
+    expect(barReview(score.bars[0]!, DEFAULT_TIME).flagged).toBe(false);
+    expect(barReview(score.bars[1]!, DEFAULT_TIME).flagged).toBe(true);
+    expect(barReview(score.bars[1]!, DEFAULT_TIME).reasons).toContain('metrically-invalid');
+    // The mapper does not store the derivable reason either (KAN-610) — same rule as the applier.
+    expect(score.bars[1]!.review).toEqual({ flagged: false, reasons: [] });
     // The invalid bar is still stored with its item, not dropped.
     expect(score.bars[1]!.items.length).toBe(1);
   });

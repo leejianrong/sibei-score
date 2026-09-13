@@ -10,9 +10,11 @@
  * Bumped by any change to the document shape, with a forward-only migration (ADR-0028).
  *
  * v2 (V6d) gave `Note` and `Chord` a `spellingPinned` flag, backfilled `false` onto every one
- * written before it — the first real shape change since the first commit.
+ * written before it — the first real shape change since the first commit. v3 (KAN-610) stopped
+ * storing a bar's derivable `metrically-invalid` review reason, dropped from every bar that carried
+ * it.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * An app-owned stable identifier, e.g. `note-17` (ADR-0007). Internal: it does not

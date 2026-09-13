@@ -34,9 +34,11 @@ import type { Bar, Review, Score, TimeSignature } from './score.js';
  * validity is a function of `(bar, score.meta.time)` and a bar is built without a meter, so no bar
  * constructor can derive it. Deriving at read is the only place it can be done from.
  *
- * The document still *carries* a `metrically-invalid` reason, written by the applier's `reflag`.
- * It is now a write-through cache that no reader consults, and removing it from the document is a
- * shape change owing a migration and a fixture (ADR-0028) — booked rather than smuggled in here.
+ * The document used to still *carry* a `metrically-invalid` reason, written by the applier's
+ * `reflag` — a write-through cache no reader consulted. **KAN-610 dropped it**: the applier no
+ * longer writes the reason at all, a v2 -> v3 migration carries an older document's stale copy away
+ * (ADR-0028, `migrate.ts`'s `DROP_METRICALLY_INVALID`), and `barReview` below is now the only place
+ * the reason exists, for a stored document or an in-memory one alike.
  */
 
 /** The `!` in the projection, spelled out. */
@@ -47,8 +49,10 @@ export const NEEDS_REVIEW = 'needs review';
  * derived fresh from the bar's contents rather than read back out of the document.
  *
  * Every reader goes through this — `reviewSummary` and the projection's `bar12!` marker both do —
- * so the two cannot describe one bar differently. It is also what the applier writes, so the
- * stored copy cannot disagree in *rule* with the derived answer, only in age.
+ * so the two cannot describe one bar differently. Since KAN-610 the applier does not store this
+ * reason at all (see `reflag` in `packages/api/src/ops/apply.ts`), so `stored` below is normally
+ * just a bar's *other* reasons already — the filter is a no-op on a current document and a safety
+ * net for one that has not been migrated yet.
  */
 export function barReview(bar: Bar, time: TimeSignature): Review {
   // Only the derivable reason is recomputed. The others are the import pipeline's and a rhythm has
