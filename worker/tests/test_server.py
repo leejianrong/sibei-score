@@ -20,7 +20,7 @@ import unittest
 from sibei_omr.server import serve
 
 A_DOCUMENT = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "source": {
         "engine": "oemer",
         "engineVersion": "0.1.8",
@@ -36,6 +36,7 @@ A_DOCUMENT = {
     "noteGroups": [],
     "barlines": [],
     "rests": [],
+    "bandTokens": [],
 }
 
 

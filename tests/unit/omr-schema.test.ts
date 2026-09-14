@@ -62,6 +62,7 @@ function validDocument(): OmrDocument {
     ],
     barlines: [{ bbox: [300, 100, 303, 160], group: 0 }],
     rests: [{ bbox: [400, 115, 418, 145], track: 0, group: 0, hasDot: false, label: 'QUARTER' }],
+    bandTokens: [{ text: 'Cmaj7', bbox: [118, 60, 190, 88], confidence: 0.94, group: 0 }],
   };
 }
 
@@ -79,7 +80,29 @@ describe('parseOmrDocument', () => {
     doc.staves[0]!.unitSize = null;
     doc.staves[0]!.track = null;
     doc.rests[0]!.hasDot = null;
+    doc.bandTokens[0]!.confidence = null;
+    doc.bandTokens[0]!.group = null;
     expect(() => parseOmrDocument(doc)).not.toThrow();
+  });
+
+  it('accepts an empty chord band — a chart with no chords detected (schema v2)', () => {
+    const doc = validDocument();
+    doc.bandTokens = [];
+    expect(() => parseOmrDocument(doc)).not.toThrow();
+  });
+
+  it('rejects a band token missing its text or box, and a non-array band', () => {
+    const noText = validDocument();
+    delete (noText.bandTokens[0] as unknown as Record<string, unknown>).text;
+    expect(() => parseOmrDocument(noText)).toThrow(/bandTokens\[0\]\.text is not a string/);
+
+    const noBox = validDocument();
+    (noBox.bandTokens[0] as unknown as Record<string, unknown>).bbox = null;
+    expect(() => parseOmrDocument(noBox)).toThrow(/bandTokens\[0\]\.bbox/);
+
+    const notArray = validDocument();
+    (notArray as unknown as Record<string, unknown>).bandTokens = 'nope';
+    expect(() => parseOmrDocument(notArray)).toThrow(/bandTokens is not an array/);
   });
 
   it('rejects a non-object', () => {

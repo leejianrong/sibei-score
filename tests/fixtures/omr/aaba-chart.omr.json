@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
     "engine": "oemer",
     "engineVersion": "0.1.8",
@@ -3377,5 +3377,6 @@
       "group": 5
     }
   ],
-  "rests": []
+  "rests": [],
+  "bandTokens": []
 }

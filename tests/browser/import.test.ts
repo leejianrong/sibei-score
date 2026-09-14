@@ -39,6 +39,7 @@ const CANNED: OmrDocument = {
   noteGroups: [],
   barlines: [{ bbox: [500, 100, 501, 164], group: 0 }],
   rests: [],
+  bandTokens: [],
 };
 
 /** A minimal valid PNG the upload boundary accepts (only the header is read, ADR-0029). */

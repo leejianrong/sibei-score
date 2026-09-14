@@ -60,6 +60,7 @@ function aDocument(imagePath = 'page-1'): OmrDocument {
     noteGroups: [],
     barlines: [],
     rests: [],
+    bandTokens: [],
   };
 }
 
