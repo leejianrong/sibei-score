@@ -25,11 +25,22 @@ requires-python = ">=3.11,<3.12"
 #     oemer/bbox.py:find_lines iterates it the 4.x way ("IndexError: invalid index to
 #     scalar variable" during staffline extraction). 4.10.0.84 works and stays numpy-1.x
 #     compatible. Another V9 pinning finding, same shape as the onnxruntime one.
+# V13d adds the chord-band recogniser (ADR-0027): PaddleOCR on the cropped band, feeding the V5
+# grammar corrector on the model side (ADR-0011). Two findings on contact with the code:
+#   * paddlepaddle 3.3.1 requires only numpy>=1.21, so it CO-EXISTS with oemer's numpy==1.26.4 pin
+#     above — the two engines share one image, no numpy split. (Verified: paddle's own metadata is
+#     `numpy>=1.21`.) The full co-install with the oemer set on py3.11, and the image build, are
+#     verified on a build host — the same author+defer as V10's own image (this host runs the
+#     heuristic engine + PaddleOCR in a separate light venv, where chord accuracy was measured).
+#   * paddle's oneDNN/PIR CPU path raised ConvertPirAttribute2RuntimeAttribute; band_ocr.py builds
+#     PaddleOCR with enable_mkldnn=False to route around it (CPU is the floor anyway, ADR-0025).
 dependencies = [
   "oemer==0.1.8",
   "onnxruntime==1.16.3",
   "numpy==1.26.4",
   "opencv-python-headless>=4.5.3.56,<5",
+  "paddleocr==3.7.0",
+  "paddlepaddle==3.3.1",
   "pillow",
   "scipy",
   "scikit-learn>=1.2",
