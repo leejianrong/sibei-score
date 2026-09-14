@@ -174,6 +174,18 @@ describe('the SQLite job store', () => {
     expect(store.getByScoreId(OWNER, 'import-99')).toBeNull();
   });
 
+  it('records and reads back the engine a re-parse chose (V14e), null by default', () => {
+    const plain = store.create(OWNER, ['a']);
+    expect(plain.engine).toBeNull();
+    expect(store.get(OWNER, plain.id)?.engine).toBeNull();
+
+    const chosen = store.create(OWNER, ['b'], 'heuristic');
+    expect(chosen.engine).toBe('heuristic');
+    expect(store.get(OWNER, chosen.id)?.engine).toBe('heuristic');
+    // The listing summary carries it too.
+    expect(store.list(OWNER).find((j) => j.id === chosen.id)?.engine).toBe('heuristic');
+  });
+
   it('persists jobs across a reopen of the same database', () => {
     // A file-backed store, closed and reopened, still has its jobs — the point of durable state.
     const file = `/tmp/sbscore-jobs-${process.pid}-${Date.now()}.db`;

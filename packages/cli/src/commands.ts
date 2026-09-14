@@ -65,6 +65,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
+  sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
+              (produces a NEW draft — the original and its corrections survive; no re-upload)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
@@ -177,6 +179,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return duplicate(flags, client, io, json);
     case 'import':
       return importChart(flags, client, io, json, options.cwd ?? process.cwd());
+    case 'reparse':
+      return reparse(flags, client, io, json);
     case 'meta':
       return meta(flags, client, io, json);
     case 'note':
@@ -424,6 +428,30 @@ async function importChart(
     json
       ? JSON.stringify(job)
       : `imported ${pages} to ${job.scoreId} — a draft: open it, check the flagged bars, set key/meter/sections`,
+  );
+  return EXIT.ok;
+}
+
+/**
+ * `sbscore reparse <id> [--engine oemer|heuristic]` — re-run OMR on an imported chart's retained
+ * source images into a **new** draft (V14e, ADR-0019). Nothing is re-uploaded: the server reuses the
+ * scans the original import kept. The new draft is the safe choice — the original chart and any
+ * corrections on it survive — so the CLI reports the new id, never touches the old one, and waits for
+ * the job like `import`. `--engine` picks the recogniser (heuristic on a small host, oemer where RAM
+ * allows); without it the worker keeps its default. A chart with no scan behind it (hand-authored or
+ * duplicated) is a clean validation error from the server, printed verbatim.
+ */
+async function reparse(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'reparse');
+  const engine = flags.options.get('engine');
+  const job = await client.reparse(id, engine);
+  if (job.status === 'failed') {
+    throw new CliError(EXIT.validation, 'reparse-failed', `reparse failed: ${job.diagnostic ?? 'unknown error'}`);
+  }
+  io.out(
+    json
+      ? JSON.stringify(job)
+      : `re-parsed ${id} to a new draft ${job.scoreId} — open it, check the flagged bars, set key/meter/sections`,
   );
   return EXIT.ok;
 }

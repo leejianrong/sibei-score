@@ -60,7 +60,8 @@
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
-  import { getScoreSource } from '../lib/api.js';
+  import { getScoreSource, getImport, reparseScore, REPARSE_ENGINES } from '../lib/api.js';
+  import { hashOf } from '../lib/routing.js';
 
   interface Props {
     id: string;
@@ -100,6 +101,16 @@
   let showSource = $state(false);
   const hasSource = $derived(source !== null && source.imageCount > 0);
   const splitView = $derived(hasSource && showSource);
+
+  // Re-parse (V14e, ADR-0019): re-run OMR on this chart's retained scans into a NEW draft, so the
+  // original chart and any corrections on it survive. Shown only for a source-bearing chart (`hasSource`,
+  // the same gate the scan toggle uses). `reparseEngine` is the recogniser the user picks — the worker's
+  // default until they choose one; `reparsing` guards the control and drives the progress label while the
+  // job runs (recognition is minutes, ADR-0025); `reparseError` shows a failure in place rather than
+  // navigating away.
+  let reparseEngine = $state<string>('');
+  let reparsing = $state(false);
+  let reparseError = $state<string | null>(null);
 
   // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
   // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
@@ -339,6 +350,37 @@
       }
     } catch {
       source = null;
+    }
+  }
+
+  /**
+   * Re-parse (V14e, ADR-0019): submit the chart's retained scans for a fresh OMR run and open the new
+   * draft. It reuses the same server-only import path a normal import does (the runner → `Applier.import`),
+   * so it is not a second write path, and it produces a *new* score — the chart on screen is untouched.
+   * The job is durable (ADR-0001), so this submits, polls to a terminal status while the recogniser runs,
+   * then navigates to the new draft on success (the hash change remounts the view on the new id). A
+   * failure is shown in place; the original chart is still there to keep correcting by hand.
+   */
+  async function handleReparse(): Promise<void> {
+    if (reparsing) return;
+    reparsing = true;
+    reparseError = null;
+    try {
+      let job = await reparseScore(id, reparseEngine === '' ? undefined : reparseEngine);
+      while (job.status === 'queued' || job.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        job = await getImport(job.id);
+      }
+      if (job.status === 'succeeded' && job.scoreId !== null) {
+        // Open the new draft. Keyed on the id in `App.svelte`, so this remounts the view fresh.
+        window.location.hash = hashOf({ view: 'score', id: job.scoreId });
+      } else {
+        reparseError = job.diagnostic ?? 'the re-parse did not produce a chart';
+      }
+    } catch (error) {
+      reparseError = error instanceof Error ? error.message : 'the re-parse could not be started';
+    } finally {
+      reparsing = false;
     }
   }
 
@@ -888,6 +930,29 @@
               >
                 {showSource ? 'Hide scan' : 'Show scan'}
               </button>
+              <!-- Re-parse (V14e): re-run OMR on the kept scans into a NEW draft. Shown only for a
+                   source-bearing chart, beside the scan toggle. The engine selector is optional — the
+                   worker's default until the reader picks one (heuristic on a small host, oemer where
+                   RAM allows). -->
+              <div class="reparse" role="group" aria-label="Re-parse">
+                <select
+                  class="reparse-engine"
+                  aria-label="Recognition engine"
+                  bind:value={reparseEngine}
+                  disabled={reparsing}
+                >
+                  <option value="">default engine</option>
+                  {#each REPARSE_ENGINES as engine (engine.value)}
+                    <option value={engine.value}>{engine.label}</option>
+                  {/each}
+                </select>
+                <button type="button" class="reparse-btn" disabled={reparsing} onclick={handleReparse}>
+                  {reparsing ? 'Re-parsing…' : 'Re-parse'}
+                </button>
+                {#if reparseError !== null}
+                  <span class="reparse-error" role="alert">{reparseError}</span>
+                {/if}
+              </div>
             {/if}
             <div class="zoom" role="group" aria-label="Zoom">
               <button
@@ -1196,6 +1261,44 @@
   .scan-toggle[aria-pressed='true'] {
     color: var(--accent);
     border-color: var(--accent);
+  }
+
+  /* Re-parse (V14e): the engine picker and its trigger, styled to sit beside the scan toggle. */
+  .reparse {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .reparse-engine {
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+    padding: 3px 6px;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .reparse-btn {
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+    padding: 4px 10px;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .reparse-btn:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .reparse-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .reparse-error {
+    color: var(--danger, #b00020);
+    font-size: 10.5px;
+    max-width: 22ch;
   }
 
   /* The stage scrolls sideways rather than the page body, so zooming past the window width is a

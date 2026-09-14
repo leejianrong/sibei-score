@@ -49,6 +49,15 @@ export interface ImportJob {
   status: JobStatus;
   /** BlobStore keys for the uploaded source images, in page order. Always ≥ 1. */
   imageKeys: BlobKey[];
+  /**
+   * The recognition engine the runner should ask the worker for, or `null` to let the worker pick its
+   * own default (`--engine`/`$SIBEI_OMR_ENGINE`). A normal import (`POST /v1/imports`) leaves this
+   * `null`; a **re-parse** (V14e) records the engine the user chose so the runner can thread it to the
+   * worker per-request — the durable job is the only channel the runner has to learn it (ADR-0001).
+   * The value is opaque here: the worker owns the set of engine names (ADR-0005), so nothing on this
+   * side interprets it.
+   */
+  engine: string | null;
   /** How many times the runner has started this job. 0 while `queued` and never run. */
   attempts: number;
   /** The failure reason when `failed`; `null` otherwise (Q80). */
@@ -93,8 +102,12 @@ export interface JobReader {
  * job cannot be moved twice — the guard is a fact of the write, not of the caller's discipline.
  */
 export interface JobWriter {
-  /** Record a new `queued` job for these images (≥ 1, in page order). Mints the id. */
-  create(owner: Owner, imageKeys: BlobKey[]): ImportJob;
+  /**
+   * Record a new `queued` job for these images (≥ 1, in page order). Mints the id. `engine` names the
+   * recognition engine the runner should request (V14e's re-parse); omitted (or `null`) leaves the
+   * worker to pick its default, which is every normal import's path.
+   */
+  create(owner: Owner, imageKeys: BlobKey[], engine?: string | null): ImportJob;
   /**
    * Atomically take the oldest `queued` job across all owners into `running`, incrementing its
    * attempt count, or return `null` when nothing is waiting. The runner is a system actor, so this

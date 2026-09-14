@@ -86,6 +86,14 @@ export interface Client {
    * caller runs this and waits, the CLI's equivalent of the browser's progress bar.
    */
   importImages(images: ImportImage[]): Promise<ImportJobWire>;
+  /**
+   * Re-parse an imported chart (V14e): re-run OMR on its retained source images into a *new* draft,
+   * with no re-upload. `POST /v1/scores/:id/reparse` enqueues a fresh job over the same scans (the
+   * server reuses the existing blob keys), and this polls it to a terminal status like `importImages`
+   * — a `succeeded` one names the new draft, a `failed` one carries the diagnostic. `engine` names the
+   * recogniser to use (`oemer`/`heuristic`); omitted, the worker keeps its default.
+   */
+  reparse(id: string, engine?: string): Promise<ImportJobWire>;
   health(): Promise<{ status: string; api: string }>;
 }
 
@@ -223,6 +231,21 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
   }
 
   /**
+   * Poll a queued/running import job to a terminal status (V11/V14e). Shared by `importImages` and
+   * `reparse`: the job is durable server-side (ADR-0001), so this is a read loop, not the work — the
+   * recogniser runs in the background whether or not the CLI is watching, so a caller runs this and
+   * waits, the CLI's equivalent of the browser's progress bar.
+   */
+  async function pollJob(job: ImportJobWire): Promise<ImportJobWire> {
+    let current = job;
+    while (current.status === 'queued' || current.status === 'running') {
+      await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
+      current = (await call<{ job: ImportJobWire }>('GET', `/v1/imports/${encodeURIComponent(current.id)}`)).job;
+    }
+    return current;
+  }
+
+  /**
    * The one call that does not come back as JSON. A PDF is bytes, so it is read as bytes and never
    * decoded — an artefact that went through `JSON.parse` on its way past would be a corrupted one.
    * A failure is still JSON, which is why the not-ok branch comes first.
@@ -272,13 +295,12 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
       if (!response.ok) fail(response.status, text);
       let job = (safeParse(text) as { job: ImportJobWire }).job;
 
-      // Poll to a terminal status. The job is durable server-side (ADR-0001), so this is a read loop,
-      // not the work — the work runs in the background whether or not the CLI is watching.
-      while (job.status === 'queued' || job.status === 'running') {
-        await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
-        job = (await call<{ job: ImportJobWire }>('GET', `/v1/imports/${encodeURIComponent(job.id)}`)).job;
-      }
-      return job;
+      return await pollJob(job);
+    },
+    async reparse(id: string, engine?: string): Promise<ImportJobWire> {
+      const body = engine === undefined ? {} : { engine };
+      const started = (await call<{ job: ImportJobWire }>('POST', `/v1/scores/${encodeURIComponent(id)}/reparse`, body)).job;
+      return await pollJob(started);
     },
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that

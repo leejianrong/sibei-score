@@ -49,7 +49,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return null;
     },
 
-    create(owner: Owner, imageKeys: BlobKey[]) {
+    create(owner: Owner, imageKeys: BlobKey[], engine: string | null = null) {
       if (imageKeys.length === 0) throw new Error('an import job must carry at least one image');
       const when = stamp();
       const job: ImportJob = {
@@ -57,6 +57,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
         owner,
         status: 'queued',
         imageKeys: [...imageKeys],
+        engine,
         attempts: 0,
         diagnostic: null,
         result: null,

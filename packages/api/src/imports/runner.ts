@@ -120,7 +120,13 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           // corrupted store, not a user error — but it is still this job's failure, not the API's.
           throw new WorkerError(`source image ${index + 1} is no longer a decodable image`);
         }
-        const doc = await worker.recognize(bytes, { imagePath: `page-${index + 1}`, format });
+        const doc = await worker.recognize(bytes, {
+          imagePath: `page-${index + 1}`,
+          format,
+          // A re-parse recorded the engine the user chose on the job (V14e); a normal import left it
+          // null and the worker uses its own default. `null` → omit, so the port sees `undefined`.
+          ...(job.engine === null ? {} : { engine: job.engine }),
+        });
         results.push(doc);
       }
 

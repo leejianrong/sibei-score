@@ -82,6 +82,15 @@ export interface ImportService {
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
   retry(owner: Owner, id: JobId): ImportJob | null;
   /**
+   * Re-run OMR on a score's retained source images (V14e), producing a **new** draft job over the same
+   * blob keys — no re-upload — that the runner maps and lands through `Applier.import` exactly as a
+   * normal import does (so re-parse is not a second write path, ADR-0003). `options.engine` is the
+   * engine the user chose (heuristic on a small host, oemer where RAM allows); omitted, the worker
+   * keeps its default. `null` when the score has no import behind it (hand-authored or duplicated) and
+   * so no source to re-run — the route turns that into a clean 4xx, never a 500.
+   */
+  reparse(owner: Owner, scoreId: Id, options: { engine?: string }): Promise<ImportJob | null>;
+  /**
    * The retained source image at page `index` of a job — the scan V14's split-pane review shows beside
    * the recognised score and `sbscore reparse` re-runs (ADR-0019 keeps them permanently for exactly
    * this). `null` when the job is missing or not this owner's, or there is no page at that index. The
@@ -126,6 +135,16 @@ export const MAX_BODY_BYTES = 1_000_000;
 
 const SCORES = '/v1/scores';
 const IMPORTS = '/v1/imports';
+
+/**
+ * The engines a re-parse may ask for (V14e). This restates the worker's own `ENGINE_NAMES`
+ * (`worker/sibei_omr/engines/__init__.py`) so the surfaces can offer a selector and a bad choice is a
+ * clean 422 here rather than a whole job failing at the worker with a diagnostic. It is deliberately
+ * the *only* place the API names an engine: nothing downstream interprets the value (ADR-0005 keeps
+ * which engine ran invisible to the model and both surfaces), so this is a selection-UX list, not
+ * knowledge of what an engine *does*. If the worker gains an engine, this list gains its name.
+ */
+export const REPARSE_ENGINES = ['oemer', 'heuristic'] as const;
 
 /**
  * The cap on an uploaded image, at the transport. Larger than an op batch's 1 MB because an image is
@@ -245,6 +264,18 @@ export async function route(
     const result = context.applier.duplicate(context.owner, duplicateFor, newIdFrom(body));
     response.setHeader('location', `${SCORES}/${encodeURIComponent(result.scoreId)}`);
     return sendJson(response, 201, result);
+  }
+
+  // Re-parse (V14e): re-run OMR on a score's retained source images into a *new* draft. A
+  // `/v1/scores/:id/…` action like duplicate — it *creates* a score (through a fresh import job), so
+  // it is state-changing and behind the same Origin check every POST here gets (ADR-0029, applied
+  // before routing). It reuses the existing blob keys, so nothing is re-uploaded.
+  const reparseFor = match(path, /^\/v1\/scores\/([^/]+)\/reparse$/);
+  if (reparseFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    return await reparseScore(response, context, reparseFor, body);
   }
 
   // The OMR import pipeline (V10). Submit a scan and it becomes a job the client polls or subscribes
@@ -395,6 +426,85 @@ async function submitImport(
   // 202, not 201: the resource exists but its result does not yet — recognition runs in the
   // background. The Location points at the job to poll, not at a finished artefact.
   return sendJson(response, 202, { job });
+}
+
+/**
+ * `POST /v1/scores/:id/reparse` — re-run OMR on a score's retained source images into a new draft
+ * (V14e, ADR-0019). It produces a **new** score, never an in-place replacement: the original document
+ * and any human corrections survive, and it reuses the same server-only `Applier.import` a normal
+ * import does (through the runner), so it is not a second write path (ADR-0003/0008).
+ *
+ * The optional `{ engine }` in the JSON body lets the caller pick a recogniser (heuristic on a small
+ * host, oemer where RAM allows); an unknown engine is a 422 carrying the list, the same no-fallback
+ * bargain export makes. Like a submit it needs a worker to run the job — a server built without one is
+ * a 503. A score with no import behind it has no scan to re-run, which is a clean 422, not a 500. On
+ * success it answers 202 with the queued job and a Location pointing at it, exactly as submit does, so
+ * the same poll/subscribe path follows the new draft.
+ */
+async function reparseScore(
+  response: ServerResponse,
+  context: RouteContext,
+  scoreId: Id,
+  body: unknown,
+): Promise<number> {
+  if (context.imports === undefined || !context.imports.available) {
+    return send(response, noImportPipeline());
+  }
+
+  const engine = engineFrom(body);
+  if (engine === UNKNOWN_ENGINE) {
+    const requested = rawEngine(body);
+    // The same shape `unsupported` gives an export value — a 422 whose `unsupported-*` kind maps to the
+    // CLI's validation exit, carrying the list a client branches on (ADR-0008) — but its own wording,
+    // since this is a recognition engine, not an export parameter.
+    return send(
+      response,
+      problem(
+        422,
+        'unsupported-engine',
+        `${JSON.stringify(requested ?? '')} is not a recognition engine this build knows; try ${REPARSE_ENGINES.join(' or ')}`,
+        { detail: { kind: 'unsupported-engine', requested, supported: [...REPARSE_ENGINES] } },
+      ),
+    );
+  }
+
+  const job = await context.imports.reparse(context.owner, scoreId, engine === undefined ? {} : { engine });
+  if (job === null) {
+    // No import behind this score — a hand-authored or duplicated chart has no scan to re-run. A 422
+    // (readable request, nothing to act on), never a 500, and its `detail` lets a client branch (ADR-0008).
+    return send(
+      response,
+      problem(
+        422,
+        'no-source-to-reparse',
+        `score ${JSON.stringify(scoreId)} was not imported from a scan, so there is nothing to re-parse`,
+        { detail: { kind: 'no-source-to-reparse' } },
+      ),
+    );
+  }
+  response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
+  return sendJson(response, 202, { job });
+}
+
+/** Sentinel: the body named an engine, but not one this build knows (a 422, not the worker's error). */
+const UNKNOWN_ENGINE = Symbol('unknown-engine');
+
+/** The raw `engine` field of a reparse body, for the 422 message; `null` when it was not a string. */
+function rawEngine(body: unknown): string | null {
+  const value = (body as { engine?: unknown } | null)?.engine;
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * The engine a reparse body asks for: `undefined` when none was named (the worker's default),
+ * a known name when it is one of {@link REPARSE_ENGINES}, or {@link UNKNOWN_ENGINE} when a string
+ * that is not. A non-string engine field is treated as absent — the same leniency `newIdFrom` shows.
+ */
+function engineFrom(body: unknown): string | undefined | typeof UNKNOWN_ENGINE {
+  const value = (body as { engine?: unknown } | null)?.engine;
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') return undefined;
+  return (REPARSE_ENGINES as readonly string[]).includes(value) ? value : UNKNOWN_ENGINE;
 }
 
 /**

@@ -57,6 +57,9 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'missing-expected-version':
     case 'malformed-json':
     case 'body-too-large':
+    // A re-parse of a chart with no scan behind it (V14e): the request was readable, there is simply
+    // nothing to re-run — the same "readable, cannot be produced" class as an unsupported export value.
+    case 'no-source-to-reparse':
       return EXIT.validation;
     case 'no-such-score':
     case 'no-such-route':

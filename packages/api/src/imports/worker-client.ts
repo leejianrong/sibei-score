@@ -19,11 +19,18 @@ import type { ImageFormat } from './upload.js';
 export interface WorkerClient {
   /**
    * Recognise one image and return its {@link OmrDocument}. `imagePath` is provenance the worker
-   * echoes into `source.imagePath` — a basename, never a host path (ADR-0029). Rejects (throws
+   * echoes into `source.imagePath` — a basename, never a host path (ADR-0029). `engine`, when given,
+   * names the recognition engine the worker should use for this call (V14e's re-parse threads the
+   * user's choice here); omitted, the worker uses whichever engine it was started with. The engine
+   * name is opaque to the API — the worker owns the set (ADR-0005) — so an unknown one is the
+   * worker's error to report, and it comes back as a failed job's diagnostic. Rejects (throws
    * {@link WorkerError}) when the worker is unreachable, errors, or returns something off-schema;
    * the runner turns that into a failed, retryable job with the message as its diagnostic (Q80).
    */
-  recognize(image: Buffer, meta: { imagePath: string; format: ImageFormat }): Promise<OmrDocument>;
+  recognize(
+    image: Buffer,
+    meta: { imagePath: string; format: ImageFormat; engine?: string },
+  ): Promise<OmrDocument>;
 }
 
 /** A failed call to the worker. Its `message` becomes a job's diagnostic, so it is written for a human. */
@@ -61,7 +68,10 @@ export function createHttpWorkerClient(options: HttpWorkerClientOptions): Worker
 
   return {
     async recognize(image, meta) {
-      const target = `${base}/recognize?name=${encodeURIComponent(meta.imagePath)}`;
+      // `engine` is threaded as a second query param when the caller chose one (a re-parse, V14e); a
+      // normal import omits it and the worker uses its start-up engine. The worker validates the name.
+      const engineParam = meta.engine === undefined ? '' : `&engine=${encodeURIComponent(meta.engine)}`;
+      const target = `${base}/recognize?name=${encodeURIComponent(meta.imagePath)}${engineParam}`;
       const contentType = meta.format === 'png' ? 'image/png' : 'image/jpeg';
 
       let response: Response;
