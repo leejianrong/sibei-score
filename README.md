@@ -78,7 +78,9 @@ make cli ARGS='new --title "Blue Monk" --composer "Thelonious Monk" --key Bb --b
 > personal, gitignored convenience; the committed default remains loopback-only on 8080.
 
 Prefer to run from source (Node ≥ 22 + [pnpm](https://pnpm.io)) for development? `make check` runs the
-full test gate and `make` lists the source-based targets; see [`AGENTS.md`](AGENTS.md) for the layout.
+full test gate, `make eval` scores the OMR import pipeline against a synthetic corpus
+([`docs/eval.md`](docs/eval.md)), and `make` lists the source-based targets; see [`AGENTS.md`](AGENTS.md)
+for the layout.
 
 The full command surface is in **[`docs/cli.md`](docs/cli.md)**, and `pnpm sbscore --help` prints the
 live list of verbs, address forms and exit codes.

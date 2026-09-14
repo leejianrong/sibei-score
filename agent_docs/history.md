@@ -6,6 +6,51 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V12 builds the evaluation harness — the first slice whose product is a *number*, not a feature.**
+Nothing before it measured how good import is; V13's chord accuracy and all of v0.3's engine swap
+depend on scoring a recogniser rather than admiring it (ADR-0020, ADR-0031). Cut into four stacked
+PRs (V12a–d), the way V2–V11 were, around one decision taken with the maintainer: **`packages/synth`
+is created here, a slice ahead of where SLICES books it (V15)**, so v0.3's synthetic generator extends
+one kernel rather than duplicating the render+degrade pipeline. ADR-0031 had already granted
+`packages/synth` the "may use Node APIs" exception; V12 takes it up early, and `tests/arch` gains the
+inverse guard that keeps the build-time tool out of every shipped bundle (`pdf`/`api`/`cli`/`ui` may
+not import `@sibei/synth`).
+
+The package splits along the fast/infra line by construction. The **pure core** (`@sibei/synth`:
+a seeded mulberry32 PRNG, `generateScore`, ground-truth `labels`, and the `metrics`) is framework-free
+and fast-layer tested. The **imaging half** (`@sibei/synth/imaging`) rasterises with `@resvg/resvg-js`
+and degrades with `sharp` — both native bindings, which the fast layer's dlopen trap forbids (KAN-514)
+— so it lives behind a subpath (the `@sibei/api` / `@sibei/api/sqlite` pattern) and its tests are
+infra (`tests/imaging`, `tests/eval`). Two details worth recording. `generateScore` renders a `Score`
+directly through `layout`+`engrave`, **not** "known MusicXML" as the build plan's wording had it — the
+`Score` *is* the ground truth for free (ADR-0004 keeps MusicXML at the edges), which is the whole
+insight. And `degrade`'s perspective step is a hand-rolled 4-point homography over the raw RGBA buffer,
+because sharp shears but cannot do true perspective, and perspective is what separates a photo from a
+scan. Everything is seeded, so a seed reproduces the corpus byte for byte.
+
+The metrics are alignment-based — a recognised chart and the truth differ in length — so note and
+chord accuracy come from LCS matches (precision/recall/F1) plus a Levenshtein error rate, and the
+metrically-valid-bar ratio reuses `scoreMetrics`. The harness (`runEval`) takes an **injected
+`Predict` seam**, which is the load-bearing shape: it makes the harness fs-free and testable without
+oemer (a fake recogniser proves the sensitivity — a degraded corpus scores below a clean one), and it
+is the seam oemer plugs into today and v0.3's bespoke engine plugs into later, unchanged (ADR-0005).
+`scripts/eval.ts` supplies the real HTTP-worker predictor over oemer (or `--engine fixture` for a
+no-oemer smoke), prints the synthetic-per-level table beside the real control set, and appends to
+`eval/history.jsonl`. `docs/eval.md` writes the metric definitions and the human-time ship gate as a
+repeatable stopwatch procedure (a named 32-bar fixture, "corrected" defined, a 2-minute bar, Q42).
+
+**The real oemer baseline: attempted, and OOM-killed — which is the point.** V9–V11's "no oemer, no
+Docker" was a property of *those* build hosts, not the project: on a host with Docker + registry access
+the worker image built and came up healthy (oemer 0.1.8, CPU provider). But oemer peaks ~7 GB (V9),
+and on the 8 GB / earlyoom reference host the recognition was **OOM-killed** — the container exited 137
+as oemer loaded its model, and the harness failed cleanly with a diagnostic (the Q80 mid-import-death
+behaviour, reached through the real path for the first time). So the real baseline is deferred to a
+bigger host; the synthetic table stands on its own. The OOM is not a failure of the slice — it is the
+first direct measurement of the RAM cost that ADR-0031's whole milestone exists to move. The
+`tests/eval` real-oemer smoke self-skips when no worker is up, like `tests/e2e/omr-spike.test.ts`. The
+`tests/fixtures/eval/real/` control set ships as a scaffold + format README with no photos: a genuine
+synthetic→real gap the harness is built to expose, filled by hand later.
+
 **V11 turns a recognised import into an editable draft — the first slice that interprets a
 note.** Where V10 stored raw `OmrDocument` objects and left `scoreId` null, V11 maps them onto a
 `Score` and lands it. The whole of the interpretation is a **pure, framework-free mapper**,

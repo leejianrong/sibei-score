@@ -202,7 +202,10 @@ line of this worker, because the mapping is pure TypeScript over the worker's ou
 contract is the schema, and everything downstream of it is Node's.
 
 Two things the plan booked for the worker are **deferred**, both because they cannot be built or
-verified without oemer and a container registry (blocked here — see the V9 findings):
+verified without oemer and a container registry. (That access was blocked on the host V9–V11 were built
+on; it is **not** a standing project limitation — V12 built and ran this image on a host that has
+Docker + registry access. What remains scarce there is RAM: oemer peaks ~7 GB, and on a small machine
+recognition is OOM-killed, so a real fixture/baseline waits for a bigger host rather than for access.)
 
 - **Emitting clef, key signature, time signature, ties and tuplets.** V11's mapper needs these but the
   `OmrDocument` schema (`packages/model/src/omr.ts`) does not carry them and `recognize.py` does not
@@ -214,5 +217,7 @@ verified without oemer and a container registry (blocked here — see the V9 fin
   `recognize.py` already deskews and dewarps through oemer; explicit OpenCV crop/contrast is a small
   addition but untestable without running oemer, so it waits for a host that can.
 
-Still ahead beyond that: the chord-band OCR and stage-3 beat mapping (V13, this worker gains
-PaddleOCR), and the evaluation harness (V12). See `SLICES.md` and `agent_docs/history.md`.
+The **evaluation harness (V12) has landed** — it scores this worker's output against synthetic ground
+truth (`make eval`; `packages/synth`, `docs/eval.md`), and it is what v0.3's bespoke engine must beat
+to earn the default (ADR-0031). Still ahead: the chord-band OCR and stage-3 beat mapping (V13, this
+worker gains PaddleOCR). See `SLICES.md` and `agent_docs/history.md`.
