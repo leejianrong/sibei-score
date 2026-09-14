@@ -9,6 +9,8 @@ import {
   makeNote,
   makeRest,
   makeScore,
+  makeSection,
+  NO_SECTIONS_ADVISORY,
   projectScore,
   resolveAddress,
 } from '@sibei/model';
@@ -396,6 +398,26 @@ describe('the review legend', () => {
 
     const blank = chart([makeBar({ id: 'bar-1', number: 1 })]);
     expect(projectScore(blank)).not.toContain('needs review');
+  });
+});
+
+describe('the no-sections advisory (V14, ADR-0015)', () => {
+  it('prints a non-blocking layout advisory for a section-less chart', () => {
+    // Sections drive line-breaking (ADR-0015) and a fresh import has none (ADR-0021), so the chart
+    // lays out on a plain four-bar grid until one is added. It is a prompt, never a refusal or a `!`.
+    const score = chart([makeBar({ id: 'bar-1', number: 1 })]);
+    const advisory = find(score, 'no sections');
+    expect(advisory).toContain(NO_SECTIONS_ADVISORY);
+    // Not dressed up as review: no bang, and it does not claim anything needs review.
+    expect(advisory).not.toContain('!');
+    expect(advisory).not.toContain('needs review');
+  });
+
+  it('says nothing once the chart carries a section', () => {
+    const score = chart([makeBar({ id: 'bar-1', number: 1 })], {
+      sections: [makeSection({ id: 'section-1', startBar: 1, letter: 'A', name: 'A' })],
+    });
+    expect(projectScore(score)).not.toContain(NO_SECTIONS_ADVISORY);
   });
 });
 

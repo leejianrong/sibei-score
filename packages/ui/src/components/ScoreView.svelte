@@ -21,7 +21,7 @@
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { Paper } from '@sibei/layout';
-  import { formatKeySignature, formatPitch, NEEDS_REVIEW, reviewSummary } from '@sibei/model';
+  import { formatKeySignature, formatPitch, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
   import type { Id, KeySignature, Score } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
   import {
@@ -696,6 +696,14 @@
             {/if}
           </div>
         {/if}
+        <!-- A layout advisory, not a review flag (V14, ADR-0015): sections drive line-breaking, so
+             a section-less chart — every fresh import (ADR-0021) — lays out on a plain four-bar grid
+             until one is added. Non-blocking by decision (ADR-0013/0019 never refuse a draft), so it
+             is a prompt beside the flags, never a `!`. `hasSections` is the model's single answer, the
+             same one the text projection prints, so the two surfaces cannot word it differently. -->
+        {#if review !== null && !review.hasSections}
+          <p class="review-advisory">{NO_SECTIONS_ADVISORY}</p>
+        {/if}
       </div>
 
       <div class="group control-row">
@@ -1023,6 +1031,14 @@
     color: var(--ink-faint);
     font-size: 11px;
     letter-spacing: 0.03em;
+  }
+  /* An advisory, not a flag: muted, no alarm wash, and separated from the flag block above so it
+     reads as a suggestion about layout rather than something that needs fixing (ADR-0013/0019). */
+  .review-advisory {
+    margin: 8px 0 0;
+    color: var(--ink-soft);
+    font-size: 12px;
+    line-height: 1.55;
   }
 
   .inspector-empty {
