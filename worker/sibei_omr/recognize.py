@@ -31,6 +31,8 @@ import os
 import time
 from typing import Any
 
+from .band_ocr import BandStaff, default_band_ocr, read_band_tokens
+
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 # Mirrors OMR_SCHEMA_VERSION in packages/model/src/omr.ts (ADR-0005). v2 (V13) adds `bandTokens`.
@@ -151,6 +153,13 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
     # Assigns each note/symbol its track & group (which staff, which system).
     rhythm_extract()
 
+    # Chord band above each staff (V13d, ADR-0010 stage 1/2, ADR-0027). oemer's `image` here is the
+    # dewarped BGR frame, in the same resized/deskewed coordinate space as every object above, which is
+    # the space stage-3 beat mapping needs (Q71). A null OCR (no PaddlePaddle) yields no band and the
+    # melody still imports.
+    ocr_fn = default_band_ocr()
+    band_tokens = read_band_tokens(image, _band_staves(_flatten(staffs), np), ocr_fn) if ocr_fn is not None else []
+
     elapsed = time.perf_counter() - start
 
     height, width = image.shape[:2]
@@ -175,12 +184,30 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
         "noteGroups": [_group_dict(g) for g in _flatten(groups) if g.bbox is not None],
         "barlines": [_barline_dict(b) for b in _flatten(barlines) if b.bbox is not None],
         "rests": [_rest_dict(r) for r in _flatten(rests) if r.bbox is not None],
-        # Chord-band OCR (ADR-0010 stage 1/2, ADR-0027) is populated in V13d; V13a only adds the field
-        # so the worker emits a schema-v2 document that parseOmrDocument accepts. Empty here means "no
-        # band recognised", which is exactly what oemer-without-OCR sees.
-        "bandTokens": [],
+        "bandTokens": band_tokens,
     }
     return doc
+
+
+def _band_staves(staffs: list[Any], np: Any) -> list[BandStaff]:
+    """Collapse oemer's per-(system, track) staff cells into one band-crop staff per system (its
+    `group`), spanning the union x-extent, the topmost `y_upper`, and the median unit size. Mirrors the
+    system collapse the TS mapper does (V9 finding: oemer tiles a staff across a track/x grid)."""
+    by_group: dict[Any, list[Any]] = {}
+    for staff in staffs:
+        if staff is None or not hasattr(staff, "x_left"):
+            continue
+        by_group.setdefault(staff.group, []).append(staff)
+    out: list[BandStaff] = []
+    for group, cells in by_group.items():
+        x_left = min(float(c.x_left) for c in cells)
+        x_right = max(float(c.x_right) for c in cells)
+        y_upper = min(float(c.y_upper) for c in cells)
+        y_lower = max(float(c.y_lower) for c in cells)
+        units = [float(c.unit_size) for c in cells if getattr(c, "unit_size", None)]
+        unit = float(np.median(units)) if units else max((y_lower - y_upper) / 4.0, 1.0)
+        out.append(BandStaff(int(group) if group is not None else 0, x_left, x_right, y_upper, unit))
+    return out
 
 
 def _register_note_id(layers: Any, np: Any) -> None:

@@ -43,6 +43,28 @@ def sha256(path: str) -> str:
     return h.hexdigest()
 
 
+def warm_paddleocr() -> int:
+    """Bake PaddleOCR's chord-band models into the image at build time (V13d, ADR-0027, ADR-0024).
+
+    Unlike oemer's two pinned .onnx files, PaddleOCR manages its own model cache; the reliable way to
+    bake it offline is to construct the pipeline once here, which downloads exactly the det + rec models
+    our config uses (orientation/unwarping are off) into the cache the running container then reads with
+    ``PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True``. Build time needs the network; runtime does not.
+
+    Skipped (not failed) when PaddleOCR is absent, so an oemer-only build still works — the chord band
+    is simply unavailable, which the engines already degrade to gracefully (band_ocr.default_band_ocr).
+    """
+    try:
+        from sibei_omr.band_ocr import paddle_ocr
+    except Exception as error:  # noqa: BLE001
+        print(f"skip: PaddleOCR not installed ({type(error).__name__}); chord band will be unavailable")
+        return 0
+    print("warming the PaddleOCR model cache (det + rec)…")
+    paddle_ocr()  # constructing it triggers the model download into the cache
+    print("ok: PaddleOCR models cached")
+    return 0
+
+
 def main() -> int:
     checkpoints = os.path.join(MODULE_PATH, "checkpoints")
     for asset, (subdir, size, digest) in WEIGHTS.items():
@@ -59,7 +81,7 @@ def main() -> int:
             os.remove(dest)
             return 1
         print(f"verified: {subdir}/model.onnx")
-    return 0
+    return warm_paddleocr()
 
 
 if __name__ == "__main__":

@@ -50,6 +50,31 @@ SIBEI_OMR_ENGINE=heuristic python -m sibei_omr.server     # serve the heuristic 
 pnpm eval --engine worker --url http://127.0.0.1:8000     # score it on the synthetic corpus
 ```
 
+## The chord band: PaddleOCR (V13d)
+
+`sibei_omr/band_ocr.py` is the engine-neutral chord-band recogniser (ADR-0010 stage 1/2,
+ADR-0027): it crops the strip above each staff, runs PaddleOCR over it, and returns the text
+**verbatim** with each box mapped back to full-image coordinates — the space stage-3 beat mapping
+needs (Q71). Both engines call it. The worker does **not** decide what is a chord; snapping to a
+legal chord (the V5 grammar corrector, ADR-0011) or keeping it as a flagged annotation (Q56) is the
+model's job in TypeScript (`mapOmrToScore`). The OCR is an injected seam, stubbed in the tests.
+
+Two findings on contact with PaddleOCR 3.x:
+
+- **`enable_mkldnn=False`** — paddle's oneDNN/PIR CPU path raised `ConvertPirAttribute2RuntimeAttribute`;
+  disabling oneDNN routes around it (CPU is the floor anyway, ADR-0025).
+- **No numpy split** — paddlepaddle 3.3.1 needs only `numpy>=1.21`, so it co-exists with oemer's
+  `numpy==1.26.4`; both engines share one image.
+
+**Offline (ADR-0024):** `fetch_weights.py` warms PaddleOCR's model cache at build time and the runtime
+sets `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK`, so the container reads baked models and never probes the
+network. Where PaddleOCR is absent, the engines degrade to an empty band and still import the melody.
+
+**Measured end to end on an 8 GB host** (heuristic engine + PaddleOCR, no oemer): `pnpm eval --engine
+worker` lifted `chordF1` from 0.000 to 0.100 on the synthetic corpus — the whole photo → chords flow
+runs and chord accuracy is now a real, non-zero number. The **oemer** chord baseline (the one ADR-0011
+stage 2 must beat) is measured on a bigger host, since oemer's ~7 GB model is OOM-killed here.
+
 The API records an import as a **job** (ADR-0001), calls this worker, and lands the result;
 the worker is stateless and holds no database. **CPU-only is the hard floor (ADR-0025)** —
 the image uses the CPU `onnxruntime` wheel — and the GPU path is a separate, opt-in image

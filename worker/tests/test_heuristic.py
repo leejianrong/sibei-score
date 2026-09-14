@@ -53,7 +53,8 @@ class HeuristicEngineTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.path = _draw_chart()
-        cls.doc = recognize(cls.path, "chart.png")
+        # A no-op OCR stub, so these fast tests never build the real PaddleOCR (heavy, downloads models).
+        cls.doc = recognize(cls.path, "chart.png", ocr=lambda crop: [])
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -98,6 +99,16 @@ class HeuristicEngineTest(unittest.TestCase):
             x1, y1, x2, y2 = obj["bbox"]
             self.assertTrue(0 <= x1 <= _W and 0 <= x2 <= _W)
             self.assertTrue(0 <= y1 <= _H and 0 <= y2 <= _H)
+
+    def test_reads_the_chord_band_via_the_injected_ocr(self) -> None:
+        # One staff -> the stub returns one line, offset into full-image coordinates above the staff.
+        doc = recognize(self.path, "chart.png", ocr=lambda crop: [("Cmaj7", (5, 2, 60, 20), 0.97)])
+        self.assertEqual(len(doc["bandTokens"]), 1)
+        token = doc["bandTokens"][0]
+        self.assertEqual(token["text"], "Cmaj7")
+        self.assertEqual(token["group"], 0)
+        self.assertAlmostEqual(token["confidence"], 0.97)
+        self.assertLess(token["bbox"][3], _LINE_YS[0])  # the box sits above the top staff line
 
     def test_the_seam_resolves_the_engine(self) -> None:
         engine = get_engine("heuristic")

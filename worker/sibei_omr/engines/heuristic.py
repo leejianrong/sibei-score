@@ -35,6 +35,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ..band_ocr import BandStaff, OcrFn, default_band_ocr, read_band_tokens
+
 SCHEMA_VERSION = 2
 ENGINE = "heuristic"
 VERSION = "0.1.0"
@@ -58,8 +60,13 @@ def version() -> str:
     return VERSION
 
 
-def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
-    """Run the heuristic pipeline and return an OmrDocument dict (schema owned by the model)."""
+def recognize(img_path: str, image_name: str | None = None, ocr: OcrFn | None = None) -> dict[str, Any]:
+    """Run the heuristic pipeline and return an OmrDocument dict (schema owned by the model).
+
+    ``ocr`` is the chord-band recogniser seam (V13d): omitted, it uses PaddleOCR when available and an
+    empty band otherwise (``default_band_ocr``); a test injects a stub. Note recognition never depends
+    on it — a host without PaddleOCR still reads the melody, it just carries no chords.
+    """
     import cv2
     import numpy as np
 
@@ -81,6 +88,12 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
     barlines = _detect_barlines(np, vertical, staves)
     noteheads = _detect_noteheads(cv2, np, ink, horizontal, vertical, staves)
 
+    # Chord band above each staff (V13d, ADR-0010 stage 1/2). PaddleOCR reads the strip in grayscale;
+    # a null OCR (no PaddlePaddle) yields no band, and the melody still imports.
+    ocr_fn = ocr if ocr is not None else default_band_ocr()
+    band_staves = [BandStaff(i, s["xLeft"], s["xRight"], s["yUpper"], s["unit"]) for i, s in enumerate(staves)]
+    band_tokens = read_band_tokens(image, band_staves, ocr_fn) if ocr_fn is not None else []
+
     elapsed = time.perf_counter() - start
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -99,7 +112,7 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
         "noteGroups": [],
         "barlines": barlines,
         "rests": [],
-        "bandTokens": [],  # V13d adds PaddleOCR on the cropped band to this engine.
+        "bandTokens": band_tokens,
     }
 
 
