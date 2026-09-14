@@ -17,8 +17,15 @@
  * Framework-free, Node-free plain TypeScript, like the rest of `model` (ADR-0005).
  */
 
-/** Bumped by any change to this shape; the worker echoes it in `schemaVersion`. */
-export const OMR_SCHEMA_VERSION = 1;
+/**
+ * Bumped by any change to this shape; the worker echoes it in `schemaVersion`.
+ *
+ * - v1 (V9/V10/V11): staves, noteheads, note groups, barlines, rests — the note/rhythm geometry.
+ * - v2 (V13): adds `bandTokens` — the raw OCR text of the chord band above each staff (ADR-0010
+ *   stage 1/2, ADR-0027), the input stage-3 beat mapping and the grammar corrector (ADR-0011)
+ *   consume. Additive; a v1 chart simply detected no band, which in v2 is an empty `bandTokens`.
+ */
+export const OMR_SCHEMA_VERSION = 2;
 
 /** A pixel bounding box, `[x1, y1, x2, y2]`, in the document's coordinate space. */
 export type BBox = [number, number, number, number];
@@ -108,6 +115,30 @@ export interface OmrRest {
   label: string | null;
 }
 
+/**
+ * One raw text token recognised in the chord band — the strip directly above a staff where a lead
+ * sheet's chord symbols live (ADR-0010 stage 1). Added at schema v2 (V13). The worker crops that band
+ * and runs PaddleOCR over it (ADR-0027), emitting **what it read, verbatim**, with the token's pixel
+ * box in the **same coordinate space** as the noteheads and barlines above — that shared space is the
+ * whole point, because stage-3 beat mapping aligns a token's box to a note/barline X (Q71).
+ *
+ * Deliberately **not** a chord. The recogniser cannot tell a chord symbol (`F#m7b5`) from a rehearsal
+ * letter (`A`), a feel marking (`Latin`), or noise. Classifying a token — snapping it to a legal chord
+ * through the grammar corrector (ADR-0011), matching a rehearsal letter by pattern, or keeping it as a
+ * flagged annotation (Q56) — is the importer's job, in TypeScript, where the grammar lives (ADR-0005).
+ * See `mapOmrToScore` (`omr-map.ts`). This keeps the language boundary dumb: pixels and text out of
+ * Python, meaning applied in the model.
+ */
+export interface OmrBandToken {
+  /** The text the OCR read, verbatim (pre-correction, pre-classification). */
+  text: string;
+  bbox: BBox;
+  /** OCR confidence in [0, 1], or null when the engine reported none. Carried into the model. */
+  confidence: number | null;
+  /** The staff/system group this band sits above, when the worker knows it (the staves' `group`). */
+  group: number | null;
+}
+
 export interface OmrDocument {
   schemaVersion: number;
   source: OmrSource;
@@ -118,6 +149,8 @@ export interface OmrDocument {
   noteGroups: OmrNoteGroup[];
   barlines: OmrBarline[];
   rests: OmrRest[];
+  /** Raw OCR text of the chord band above each staff (schema v2, V13). Empty when none was read. */
+  bandTokens: OmrBandToken[];
 }
 
 /** Thrown by {@link parseOmrDocument} when the input does not conform. */
@@ -165,6 +198,7 @@ export function parseOmrDocument(raw: unknown): OmrDocument {
   checkArray(doc.noteGroups, 'noteGroups', problems, (g, at) => checkNoteGroup(g, at, problems));
   checkArray(doc.barlines, 'barlines', problems, (b, at) => checkBarline(b, at, problems));
   checkArray(doc.rests, 'rests', problems, (r, at) => checkRest(r, at, problems));
+  checkArray(doc.bandTokens, 'bandTokens', problems, (t, at) => checkBandToken(t, at, problems));
 
   if (problems.length > 0) throw new OmrSchemaError(problems);
   return raw as OmrDocument;
@@ -253,6 +287,15 @@ function checkRest(value: unknown, at: string, problems: string[]): void {
   checkNullableNumber(r.group, `${at}.group`, problems);
   checkNullableBoolean(r.hasDot, `${at}.hasDot`, problems);
   checkNullableString(r.label, `${at}.label`, problems);
+}
+
+function checkBandToken(value: unknown, at: string, problems: string[]): void {
+  const t = asObject(value, at, problems);
+  if (t === undefined) return;
+  if (typeof t.text !== 'string') problems.push(`${at}.text is not a string`);
+  checkBBox(t.bbox, `${at}.bbox`, problems);
+  checkNullableNumber(t.confidence, `${at}.confidence`, problems);
+  checkNullableNumber(t.group, `${at}.group`, problems);
 }
 
 // --- primitives ---

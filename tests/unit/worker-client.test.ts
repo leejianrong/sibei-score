@@ -28,6 +28,7 @@ function aDocument(): OmrDocument {
     noteGroups: [],
     barlines: [],
     rests: [],
+    bandTokens: [],
   };
 }
 

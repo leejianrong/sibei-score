@@ -33,7 +33,8 @@ from typing import Any
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-SCHEMA_VERSION = 1
+# Mirrors OMR_SCHEMA_VERSION in packages/model/src/omr.ts (ADR-0005). v2 (V13) adds `bandTokens`.
+SCHEMA_VERSION = 2
 ENGINE = "oemer"
 
 
@@ -174,6 +175,10 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
         "noteGroups": [_group_dict(g) for g in _flatten(groups) if g.bbox is not None],
         "barlines": [_barline_dict(b) for b in _flatten(barlines) if b.bbox is not None],
         "rests": [_rest_dict(r) for r in _flatten(rests) if r.bbox is not None],
+        # Chord-band OCR (ADR-0010 stage 1/2, ADR-0027) is populated in V13d; V13a only adds the field
+        # so the worker emits a schema-v2 document that parseOmrDocument accepts. Empty here means "no
+        # band recognised", which is exactly what oemer-without-OCR sees.
+        "bandTokens": [],
     }
     return doc
 

@@ -600,6 +600,7 @@ describe('the import verb (V11)', () => {
     noteGroups: [],
     barlines: [],
     rests: [],
+    bandTokens: [],
   });
 
   const pngBytes = (): Buffer => {

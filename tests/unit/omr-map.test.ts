@@ -11,6 +11,7 @@ import {
   parseOmrDocument,
   reviewSummary,
   type Note,
+  type OmrBandToken,
   type OmrBarline,
   type OmrDocument,
   type OmrNotehead,
@@ -74,6 +75,7 @@ function page(parts: {
   noteheads?: OmrNotehead[];
   rests?: OmrRest[];
   barlines?: OmrBarline[];
+  bandTokens?: OmrBandToken[];
 }): OmrDocument {
   return {
     schemaVersion: 1,
@@ -92,6 +94,7 @@ function page(parts: {
     noteGroups: [],
     barlines: parts.barlines ?? [],
     rests: parts.rests ?? [],
+    bandTokens: parts.bandTokens ?? [],
   };
 }
 
