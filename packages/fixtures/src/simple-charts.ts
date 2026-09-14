@@ -1,5 +1,14 @@
 import type { Score, TimeSignature } from '@sibei/model';
-import { createIdFactory, dur, makeScore, makeSection } from '@sibei/model';
+import {
+  createIdFactory,
+  dur,
+  makeAnnotation,
+  makeBar,
+  makeChord,
+  makeNote,
+  makeScore,
+  makeSection,
+} from '@sibei/model';
 import { BarBuilder } from './builder.js';
 
 /** Small fixtures for the grid, pagination and metric-validity tests. */
@@ -205,4 +214,86 @@ export function invalidBarChart(): Score {
   ];
 
   return makeScore({ id: 'score-invalid-bars', title: 'Invalid bars', bars });
+}
+
+/**
+ * The review-shading fixture (V14c): the corpus had nothing that made the engraver draw
+ * either kind of review wash, so the byte-identical browser==server assertion and the SVG
+ * snapshot could not cover the shaded path. This is that coverage — a chart the recogniser
+ * would have handed back full of doubt.
+ *
+ * Bar 1 is metrically fine but carries a low-confidence note and a low-confidence chord, so
+ * the flagged-object stripe is seen on its own, clear of any bar wash. Bar 2 does not fill
+ * the meter *and* holds a flagged note, so the invalid-bar wash and the object stripe land
+ * on top of each other — the case that proves the two treatments compose rather than fight.
+ * Bar 3 carries a flagged annotation (unreadable band text, Q56), the third flagged kind.
+ *
+ * The flags are set through the model constructors rather than `BarBuilder`, which has no
+ * sugar for them — annotations aside, nothing in v0.1 ever wrote a review flag by hand
+ * (ADR-0019), and this is the first fixture that needs to.
+ */
+export function reviewChart(): Score {
+  const ids = createIdFactory();
+  const q = 480;
+  const lowConfidence = { flagged: true, reasons: ['low-confidence' as const] };
+
+  const bar1 = makeBar({
+    id: ids.next('bar'),
+    number: 1,
+    items: [
+      makeNote({
+        id: ids.next('note'),
+        onset: 0,
+        duration: dur(4),
+        pitch: 'C5',
+        confidence: 0.4,
+        review: lowConfidence,
+      }),
+      makeNote({ id: ids.next('note'), onset: q, duration: dur(4), pitch: 'D5' }),
+      makeNote({ id: ids.next('note'), onset: q * 2, duration: dur(2), pitch: 'E5' }),
+    ],
+    chords: [
+      makeChord({
+        id: ids.next('chord'),
+        onset: 0,
+        text: 'Ebmaj7',
+        confidence: 0.5,
+        review: lowConfidence,
+      }),
+    ],
+  });
+
+  // Two quarters where 4/4 wants four: under-filled, so it takes the invalid-bar wash
+  // (ADR-0013). Its first note is flagged too, so wash and stripe overlap.
+  const bar2 = makeBar({
+    id: ids.next('bar'),
+    number: 2,
+    items: [
+      makeNote({
+        id: ids.next('note'),
+        onset: 0,
+        duration: dur(4),
+        pitch: 'F5',
+        confidence: 0.3,
+        review: lowConfidence,
+      }),
+      makeNote({ id: ids.next('note'), onset: q, duration: dur(4), pitch: 'G5' }),
+    ],
+  });
+
+  const bar3 = makeBar({
+    id: ids.next('bar'),
+    number: 3,
+    items: [makeNote({ id: ids.next('note'), onset: 0, duration: dur(1), pitch: 'A5' })],
+    annotations: [
+      makeAnnotation({
+        id: ids.next('annotation'),
+        onset: 0,
+        text: '?',
+        review: { flagged: true, reasons: ['unrecognised-text'] },
+      }),
+    ],
+  });
+
+  return makeScore({ id: 'score-review', title: 'Review shading', bars: [bar1, bar2, bar3] });
 }
