@@ -1,8 +1,10 @@
 {
+  // Node types are allowed here and nowhere else in the framework-free core: @sibei/synth is the
+  // deliberate build-time-tool exception (ADR-0031). The imaging half uses Buffer + native bindings.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "types": []
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"]
 }

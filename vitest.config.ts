@@ -42,6 +42,10 @@ const INFRA = [
   // Playwright. They belong here, not in a seventh CI job — this layer already needs a native
   // binding and a listening socket, and this file has reserved the spot since V2a.
   'tests/browser/**/*.test.ts',
+  // V12b's synthetic-imaging tests: `@sibei/synth/imaging` rasterises with @resvg/resvg-js and
+  // degrades with sharp — both native bindings, so they cannot run under the fast layer's dlopen
+  // trap (KAN-514). Pure synth (generator, labels, metrics) stays in the fast layer.
+  'tests/imaging/**/*.test.ts',
 ];
 
 /** Runs before every fast-layer test file, and refuses to let one load a compiled module. */

@@ -5,12 +5,17 @@
   "type": "module",
   "description": "Dev-only synthetic lead-sheet data and OMR-evaluation metrics. A build-time tool, not runtime: it may use Node APIs (ADR-0031) and must never enter a product bundle (guarded by tests/arch).",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./imaging": "./src/imaging/index.ts"
   },
   "types": "./src/index.ts",
   "sideEffects": false,
   "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@sibei/engrave": "workspace:*",
+    "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",
-    "@sibei/music": "workspace:*"
+    "@sibei/music": "workspace:*",
+    "sharp": "0.35.4"
   }
 }
