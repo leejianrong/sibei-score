@@ -381,6 +381,88 @@ describe('GET /v1/imports/:id/images/:index (V14a: retained source images, ADR-0
   });
 });
 
+describe('GET /v1/scores/:id/source (V14b: a score → its retained scans, ADR-0019)', () => {
+  beforeEach(() => boot({ withWorker: true }));
+
+  it('reports the import job and page count for a score that came from a scan', async () => {
+    const created = await upload(A_PNG);
+    const job = created.body.job as Record<string, unknown>;
+    const done = await settle(job.id as string);
+    const source = await get(`/v1/scores/${done.scoreId as string}/source`);
+    expect(source.status).toBe(200);
+    // The bridge the split-pane review needs: the owning job's id (to fetch its images) and how many.
+    expect(source.body).toEqual({ jobId: job.id, imageCount: 1 });
+  });
+
+  it('counts every page of a multi-page import (Q26)', async () => {
+    const created = await uploadMany([A_PNG, A_PNG]);
+    const job = created.body.job as Record<string, unknown>;
+    const done = await settle(job.id as string);
+    const source = await get(`/v1/scores/${done.scoreId as string}/source`);
+    expect(source.body).toEqual({ jobId: job.id, imageCount: 2 });
+  });
+
+  it('answers the empty shape (not a 500) for a hand-authored score with no scan', async () => {
+    // A chart created by hand has no import behind it — the empty source must be a value, not an
+    // error, so the score view opens a non-imported chart with no side-by-side pane and no failure.
+    const created = await post('/v1/scores', {
+      operation: { type: 'score.create', payload: { id: 'hand', title: 'By Hand', bars: [{ id: 'b1', number: 1 }] } },
+    });
+    expect(created.status).toBe(201);
+    const source = await get('/v1/scores/hand/source');
+    expect(source.status).toBe(200);
+    expect(source.body).toEqual({ jobId: null, imageCount: 0 });
+  });
+
+  it('answers the empty shape for a score that does not exist, rather than erroring the view', async () => {
+    const source = await get('/v1/scores/nope/source');
+    expect(source.status).toBe(200);
+    expect(source.body).toEqual({ jobId: null, imageCount: 0 });
+  });
+
+  it("does not reveal another owner's import provenance", async () => {
+    // Two principals by header: owner-b must not learn that owner-a's score came from a scan (the same
+    // owner scoping the image route enforces, one step earlier — before the images can even be asked for).
+    const scopedStore = openSqliteStore({ filename: ':memory:' });
+    const scopedJobs = openSqliteJobStore({ filename: ':memory:' });
+    const scopedApi = createApi({
+      store: scopedStore,
+      jobs: scopedJobs,
+      worker,
+      logger: silentLogger,
+      authenticate: (request) => ({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
+    });
+    const { port } = await scopedApi.listen(0);
+    const url = `http://127.0.0.1:${port}`;
+    try {
+      const created = await fetch(`${url}/v1/imports`, {
+        method: 'POST',
+        body: new Uint8Array(A_PNG),
+        headers: { 'content-type': 'image/png' }, // owner-a (no x-owner header)
+      });
+      const id = ((await created.json()) as { job: { id: string } }).job.id;
+      // Poll the job to succeeded so the score it produced exists.
+      let scoreId: string | null = null;
+      for (let i = 0; i < 200 && scoreId === null; i++) {
+        const polled = await fetch(`${url}/v1/imports/${id}`);
+        const job = ((await polled.json()) as { job: { status: string; scoreId: string | null } }).job;
+        if (job.status === 'succeeded') scoreId = job.scoreId;
+        else if (job.status === 'failed') throw new Error('the import failed unexpectedly');
+        else await new Promise((r) => setTimeout(r, 10));
+      }
+      // owner-a sees the provenance; owner-b sees the empty shape, never owner-a's job id.
+      const a = await (await fetch(`${url}/v1/scores/${scoreId}/source`)).json();
+      expect(a).toEqual({ jobId: id, imageCount: 1 });
+      const b = await (await fetch(`${url}/v1/scores/${scoreId}/source`, { headers: { 'x-owner': 'b' } })).json();
+      expect(b).toEqual({ jobId: null, imageCount: 0 });
+    } finally {
+      await scopedApi.close();
+      scopedJobs.close();
+      scopedStore.close();
+    }
+  });
+});
+
 describe('the API without a worker (Q80: everything else still works)', () => {
   beforeEach(() => boot({ withWorker: false }));
 
@@ -388,6 +470,18 @@ describe('the API without a worker (Q80: everything else still works)', () => {
     const reply = await upload(A_PNG);
     expect(reply.status).toBe(503);
     expect(reply.body.error).toMatchObject({ kind: 'worker-unavailable' });
+  });
+
+  it('answers a score-source query with the empty shape, not a 503 (V14b)', async () => {
+    // The source seam is a read that never depends on a worker: a build with none still opens an
+    // imported-elsewhere or hand-authored chart's review view, it just finds no scan to show.
+    const created = await post('/v1/scores', {
+      operation: { type: 'score.create', payload: { id: 's2', title: 'X', bars: [{ id: 'b1', number: 1 }] } },
+    });
+    expect(created.status).toBe(201);
+    const source = await get('/v1/scores/s2/source');
+    expect(source.status).toBe(200);
+    expect(source.body).toEqual({ jobId: null, imageCount: 0 });
   });
 
   it('still lists imports (empty) and serves every non-import feature', async () => {

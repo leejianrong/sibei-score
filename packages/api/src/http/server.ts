@@ -194,6 +194,14 @@ export function createApi(options: ApiOptions): Api {
         format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'application/octet-stream';
       return { bytes, contentType };
     },
+    source(owner: Owner, scoreId) {
+      // The reverse of `submit`, for the split-pane review (V14b): find the job that produced this
+      // score (`getByScoreId`, owner-scoped) and report just its id and page count — no blob read, so
+      // no round-trip. A score with no import behind it returns null, which the route turns into the
+      // empty provenance rather than a 404 (a scan-less chart is the common case, not an error).
+      const job = jobs.getByScoreId(owner, scoreId);
+      return job === null ? null : { jobId: job.id, imageCount: job.imageKeys.length };
+    },
     reader: jobs,
     streams: jobStreams,
   };

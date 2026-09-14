@@ -91,6 +91,18 @@ export interface ImportService {
    * directly (ADR-0003's narrowing).
    */
   sourceImage(owner: Owner, id: JobId, index: number): Promise<SourceImage | null>;
+  /**
+   * The import provenance of a *score* (V14b) — the bridge the split-pane review starts from. The
+   * browser opens a chart by `scoreId` and has to reach the scans that produced it (ADR-0019), which
+   * are keyed by `jobId`; this reverses `ImportJob.scoreId` (through `JobReader.getByScoreId`) into
+   * just what the review view needs to fetch each page — the owning job's id and how many pages it
+   * has — and the browser then GETs `sourceImage` for each index. `null` when the score has no import
+   * behind it: a hand-authored, duplicated, or unknown score simply has no source, which is not an
+   * error (the score view asks this of *every* chart, so it must answer emptily rather than fail).
+   * Owner-scoped like every other import read, and a plain read — no blob round-trip, so unlike
+   * `sourceImage` it need not be async.
+   */
+  source(owner: Owner, scoreId: Id): SourceProvenance | null;
   /** Reads over the job store: list (summaries) and get (full, with the recognised objects). */
   reader: JobReader;
   /** The SSE progress streams. Subscribe-only from here, like the score event streams. */
@@ -101,6 +113,12 @@ export interface ImportService {
 export interface SourceImage {
   bytes: Buffer;
   contentType: string;
+}
+
+/** A score's import provenance: the job that produced it and how many source pages it retained (V14b). */
+export interface SourceProvenance {
+  jobId: JobId;
+  imageCount: number;
 }
 
 /** A body larger than this is refused unread. An op batch is kilobytes (ADR-0029: real caps). */
@@ -170,6 +188,15 @@ export async function route(
   if (exportFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
     return await exportScore(request, response, context, exportFor);
+  }
+
+  // The import provenance of a score (V14b): where the split-pane review reaches the retained scans
+  // from. A read that always answers 200 — a chart with no import behind it has an empty source, not
+  // a 404, because the score view asks this of every chart and a scan-less answer must not error it.
+  const sourceFor = match(path, /^\/v1\/scores\/([^/]+)\/source$/);
+  if (sourceFor !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return sourceOfScore(response, context, sourceFor);
   }
 
   const eventsFor = match(path, /^\/v1\/scores\/([^/]+)\/events$/);
@@ -271,6 +298,28 @@ export async function route(
   }
 
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));
+}
+
+/**
+ * `GET /v1/scores/:id/source` — a score's import provenance (V14b), the seam the split-pane review
+ * starts from (ADR-0019). It answers `{ jobId, imageCount }` when the score came from an import and
+ * `{ jobId: null, imageCount: 0 }` when it did not — always 200, never a 404. That the empty case is
+ * a value and not an error is the point: the score view fetches this for *every* chart it opens, and
+ * a hand-authored or duplicated chart legitimately has no scan behind it (a duplicate gets a fresh
+ * log, not a job, ADR-0003/Q79). The browser reads `imageCount` and, for a source-bearing score,
+ * GETs `…/imports/:jobId/images/:index` for each page. Owner-scoped through the `ImportService` like
+ * every other import read; a server built without an OMR pipeline has no imports at all, so it too
+ * answers the empty shape rather than a 503 — nothing it holds could carry a source.
+ */
+function sourceOfScore(response: ServerResponse, context: RouteContext, scoreId: Id): number {
+  const provenance = context.imports?.source(context.owner, scoreId) ?? null;
+  return sendJson(
+    response,
+    200,
+    provenance === null
+      ? { jobId: null, imageCount: 0 }
+      : { jobId: provenance.jobId, imageCount: provenance.imageCount },
+  );
 }
 
 /**
