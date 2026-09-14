@@ -6,6 +6,43 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V13 reads chords from the photo — and, for the first time in v0.2, the whole import pipeline runs
+end to end on the small build host.** The RAM wall that OOM-kills oemer (V12) turned out to be
+oemer-specific: its dual full-page U-Nets peak ~7 GB, but V13's chord work — PaddleOCR's mobile models
+(~15 MB) plus the pure-TS corrector and beat mapping — is light. Cut into five stacked PRs (V13a–e), the
+V2–V12 pattern, around one addition taken with the maintainer: **v0.3's engine-selection seam (SLICES
+V15, ADR-0031) pulled forward** so a second, dependency-light engine can run the flow where oemer cannot.
+
+The division of labour is the load-bearing decision. **Python reads pixels; the model decides meaning.**
+The worker (either engine) crops the band above each staff and OCRs it (`worker/sibei_omr/band_ocr.py`,
+PaddleOCR, ADR-0027), emitting raw `bandTokens` — text + box + confidence — in full-image coordinates
+(V13a bumps `OMR_SCHEMA_VERSION` 1→2 for the new field). All the *interpretation* is pure TS in
+`mapOmrToScore` (V13b): the **V5 grammar corrector** snaps a token to a legal chord (injected as a seam,
+since `model` cannot import `music`, ADR-0011/0005), it is **beat-mapped** to the onset at or before its
+box (stage 3, Q71), or kept as a flagged `Annotation` (Q56); confidence and low-confidence flags ride in
+(ADR-0019). This is why the accuracy-bearing work is fully fast-layer testable without oemer or PaddleOCR
+— the same discipline V11 used for the note mapper.
+
+The **heuristic engine** (V13c, `engines/heuristic.py`) is OpenCV-only — staves by projection + line
+grouping, barlines by tall vertical runs, noteheads by blobs left after staff-line and stem removal
+(with a vertical close to heal a head split by a line). It is **dev/test scaffolding and the seed of the
+bespoke direction, not the trained V15/V16 model, and it earns no default swap** (ADR-0020/0031). It is
+what let the pipeline be *measured* here: served behind the engine seam with PaddleOCR (V13d,
+`enable_mkldnn=False` around a paddle 3.x oneDNN CPU bug; paddle needs only numpy>=1.21, so it shares
+oemer's image), `pnpm eval --engine worker` lifted **chordF1 from 0.000 to 0.100** on the synthetic
+corpus — a real end-to-end number on 8 GB. V13e surfaces a flagged import chord's confidence in the text
+projection (`Cmaj7!62`), threading the needle on ADR-0009's "lossy by design": an *unflagged* chord's
+confidence and all annotations stay in the structured dump and the score surface, so the existing
+lossy-design contract holds and only the review-relevant number appears.
+
+**Deferred to a bigger host, author + reviewed (the V10/V11 discipline):** the **oemer** chord baseline
+(the ADR-0011 stage-2 fine-tuning target), the full PaddleOCR + oemer co-install on py3.11, and the image
+build — this host ran the heuristic engine + PaddleOCR in a light venv. **A decision surfaced from the
+corpus, not worked around:** rehearsal letters and sections are still **not created** — ADR-0021 says
+both are supported-but-not-detected, and nothing in the schema distinguishes a boxed rehearsal "A" from a
+chord "A", so a readable token becomes a chord and the human adds structure in correction (V14). That is
+the documented reading of Q56's "matched separately by pattern".
+
 **V12 builds the evaluation harness — the first slice whose product is a *number*, not a feature.**
 Nothing before it measured how good import is; V13's chord accuracy and all of v0.3's engine swap
 depend on scoring a recogniser rather than admiring it (ADR-0020, ADR-0031). Cut into four stacked

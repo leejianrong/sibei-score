@@ -830,6 +830,42 @@ human-time gate is the right criterion).
 
 ## V13: Chords from the photo
 
+> **Update, 2026-09-14. Landed, in five stacked sub-PRs V13a–e (the V12 pattern), plus one
+> deliberate addition confirmed with the maintainer: the v0.3 engine seam pulled forward.** The chord
+> pipeline is built and, crucially, **runs end to end on the small build host** — the RAM wall that
+> OOM-kills oemer here is oemer-specific, and V13's chord work (PaddleOCR + the corrector + beat
+> mapping) is light. **V13a** extends the worker-output schema: `OmrDocument.bandTokens`
+> (`{text, bbox, confidence, group}`), `OMR_SCHEMA_VERSION` 1→2, both sides (`packages/model/src/omr.ts`,
+> `worker/sibei_omr/recognize.py`). **V13b** is the measurable core — a pure-TS mapper step in
+> `mapOmrToScore`: each band token is snapped to a legal chord (the **V5 grammar corrector**, injected
+> as a seam because `model` cannot import `music`, ADR-0011/0005) and **beat-mapped** to the note/rest
+> onset at or before its box (stage 3, Q71), or kept as a flagged `Annotation` (Q56); OCR confidence
+> and low-confidence flags ride into the model (ADR-0019). **V13c** pulls v0.3's engine-selection seam
+> (SLICES V15, ADR-0031) forward: `worker/sibei_omr/engines/{oemer,heuristic}`, chosen by
+> `--engine`/`$SIBEI_OMR_ENGINE`, oemer the default. The **heuristic engine** is OpenCV-only (no ML
+> weights, low RAM) so the whole photo→draft→PDF flow and `make eval` run where oemer is OOM-killed —
+> **dev/test scaffolding and the seed of the bespoke direction, NOT the trained V15/V16 model, and it
+> earns no default swap** (a swap is decided on the V12 harness, ADR-0020, never by fiat). **V13d** adds
+> the chord band: `worker/sibei_omr/band_ocr.py` crops the strip above each staff and runs **PaddleOCR**
+> (ADR-0027) on both engines, emitting `bandTokens`; offline weights are baked (ADR-0024). **V13e**
+> surfaces a flagged import chord's confidence in the text projection (`Cmaj7!62`, respecting ADR-0009's
+> "lossy by design": unflagged confidence and annotations stay in the structured dump / score view) and
+> lands these notes.
+>
+> **Measured:** the heuristic engine + PaddleOCR lifted `chordF1` from 0.000 to **0.100** on the
+> synthetic corpus, end to end on the 8 GB host — the whole flow works and the number is real.
+> **Deferred to a bigger host** (author + reviewed, the V10/V11 discipline): the **oemer** chord
+> baseline (the ADR-0011 stage-2 target), the full PaddleOCR+oemer co-install on py3.11, and the image
+> build — this host ran the heuristic engine + PaddleOCR in a light venv.
+>
+> **A decision from the corpus, surfaced not worked around:** rehearsal letters and sections are **not
+> created**. ADR-0021 is explicit that both are "supported … but not detected"; a lone A–G is a legal
+> chord *and* a plausible rehearsal letter and the schema carries no box/position cue to tell them
+> apart, so a readable token becomes a chord and the human promotes a genuine rehearsal mark to a
+> section in correction (V14) — which ADR-0021 already requires. This is the documented reading of Q56's
+> "matched separately by pattern": non-chord text is kept and flagged; auto-structure is not. Read the
+> build plan below as the plan it was.
+
 **Delivers:** R5 (completes the pipeline)
 
 **Build plan**

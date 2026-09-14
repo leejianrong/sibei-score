@@ -188,6 +188,40 @@ describe('chord symbols carry beat placement', () => {
     ]);
     expect(find(score, 'Ebm7')).toContain('Ebm7!');
   });
+
+  it('shows a flagged import chord’s OCR confidence after the flag (V13)', () => {
+    const score = chart([
+      makeBar({
+        id: 'bar-1',
+        number: 1,
+        chords: [
+          makeChord({
+            id: 'chord-1',
+            onset: 0,
+            text: 'Cmaj7',
+            confidence: 0.62,
+            review: { flagged: true, reasons: ['low-confidence'] },
+          }),
+        ],
+      }),
+    ]);
+    // `!` never occurs in a chord symbol, so `Cmaj7!62` is unambiguous — flagged, 62% confident.
+    expect(find(score, 'Cmaj7')).toContain('Cmaj7!62');
+  });
+
+  it('keeps a confident import chord clean — no number when it is not flagged (lossy by design)', () => {
+    const score = chart([
+      makeBar({
+        id: 'bar-1',
+        number: 1,
+        chords: [makeChord({ id: 'chord-1', onset: 0, text: 'Cmaj7', confidence: 0.98 })],
+      }),
+    ]);
+    const cell = find(score, 'Cmaj7');
+    expect(cell).toContain('Cmaj7');
+    expect(cell).not.toContain('98');
+    expect(cell).not.toContain('!');
+  });
 });
 
 describe('the melody line', () => {

@@ -22,7 +22,11 @@ engine later (ADR-0005). It prints a table and appends one line to `eval/history
 
 > **RAM.** The oemer worker holds a ~7 GB model (V9). On a small machine (e.g. 8 GB, earlyoom) the
 > run can be OOM-killed — that is a datum for v0.3, not a bug (ADR-0031 exists partly because of it).
-> Use `--engine fixture` to exercise everything but oemer, and run the real baseline on a bigger host.
+> Use `--engine fixture` to exercise everything but oemer, and run the real oemer baseline on a bigger
+> host. To score a **real** engine on a small host, serve the low-RAM heuristic engine (V13c, OpenCV
+> only) and point the worker path at it — `SIBEI_OMR_ENGINE=heuristic python -m sibei_omr.server`, then
+> `pnpm eval --engine worker`. Its accuracy is modest by design; the value is a real end-to-end number
+> without oemer's RAM.
 
 ## The metrics
 
@@ -34,7 +38,7 @@ symbol error rate. Defined in `packages/synth/src/metrics.ts`, tested on empty/p
 |---|---|
 | **noteF1** | F1 over the note/rest sequence — pitch **and** rhythm must match. The headline number. |
 | **noteAcc** | matches / max(pred, truth) — one scalar, easier to read than P/R/F1. |
-| **chordF1** | F1 over chord symbols, compared after canonicalising through the V5 grammar (`CM7` == `Cmaj7`). Until V13 the pipeline detects no chords, so this reads ~0 for oemer — the baseline V13 must lift. |
+| **chordF1** | F1 over chord symbols, compared after canonicalising through the V5 grammar (`CM7` == `Cmaj7`). V13 added chord recognition (PaddleOCR on the cropped band + the V5 corrector + stage-3 beat mapping), so this now moves: the heuristic engine scores it end-to-end on a small host (a real 0.100 on the synthetic corpus at V13d), and oemer's chord baseline — the ADR-0011 stage-2 fine-tuning target — is measured on a bigger host, since oemer OOMs here. |
 | **validBars** | Fraction of bars that are metrically valid (ADR-0013). *Empty bars count as valid*, so read it alongside noteF1, not alone. |
 
 The synthetic corpus is scored per degradation level (`clean`, `light`, `medium`, `heavy`) so the
