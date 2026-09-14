@@ -147,6 +147,17 @@ under-filled bar and a correct one **render identically**, so review state has t
 chrome or it is invisible; and `GET /v1/scores` carries six fields and no review state, which is
 why the library is a list and not a gallery with badges.
 
+**A chart that came from an import opens beside its scan (V14b, ADR-0019).** The score view fetches
+`GET /v1/scores/:id/source` for every chart it opens; when that names an import, `SourcePane.svelte`
+draws the retained page images (`GET /v1/imports/:jobId/images/:index`) in a two-column split with the
+engraved sheet, each side its own scroll and its own zoom, and a "Show/Hide scan" toggle in the stage
+bar. A chart with no scan behind it (hand-authored, duplicated) gets the empty source shape and the
+view is exactly as before — no pane, no error. The pane is only ever `<img>`s: it holds no
+`layout`/`engrave`, changes nothing about the *rendered* score (the byte-identical-SVG rule still
+governs the sheet, which V14b does not touch), and is a picture viewer over the ground truth a human
+corrects the recognised chart against. Correcting the parse itself — shading the flags, the
+no-sections prompt, `sbscore reparse` — is later V14 sub-PRs.
+
 **The dev server proxies `/v1/`** so the UI is same-origin, which is what ADR-0029's guards
 require. `strictPort` is deliberate — it refuses an occupied port rather than sliding to the next
 one, because a silent port change is the kind of lie this repo dislikes.

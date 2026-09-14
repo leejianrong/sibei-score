@@ -201,6 +201,8 @@ POST   /v1/scores/:id/redo   reapply the last undone batch (V8a)
 POST   /v1/scores/:id/duplicate  copy to a new score with a fresh history (V8c)
 GET    /v1/scores/:id/export ?format=pdf|musicxml&paper=a4|letter&font=normal|jazz&instrument=concert
 GET    /v1/scores/:id/events SSE: this score's changes (V4a)
+GET    /v1/scores/:id/source the import behind a score (V14b): {jobId, imageCount}, or {jobId: null,
+                             imageCount: 0} for a chart with no scan — always 200, never a 404
 GET    (anything else)       the built UI, when serving it (V8g); else 404
 ```
 
@@ -399,7 +401,11 @@ GET    /v1/imports/:id/images/:index  the retained source image of page :index (
 The reverse lookup a re-parse needs — score back to the job that made it — is `JobReader.getByScoreId`
 (V14a). A score is produced by at most one import (a duplicate gets a fresh log, not a job), so it is a
 single job. The `Score` carries no provenance of its own; this lookup is the linkage (a store method,
-chosen over a schema change), and a later V14 sub-PR exposes it to the surfaces.
+chosen over a schema change). **V14b exposes it to the surfaces** as `GET /v1/scores/:id/source`
+(`ImportService.source`), which the browser's split-pane review opens on: it answers `{jobId,
+imageCount}` for an imported chart and the empty `{jobId: null, imageCount: 0}` for one with no scan —
+always 200, so opening *any* chart's review view (the score view asks this of every chart) can never
+error on a scan-less one. The review pane then GETs `…/imports/:jobId/images/:index` for each page.
 
 The routes get an `ImportService`, not the job store and runner directly — the same narrowing every
 capability here gets. It holds no `ScoreWriter`, so nothing an import route can do writes a score.

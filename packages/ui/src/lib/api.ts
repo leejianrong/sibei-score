@@ -92,6 +92,33 @@ export async function getScore(id: Id): Promise<ScoreRecord> {
 }
 
 /**
+ * A score's import provenance (V14b) — the seam the split-pane review opens on (ADR-0019). `GET
+ * /v1/scores/:id/source` answers `{ jobId, imageCount }` for a chart that came from a scan and
+ * `{ jobId: null, imageCount: 0 }` for one that did not; it never 404s, because the score view asks
+ * it of every chart and a scan-less chart is the common case, not an error. When there is a scan the
+ * review pane fetches each page from {@link sourceImageUrl}. This is the **wire** shape restated here
+ * for the same reason `ScoreListing` is: a browser bundle may not resolve `@sibei/api`.
+ */
+export interface ScoreSource {
+  jobId: Id | null;
+  imageCount: number;
+}
+
+export async function getScoreSource(id: Id): Promise<ScoreSource> {
+  return await getJson<ScoreSource>(`${V1}/scores/${encodeURIComponent(id)}/source`);
+}
+
+/**
+ * The URL of one retained source page (V14a's `GET /v1/imports/:jobId/images/:index`), for the
+ * `<img>` the review pane draws. Same-origin and relative like every other request here, so the
+ * browser never makes a cross-origin fetch and the bytes come back with the content-type the server
+ * recovered from them (ADR-0029). The index is a plain non-negative integer the server validates.
+ */
+export function sourceImageUrl(jobId: Id, index: number): string {
+  return `${V1}/imports/${encodeURIComponent(jobId)}/images/${index}`;
+}
+
+/**
  * Library lifecycle (V8c). Delete destroys a chart and its log (ADR-0003) — irreversible, which is
  * why the library asks first. Duplicate copies a chart to a new one with a fresh history; the server
  * mints the new id, and the caller re-reads the list rather than trusting the returned shape, the
