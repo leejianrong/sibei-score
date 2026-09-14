@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 2,
+  "source": {
+    "engine": "heuristic",
+    "engineVersion": "0.1.0",
+    "imagePath": "heuristic-synthetic.png",
+    "imageWidth": 1000,
+    "imageHeight": 600,
+    "provider": "cpu",
+    "wallClockSeconds": 0.0
+  },
+  "staves": [
+    {
+      "index": 0,
+      "track": 0,
+      "group": 0,
+      "xLeft": 79.0,
+      "xRight": 921.0,
+      "yUpper": 120.0,
+      "yLower": 200.0,
+      "yCenter": 160.0,
+      "unitSize": 20.0
+    },
+    {
+      "index": 1,
+      "track": 0,
+      "group": 1,
+      "xLeft": 79.0,
+      "xRight": 921.0,
+      "yUpper": 380.0,
+      "yLower": 460.0,
+      "yCenter": 420.0,
+      "unitSize": 20.0
+    }
+  ],
+  "zones": [],
+  "noteheads": [
+    {
+      "id": 6,
+      "bbox": [
+        168,
+        153,
+        190,
+        170
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 7,
+      "bbox": [
+        328,
+        133,
+        350,
+        150
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 4,
+      "bbox": [
+        548,
+        173,
+        570,
+        190
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 5,
+      "bbox": [
+        728,
+        153,
+        750,
+        170
+      ],
+      "track": 0,
+      "group": 0,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 2,
+      "bbox": [
+        168,
+        413,
+        190,
+        430
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 3,
+      "bbox": [
+        348,
+        393,
+        370,
+        410
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 0,
+      "bbox": [
+        608,
+        433,
+        630,
+        450
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    },
+    {
+      "id": 1,
+      "bbox": [
+        808,
+        413,
+        830,
+        430
+      ],
+      "track": 0,
+      "group": 1,
+      "noteGroupId": null,
+      "staffLinePos": null,
+      "pitch": null,
+      "hasDot": false,
+      "stemUp": null,
+      "invalid": false,
+      "label": "QUARTER"
+    }
+  ],
+  "noteGroups": [],
+  "barlines": [
+    {
+      "bbox": [
+        258,
+        120,
+        263,
+        200
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        478,
+        120,
+        483,
+        200
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        678,
+        120,
+        683,
+        200
+      ],
+      "group": 0
+    },
+    {
+      "bbox": [
+        278,
+        380,
+        283,
+        460
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        518,
+        380,
+        523,
+        460
+      ],
+      "group": 1
+    },
+    {
+      "bbox": [
+        718,
+        380,
+        723,
+        460
+      ],
+      "group": 1
+    }
+  ],
+  "rests": [],
+  "bandTokens": []
+}
