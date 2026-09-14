@@ -62,6 +62,7 @@ sbscore open <id>                            # the full document, as JSON
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
+sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
 ```
@@ -77,6 +78,17 @@ and prints the new chart's id. **Every parse is a draft** (ADR-0019): open it, f
 to 4/4 and never detects sections (ADR-0021), so the four-bar layout is wrong until you add them
 (ADR-0015). An image with no staff fails with exit 2 and creates nothing (ADR-0018). The source images
 are kept forever (ADR-0019), so a chart can be re-parsed later by a better engine.
+
+`reparse` is that re-parse: it re-runs OMR on the scans an import kept (no new upload — the server
+reuses the retained images, V14e) and lands the result as a **new** draft, printing its id; the
+original chart and any corrections on it are left untouched. `--engine` picks the recogniser —
+`heuristic` on a small host, `oemer` where the RAM is there — and without it the worker keeps its own
+default (host-appropriate). Like `import` it needs a server with a worker and waits for the job. A
+chart with no scan behind it (hand-authored or duplicated) has nothing to re-run and fails with exit 2.
+
+```sh
+sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -> a fresh draft id
+```
 
 ## Notes, rests and chords
 

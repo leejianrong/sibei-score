@@ -6,6 +6,32 @@ things deliberately not built yet.
 
 ## How the slices were actually cut
 
+**V14 completes v0.2 (import): correcting a parse.** Import has produced a draft since V11; V14 is the
+surface that turns a draft into a corrected chart, against its own photo, from both the browser and the
+CLI (ADR-0019). Seven stacked sub-PRs, the V12/V13 pattern. The load-bearing move is retention: a
+`Score` carries no provenance of its own, so **V14a** adds a reverse store lookup `JobReader.getByScoreId`
+(chosen over a schema change) and `GET /v1/imports/:jobId/images/:index` to stream the scan bytes an
+import already kept. **V14b** puts them side by side — `GET /v1/scores/:id/source`
+(`ImportService.source`) answers `{jobId, imageCount}`, or `{jobId: null, imageCount: 0}` for a
+hand-authored chart, always 200 so the score view can ask it of *anything* — behind `SourcePane.svelte`,
+a split-pane. **V14c** shades the review through the *one* render path (ADR-0014/0015), not a second
+one: `packages/engrave` washes an invalid bar rose (`INVALID_BAR_FILL`, ADR-0013) and a flagged object
+yellow (`FLAGGED_OBJECT_FILL`, ADR-0019), with a `reviewChart` fixture that joins the byte-identical and
+snapshot suites. **V14d** is the advisory a human needs and layout silently assumes:
+`reviewSummary().hasSections` → `NO_SECTIONS_ADVISORY` on both surfaces (import never detects sections,
+ADR-0021, and the four-bar grid breaks lines on them, ADR-0015), plus a flag-parity integration test that
+pins the `!` set the same across `sbscore show` and the browser. **V14e** is `reparse`: `POST
+/v1/scores/:id/reparse` (`ImportService.reparse`) reuses `getByScoreId` → the same `imageKeys`, no
+re-upload → the runner (ADR-0005) → the server-only `Applier.import` (ADR-0003/0008) → a **new** draft,
+so the original and its corrections survive; `sbscore reparse <id> [--engine oemer|heuristic]` and a UI
+Re-parse control, the engine threaded end-to-end (job table schema v3→v4, the worker resolving it
+per-request) with a `422 unsupported-engine` and a `422 no-source-to-reparse` for a scan-less chart.
+**V14f** wrote the V12 human-time ship gate into `docs/eval.md` as a repeatable stopwatch procedure but
+**deferred the run** — its 32-bar real-photo fixture is not committed and oemer OOMs on the 8 GB host, so
+the number is honestly absent rather than faked. **V14g** is the docs closeout (this entry, AGENTS.md,
+`docs/cli.md`, SLICES.md's V14 note, the server route table). With it, **v0.2 is complete — V9–V14 have
+all landed** — and the roadmap points at v0.3, the bespoke recogniser.
+
 **V13 reads chords from the photo — and, for the first time in v0.2, the whole import pipeline runs
 end to end on the small build host.** The RAM wall that OOM-kills oemer (V12) turned out to be
 oemer-specific: its dual full-page U-Nets peak ~7 GB, but V13's chord work — PaddleOCR's mobile models

@@ -911,6 +911,30 @@ coordinates.
 
 ## V14: Correcting a parse
 
+> **Update, 2026-09-14. Landed, in seven stacked sub-PRs V14a–g (the V12/V13 pattern).** Correction is
+> built and **v0.2 (import) is complete — V9–V14 have all landed.** Every parse is a draft the human
+> fixes against the photo (ADR-0019), reachable from both surfaces. **V14a** retains the source: the
+> reverse lookup `JobReader.getByScoreId` (a store method, not a `Score` schema change) plus
+> `GET /v1/imports/:jobId/images/:index`, which streams the kept scan bytes with a content-type read
+> from them. **V14b** is the split-pane review: `GET /v1/scores/:id/source` (`ImportService.source`)
+> answers `{jobId, imageCount}` for an imported chart and `{jobId: null, imageCount: 0}` for a
+> hand-authored one — always 200, so the score view can ask it of *any* chart — and `SourcePane.svelte`
+> lays the source image beside the rendered score. **V14c** shades the review on the score surface, in
+> `packages/engrave`: a rose wash behind a metrically-invalid bar (ADR-0013) and a yellow wash behind a
+> low-confidence flagged object (ADR-0019), with a `reviewChart` fixture that enters the byte-identical
+> (ADR-0014/0015) and snapshot suites so the shading is one render path like everything else. **V14d**
+> is the no-sections advisory: `reviewSummary().hasSections` drives `NO_SECTIONS_ADVISORY` on both
+> surfaces (import never detects sections, ADR-0021, and layout silently depends on them, ADR-0015), and
+> a flag-parity integration test pins that `sbscore show`'s `!` flags and the browser's are the same set
+> for the same score. **V14e** is re-parse: `POST /v1/scores/:id/reparse` (`ImportService.reparse`)
+> reuses `getByScoreId` → the same `imageKeys`, no re-upload → the runner → the server-only
+> `Applier.import` (ADR-0003/0008) → a **new** draft, the original untouched; `sbscore reparse <id>
+> [--engine oemer|heuristic]` and a UI Re-parse control, with `engine` threaded end-to-end to the worker
+> (ADR-0005; the job table went schema v3→v4 to carry it, the worker resolves it per-request) and a
+> `422 unsupported-engine`. **V14f** wrote and ran the V12 human-time ship-gate procedure into
+> `docs/eval.md`; the gate run itself is **deferred** — its 32-bar fixture is not yet committed. **V14g**
+> is this note and the docs closeout (AGENTS.md, `docs/cli.md`, this file, the server route table).
+
 **Delivers:** R6
 
 **Build plan**
