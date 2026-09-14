@@ -81,10 +81,26 @@ export interface ImportService {
   submit(owner: Owner, images: Buffer[]): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
   retry(owner: Owner, id: JobId): ImportJob | null;
+  /**
+   * The retained source image at page `index` of a job — the scan V14's split-pane review shows beside
+   * the recognised score and `sbscore reparse` re-runs (ADR-0019 keeps them permanently for exactly
+   * this). `null` when the job is missing or not this owner's, or there is no page at that index. The
+   * content-type is recovered from the bytes (`imageFormatOf`), never from a stored declaration —
+   * reading the blob back is the same round-trip the runner takes to hand the worker an upload. Kept
+   * behind the service, not a raw `BlobStore` on the routes, so this file still touches no infra
+   * directly (ADR-0003's narrowing).
+   */
+  sourceImage(owner: Owner, id: JobId, index: number): Promise<SourceImage | null>;
   /** Reads over the job store: list (summaries) and get (full, with the recognised objects). */
   reader: JobReader;
   /** The SSE progress streams. Subscribe-only from here, like the score event streams. */
   streams: JobStreams;
+}
+
+/** A retained source image on its way out: the bytes and the content-type derived from them. */
+export interface SourceImage {
+  bytes: Buffer;
+  contentType: string;
 }
 
 /** A body larger than this is refused unread. An op batch is kilobytes (ADR-0029: real caps). */
@@ -225,6 +241,15 @@ export async function route(
   if (importRetryFor !== null) {
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
     return retryImport(response, context, importRetryFor);
+  }
+
+  // The retained source images of an import (V14a). Two captures — the job id and the page index — so
+  // it is matched here rather than through `match` (which pulls a single group). Ahead of the
+  // single-segment `/v1/imports/:id` below it, though the extra segments already keep them apart.
+  const importImage = /^\/v1\/imports\/([^/]+)\/images\/([^/]+)$/.exec(path);
+  if (importImage !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return await serveImportImage(response, context, decodeURIComponent(importImage[1]!), importImage[2]!);
   }
 
   const importFor = match(path, /^\/v1\/imports\/([^/]+)$/);
@@ -368,6 +393,48 @@ function openImportStream(
 }
 
 /**
+ * `GET /v1/imports/:id/images/:index` — one retained source image of an import (V14a).
+ *
+ * The scan the split-pane review shows beside the recognised score and `sbscore reparse` re-runs,
+ * kept permanently for exactly this (ADR-0019). A read, owner-scoped through the `ImportService`
+ * (which resolves the job through the `JobReader`) like every other import read, and a GET — exempt
+ * from the Origin check but not the Host check (ADR-0029). The bytes are streamed but **never
+ * logged**: the request logger records method/path/status only, so the image never reaches a log.
+ *
+ * A miss — no such job, not this owner's, or no page at that index — is a 404 rather than leaking
+ * which of those it was, the same shape a `GET /v1/imports/:id` miss has. Inspecting a past import
+ * does not need a worker, so this is gated only on the pipeline existing at all, not on `available`
+ * (a server built without a worker still 404s a real miss and serves what it stored, like the
+ * listing route above).
+ */
+async function serveImportImage(
+  response: ServerResponse,
+  context: RouteContext,
+  id: JobId,
+  rawIndex: string,
+): Promise<number> {
+  if (context.imports === undefined) return send(response, noImportPipeline());
+  const index = parseImageIndex(rawIndex);
+  if (index === null) return send(response, noSuchImage(id, rawIndex));
+  const image = await context.imports.sourceImage(context.owner, id, index);
+  if (image === null) return send(response, noSuchImage(id, rawIndex));
+  response.writeHead(200, {
+    'content-type': image.contentType,
+    'content-length': image.bytes.length,
+    'x-content-type-options': 'nosniff',
+  });
+  response.end(image.bytes);
+  return 200;
+}
+
+/** A page index from the path: a non-negative integer, or `null` for anything else (a 404). */
+function parseImageIndex(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const index = Number(raw);
+  return Number.isSafeInteger(index) ? index : null;
+}
+
+/**
  * `GET /v1/scores/:id/export?format=pdf&paper=a4&font=normal&instrument=concert` (ADR-0006, Q81).
  *
  * A read: the score comes through the `ScoreReader`, the bytes go through the `BlobStore`, and
@@ -446,6 +513,15 @@ function noSuchScore(scoreId: Id): Problem {
 
 function noSuchImport(id: JobId): Problem {
   return problem(404, 'no-such-import', `there is no import job with the id ${JSON.stringify(id)}`);
+}
+
+/** A source image the import does not have — a bad job id, a wrong owner, or an out-of-range page. */
+function noSuchImage(id: JobId, index: string): Problem {
+  return problem(
+    404,
+    'no-such-import-image',
+    `import ${JSON.stringify(id)} has no source image at ${JSON.stringify(index)}`,
+  );
 }
 
 /** This build was started without an OMR worker, so import is unavailable (but nothing else is). */

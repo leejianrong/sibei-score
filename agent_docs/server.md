@@ -392,7 +392,14 @@ GET    /v1/imports            this owner's jobs (summaries, no result)
 GET    /v1/imports/:id        one job in full, with the recognised objects and (V11) the scoreId when succeeded
 GET    /v1/imports/:id/events SSE: this job's progress
 POST   /v1/imports/:id/retry  requeue a failed job (Q80) -> 200; 409 if it is not failed
+GET    /v1/imports/:id/images/:index  the retained source image of page :index (V14a, ADR-0019) ->
+                              the bytes with a content-type read from them; 404 for an unknown job or page
 ```
+
+The reverse lookup a re-parse needs — score back to the job that made it — is `JobReader.getByScoreId`
+(V14a). A score is produced by at most one import (a duplicate gets a fresh log, not a job), so it is a
+single job. The `Score` carries no provenance of its own; this lookup is the linkage (a store method,
+chosen over a schema change), and a later V14 sub-PR exposes it to the surfaces.
 
 The routes get an `ImportService`, not the job store and runner directly — the same narrowing every
 capability here gets. It holds no `ScoreWriter`, so nothing an import route can do writes a score.
