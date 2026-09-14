@@ -12,6 +12,18 @@
  * between synthetic and real made visible (ADR-0020). Each run appends one line to
  * `eval/history.jsonl` so regressions are visible across commits.
  *
+ * The on-pod split (ADR-0032, KAN-1379) is two extra modes that avoid running oemer over a WAN
+ * request (which the ADR-0032 gate proved cannot survive a multi-minute recognition):
+ *
+ *   pnpm eval --dump-corpus DIR --seeds 3   # write the corpus images to DIR (no recognition)
+ *   # …copy DIR to the pod, run `python -m sibei_omr.batch DIR OUT`, copy OUT back… (`rp` does this)
+ *   pnpm eval --engine dump --docs-dir OUT --seeds 3   # score the pre-computed OmrDocuments
+ *
+ * Because `buildEntry` is deterministic in `(seed, bars, level, zoom)`, the same corpus and ground
+ * truth are regenerated at scoring time — only the images (up) and the OmrDocuments (down) cross the
+ * wire, and the number is identical to a live `--engine worker` run. Keep the four `--seeds/--bars/
+ * --levels/--zoom` args identical across the dump and score commands, or the names won't line up.
+ *
  * A development entry point, not a product surface. Note the worker holds oemer's ~7 GB model in
  * RAM (V9); on a small machine the run may be OOM-killed — that is a datum for v0.3, not a bug
  * (ADR-0031). It never touches the score store.
@@ -22,16 +34,16 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
 import { createHttpWorkerClient } from '@sibei/api';
 import type { Score } from '@sibei/model';
-import { mapOmrToScore, parseOmrDocument } from '@sibei/model';
+import { makeScore, mapOmrToScore, parseOmrDocument } from '@sibei/model';
 import { correctChord } from '@sibei/music';
 import type { AggregateMetrics, OmrMetrics } from '@sibei/synth';
 import { aggregate, scoreOmr } from '@sibei/synth';
 import type { CorpusSpec, DegradeLevel, EvalReport, Predict } from '@sibei/synth/imaging';
-import { runEval } from '@sibei/synth/imaging';
+import { buildEntry, runEval } from '@sibei/synth/imaging';
 
 const REPO = resolve(import.meta.dirname, '..');
 const ALL_LEVELS: DegradeLevel[] = ['clean', 'light', 'medium', 'heavy'];
@@ -40,7 +52,7 @@ const REAL_DIR = join(REPO, 'tests/fixtures/eval/real');
 const HISTORY = join(REPO, 'eval/history.jsonl');
 
 interface Args {
-  engine: 'worker' | 'fixture';
+  engine: 'worker' | 'fixture' | 'dump';
   url: string;
   seeds: number;
   bars: number;
@@ -48,6 +60,19 @@ interface Args {
   zoom: number;
   json: boolean;
   history: boolean;
+  /** `--dump-corpus DIR`: write the corpus images to DIR and exit, running no recogniser (ADR-0032). */
+  dumpCorpus?: string | undefined;
+  /** `--docs-dir DIR`: where `--engine dump` reads the pre-computed `<name>.omr.json` documents. */
+  docsDir?: string | undefined;
+}
+
+/**
+ * The stable per-chart name shared by the three commands: `--dump-corpus` writes `<name>.<ext>`,
+ * the pod's batch writes `<name>.omr.json`, and `--engine dump` reads it back. `bars` is in the name
+ * so two runs that differ only in `--bars` can't collide in the same directory.
+ */
+function specName(spec: CorpusSpec): string {
+  return `seed-${spec.seed}_bars-${spec.bars}_${spec.level}`;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -66,7 +91,29 @@ function parseArgs(argv: string[]): Args {
     zoom: Number(value('--zoom') ?? '2'),
     json: argv.includes('--json'),
     history: !argv.includes('--no-history'),
+    dumpCorpus: value('--dump-corpus'),
+    docsDir: value('--docs-dir'),
   };
+}
+
+/**
+ * Map a recognised document to a `Score`, but score an image the recogniser found no staff in as an
+ * empty chart (noteF1 0) rather than aborting the whole run. `mapOmrToScore` throws `OmrMappingError`
+ * on a no-staff page — the right hard error for the product runner (a failed, retryable job, ADR-0018/
+ * Q80), but the wrong one for a measurement sweep, where a page the engine simply couldn't parse is a
+ * legitimate zero and the other charts still deserve their number. A genuinely off-schema document
+ * (an `OmrSchemaError` from `parseOmrDocument`) is a real defect and still throws.
+ */
+function mapOrEmpty(doc: Parameters<typeof mapOmrToScore>[0][number], id: string): Score {
+  try {
+    return mapOmrToScore([doc], { id }, correctChord);
+  } catch (error) {
+    if ((error as Error).name === 'OmrMappingError') {
+      process.stderr.write(`  ${id}: ${(error as Error).message} — scoring as an empty chart\n`);
+      return makeScore({ id, bars: [] });
+    }
+    throw error;
+  }
 }
 
 /** The recogniser under test. The worker path is the real oemer engine; fixture is a no-oemer smoke. */
@@ -79,6 +126,31 @@ async function makePredict(args: Args): Promise<Predict> {
     return async () => fixtureScore;
   }
 
+  if (args.engine === 'dump') {
+    // On-pod path (ADR-0032): read the OmrDocument the pod's batch already produced for this spec,
+    // then map + score it exactly as the worker path does — same `mapOmrToScore` + `correctChord`, so
+    // the number matches a live run. No oemer, no worker, no network here.
+    if (args.docsDir === undefined) {
+      throw new Error('`--engine dump` needs `--docs-dir DIR` (the OmrDocuments the pod batch wrote)');
+    }
+    const dir = resolve(args.docsDir);
+    return async (_image, _format, spec): Promise<Score> => {
+      const path = join(dir, `${specName(spec)}.omr.json`);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(await readFile(path, 'utf8'));
+      } catch (error) {
+        throw new Error(
+          `no recognised document for ${specName(spec)} at ${path} ` +
+            `(${(error as Error).message}). Did the batch run over the same --seeds/--bars/--levels ` +
+            `you passed here, and finish this page?`,
+        );
+      }
+      const doc = parseOmrDocument(raw);
+      return mapOrEmpty(doc, `eval-${specName(spec)}`);
+    };
+  }
+
   // Worker path: fail loudly and early if it is not reachable (rather than time out per image).
   await assertWorkerUp(args.url);
   const client = createHttpWorkerClient({ url: args.url });
@@ -87,7 +159,7 @@ async function makePredict(args: Args): Promise<Predict> {
       imagePath: `synth-${spec.seed}-${spec.level}.${format === 'jpeg' ? 'jpg' : 'png'}`,
       format,
     });
-    return mapOmrToScore([doc], { id: `eval-${spec.seed}-${spec.level}` }, correctChord);
+    return mapOrEmpty(doc, `eval-${spec.seed}-${spec.level}`);
   };
 }
 
@@ -102,6 +174,33 @@ async function assertWorkerUp(url: string): Promise<void> {
         `~7 GB model can be OOM-killed — see docs/eval.md.`,
     );
   }
+}
+
+/**
+ * `--dump-corpus DIR`: write each spec's degraded image to `DIR/<name>.<ext>` plus a `manifest.json`,
+ * and run no recogniser (ADR-0032, KAN-1379). This is the "up" half of the on-pod split — the images
+ * `rp` copies to the pod for `python -m sibei_omr.batch` to recognise. The images are deterministic in
+ * the spec, so `--engine dump` regenerates the matching ground truth without transferring it.
+ */
+async function dumpCorpus(args: Args): Promise<number> {
+  const dir = resolve(args.dumpCorpus as string);
+  await mkdir(dir, { recursive: true });
+  const specs = planCorpus(args);
+  const manifest: { name: string; file: string; spec: CorpusSpec }[] = [];
+  for (const spec of specs) {
+    const { image, format } = await buildEntry(spec, { zoom: args.zoom });
+    const file = `${specName(spec)}.${format === 'png' ? 'png' : 'jpg'}`;
+    await writeFile(join(dir, file), image);
+    manifest.push({ name: specName(spec), file, spec });
+  }
+  await writeFile(join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  process.stdout.write(
+    `wrote ${manifest.length} images to ${dir}\n` +
+      `next: recognise them on the pod, then score with\n` +
+      `  pnpm eval --engine dump --docs-dir <docs> ` +
+      `--seeds ${args.seeds} --bars ${args.bars} --levels ${args.levels.join(',')} --zoom ${args.zoom}\n`,
+  );
+  return 0;
 }
 
 /** One (seed x level) spec per chart, the corpus the run scores. */
@@ -196,9 +295,16 @@ async function appendHistory(args: Args, report: EvalReport, real: RealEntry[]):
 
 async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
+
+  // `--dump-corpus` is the "up" half of the on-pod split: write images, score nothing, exit.
+  if (args.dumpCorpus !== undefined) return dumpCorpus(args);
+
   const predict = await makePredict(args);
   const report = await runEval(planCorpus(args), predict, { zoom: args.zoom });
-  const real = await runRealControlSet(predict);
+  // The dump engine keys documents by synthetic spec, so it has nothing to map the name-keyed real
+  // control set onto (recognising those on the pod would be a separate, name-keyed batch). Skip it in
+  // dump mode rather than fail; the worker path still scores the real set as before.
+  const real = args.engine === 'dump' ? [] : await runRealControlSet(predict);
 
   if (args.json) {
     process.stdout.write(`${JSON.stringify({ byLevel: report.byLevel, real }, null, 2)}\n`);

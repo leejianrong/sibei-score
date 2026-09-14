@@ -48,7 +48,12 @@ export PATH="$PWD/tools/runpod:$PATH"    # or call ./tools/runpod/rp directly
 
 rp up               # create-or-reuse a spot pod (name-tagged), dead-man's-switch armed; prints id
 rp wait-ready       # poll https://{pod}-8000.proxy.runpod.net/health until 200
+rp wait-ssh         # poll the pod's ssh (port 22) until it accepts a connection (on-pod eval)
 rp run <cmd…>       # export SBSCORE_WORKER_URL to the pod, run <cmd> inside a trap that always downs
+rp exec <cmd…>      # run a command on the pod over ssh
+rp push <local> <r> # scp a file/dir up to the pod
+rp pull <r> <local> # scp a file/dir down from the pod
+rp eval-onpod [a…]  # full on-pod eval (see below); extra args go to both the dump and score commands
 rp status           # the pod's status
 rp logs             # pod info / where to read logs
 rp fetch <code>     # pull a checkpoint/artifact off the pod (eval numbers already land locally)
@@ -79,23 +84,55 @@ layers, defence-in-depth:
    `rp down` (on success, failure, Ctrl-C, or crash).
 3. **Account-level spend limit** — set one in the RunPod console as a coarse backstop.
 
-## First-job runbook (oemer eval)
+## First-job runbook (oemer eval) — the on-pod path
 
 The corpus is **synthetic / hand-labeled** and fine to send (ADR-0020). **Never upload arbitrary
 user charts.**
 
+> **Why on-pod, not `rp run pnpm eval --engine worker --url …`.** The gate (ADR-0032, 2026-09-14)
+> proved oemer's ~5.4-min `/recognize` **cannot survive a single HTTP request over the internet**:
+> RunPod's http proxy 524s at ~100 s, tcp forwarding was host-inconsistent for a multi-minute hold,
+> and the `WorkerClient` inherits undici's ~5-min timeout. Better compute does not fix it — three of
+> those are network/client, not speed. The fix is **co-location**: recognise **on the pod** with no
+> per-image WAN, moving only images (up) and OmrDocuments (down). That is what `eval-onpod` does
+> (KAN-1379), and it works with the **existing** worker image — no rebuild — because it pushes the
+> current `worker/sibei_omr/batch.py` and runs it against the image's already-installed `sibei_omr`.
+
+**Prerequisite (in addition to the three above): an ssh key.** `RP_SSH_KEY` (default
+`~/.ssh/id_ed25519`); its public half is embedded in the pod's launch command at `up`, and
+`openssh-server` is installed at pod start so the shipped image is untouched. Generate one if needed:
+`ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519`.
+
 ```sh
-# 0. one-time: push the worker image; set RP_POD_IMAGE in tools/runpod/.env  (see Prerequisites)
+# 0. one-time: push the worker image; set RP_POD_IMAGE + an ssh key in tools/runpod/.env (Prerequisites)
 export PATH="$PWD/tools/runpod:$PATH"
 
-rp up
-rp wait-ready
-# Score oemer over the synthetic corpus (and tests/fixtures/eval/real/ if present). `run` exports
-# SBSCORE_WORKER_URL; pass --url so scripts/eval.ts targets the pod. The trap tears the pod down
-# whatever happens.
-rp run pnpm eval --engine worker --url "https://$(cat tools/runpod/.rp-state)-8000.proxy.runpod.net"
-# Record oemer noteF1 / chordF1 from the printed table (also appended to eval/history.jsonl).
-rp down             # belt-and-braces: `run`'s trap already downed it; `down` is idempotent
+# One command does it all, trap-guarded (down on success/failure/Ctrl-C). Start SMALL: --seeds 1 is a
+# 4-image (~22 min, ~$0.15) smoke that proves the pipeline before a fuller run.
+rp eval-onpod --seeds 1
+# The printed table is the oemer number; the score run appends it to eval/history.jsonl. The pod is
+# torn down by the trap; `rp down` afterwards is a belt-and-braces no-op (idempotent).
+```
+
+For a bigger run, raise the dead-man's-switch ceiling first so it outlasts the batch (oemer is
+~5.4 min/page, and the idle watchdog resets per page via the tee'd log, but the hard `MAX_LIFETIME`
+does not): e.g. `RP_MAX_LIFETIME_SECS=10800 rp eval-onpod --seeds 3` (12 images ≈ 65 min ≈ $0.40).
+
+Prefer the low-RAM **heuristic** engine for a plumbing smoke that avoids oemer's minutes/RAM entirely:
+`RP_EVAL_ENGINE=heuristic rp eval-onpod --seeds 1`.
+
+### The same steps, by hand (for debugging)
+
+```sh
+pnpm eval --dump-corpus /tmp/imgs --seeds 1 --no-history   # generate the corpus locally
+rp up && rp wait-ssh
+rp exec 'mkdir -p /tmp/eval/imgs /tmp/eval/docs'
+rp push worker/sibei_omr/batch.py /tmp/eval/batch.py
+rp push /tmp/imgs/. /tmp/eval/imgs/
+rp exec 'python /tmp/eval/batch.py /tmp/eval/imgs /tmp/eval/docs --engine oemer 2>&1 | tee -a /tmp/sibei-worker.log'
+rp pull /tmp/eval/docs/. /tmp/docs/
+pnpm eval --engine dump --docs-dir /tmp/docs --seeds 1     # score locally (appends history)
+rp down
 ```
 
 Use a **high-RAM CPU pod (>=16 GB)** — oemer's blocker is RAM (~7 GB), not GPU (ADR-0025), and a

@@ -137,6 +137,34 @@ fix is to **co-locate**: run recognition **on the pod** (no per-image WAN) or mo
 The oemer chord baseline (the ADR-0011 stage-2 target) therefore remains deferred — now with a precise
 cause and a shortlist of fixes, rather than "needs a bigger host."
 
+## Delivery update — on-pod recognition (KAN-1379, 2026-09-15)
+
+The shortlist's first item is now **built**: the eval runs recognition **on the pod**, so no
+per-image request crosses the internet, which removes all four blockers at once (the http-proxy cap,
+the tcp-hold inconsistency, oemer's multi-minute runtime, and the `WorkerClient` timeout — none is on
+the path). It reuses the existing worker image unchanged (commitment 1 holds), so no rebuild/repush:
+
+- **`worker/sibei_omr/batch.py`** — a batch recogniser that imports the chosen engine **once** and
+  loops a directory of images to one `OmrDocument` JSON each (the same core `server.py` calls; the
+  worker stays RunPod-agnostic, ADR-0005). Its own `unittest`, not in the Node CI.
+- **`scripts/eval.ts`** grows `--dump-corpus DIR` (write the corpus images, recognise nothing) and
+  `--engine dump --docs-dir DIR` (score pre-computed documents). Because `buildEntry` is deterministic
+  in `(seed, bars, level, zoom)`, the ground truth is regenerated at scoring time — only images (up)
+  and documents (down) move — and the number is identical to a live `--engine worker` run. A no-staff
+  page now scores as an empty chart instead of aborting the sweep (it previously threw
+  `OmrMappingError` on both the worker and dump paths).
+- **`tools/runpod/rp`** gains `wait-ssh`, `exec`, `push`, `pull`, and `eval-onpod` (the full flow,
+  trap-guarded). On-pod ssh is opt-in via `RP_SSH_KEY`: the **public** key is embedded in the launch
+  command and `openssh-server` is installed **at pod start** (like `runpodctl`), so the shipped image
+  is untouched; the **private** key never leaves the laptop. The batch's per-page log lines are tee'd
+  to the worker log so the idle watchdog counts them as activity and does not reap the pod mid-batch.
+
+Validated end to end locally with the low-RAM heuristic engine (dump-corpus → batch → dump-score). The
+**oemer number itself** is recorded here and in `eval/history.jsonl` after the first pod run.
+
+The `WorkerClient` timeout (cause 4) is a genuine product bug that still bites slow **local** imports;
+it is **not** on the on-pod path and is fixed separately (KAN-1378), not folded into this dev tooling.
+
 ## Alternatives considered
 
 | Option | Why not |
