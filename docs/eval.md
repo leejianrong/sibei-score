@@ -71,3 +71,61 @@ than a vibe (Q42).
 Run this at V14 (the correction UI) and again whenever the recogniser changes materially — a v0.3
 engine swap included. A faster `make eval` number that does not move the stopwatch has not shipped
 anything a user feels.
+
+### Running it against the V14 correction surfaces
+
+V14 is the slice that first makes this gate runnable, because the correction UI it describes in step 2
+now exists. Concretely, with the worker running:
+
+1. **Import.** `sbscore import tests/fixtures/eval/real/gate-32.jpg` (or drop the photo into the
+   library's import affordance). The runner recognises it, maps it to a draft `Score`, and returns the
+   new score id.
+2. **Open the review.** Open that score in the browser's split-pane review view (V14a): the retained
+   scan sits beside the recognised score, both scrollable and zoomable (ADR-0019).
+3. **Correct.** Work the flagged spots down to zero, using every V14 surface:
+   - confidence highlighting and invalid-bar shading (V14b/c) to see *where* the recogniser was unsure
+     or produced a metrically-invalid bar (ADR-0013, ADR-0019);
+   - the `!` review flags in `sbscore show`, so the CLI and the browser point a human — or an agent — at
+     the same objects;
+   - the no-sections advisory (V14d), since layout silently depends on sections and import never detects
+     them (ADR-0021), so a genuine rehearsal mark is promoted here;
+   - chord and note editing on either surface;
+   - `sbscore reparse <id> [--engine …]` (V14e) as the escape hatch when a draft is more wrong than it
+     is worth patching — it re-runs the pipeline from the *retained* scan (no re-upload) and produces a
+     **new** draft, optionally under a different engine, which you then correct instead.
+4. **Measure.** Wall-clock from opening the draft to declaring it corrected — "corrected" as defined
+   above: `sbscore show` of the result equals the ground truth modulo ids and the corrector agrees by
+   eye. Record the elapsed time, the date, the git SHA, and that build's `make eval` numbers, in the
+   `eval/history.jsonl` spirit.
+5. **Gate.** **Pass iff a 32-bar head is correctable in ≤ 2 minutes** (Q42). Above that, importing is
+   not yet faster than typing and the pipeline is not ready to ship.
+
+### Result — DEFERRED (V14f)
+
+The stopwatch run is **not yet taken**, and no number is recorded here or in `eval/history.jsonl`,
+because the gate's inputs are not present on the build hosts:
+
+- **The fixture is absent.** `tests/fixtures/eval/real/gate-32.*` does not exist — the real-photo
+  control set ships empty by design (see `tests/fixtures/eval/real/README.md`: a fabricated "real" photo
+  would defeat the purpose). Without a real scan *and* its hand-verified ground truth there is nothing
+  to correct *to*, so the "corrected == ground truth" test in step 4 cannot be run.
+- **The engine that reads a real scan needs a bigger host.** oemer (the default engine) peaks at ~7 GB
+  and is OOM-killed on the 8 GB / earlyoom build host (V9, V12 note, ADR-0031 — this is the RAM premise
+  v0.3 exists to address, not a bug). The low-RAM heuristic engine (V13c) runs here, but it is dev/test
+  scaffolding whose accuracy is modest by design; the gate is a statement about correcting a *real*
+  photograph with the shipping engine, so measuring it on the heuristic engine would not answer it.
+
+Recording a fabricated time would defeat the same purpose the empty control set protects, so the
+measured run is deferred rather than faked.
+
+**To run it, produce and commit the gate fixture, then take the stopwatch on a host with the memory to
+run oemer:**
+
+1. Photograph a real 32-bar head once — medium difficulty, not the worst, not staged-perfect — and
+   commit it as `tests/fixtures/eval/real/gate-32.jpg` (`.jpeg`/`.png` also accepted).
+2. Transcribe it correctly by hand (or import-then-correct) and commit the acceptable lead sheet as its
+   ground truth, `tests/fixtures/eval/real/gate-32.json` (a `Score` document, the shape
+   `sbscore open <id> --json` prints).
+3. On a host with ≥ ~8 GB free for the worker, run the procedure above and record the elapsed time,
+   date, git SHA, and that build's `make eval` numbers — here in this section and as an
+   `eval/history.jsonl` row, the same convention every other run follows.
