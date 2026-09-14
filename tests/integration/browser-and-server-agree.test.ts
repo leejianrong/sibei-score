@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { aabaChart, everyGlyphChart, invalidBarChart, longFormChart, nastyChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, everyGlyphChart, invalidBarChart, longFormChart, nastyChart, reviewChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -34,6 +34,9 @@ const FIXTURES: Record<string, () => Score> = {
   'nasty-chart': nastyChart,
   'every-glyph': everyGlyphChart,
   'invalid-bars': invalidBarChart,
+  // The review-shading fixture: the only one that draws both review washes, so it is the
+  // one keeping the shaded path byte-identical across the two surfaces (V14c, ADR-0019).
+  review: reviewChart,
   'long-form': longFormChart,
   'aaba-chart': aabaChart,
   untitled: untitledChart,

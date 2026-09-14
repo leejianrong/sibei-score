@@ -11,4 +11,5 @@ export * from './barlines.js';
 export * from './signatures.js';
 export * from './ties.js';
 export * from './tuplets.js';
+export * from './shading.js';
 export * from './engrave.js';
