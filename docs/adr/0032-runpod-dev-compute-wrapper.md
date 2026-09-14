@@ -1,6 +1,8 @@
 # ADR-0032: RunPod as dev/build-time compute, behind a guardrail wrapper we own
 
-- **Status:** Proposed — gated on a go/no-go spike
+- **Status:** Proposed — spike run 2026-09-14: the **lifecycle + cost/teardown gate is met and
+  reliable**, but the **oemer number is blocked** on delivering a multi-minute recognition over the
+  network (see *Gate result* below). Stays Proposed; the wrapper and its guardrails are kept.
 - **Date:** 2026-09-14
 - **Deciders:** Jian, in design discussion
 - **Relates to:** [ADR-0001](0001-local-first-hosting-shaped.md),
@@ -92,6 +94,48 @@ number (noteF1/chordF1) → GUARANTEED torn down**, including on a **simulated l
 orphaned billable resource**. This is the same gate-first discipline as ADR-0023 and ADR-0030: prove
 the risky property (here, that we cannot leak a bill) before depending on the tool. RunPod's
 CLI/REST surface moves, so the surface is re-verified at gate time.
+
+## Gate result (spike run, 2026-09-14)
+
+The spike ran end to end for the first time. **The lifecycle and cost/teardown half of the gate is
+met and reliable; the actual oemer number is not yet producible** — and the blocker is not the
+wrapper but oemer's multi-minute recognition surviving a single HTTP request over the network.
+
+**Validated** (across 4 spot pods, ~$0.06 total, every one torn down to **$0 idle**):
+
+- `up` (idempotent, name-tagged), `wait-ready`, `down` (terminate, idempotent), the pre-run RAM+price
+  guard, and a post-run sweep confirming `GET /pods` and `/networkvolumes` are both 0.
+- Getting there required fixes the paper design missed (all in the wrapper — no product change): the
+  REST v1 **CPU create schema** (`computeType`, `cpuFlavorIds`+`vcpuCount`, array `ports`,
+  `volumeInGb:0`, `cloudType`/`interruptible` — the original body would have 400'd or rented a GPU),
+  a **direct tcp endpoint** instead of the http proxy, and **`.env` quoting**. Separately the worker
+  image had a latent build bug (missing `libgl1` for PaddleOCR's `cv2`), fixed in the same window.
+
+**Compute used:** a SECURE spot CPU pod, memory-tier flavor (`cpu5m`/`cpu3m`), **4 vCPU / 32 GB RAM,
+$0.26/hr**. RAM was ample — oemer's ~7 GB is not the issue here.
+
+**Why the number is blocked — four independent causes, all "a long synchronous request dies":**
+
+1. RunPod's **http proxy** (`proxy.runpod.net`) is Cloudflare-fronted with a ~100 s response cap, so a
+   ~5.4-min `/recognize` returns **524**.
+2. RunPod's **tcp** forwarding was inconsistent host-to-host — one pod reset the connection early,
+   another held it 420 s.
+3. On the 4-vCPU pod oemer returned **nothing in 7 minutes** (vs the spike host's 5.4 min; cold model
+   load + V13's added PaddleOCR band-OCR, and possibly onnxruntime thread contention). Slow-vs-hung
+   was not resolved.
+4. **The `WorkerClient` is not actually timeout-free.** Commitment (1) above calls it "timeout-free,"
+   but `worker-client.ts` configures no undici dispatcher, so it inherits undici's **~5-min default
+   headers-timeout** — shorter than oemer's own runtime. A latent product bug that would also abort a
+   slow **local** import; it never surfaced because oemer-over-HTTP had never actually run (the
+   heuristic engine is fast). **Follow-up: give the `WorkerClient` an explicit no-timeout dispatcher.**
+
+**Better compute does not fix this.** A GPU only takes oemer to ~3–5 min (ADR-0025) — still over the
+proxy cap and near the client timeout — and causes 1, 2 and 4 are network/client, not speed. The real
+fix is to **co-locate**: run recognition **on the pod** (no per-image WAN) or move the worker to an
+**async submit/poll** contract (which also fixes long local imports). Both are real work, deferred.
+
+The oemer chord baseline (the ADR-0011 stage-2 target) therefore remains deferred — now with a precise
+cause and a shortlist of fixes, rather than "needs a bigger host."
 
 ## Alternatives considered
 
