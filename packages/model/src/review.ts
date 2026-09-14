@@ -45,6 +45,24 @@ import type { Bar, Review, Score, TimeSignature } from './score.js';
 export const NEEDS_REVIEW = 'needs review';
 
 /**
+ * The **no-sections advisory** (V14, ADR-0015), worded once here because both surfaces say it.
+ *
+ * Sections drive line-breaking: a section boundary forces a line break even mid-grid (ADR-0015),
+ * so a chart *with* sections lays out at the form and a chart *without* them lays out on a plain
+ * four-bar grid. A fresh import detects no sections (ADR-0021), which is the sharpest case — the
+ * layout is provisional until the user supplies them — but the fact is a property of the score, not
+ * of how it was made, so the predicate is `reviewSummary(...).hasSections` and the advisory fires
+ * for any section-less chart.
+ *
+ * It is an **advisory, not a review flag**: nothing is wrong (ADR-0013/0019 never refuse or repair a
+ * draft), the layout is simply not yet broken at the form. So it lives beside `NEEDS_REVIEW` rather
+ * than inside it, and both surfaces print *this* string rather than inventing their own — the same
+ * one-source rule that keeps the review line from being worded two ways (ADR-0002).
+ */
+export const NO_SECTIONS_ADVISORY =
+  'no sections yet — laid out on a plain four-bar grid; add one to break the line at the form';
+
+/**
  * A bar's review state as a reader must see it: its stored reasons, with `metrically-invalid`
  * derived fresh from the bar's contents rather than read back out of the document.
  *
@@ -79,6 +97,14 @@ export interface ReviewSummary {
   invalidBars: number[];
   /** `32 bars do not fill the meter`, `1 bar does not fill the meter`, or null. */
   meterNote: string | null;
+  /**
+   * Whether the score carries at least one section (V7 structure). **False** on a fresh import
+   * (ADR-0021) and on a blank `sbscore new` chart, which is when the no-sections advisory fires:
+   * sections drive line-breaking (ADR-0015), so a section-less chart lays out on a plain four-bar
+   * grid until the user adds one. Derived here rather than per surface so the two cannot disagree
+   * about whether the advisory should show (`NO_SECTIONS_ADVISORY`).
+   */
+  hasSections: boolean;
 }
 
 export function reviewSummary(score: Score): ReviewSummary {
@@ -87,6 +113,7 @@ export function reviewSummary(score: Score): ReviewSummary {
     anythingFlagged: anythingFlagged(score),
     invalidBars: invalid,
     meterNote: invalid.length === 0 ? null : meterNote(invalid.length),
+    hasSections: score.sections.length > 0,
   };
 }
 

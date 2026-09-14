@@ -1,7 +1,7 @@
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { orderedItems } from './address.js';
-import { barReview, NEEDS_REVIEW, reviewSummary } from './review.js';
+import { barReview, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from './review.js';
 import type { Bar, BarItem, Confidence, Review, Score, TimeSignature } from './score.js';
 
 /**
@@ -46,6 +46,11 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (review.anythingFlagged) {
     lines.push(`  ! = ${NEEDS_REVIEW}${review.meterNote === null ? '' : ` · ${review.meterNote}`}`);
   }
+  // A non-blocking layout advisory, not a review flag: a section-less chart lays out on a plain
+  // four-bar grid because sections drive line-breaking (ADR-0015), and a fresh import has none
+  // (ADR-0021). The wording is the model's, shared with the score rail (V14) — never refused,
+  // never a `!` (ADR-0013/0019). It rides `hasSections`, so it is not per-surface reasoning.
+  if (!review.hasSections) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
   lines.push('');
 
   const pickup = score.bars.find((bar) => bar.number === 0);

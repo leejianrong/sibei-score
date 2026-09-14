@@ -6,7 +6,9 @@ import {
   makeBar,
   makeNote,
   makeScore,
+  makeSection,
   NEEDS_REVIEW,
+  NO_SECTIONS_ADVISORY,
   projectScore,
   reviewSummary,
 } from '@sibei/model';
@@ -201,6 +203,49 @@ describe('barReview is the one place a bar’s review state comes from', () => {
       'low-confidence',
       'metrically-invalid',
     ]);
+  });
+});
+
+describe('the no-sections advisory has one predicate both surfaces read (V14, ADR-0015)', () => {
+  // Sections drive line-breaking: a section boundary forces a line break even mid-grid, so a chart
+  // *with* sections lays out at the form and one *without* lays out on a plain four-bar grid. That
+  // the grid actually breaks at a section is proved by tests/unit/grid.test.ts ("breaks the line
+  // mid-grid, so an 11-bar section lays out 4 / 4 / 3") and tests/cli/section.test.ts (a section on
+  // bar 3 turns 4/4 into 2/4/2). Here we only pin the predicate the advisory rides.
+
+  it('reports hasSections false for a fresh, section-less chart', () => {
+    // A blank `sbscore new` chart and a fresh import (ADR-0021) both start with no sections.
+    expect(reviewSummary(blankChart(8)).hasSections).toBe(false);
+  });
+
+  it('reports hasSections true the moment a section exists', () => {
+    const withSection = makeScore({
+      id: 'score-with-section',
+      bars: [makeBar({ id: 'bar-1', number: 1 })],
+      sections: [makeSection({ id: 'section-1', startBar: 1, letter: 'A', name: 'A' })],
+    });
+    expect(reviewSummary(withSection).hasSections).toBe(true);
+
+    // And a fixture that carries real sections agrees, so the predicate is not just true of a
+    // hand-built stub.
+    expect(reviewSummary(nastyChart()).hasSections).toBe(true);
+  });
+
+  it('is an advisory, not a review flag: it fires even when nothing needs review (ADR-0013/0019)', () => {
+    // A clean blank chart reports nothing flagged (KAN-597), yet still carries the layout advisory —
+    // the two are independent facts, which is why `hasSections` sits beside `anythingFlagged` rather
+    // than inside it. Nothing is refused or repaired; the layout is simply not yet broken at the form.
+    const blank = blankChart(8);
+    expect(reviewSummary(blank).anythingFlagged).toBe(false);
+    expect(projectScore(blank)).not.toContain(NEEDS_REVIEW);
+    expect(projectScore(blank)).toContain(NO_SECTIONS_ADVISORY);
+  });
+
+  it('projects the advisory only for a section-less chart, so both surfaces read the same string', () => {
+    // The projection prints the model's string verbatim (V14), the same one the score rail shows —
+    // the review-line rule (ADR-0002) extended to the advisory: two surfaces cannot word it two ways.
+    expect(projectScore(blankChart(8))).toContain(NO_SECTIONS_ADVISORY);
+    expect(projectScore(nastyChart())).not.toContain(NO_SECTIONS_ADVISORY);
   });
 });
 
