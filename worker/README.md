@@ -16,9 +16,38 @@ one-file CLI over the same core.
 
 ```
 sibei_omr/
-  recognize.py   the recogniser: one image path in, an OmrDocument dict out
+  recognize.py   the oemer recogniser: one image path in, an OmrDocument dict out
   server.py      the HTTP server: POST /recognize (raw image bytes) -> OmrDocument JSON; GET /health
   spike.py       the V9 CLI: run the recogniser on a file, write the JSON + wall-clock line
+  engines/       the engine-selection seam (V13c): get_engine(name) -> {oemer, heuristic}
+    oemer.py       adapts recognize.py behind the seam (the default; weights baked, ADR-0024)
+    heuristic.py   a dependency-light OpenCV engine, low RAM — runs where oemer is OOM-killed
+```
+
+## The engine seam and the heuristic engine (V13c)
+
+The worker recognises with one of several **engines**, selected by `--engine` (or
+`$SIBEI_OMR_ENGINE`, default `oemer`). Every engine emits the **same** `OmrDocument`
+(`packages/model/src/omr.ts`), so the Node side — the `WorkerClient` port, the job runner,
+`mapOmrToScore`, both surfaces — never learns which one ran (ADR-0005). This is v0.3's
+engine-selection seam (SLICES V15, ADR-0031) pulled forward.
+
+- **`oemer`** — the default, the only engine with weights baked in. Unchanged from V10.
+- **`heuristic`** — OpenCV image processing only (no ML weights, no tensorflow/onnxruntime,
+  low RAM), so it runs the whole photo → draft → PDF flow, and `make eval`, on a small host
+  where oemer's ~7 GB model is OOM-killed (the V12 finding). It finds staves (projection +
+  line grouping), barlines (tall vertical runs), and noteheads (blobs left after staff-line
+  and stem removal); rhythm is not read (every head is a quarter, a draft the human corrects,
+  ADR-0013/0019). **It is dev/test scaffolding and the seed of the bespoke direction, NOT the
+  trained bespoke model V15/V16 will build, and it earns no default swap** — a swap is decided
+  on the V12 harness (ADR-0020), never by fiat. It needs no new dependency (OpenCV + numpy are
+  already the oemer pins) and no weights, so it is offline by construction.
+
+Run the whole import stack against it, no oemer container needed:
+
+```sh
+SIBEI_OMR_ENGINE=heuristic python -m sibei_omr.server     # serve the heuristic engine
+pnpm eval --engine worker --url http://127.0.0.1:8000     # score it on the synthetic corpus
 ```
 
 The API records an import as a **job** (ADR-0001), calls this worker, and lands the result;

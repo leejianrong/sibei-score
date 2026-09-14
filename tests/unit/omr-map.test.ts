@@ -526,3 +526,31 @@ describe('mapOmrToScore — chords from the band (V13)', () => {
     expect(annotationsOf(score)).toHaveLength(0);
   });
 });
+
+/**
+ * V13c: the heuristic engine (`worker/sibei_omr/engines/heuristic.py`) is a second engine behind the
+ * seam, emitting the *same* OmrDocument as oemer (ADR-0005). This is its committed real output on a
+ * deterministic 2-system drawn chart — proof, in Node CI, that the heuristic engine conforms to the
+ * schema and that the whole TS pipeline consumes it with no engine-specific branch. (The engine runs
+ * on a small host — OpenCV only, no oemer RAM — so its output is committable, unlike an oemer chord
+ * dump.)
+ */
+describe('mapOmrToScore — the committed heuristic engine dump (V13c)', () => {
+  const doc: OmrDocument = parseOmrDocument(
+    JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/omr/heuristic-synthetic.omr.json'), 'utf8')),
+  );
+
+  it('the heuristic output validates against the model schema', () => {
+    expect(doc.schemaVersion).toBe(2);
+    expect(doc.source.engine).toBe('heuristic');
+  });
+
+  it('maps to a two-system draft with a note in every bar', () => {
+    const score = mapOmrToScore([doc], { id: 'heur' });
+    // Two systems of four bars each; the count may dip if a barline merged (a draft, ADR-0019).
+    expect(score.bars.length).toBeGreaterThanOrEqual(6);
+    expect(score.bars.length).toBeLessThanOrEqual(8);
+    expect(notesOf(score).length).toBe(doc.noteheads.length);
+    expect(score.meta.key).toEqual(DEFAULT_KEY);
+  });
+});
