@@ -38,6 +38,9 @@ importers:
       '@sibei/pdf':
         specifier: workspace:*
         version: link:packages/pdf
+      '@sibei/synth':
+        specifier: workspace:*
+        version: link:packages/synth
       '@sibei/ui':
         specifier: workspace:*
         version: link:packages/ui
@@ -171,6 +174,15 @@ importers:
       '@types/svg-to-pdfkit':
         specifier: 0.1.4
         version: 0.1.4
+
+  packages/synth:
+    dependencies:
+      '@sibei/model':
+        specifier: workspace:*
+        version: link:../model
+      '@sibei/music':
+        specifier: workspace:*
+        version: link:../music
 
   packages/ui:
     dependencies:

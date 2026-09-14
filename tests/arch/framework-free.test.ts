@@ -359,3 +359,55 @@ describe('the browser, and the second render path (ADR-0002, ADR-0014, ADR-0022)
     ).toBe(installed[0]);
   });
 });
+
+/**
+ * `@sibei/synth` is the one package allowed to use Node APIs among the otherwise-portable core —
+ * a *deliberate* exception granted in ADR-0031, because it is a build-time data tool (synthetic
+ * corpus for the eval harness and, later, training data for the bespoke recogniser), never runtime.
+ * The exception holds only while the tool stays out of every shipped bundle. This is the inverse of
+ * the guards above: not "synth imports nothing impure" — it may — but "nothing that ships imports
+ * synth" (SLICES.md V15, ADR-0031 §"One invariant exception").
+ *
+ * The framework-free loop above already stops `model`/`music`/`layout`/`codec`/`engrave` from
+ * reaching it (synth is not in their permitted set). This block covers the impure product packages
+ * the loop does not — `pdf`, `api`, `cli`, `ui` — the ones that DO end up in a running server or a
+ * browser bundle. `fixtures`, `tests` and `scripts` are dev/test surface and may use synth freely.
+ */
+describe('the synthetic-data tool never ships (ADR-0031)', () => {
+  const PRODUCT_PACKAGES = ['model', 'music', 'layout', 'codec', 'engrave', 'pdf', 'api', 'cli', 'ui'];
+  const SYNTH = '@sibei/synth'; // substring also catches the `@sibei/synth/imaging` subpath
+
+  it('exists to be guarded', () => {
+    // Guards the guard: if the package is gone, this whole block is a tautology.
+    expect(exists(join(REPO, 'packages/synth'))).toBe(true);
+  });
+
+  for (const name of PRODUCT_PACKAGES) {
+    const dir = join(REPO, 'packages', name);
+    if (!exists(dir)) continue;
+    // ui keeps most of its code in .svelte files, so sweep both languages there.
+    const files = sourceFiles(join(dir, 'src'), name === 'ui' ? ['.ts', '.svelte'] : ['.ts']);
+
+    describe(`@sibei/${name}`, () => {
+      it('does not declare @sibei/synth as a dependency', () => {
+        const manifest = readFileSync(join(dir, 'package.json'), 'utf8');
+        expect(manifest).not.toContain(SYNTH);
+      });
+
+      it('does not import @sibei/synth anywhere in its source', () => {
+        const offenders = files
+          .filter((file) => importsOf(file).some((specifier) => specifier.startsWith(SYNTH)))
+          .map((file) => relative(REPO, file));
+        expect(offenders).toEqual([]);
+      });
+
+      it('does not reach @sibei/synth by any other route', () => {
+        // A dynamic import or a re-export mentioning it in stripped code is the subtle leak.
+        const offenders = files
+          .filter((file) => codeOf(file).includes(SYNTH))
+          .map((file) => relative(REPO, file));
+        expect(offenders).toEqual([]);
+      });
+    });
+  }
+});
