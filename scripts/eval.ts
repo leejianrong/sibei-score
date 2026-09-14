@@ -27,6 +27,7 @@ import { basename, extname, join, resolve } from 'node:path';
 import { createHttpWorkerClient } from '@sibei/api';
 import type { Score } from '@sibei/model';
 import { mapOmrToScore, parseOmrDocument } from '@sibei/model';
+import { correctChord } from '@sibei/music';
 import type { AggregateMetrics, OmrMetrics } from '@sibei/synth';
 import { aggregate, scoreOmr } from '@sibei/synth';
 import type { CorpusSpec, DegradeLevel, EvalReport, Predict } from '@sibei/synth/imaging';
@@ -74,7 +75,7 @@ async function makePredict(args: Args): Promise<Predict> {
     // Every entry gets the same mapped fixture score — this proves the pipeline, not accuracy.
     const raw = JSON.parse(await readFile(OMR_FIXTURE, 'utf8')) as unknown;
     const doc = parseOmrDocument(raw);
-    const fixtureScore = mapOmrToScore([doc], { id: 'eval-fixture' });
+    const fixtureScore = mapOmrToScore([doc], { id: 'eval-fixture' }, correctChord);
     return async () => fixtureScore;
   }
 
@@ -86,7 +87,7 @@ async function makePredict(args: Args): Promise<Predict> {
       imagePath: `synth-${spec.seed}-${spec.level}.${format === 'jpeg' ? 'jpg' : 'png'}`,
       format,
     });
-    return mapOmrToScore([doc], { id: `eval-${spec.seed}-${spec.level}` });
+    return mapOmrToScore([doc], { id: `eval-${spec.seed}-${spec.level}` }, correctChord);
   };
 }
 
