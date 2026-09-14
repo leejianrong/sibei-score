@@ -43,9 +43,12 @@ POD_NAME="${RP_POD_NAME:-sibei-omr-eval}"
 # prerequisite — worker/Dockerfile builds but pushes nowhere today; see the README runbook).
 POD_IMAGE="${RP_POD_IMAGE:-}"
 
-# The port the worker's HTTP server listens on (ADR-0005). RunPod exposes it at
-# https://{podId}-{PORT}.proxy.runpod.net.
+# The port the worker's HTTP server listens on (ADR-0005). PORT_TYPE=tcp gives a DIRECT public
+# IP:port (no proxy) — REQUIRED here, because oemer's /recognize runs minutes and RunPod's http proxy
+# (proxy.runpod.net) is Cloudflare-fronted with a ~100s response cap that 524s a long request. A tcp
+# port has no such cap. http is fine only for sub-100s services.
 POD_PORT="${RP_POD_PORT:-8000}"
+PORT_TYPE="${RP_PORT_TYPE:-tcp}"                      # tcp (direct, no timeout) | http (proxy, <100s)
 
 # Cost guardrails.
 #   RP_MAX_HOURLY_USD — the hard cap. `up` refuses if the price we would pay exceeds it.
@@ -85,6 +88,8 @@ API_BASE="${RP_API_BASE:-https://rest.runpod.io/v1}"
 
 # Where the wrapper stashes the current pod id between invocations (gitignored).
 STATE_FILE="${RP_STATE_FILE:-${SCRIPT_DIR}/.rp-state}"
+# Where wait-ready caches the resolved worker URL (a tcp endpoint is only known once running).
+URL_FILE="${RP_URL_FILE:-${SCRIPT_DIR}/.rp-url}"
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -115,7 +120,22 @@ rp_api() {
     | curl "${args[@]}" -K - "${API_BASE}${path}"
 }
 
-pod_url() { printf 'https://%s-%s.proxy.runpod.net' "$1" "$POD_PORT"; }
+# Resolve the pod's reachable base URL. For a tcp port this is the DIRECT publicIp:mappedPort read
+# live from GET /pods/{id} (portMappings maps the private port to a public one, and publicIp is empty
+# until the pod is running) — no Cloudflare proxy, so oemer's multi-minute /recognize is not 524'd.
+# For an http port it is the static proxy URL. Prints the URL, or nothing if not yet assigned.
+pod_endpoint() {
+  local id="$1" info ip mapped
+  if [ "$PORT_TYPE" = "http" ]; then
+    printf 'https://%s-%s.proxy.runpod.net' "$id" "$POD_PORT"; return 0
+  fi
+  have jq || die "jq is required to resolve a tcp pod endpoint"
+  info="$(rp_api GET "/pods/${id}" || true)"
+  ip="$(printf '%s' "$info"     | jq -r '.publicIp // empty' 2>/dev/null | head -n1)"
+  mapped="$(printf '%s' "$info" | jq -r --arg p "$POD_PORT" '(.portMappings[$p] // empty) | tostring' 2>/dev/null | head -n1)"
+  { [ -n "$ip" ] && [ -n "$mapped" ] && [ "$mapped" != "null" ]; } || return 0
+  printf 'http://%s:%s' "$ip" "$mapped"
+}
 
 # Find the pod id for POD_NAME, if one exists. Prints the id or nothing.
 find_pod_id() {
@@ -239,7 +259,7 @@ cmd_up() {
   "vcpuCount": ${VCPU_COUNT},
   "containerDiskInGb": ${CONTAINER_DISK_GB},
   "volumeInGb": ${VOLUME_GB},
-  "ports": ["${POD_PORT}/http"],
+  "ports": ["${POD_PORT}/${PORT_TYPE}"],
   "dockerStartCmd": ["bash", "-lc", $(json_string "$start_cmd")]
 }
 JSON
@@ -299,11 +319,12 @@ cmd_wait_ready() {
   id="$(current_pod_id)"
   timeout="${1:-600}"
   deadline=$(( $(date +%s) + timeout ))
-  url="$(pod_url "$id")/health"
-  log "waiting for ${url} (up to ${timeout}s)"
+  log "waiting for pod ${id} to expose ${POD_PORT}/${PORT_TYPE} and go healthy (up to ${timeout}s)"
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl --silent --show-error --fail --max-time 10 "$url" >/dev/null 2>&1; then
-      log "worker healthy at $(pod_url "$id")"
+    url="$(pod_endpoint "$id")"
+    if [ -n "$url" ] && curl --silent --show-error --fail --max-time 10 "${url}/health" >/dev/null 2>&1; then
+      log "worker healthy at ${url}"
+      printf '%s' "$url" > "$URL_FILE"
       return 0
     fi
     sleep 5
@@ -315,7 +336,9 @@ cmd_run() {
   [ "$#" -ge 1 ] || die "usage: rp run <cmd...>"
   local id url
   id="$(current_pod_id)"
-  url="$(pod_url "$id")"
+  url="$(cat "$URL_FILE" 2>/dev/null || true)"
+  [ -n "$url" ] || url="$(pod_endpoint "$id")"
+  [ -n "$url" ] || die "could not resolve the pod endpoint (run 'rp wait-ready' first)"
 
   # The laptop-side safety net: whatever happens to the command — success, failure, Ctrl-C, crash —
   # tear the pod down. Combined with the pod-side dead-man's-switch, teardown is defence-in-depth.
@@ -386,7 +409,7 @@ cmd_down() {
       log "pod ${id} not found or already terminated (treating as success)"
     fi
   fi
-  rm -f "$STATE_FILE"
+  rm -f "$STATE_FILE" "$URL_FILE"
 }
 
 current_pod_id() {
