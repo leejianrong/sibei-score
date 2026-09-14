@@ -154,6 +154,26 @@ describe('the SQLite job store', () => {
     expect(store.get(OWNER, b.id)?.diagnostic).toBe('interrupted');
   });
 
+  it('finds the job that produced a score, scoped to its owner (V14)', () => {
+    // The reverse of `scoreId`: a re-parse (V14) opens with a score and reaches back to the job that
+    // imported it, for the source images it retained (ADR-0019).
+    const job = store.create(OWNER, ['a']);
+    store.claim();
+    store.complete(job.id, [aDocument()], 'import-42');
+
+    const found = store.getByScoreId(OWNER, 'import-42');
+    expect(found?.id).toBe(job.id);
+    expect(found?.scoreId).toBe('import-42');
+    // The full job, not a summary — it carries the recognised result.
+    expect(found?.result).toEqual([aDocument()]);
+
+    // Not another owner's, and not a score no import produced (a queued job has a null scoreId).
+    expect(store.getByScoreId(OTHER, 'import-42')).toBeNull();
+    expect(store.getByScoreId(OWNER, 'no-such-score')).toBeNull();
+    store.create(OWNER, ['b']); // still queued, scoreId null — never matches a lookup
+    expect(store.getByScoreId(OWNER, 'import-99')).toBeNull();
+  });
+
   it('persists jobs across a reopen of the same database', () => {
     // A file-backed store, closed and reopened, still has its jobs — the point of durable state.
     const file = `/tmp/sbscore-jobs-${process.pid}-${Date.now()}.db`;

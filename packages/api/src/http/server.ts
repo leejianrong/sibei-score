@@ -8,6 +8,7 @@ import { createJobBus } from '../events/job-bus.js';
 import { createExporter } from '../export/export.js';
 import { createJobRunner } from '../imports/runner.js';
 import type { JobRunner } from '../imports/runner.js';
+import { imageFormatOf } from '../imports/upload.js';
 import type { WorkerClient } from '../imports/worker-client.js';
 import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
@@ -178,6 +179,20 @@ export function createApi(options: ApiOptions): Api {
       const job = jobs.retry(owner, id);
       if (job !== null) runner?.wake();
       return job;
+    },
+    async sourceImage(owner: Owner, id, index) {
+      // The reverse of `submit`: resolve the owner's job, then read the retained blob for the page it
+      // named (ADR-0019 keeps them). Owner scoping is the job store's (`get` returns null for another
+      // owner's job), so an out-of-range index and a foreign job both fall to the same null the route
+      // turns into a 404. The content-type comes from the bytes, never a stored declaration (ADR-0029).
+      const job = jobs.get(owner, id);
+      if (job === null || index < 0 || index >= job.imageKeys.length) return null;
+      const bytes = await blobs.get(job.imageKeys[index]!);
+      if (bytes === null) return null;
+      const format = imageFormatOf(bytes);
+      const contentType =
+        format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'application/octet-stream';
+      return { bytes, contentType };
     },
     reader: jobs,
     streams: jobStreams,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { OmrDocument } from '@sibei/model';
+import type { Id, OmrDocument } from '@sibei/model';
 import type { BlobKey } from '../blob/blob-store.js';
 import type { Owner } from './repository.js';
 import type { ImportJob, ImportJobSummary, JobId, JobStore } from './jobs.js';
@@ -39,6 +39,14 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
     get(owner: Owner, id: JobId) {
       const job = jobs.get(id);
       return job !== undefined && job.owner === owner ? copy(job) : null;
+    },
+
+    getByScoreId(owner: Owner, scoreId: Id) {
+      // At most one job references a score (V14), so the first match is the answer.
+      for (const job of jobs.values()) {
+        if (job.owner === owner && job.scoreId === scoreId) return copy(job);
+      }
+      return null;
     },
 
     create(owner: Owner, imageKeys: BlobKey[]) {
