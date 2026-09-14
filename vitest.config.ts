@@ -46,6 +46,9 @@ const INFRA = [
   // degrades with sharp — both native bindings, so they cannot run under the fast layer's dlopen
   // trap (KAN-514). Pure synth (generator, labels, metrics) stays in the fast layer.
   'tests/imaging/**/*.test.ts',
+  // V12c's eval-harness tests: they build a real corpus (rasterise + degrade, native) and, when a
+  // worker is reachable, run oemer — infra, and the worker case self-skips when it is down.
+  'tests/eval/**/*.test.ts',
 ];
 
 /** Runs before every fast-layer test file, and refuses to let one load a compiled module. */

@@ -1,6 +1,7 @@
 import { createIdFactory, dur, makeBar, makeNote, makeRest, makeScore } from '@sibei/model';
-import type { ItemToken } from '@sibei/synth';
+import type { ItemToken, OmrMetrics } from '@sibei/synth';
 import {
+  aggregate,
   chordsEqual,
   computeSequenceMetrics,
   generateScore,
@@ -133,5 +134,32 @@ describe('scoreOmr', () => {
     };
     const m = scoreOmr(predicted, truth);
     expect(m.note.recall).toBeLessThan(1);
+  });
+});
+
+describe('aggregate', () => {
+  const perfect = (): OmrMetrics => scoreOmr(generateScore({ seed: 1 }), generateScore({ seed: 1 }));
+
+  it('averages a set of per-chart metrics', () => {
+    const agg = aggregate([perfect(), perfect()]);
+    expect(agg.count).toBe(2);
+    expect(agg.noteF1).toBe(1);
+    expect(agg.validBarsRatio).toBe(1);
+  });
+
+  it('aggregates an empty set to zeros rather than NaN', () => {
+    expect(aggregate([])).toEqual({
+      count: 0,
+      noteF1: 0,
+      noteAccuracy: 0,
+      chordF1: 0,
+      validBarsRatio: 0,
+    });
+  });
+
+  it('is the mean, so a worse chart pulls the average down', () => {
+    const good = perfect();
+    const bad: OmrMetrics = { ...good, note: { ...good.note, f1: 0 } };
+    expect(aggregate([good, bad]).noteF1).toBeCloseTo(0.5);
   });
 });

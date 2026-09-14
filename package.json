@@ -18,6 +18,7 @@
     "render": "tsx scripts/render-fixture.ts",
     "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
     "proof": "tsx scripts/proof.ts",
+    "eval": "tsx scripts/eval.ts",
     "vendor:fonts": "tsx scripts/vendor-music-fonts.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
     "sbscore": "tsx packages/cli/src/bin.ts",

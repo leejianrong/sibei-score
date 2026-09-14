@@ -12,7 +12,7 @@ SHELL := bash
 COMPOSE := docker compose
 DC_CLI := $(COMPOSE) exec -T -e SBSCORE_URL=http://127.0.0.1:8080 sbscore pnpm -s sbscore
 
-.PHONY: help up down logs sample cli install check test test-fast typecheck proof render demo hooks clean
+.PHONY: help up down logs sample cli install check test test-fast typecheck proof render demo eval hooks clean
 
 help: ## List available commands
 	@echo "sibei-score — run 'make up', then open http://sibei-score.localhost/ (or http://127.0.0.1:8080)"
@@ -66,6 +66,9 @@ render: install ## Render every fixture to out/
 
 demo: install ## Run the end-to-end demo (create, edit, export)
 	pnpm demo
+
+eval: install ## Score OMR accuracy (needs the worker; `make eval ARGS="--engine fixture"` to smoke it)
+	pnpm eval $(ARGS)
 
 hooks: ## Install the git pre-push hook (once per clone)
 	pnpm hooks:install
