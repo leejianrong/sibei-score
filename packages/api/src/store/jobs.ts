@@ -75,6 +75,16 @@ export interface JobReader {
   list(owner: Owner): ImportJobSummary[];
   /** One job in full, or `null` if it is not this owner's or does not exist. */
   get(owner: Owner, id: JobId): ImportJob | null;
+  /**
+   * The import job that produced a given score, in full, or `null` if this owner has none for it —
+   * the reverse of {@link ImportJob.scoreId}. V14 correcting a parse starts from a score the user
+   * opened (a re-parse, the split-pane review) and has to reach back to the retained source images
+   * (ADR-0019), which are the importing job's `imageKeys`; there is no provenance on the `Score`
+   * itself, so this reverse lookup is the linkage (the user's choice over a schema change). A score
+   * is produced by at most one import — a duplicate gets a fresh log, not a job (ADR-0003, Q79) — so
+   * it is a single job, not a list. Owner-scoped like {@link JobReader.get}.
+   */
+  getByScoreId(owner: Owner, scoreId: Id): ImportJob | null;
 }
 
 /**

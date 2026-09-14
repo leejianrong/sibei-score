@@ -65,6 +65,11 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
       `SELECT * FROM import_jobs WHERE owner = ? AND id = ?`,
     ),
     byId: db.prepare<[JobId], JobRow>(`SELECT * FROM import_jobs WHERE id = ?`),
+    byScoreId: db.prepare<[Owner, string], JobRow>(
+      // At most one row matches: only a succeeded job has a non-null score_id, and a score is
+      // produced by a single import (V14). LIMIT 1 makes that a fact of the query, not an assumption.
+      `SELECT * FROM import_jobs WHERE owner = ? AND score_id = ? LIMIT 1`,
+    ),
     insert: db.prepare(
       `INSERT INTO import_jobs
          (id, owner, status, image_keys, attempts, diagnostic, result, score_id, version, created_at, updated_at)
@@ -115,6 +120,11 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
 
     get(owner, id) {
       const row = statements.get.get(owner, id);
+      return row === undefined ? null : toJob(row);
+    },
+
+    getByScoreId(owner, scoreId) {
+      const row = statements.byScoreId.get(owner, scoreId);
       return row === undefined ? null : toJob(row);
     },
 

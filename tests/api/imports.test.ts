@@ -315,6 +315,72 @@ describe('retry (Q80)', () => {
   });
 });
 
+describe('GET /v1/imports/:id/images/:index (V14a: retained source images, ADR-0019)', () => {
+  beforeEach(() => boot({ withWorker: true }));
+
+  /** Import some pages and return the job id. Source images are stored at submit, so no settle needed. */
+  async function importPages(images: Buffer[]): Promise<string> {
+    const created = images.length === 1 ? await upload(images[0]!) : await uploadMany(images);
+    return (created.body.job as Record<string, unknown>).id as string;
+  }
+
+  it('serves the retained page bytes with a content-type read from them', async () => {
+    const id = await importPages([A_PNG]);
+    const response = await fetch(`${base}/v1/imports/${id}/images/0`);
+    expect(response.status).toBe(200);
+    // The type is recovered from the bytes (ADR-0029), and nosniff pins it — like every other artefact.
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    const body = Buffer.from(await response.arrayBuffer());
+    expect(body.equals(A_PNG)).toBe(true);
+  });
+
+  it('serves each page of a multi-page import in order (Q26)', async () => {
+    const id = await importPages([A_PNG, A_PNG]);
+    expect((await fetch(`${base}/v1/imports/${id}/images/0`)).status).toBe(200);
+    expect((await fetch(`${base}/v1/imports/${id}/images/1`)).status).toBe(200);
+  });
+
+  it('404s a page index past the end, a non-integer index, and an unknown job', async () => {
+    const id = await importPages([A_PNG]);
+    const pastEnd = await fetch(`${base}/v1/imports/${id}/images/9`);
+    expect(pastEnd.status).toBe(404);
+    expect(((await pastEnd.json()) as { error: { kind: string } }).error.kind).toBe('no-such-import-image');
+    expect((await fetch(`${base}/v1/imports/${id}/images/abc`)).status).toBe(404);
+    expect((await fetch(`${base}/v1/imports/nope/images/0`)).status).toBe(404);
+  });
+
+  it("does not serve another owner's retained scan", async () => {
+    // Two principals decided by a header, so one owner cannot read the other's source images.
+    const scopedStore = openSqliteStore({ filename: ':memory:' });
+    const scopedJobs = openSqliteJobStore({ filename: ':memory:' });
+    const scopedApi = createApi({
+      store: scopedStore,
+      jobs: scopedJobs,
+      worker,
+      logger: silentLogger,
+      authenticate: (request) => ({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
+    });
+    const { port } = await scopedApi.listen(0);
+    const url = `http://127.0.0.1:${port}`;
+    try {
+      const created = await fetch(`${url}/v1/imports`, {
+        method: 'POST',
+        body: new Uint8Array(A_PNG),
+        headers: { 'content-type': 'image/png' }, // owner-a (no x-owner header)
+      });
+      const id = ((await created.json()) as { job: { id: string } }).job.id;
+      // owner-b is refused; owner-a is served the same image.
+      expect((await fetch(`${url}/v1/imports/${id}/images/0`, { headers: { 'x-owner': 'b' } })).status).toBe(404);
+      expect((await fetch(`${url}/v1/imports/${id}/images/0`)).status).toBe(200);
+    } finally {
+      await scopedApi.close();
+      scopedJobs.close();
+      scopedStore.close();
+    }
+  });
+});
+
 describe('the API without a worker (Q80: everything else still works)', () => {
   beforeEach(() => boot({ withWorker: false }));
 
