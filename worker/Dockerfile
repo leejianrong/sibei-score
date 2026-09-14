@@ -14,12 +14,14 @@
 
 FROM python:3.11-slim-bookworm
 
-# The only system libraries oemer's runtime needs. opencv-python-headless is the GUI-free build, so
-# no libGL/X11 — it needs glib, and scipy/scikit-learn need libgomp (OpenMP). Kept to exactly these
-# so the offline image's surface stays small and auditable (ADR-0024's argument is only as strong as
-# the dependency list is short).
+# The system libraries the Python runtime needs. oemer wants glib (libglib2.0-0), and
+# scipy/scikit-learn want libgomp (OpenMP). PaddleOCR (V13, ADR-0027) pulls in a `cv2` that links
+# libGL.so.1 even though we install opencv-python-headless — headless drops the GUI *Python* deps but
+# the native module still dlopens libGL — so libgl1 is required or `import cv2` fails at build time in
+# fetch_weights.py. Kept to exactly these so the offline image's surface stays small and auditable
+# (ADR-0024's argument is only as strong as the dependency list is short).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libglib2.0-0 libgomp1 \
+  && apt-get install -y --no-install-recommends libglib2.0-0 libgomp1 libgl1 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
