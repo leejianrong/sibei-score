@@ -1,9 +1,21 @@
-import { DEFAULT_KEY, DEFAULT_TIME, makeBar, makeNote, makeRest, makeScore } from './build.js';
+import {
+  DEFAULT_KEY,
+  DEFAULT_TIME,
+  makeAnnotation,
+  makeBar,
+  makeChord,
+  makeNote,
+  makeRest,
+  makeScore,
+} from './build.js';
 import { durationTicks } from './duration.js';
-import type { OmrBarline, OmrDocument, OmrNotehead, OmrRest, OmrStaff } from './omr.js';
+import type { OmrBandToken, OmrBarline, OmrDocument, OmrNotehead, OmrRest, OmrStaff } from './omr.js';
 import type {
+  Annotation,
   Bar,
   BarItem,
+  Chord,
+  Confidence,
   Dots,
   Duration,
   Id,
@@ -52,9 +64,39 @@ import type {
  * - **Barline *type*, sections and rehearsal letters are supported but never detected** (ADR-0021):
  *   import yields single barlines and no sections, and the user adds structure in correction. A freshly
  *   imported chart therefore lays out on a plain four-bar grid until then (ADR-0015, ADR-0021).
- * - **Chord symbols and title/composer OCR are stage-2/3 work** (ADR-0011, ADR-0027): they need OCR
- *   the pipeline does not run until V13, so a V11 draft carries no chords and an empty title.
+ * - **Title/composer OCR is stage-3 work** (ADR-0027, Q37): a draft carries an empty title until the
+ *   pipeline OCRs one; the user sets it with `meta set`.
+ *
+ * ## Chords from the band (V13)
+ *
+ * From schema v2 the worker also emits `bandTokens` — the raw OCR text of the chord band above each
+ * staff (ADR-0010 stage 1/2, ADR-0027). This mapper turns them into chords and annotations, but the
+ * grammar that decides *which is which* lives in `@sibei/music` (`correctChord`, ADR-0011), and
+ * `model` cannot import `music` (the dependency runs the other way). So the corrector is an **injected
+ * seam**: `mapOmrToScore`'s optional `correct` argument. The api runner and the eval harness pass
+ * `correctChord`; a pure-model caller (and V11's tests) omits it and gets the V11 result — no band
+ * processing, no chords. With a corrector supplied, each band token is:
+ *
+ * - snapped to the nearest legal chord (`correct` non-null) → a `Chord`, its text the canonical
+ *   spelling, **beat-mapped** (stage 3) to the note/rest onset at or before the token's centre x
+ *   (Q71); or
+ * - kept verbatim as a **flagged `Annotation`** on the bar when the grammar cannot read it — that is
+ *   how "Latin feel" and section names survive rather than becoming bogus chords (Q56).
+ *
+ * **Rehearsal letters and sections are still not created** (ADR-0021: "supported … but not detected").
+ * A lone capital A–G is a legal chord *and* a plausible rehearsal letter, and the schema carries no
+ * box/position cue to tell them apart, so a readable token becomes a chord and the human promotes a
+ * genuine rehearsal mark to a section in correction (V14) — which ADR-0021 already requires (a fresh
+ * import has no sections and the correction view prompts for them). This is the documented reading of
+ * Q56's "matched separately by pattern": non-chord text is kept and flagged; auto-structure is not.
  */
+
+/**
+ * The chord-grammar corrector seam (ADR-0011). Given a band token's raw OCR text, return the canonical
+ * spelling of the nearest legal chord, or `null` when it is not a chord. `@sibei/music`'s `correctChord`
+ * is exactly this shape; injected because `model` cannot depend on `music`.
+ */
+export type ChordCorrector = (text: string) => string | null;
 
 /** The prefix marking a note/rest/bar built by import — kept `low-confidence` where the parse is unsure. */
 const LOW_CONFIDENCE: ReviewReason = 'low-confidence';
@@ -102,7 +144,11 @@ interface System {
  * Map the recognised pages (in page order, Q26) onto one `Score`. The pages join into a single chart:
  * page 1's systems, top to bottom, then page 2's, and so on, with bars numbered straight through.
  */
-export function mapOmrToScore(pages: readonly OmrDocument[], options: OmrMapOptions): Score {
+export function mapOmrToScore(
+  pages: readonly OmrDocument[],
+  options: OmrMapOptions,
+  correct?: ChordCorrector,
+): Score {
   const totalStaves = pages.reduce((sum, page) => sum + page.staves.length, 0);
   if (totalStaves === 0) {
     // ADR-0018 / Q28: no staff anywhere is the one hard error. Everything else is a flagged draft.
@@ -119,7 +165,10 @@ export function mapOmrToScore(pages: readonly OmrDocument[], options: OmrMapOpti
     }
   }
 
-  const bars = rawBars.map((raw, index) => buildBar(raw, index + 1));
+  // No corrector supplied → the V11 result: chords need the grammar to be told from annotations, and
+  // the grammar lives in `music`, which `model` cannot import (ADR-0005). Callers that want chords
+  // inject `correctChord`; a pure-model caller gets notes and bars only.
+  const bars = rawBars.map((raw, index) => buildBar(raw, index + 1, correct ?? null));
 
   return makeScore({
     id: options.id,
@@ -188,6 +237,15 @@ function unitSizeOf(staves: OmrStaff[], yUpper: number, yLower: number): number 
 /** A bar before it is numbered and its ids are assigned: its recognised contents in reading order. */
 interface RawBar {
   items: RawItem[];
+  /** Chord-band OCR tokens that fall within this bar's x-range (V13); empty when no band was read. */
+  tokens: RawToken[];
+}
+
+/** A band OCR token reduced to what beat mapping and classification need: its centre x, text, doubt. */
+interface RawToken {
+  x: number;
+  text: string;
+  confidence: Confidence;
 }
 
 /** One recognised event inside a bar: a note or a rest, with the x it was found at and its doubt. */
@@ -223,6 +281,7 @@ function barsOfSystem(system: System, page: OmrDocument): RawBar[] {
   const lastX = items[items.length - 1]!.x;
 
   const dividers = internalDividers(system, page, firstX, lastX);
+  const tokens = bandTokensOfSystem(system, page);
 
   // Boundaries run from the system's left edge, through each internal divider, to its right edge.
   const cuts = [Math.min(system.xLeft, firstX) - 1, ...dividers, Math.max(system.xRight, lastX) + 1];
@@ -234,9 +293,42 @@ function barsOfSystem(system: System, page: OmrDocument): RawBar[] {
     // A segment between two dividers that caught no event is a bar the recogniser saw as empty; keep
     // it only if it actually has a divider on both sides (i.e. it is an interior segment), so a wide
     // left margin does not become a phantom leading bar.
-    if (inBar.length > 0) bars.push({ items: inBar });
+    if (inBar.length > 0) {
+      const inBarTokens = tokens.filter((t) => t.x >= start && t.x < end);
+      bars.push({ items: inBar, tokens: inBarTokens });
+    }
   }
   return bars;
+}
+
+/**
+ * The chord-band tokens sitting above this system. A token attaches by `group` when the worker tagged
+ * it (it crops the band per staff, so it usually knows — V13), else by geometry: its centre lands in
+ * the band strip just above the staff and its x overlaps the system. The band is *above* the staff, so
+ * the y test is one-sided; the worker's crop already bounds the strip's height (ADR-0010 stage 1), and
+ * `BAND_SPACES` is the matching guard here for the group-null fallback.
+ */
+function bandTokensOfSystem(system: System, page: OmrDocument): RawToken[] {
+  const out: RawToken[] = [];
+  for (const token of page.bandTokens) {
+    if (!bandAttachesTo(system, token)) continue;
+    out.push({ x: centerX(token.bbox), text: token.text, confidence: token.confidence });
+  }
+  return out;
+}
+
+/** How many staff spaces above the staff top the chord band may reach, for the group-null fallback. */
+const BAND_SPACES = 6;
+
+function bandAttachesTo(system: System, token: OmrBandToken): boolean {
+  if (token.group !== null && system.groupKey !== null) return token.group === system.groupKey;
+  const cx = centerX(token.bbox);
+  const cy = centerY(token.bbox);
+  const xOk = cx >= system.xLeft - system.unitSize && cx <= system.xRight + system.unitSize;
+  // Above the staff top, within a band's height; a half-space of slack lets a token that grazes the
+  // top line still attach to the staff it belongs to.
+  const yOk = cy <= system.yUpper + system.unitSize * 0.5 && cy >= system.yUpper - system.unitSize * BAND_SPACES;
+  return xOk && yOk;
 }
 
 /**
@@ -364,8 +456,10 @@ const NOTE_VALUE_OF_LABEL: Record<string, NoteValue> = {
  * (KAN-610) rather than mirroring a stored copy that would immediately go stale the moment a note
  * in the bar is corrected.
  */
-function buildBar(raw: RawBar, number: number): Bar {
+function buildBar(raw: RawBar, number: number, correct: ChordCorrector | null): Bar {
   const items: BarItem[] = [];
+  // (x, onset) for every event, so a band token's x can be beat-mapped to the onset it sits over.
+  const beats: Array<{ x: number; onset: number }> = [];
   let onset = 0;
   let noteOrdinal = 0;
   let restOrdinal = 0;
@@ -393,10 +487,92 @@ function buildBar(raw: RawBar, number: number): Bar {
         }),
       );
     }
+    beats.push({ x: item.x, onset });
     onset += durationTicks(item.duration);
   }
 
-  return makeBar({ id: `bar-${number}`, number, items });
+  const { chords, annotations } = classifyTokens(raw.tokens, beats, number, correct);
+  return makeBar({ id: `bar-${number}`, number, items, chords, annotations });
+}
+
+// ---------------------------------------------------------------------------
+// Chords and annotations from the band (V13)
+// ---------------------------------------------------------------------------
+
+/** Below this OCR confidence a recognised chord is flagged for review (ADR-0019). */
+const CHORD_CONFIDENCE_FLOOR = 0.75;
+
+/**
+ * Classify each band token in a bar into a chord or a flagged annotation, and beat-map it (stage 3).
+ * The corrector (`@sibei/music`, injected) decides which: text it can snap to a legal chord becomes a
+ * `Chord` at the beat-mapped onset; text it cannot becomes a flagged `Annotation`, kept not discarded
+ * (Q56). With no corrector the band is skipped entirely (the V11 result).
+ */
+function classifyTokens(
+  tokens: readonly RawToken[],
+  beats: ReadonlyArray<{ x: number; onset: number }>,
+  barNumber: number,
+  correct: ChordCorrector | null,
+): { chords: Chord[]; annotations: Annotation[] } {
+  const chords: Chord[] = [];
+  const annotations: Annotation[] = [];
+  if (correct === null) return { chords, annotations };
+
+  let chordOrdinal = 0;
+  let annotationOrdinal = 0;
+  // Left to right, so ordinals and the onset ties break in reading order.
+  for (const token of [...tokens].sort((a, b) => a.x - b.x)) {
+    const text = token.text.trim();
+    if (text === '') continue;
+    const onset = beatOf(token.x, beats);
+    const corrected = correct(text);
+    if (corrected !== null) {
+      chordOrdinal += 1;
+      const uncertain = token.confidence === null || token.confidence < CHORD_CONFIDENCE_FLOOR;
+      chords.push(
+        makeChord({
+          id: `chord-${barNumber}-${chordOrdinal}`,
+          onset,
+          text: corrected,
+          confidence: token.confidence,
+          ...(uncertain ? { review: flagged(LOW_CONFIDENCE) } : {}),
+        }),
+      );
+    } else {
+      annotationOrdinal += 1;
+      // Non-chord band text is always flagged: it is exactly what a reviewer should look at (Q56).
+      annotations.push(
+        makeAnnotation({
+          id: `ann-${barNumber}-${annotationOrdinal}`,
+          onset,
+          text,
+          confidence: token.confidence,
+          review: flagged(LOW_CONFIDENCE),
+        }),
+      );
+    }
+  }
+
+  chords.sort((a, b) => a.onset - b.onset);
+  annotations.sort((a, b) => a.onset - b.onset);
+  return { chords, annotations };
+}
+
+/**
+ * Beat-map a band token's centre x to the onset it governs: the onset of the last event at or before
+ * it — a chord box between two note onsets resolves to the **earlier** beat (the V13 unit contract).
+ * A token left of every event, or a bar with no events, maps to the bar start (onset 0).
+ */
+function beatOf(x: number, beats: ReadonlyArray<{ x: number; onset: number }>): number {
+  let onset = 0;
+  let bestX = -Infinity;
+  for (const beat of beats) {
+    if (beat.x <= x && beat.x > bestX) {
+      bestX = beat.x;
+      onset = beat.onset;
+    }
+  }
+  return onset;
 }
 
 function flagged(reason: ReviewReason): Review {
