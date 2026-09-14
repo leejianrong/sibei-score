@@ -46,6 +46,7 @@ import {
   invalidBarChart,
   longFormChart,
   nastyChart,
+  reviewChart,
   untitledChart,
 } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
@@ -58,6 +59,7 @@ const FIXTURES: Record<string, () => Score> = {
   'every-glyph': everyGlyphChart,
   beaming: beamingChart,
   'invalid-bars': invalidBarChart,
+  review: reviewChart,
   'long-form': longFormChart,
   'aaba-chart': aabaChart,
   untitled: untitledChart,

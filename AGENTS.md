@@ -105,6 +105,10 @@ worker/      the OMR worker (Python, ADR-0005) — OUTSIDE the pnpm workspace, i
              forward, ADR-0031); and chord-band OCR (`sibei_omr/band_ocr.py`, PaddleOCR, ADR-0027) shared
              by both engines. A Dockerfile bakes weights; GPU is Dockerfile.gpu. Never touches the store;
              stateless; its own `unittest`s, not in the Node CI
+tools/runpod/ DEV/BUILD-TIME ONLY (ADR-0032): a guardrail shell wrapper (`rp`) that runs the
+             EXISTING worker container on a rented RunPod pod to produce an artifact (an oemer eval
+             number now, checkpoints later) and guarantees teardown. OUTSIDE the pnpm workspace, no
+             Node deps, imports no `packages/*`; never a product runtime dependency, never in a bundle
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer
