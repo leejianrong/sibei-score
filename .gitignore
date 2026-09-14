@@ -10,3 +10,4 @@ compose.override.yaml
 # Dev-only RunPod compute wrapper: the API key and local pod-id state. Commit .env.example only.
 tools/runpod/.env
 tools/runpod/.rp-state
+tools/runpod/.rp-url

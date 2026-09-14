@@ -43,9 +43,12 @@ POD_NAME="${RP_POD_NAME:-sibei-omr-eval}"
 # prerequisite — worker/Dockerfile builds but pushes nowhere today; see the README runbook).
 POD_IMAGE="${RP_POD_IMAGE:-}"
 
-# The port the worker's HTTP server listens on (ADR-0005). RunPod exposes it at
-# https://{podId}-{PORT}.proxy.runpod.net.
+# The port the worker's HTTP server listens on (ADR-0005). PORT_TYPE=tcp gives a DIRECT public
+# IP:port (no proxy) — REQUIRED here, because oemer's /recognize runs minutes and RunPod's http proxy
+# (proxy.runpod.net) is Cloudflare-fronted with a ~100s response cap that 524s a long request. A tcp
+# port has no such cap. http is fine only for sub-100s services.
 POD_PORT="${RP_POD_PORT:-8000}"
+PORT_TYPE="${RP_PORT_TYPE:-tcp}"                      # tcp (direct, no timeout) | http (proxy, <100s)
 
 # Cost guardrails.
 #   RP_MAX_HOURLY_USD — the hard cap. `up` refuses if the price we would pay exceeds it.
@@ -63,13 +66,30 @@ IDLE_CHECK_SECS="${RP_IDLE_CHECK_SECS:-60}"         # how often the watchdog che
 WORKER_CMD="${RP_WORKER_CMD:-python -m sibei_omr.server}"
 
 # Prefer spot/interruptible pods: cheaper, ~5s reclaim warning, and the eval job is re-runnable.
+# NOTE: on RunPod REST v1 the cloud TYPE (SECURE/COMMUNITY) and spot are SEPARATE fields — cloudType
+# is the enum, interruptible is the boolean. RP_CLOUD_KIND=interruptible sets the boolean true.
 CLOUD_KIND="${RP_CLOUD_KIND:-interruptible}"
+case "$CLOUD_KIND" in interruptible|spot) INTERRUPTIBLE=true ;; *) INTERRUPTIBLE=false ;; esac
+CLOUD_TYPE="${RP_CLOUD_TYPE:-SECURE}"                 # SECURE | COMMUNITY
+
+# CPU-pod sizing (ADR-0025 floor; oemer needs RAM ~7 GB, not a GPU). RunPod REST v1 requires
+# computeType=CPU and picks RAM via a CPU flavor + vcpuCount. Memory-tier flavors (…m) give the most
+# RAM per vCPU, so a small vcpuCount clears oemer's ~7 GB with headroom cheaply. The list is tried in
+# order for availability. `up` VERIFIES the pod's actual RAM and price from the create response and
+# aborts (terminating) if the RAM is short or the price exceeds the cap — so a wrong guess costs cents.
+CPU_FLAVORS="${RP_CPU_FLAVORS:-cpu5m,cpu3m}"
+VCPU_COUNT="${RP_VCPU_COUNT:-4}"
+MIN_RAM_GB="${RP_MIN_RAM_GB:-12}"                     # oemer ~7 GB + PaddleOCR + OS headroom
+CONTAINER_DISK_GB="${RP_CONTAINER_DISK_GB:-20}"       # ephemeral; holds the ~3 GB image + scratch
+VOLUME_GB="${RP_VOLUME_GB:-0}"                        # 0 = NO persistent volume (no wasted storage)
 
 # RunPod REST API v1 (v2 is beta). VERIFY at real-run time — this surface moves.
 API_BASE="${RP_API_BASE:-https://rest.runpod.io/v1}"
 
 # Where the wrapper stashes the current pod id between invocations (gitignored).
 STATE_FILE="${RP_STATE_FILE:-${SCRIPT_DIR}/.rp-state}"
+# Where wait-ready caches the resolved worker URL (a tcp endpoint is only known once running).
+URL_FILE="${RP_URL_FILE:-${SCRIPT_DIR}/.rp-url}"
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -100,7 +120,22 @@ rp_api() {
     | curl "${args[@]}" -K - "${API_BASE}${path}"
 }
 
-pod_url() { printf 'https://%s-%s.proxy.runpod.net' "$1" "$POD_PORT"; }
+# Resolve the pod's reachable base URL. For a tcp port this is the DIRECT publicIp:mappedPort read
+# live from GET /pods/{id} (portMappings maps the private port to a public one, and publicIp is empty
+# until the pod is running) — no Cloudflare proxy, so oemer's multi-minute /recognize is not 524'd.
+# For an http port it is the static proxy URL. Prints the URL, or nothing if not yet assigned.
+pod_endpoint() {
+  local id="$1" info ip mapped
+  if [ "$PORT_TYPE" = "http" ]; then
+    printf 'https://%s-%s.proxy.runpod.net' "$id" "$POD_PORT"; return 0
+  fi
+  have jq || die "jq is required to resolve a tcp pod endpoint"
+  info="$(rp_api GET "/pods/${id}" || true)"
+  ip="$(printf '%s' "$info"     | jq -r '.publicIp // empty' 2>/dev/null | head -n1)"
+  mapped="$(printf '%s' "$info" | jq -r --arg p "$POD_PORT" '(.portMappings[$p] // empty) | tostring' 2>/dev/null | head -n1)"
+  { [ -n "$ip" ] && [ -n "$mapped" ] && [ "$mapped" != "null" ]; } || return 0
+  printf 'http://%s:%s' "$ip" "$mapped"
+}
 
 # Find the pod id for POD_NAME, if one exists. Prints the id or nothing.
 find_pod_id() {
@@ -205,19 +240,26 @@ cmd_up() {
 
   log "creating ${CLOUD_KIND} pod (name=${POD_NAME}, image=${POD_IMAGE}, <= \$${RP_HOURLY_USD}/hr)"
 
-  # The create body. Field names follow RunPod REST v1 as currently understood — VERIFY at
-  # real-run time. The dead-man's-switch is baked into dockerStartCmd so it is armed the instant
-  # the container runs, independent of the laptop.
-  local start_cmd body
+  # The create body follows the RunPod REST v1 CPU-pod schema (verified against the API reference):
+  # computeType=CPU is required; cloudType is the SECURE/COMMUNITY enum and interruptible is a
+  # separate boolean; RAM comes from cpuFlavorIds + vcpuCount; ports is an ARRAY; volumeInGb=0 avoids
+  # a persistent volume we would otherwise pay for. There is no bid-price field. The dead-man's-switch
+  # is baked into dockerStartCmd so it arms the instant the container runs, independent of the laptop.
+  local start_cmd body flavors_json
   start_cmd="$(launch_command)"
+  flavors_json="$(printf '%s' "$CPU_FLAVORS" | awk -F, '{for(i=1;i<=NF;i++) printf "%s\"%s\"",(i>1?",":""),$i}')"
   body="$(cat <<JSON
 {
   "name": "${POD_NAME}",
   "imageName": "${POD_IMAGE}",
-  "cloudType": "${CLOUD_KIND}",
-  "interruptible": true,
-  "bidPerGpu": ${RP_HOURLY_USD},
-  "ports": "${POD_PORT}/http",
+  "computeType": "CPU",
+  "cloudType": "${CLOUD_TYPE}",
+  "interruptible": ${INTERRUPTIBLE},
+  "cpuFlavorIds": [${flavors_json}],
+  "vcpuCount": ${VCPU_COUNT},
+  "containerDiskInGb": ${CONTAINER_DISK_GB},
+  "volumeInGb": ${VOLUME_GB},
+  "ports": ["${POD_PORT}/${PORT_TYPE}"],
   "dockerStartCmd": ["bash", "-lc", $(json_string "$start_cmd")]
 }
 JSON
@@ -233,6 +275,28 @@ JSON
   [ -n "${id:-}" ] || die "create returned no pod id (verify the REST shape; response withheld to avoid leaking anything)"
   printf '%s' "$id" > "$STATE_FILE"
   log "created pod ${id}"
+
+  # Verify what we actually got before trusting it: enough RAM for oemer, and within the cost cap.
+  # A wrong flavor or price is caught here and TERMINATED within seconds (cents), never after a run.
+  if have jq; then
+    local info ram cost
+    info="$(rp_api GET "/pods/${id}" || true)"
+    ram="$(printf '%s' "$info"  | jq -r '.. | (.memoryInGb? // .memoryGb? // empty)' 2>/dev/null | head -n1)"
+    cost="$(printf '%s' "$info" | jq -r '.. | (.costPerHr? // .costPerHour? // empty)'  2>/dev/null | head -n1)"
+    if [ -n "$ram" ] && awk "BEGIN{exit !(${ram} < ${MIN_RAM_GB})}"; then
+      log "pod ${id}: ${ram} GB RAM < ${MIN_RAM_GB} GB needed — terminating and aborting"
+      rp_api DELETE "/pods/${id}" >/dev/null 2>&1 || true; rm -f "$STATE_FILE"
+      die "insufficient RAM (${ram} GB); raise RP_VCPU_COUNT or use a memory flavor via RP_CPU_FLAVORS"
+    fi
+    if [ -n "$cost" ] && awk "BEGIN{exit !(${cost} > ${RP_MAX_HOURLY_USD})}"; then
+      log "pod ${id}: \$${cost}/hr > cap \$${RP_MAX_HOURLY_USD} — terminating and aborting"
+      rp_api DELETE "/pods/${id}" >/dev/null 2>&1 || true; rm -f "$STATE_FILE"
+      die "price \$${cost}/hr exceeds RP_MAX_HOURLY_USD"
+    fi
+    [ -n "$ram" ]  && log "pod ${id}: ${ram} GB RAM"
+    [ -n "$cost" ] && log "pod ${id}: \$${cost}/hr"
+  fi
+
   printf '%s\n' "$id"
 }
 
@@ -255,11 +319,12 @@ cmd_wait_ready() {
   id="$(current_pod_id)"
   timeout="${1:-600}"
   deadline=$(( $(date +%s) + timeout ))
-  url="$(pod_url "$id")/health"
-  log "waiting for ${url} (up to ${timeout}s)"
+  log "waiting for pod ${id} to expose ${POD_PORT}/${PORT_TYPE} and go healthy (up to ${timeout}s)"
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl --silent --show-error --fail --max-time 10 "$url" >/dev/null 2>&1; then
-      log "worker healthy at $(pod_url "$id")"
+    url="$(pod_endpoint "$id")"
+    if [ -n "$url" ] && curl --silent --show-error --fail --max-time 10 "${url}/health" >/dev/null 2>&1; then
+      log "worker healthy at ${url}"
+      printf '%s' "$url" > "$URL_FILE"
       return 0
     fi
     sleep 5
@@ -271,7 +336,9 @@ cmd_run() {
   [ "$#" -ge 1 ] || die "usage: rp run <cmd...>"
   local id url
   id="$(current_pod_id)"
-  url="$(pod_url "$id")"
+  url="$(cat "$URL_FILE" 2>/dev/null || true)"
+  [ -n "$url" ] || url="$(pod_endpoint "$id")"
+  [ -n "$url" ] || die "could not resolve the pod endpoint (run 'rp wait-ready' first)"
 
   # The laptop-side safety net: whatever happens to the command — success, failure, Ctrl-C, crash —
   # tear the pod down. Combined with the pod-side dead-man's-switch, teardown is defence-in-depth.
@@ -342,7 +409,7 @@ cmd_down() {
       log "pod ${id} not found or already terminated (treating as success)"
     fi
   fi
-  rm -f "$STATE_FILE"
+  rm -f "$STATE_FILE" "$URL_FILE"
 }
 
 current_pod_id() {
