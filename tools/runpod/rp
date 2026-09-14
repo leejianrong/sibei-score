@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+#
+# rp — a thin, guardrail-owning wrapper over RunPod for DEV/BUILD-TIME compute only.
+#
+# This is NOT product runtime. The sibei-score app stays local-first and offline (ADR-0001,
+# ADR-0024); RunPod is never called by the running app. This tool exists to run the EXISTING
+# ADR-0005 OMR worker container on a rented pod to PRODUCE ARTIFACTS — an oemer eval number now,
+# trained checkpoints later — and then guarantee the pod is torn down so it stops billing. See
+# tools/runpod/README.md and docs/adr/0032-*.md.
+#
+# It imports no packages/* code. It only shells out (curl, runpodctl) and sets env vars.
+# "Run oemer on RunPod" == deploy this worker image there and point SBSCORE_WORKER_URL /
+# `pnpm eval --engine worker --url …` at it — no product code changes.
+#
+# Cost safety is layered and does NOT rely on the laptop staying connected:
+#   * `up` bakes a POD-SIDE DEAD-MAN'S-SWITCH into the launch command — a hard max-lifetime
+#     ceiling PLUS an idle watchdog — so a disconnected laptop cannot leave a pod running forever.
+#   * `run` wraps the work in a `trap … EXIT` that always calls `down` (success/failure/crash).
+#   * `down` TERMINATES (deletes) the pod — a merely *stopped* pod still bills for storage — and
+#     is idempotent (deleting an already-gone pod is success).
+#
+# NOTE: RunPod's CLI/REST surface changes. Endpoint shapes and runpodctl flags below are the
+# best current understanding; VERIFY THEM AT REAL-RUN TIME (see the README runbook). This wrapper
+# is Proposed and gated on a go/no-go spike; nothing here has spent money or created a pod yet.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# Config. Non-secret defaults live here and in .env.example; a real (gitignored)
+# tools/runpod/.env supplies the key and any overrides. We source .env if present.
+# ---------------------------------------------------------------------------
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+  # shellcheck disable=SC1091
+  . "${SCRIPT_DIR}/.env"
+fi
+
+# The pod is identified by a fixed name tag so `up` is idempotent (reuse-if-present).
+POD_NAME="${RP_POD_NAME:-sibei-omr-eval}"
+
+# The worker image to deploy. Must be pushed to a registry the pod can pull (a one-time
+# prerequisite — worker/Dockerfile builds but pushes nowhere today; see the README runbook).
+POD_IMAGE="${RP_POD_IMAGE:-}"
+
+# The port the worker's HTTP server listens on (ADR-0005). RunPod exposes it at
+# https://{podId}-{PORT}.proxy.runpod.net.
+POD_PORT="${RP_POD_PORT:-8000}"
+
+# Cost guardrails.
+#   RP_MAX_HOURLY_USD — the hard cap. `up` refuses if the price we would pay exceeds it.
+#   RP_HOURLY_USD     — the price/bid we are willing to pay for this pod (spot/interruptible).
+RP_MAX_HOURLY_USD="${RP_MAX_HOURLY_USD:-0.60}"
+RP_HOURLY_USD="${RP_HOURLY_USD:-0.40}"
+
+# Pod-side dead-man's-switch timers (seconds). These are baked into the launch command and run
+# INSIDE the pod, so they hold even if the laptop disconnects.
+MAX_LIFETIME_SECS="${RP_MAX_LIFETIME_SECS:-3600}"   # hard ceiling: terminate no matter what.
+IDLE_TIMEOUT_SECS="${RP_IDLE_TIMEOUT_SECS:-900}"    # terminate after this long with no /recognize.
+IDLE_CHECK_SECS="${RP_IDLE_CHECK_SECS:-60}"         # how often the watchdog checks.
+
+# The command that starts the worker inside the image. Must match the image (ADR-0005 worker).
+WORKER_CMD="${RP_WORKER_CMD:-python -m sibei_omr.server}"
+
+# Prefer spot/interruptible pods: cheaper, ~5s reclaim warning, and the eval job is re-runnable.
+CLOUD_KIND="${RP_CLOUD_KIND:-interruptible}"
+
+# RunPod REST API v1 (v2 is beta). VERIFY at real-run time — this surface moves.
+API_BASE="${RP_API_BASE:-https://rest.runpod.io/v1}"
+
+# Where the wrapper stashes the current pod id between invocations (gitignored).
+STATE_FILE="${RP_STATE_FILE:-${SCRIPT_DIR}/.rp-state}"
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+log()  { printf 'rp: %s\n' "$*" >&2; }
+die()  { printf 'rp: error: %s\n' "$*" >&2; exit 1; }
+
+require_key() {
+  # Read the key BY REFERENCE. Never echo, print, log, or bake it. If it is missing, point at
+  # the README rather than leaking anything.
+  : "${RUNPOD_API_KEY:?set RUNPOD_API_KEY (a dedicated, limited-scope key — see tools/runpod/README.md)}"
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Call the RunPod REST API. The bearer token is fed to curl through a config file on STDIN
+# (`curl -K -`), so the secret NEVER appears in argv (and so never in `ps`, shell history, or a
+# process listing) and is NEVER placed in a URL query parameter. $1=method $2=path [$3=json body].
+rp_api() {
+  require_key
+  local method="$1" path="$2" body="${3:-}"
+  local args=(--silent --show-error --fail-with-body -X "$method")
+  if [ -n "$body" ]; then
+    args+=(-H 'content-type: application/json' --data-binary "$body")
+  fi
+  # The Authorization header arrives via -K (curl config) on stdin; the key is not an argument.
+  printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
+    | curl "${args[@]}" -K - "${API_BASE}${path}"
+}
+
+pod_url() { printf 'https://%s-%s.proxy.runpod.net' "$1" "$POD_PORT"; }
+
+# Find the pod id for POD_NAME, if one exists. Prints the id or nothing.
+find_pod_id() {
+  # GET /pods returns the account's pods; we match on our fixed name tag. `grep/sed` keeps this
+  # dependency-free (no jq required). VERIFY the response shape at real-run time.
+  local json
+  json="$(rp_api GET /pods || true)"
+  [ -n "$json" ] || return 0
+  # Match the id of the object whose "name" is POD_NAME. jq is the robust path; without it we fall
+  # back to the saved state file (a fresh clone with no state must have jq to discover an existing pod).
+  if have jq; then
+    printf '%s' "$json" | jq -r --arg n "$POD_NAME" \
+      '.. | objects | select(.name==$n) | .id' 2>/dev/null | head -n1
+  elif [ -f "$STATE_FILE" ]; then
+    cat "$STATE_FILE"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# The pod-side dead-man's-switch, baked into the launch command.
+#
+# This runs INSIDE the pod, so it protects against a disconnected laptop, which RunPod does NOT
+# stop on its own (no native idle-terminate, no max-lifetime, no per-pod spend cap). Two guards:
+#
+#   1. Hard max-lifetime ceiling: sleep MAX_LIFETIME_SECS, then `runpodctl remove pod $RUNPOD_POD_ID`.
+#      RunPod injects RUNPOD_POD_ID into every container. runpodctl is installed best-effort here
+#      because the slim worker image does not ship it (VERIFY the install URL at real-run time).
+#   2. Idle watchdog: the worker's stdout is tee'd to a log; every /recognize request prints a line.
+#      If no new /recognize line appears for IDLE_TIMEOUT_SECS, self-terminate. (Sustained work
+#      keeps the log growing; a finished-but-forgotten pod goes quiet and is reaped.)
+#
+# Both call the SAME terminate as the laptop's `down`, so teardown is defence-in-depth.
+# ---------------------------------------------------------------------------
+launch_command() {
+  cat <<LAUNCH
+set -eu
+LOG=/tmp/sibei-worker.log
+
+# Ensure runpodctl exists (slim image ships none). Best-effort; VERIFY URL at real-run time.
+if ! command -v runpodctl >/dev/null 2>&1; then
+  (wget -qO /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 \
+     && chmod +x /usr/local/bin/runpodctl) || echo "rp(pod): could not install runpodctl; API-based teardown from the laptop still applies" >&2
+fi
+
+terminate() {
+  echo "rp(pod): terminating self (\$1)" >&2
+  runpodctl remove pod "\$RUNPOD_POD_ID" || true
+  # If runpodctl is unavailable the laptop-side trap and \`rp down\` remain the backstop.
+  kill -TERM -1 2>/dev/null || true
+}
+
+# Guard 1: hard max-lifetime ceiling.
+( sleep ${MAX_LIFETIME_SECS}; terminate "max-lifetime ${MAX_LIFETIME_SECS}s reached" ) &
+
+# Start the worker, tee-ing its output so the watchdog can see /recognize activity.
+( ${WORKER_CMD} 2>&1 | tee "\$LOG" ) &
+WORKER_PID=\$!
+
+# Guard 2: idle watchdog.
+(
+  last_change=\$(date +%s)
+  last_count=0
+  while kill -0 "\$WORKER_PID" 2>/dev/null; do
+    sleep ${IDLE_CHECK_SECS}
+    count=\$(grep -c recognize "\$LOG" 2>/dev/null || echo 0)
+    now=\$(date +%s)
+    if [ "\$count" != "\$last_count" ]; then
+      last_count=\$count; last_change=\$now
+    elif [ \$(( now - last_change )) -ge ${IDLE_TIMEOUT_SECS} ]; then
+      terminate "idle ${IDLE_TIMEOUT_SECS}s with no /recognize"
+      break
+    fi
+  done
+) &
+
+wait "\$WORKER_PID"
+LAUNCH
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+cmd_up() {
+  require_key
+  [ -n "$POD_IMAGE" ] || die "set RP_POD_IMAGE to the pushed worker image (see the README runbook)"
+
+  # Refuse if the price we would pay exceeds the configured hard cap. A coarse but load-bearing
+  # backstop; the account-level spend limit is the coarser one behind it.
+  if awk "BEGIN{exit !(${RP_HOURLY_USD} > ${RP_MAX_HOURLY_USD})}"; then
+    die "requested \$${RP_HOURLY_USD}/hr exceeds cap \$${RP_MAX_HOURLY_USD}/hr (RP_MAX_HOURLY_USD). Refusing."
+  fi
+
+  # Idempotent: reuse an existing pod with our name tag rather than creating a second one.
+  local existing
+  existing="$(find_pod_id || true)"
+  if [ -n "${existing:-}" ]; then
+    log "reusing existing pod ${existing} (name=${POD_NAME})"
+    printf '%s' "$existing" > "$STATE_FILE"
+    printf '%s\n' "$existing"
+    return 0
+  fi
+
+  log "creating ${CLOUD_KIND} pod (name=${POD_NAME}, image=${POD_IMAGE}, <= \$${RP_HOURLY_USD}/hr)"
+
+  # The create body. Field names follow RunPod REST v1 as currently understood — VERIFY at
+  # real-run time. The dead-man's-switch is baked into dockerStartCmd so it is armed the instant
+  # the container runs, independent of the laptop.
+  local start_cmd body
+  start_cmd="$(launch_command)"
+  body="$(cat <<JSON
+{
+  "name": "${POD_NAME}",
+  "imageName": "${POD_IMAGE}",
+  "cloudType": "${CLOUD_KIND}",
+  "interruptible": true,
+  "bidPerGpu": ${RP_HOURLY_USD},
+  "ports": "${POD_PORT}/http",
+  "dockerStartCmd": ["bash", "-lc", $(json_string "$start_cmd")]
+}
+JSON
+)"
+
+  local resp id
+  resp="$(rp_api POST /pods "$body")"
+  if have jq; then
+    id="$(printf '%s' "$resp" | jq -r '.id // .pod.id // empty')"
+  else
+    id="$(printf '%s' "$resp" | tr ',' '\n' | sed -n 's/.*"id"[: ]*"\([^"]*\)".*/\1/p' | head -n1)"
+  fi
+  [ -n "${id:-}" ] || die "create returned no pod id (verify the REST shape; response withheld to avoid leaking anything)"
+  printf '%s' "$id" > "$STATE_FILE"
+  log "created pod ${id}"
+  printf '%s\n' "$id"
+}
+
+# JSON-encode a string (for embedding the launch command). Uses jq if present, else a minimal escaper.
+json_string() {
+  if have jq; then
+    printf '%s' "$1" | jq -Rs .
+  else
+    # Minimal: escape backslash, double-quote, and newlines. Adequate for our launch script.
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    printf '"%s"' "$s"
+  fi
+}
+
+cmd_wait_ready() {
+  local id timeout deadline url
+  id="$(current_pod_id)"
+  timeout="${1:-600}"
+  deadline=$(( $(date +%s) + timeout ))
+  url="$(pod_url "$id")/health"
+  log "waiting for ${url} (up to ${timeout}s)"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if curl --silent --show-error --fail --max-time 10 "$url" >/dev/null 2>&1; then
+      log "worker healthy at $(pod_url "$id")"
+      return 0
+    fi
+    sleep 5
+  done
+  die "worker did not become healthy within ${timeout}s"
+}
+
+cmd_run() {
+  [ "$#" -ge 1 ] || die "usage: rp run <cmd...>"
+  local id url
+  id="$(current_pod_id)"
+  url="$(pod_url "$id")"
+
+  # The laptop-side safety net: whatever happens to the command — success, failure, Ctrl-C, crash —
+  # tear the pod down. Combined with the pod-side dead-man's-switch, teardown is defence-in-depth.
+  trap 'cmd_down' EXIT INT TERM
+
+  log "SBSCORE_WORKER_URL=${url}"
+  SBSCORE_WORKER_URL="$url" "$@"
+}
+
+cmd_status() {
+  local id
+  id="$(current_pod_id)"
+  if have jq; then
+    rp_api GET "/pods/${id}" | jq -r '"pod \(.id): \(.desiredStatus // .status // "?") \(.costPerHr // "" )"' 2>/dev/null \
+      || rp_api GET "/pods/${id}"
+  else
+    rp_api GET "/pods/${id}"
+  fi
+}
+
+cmd_logs() {
+  local id
+  id="$(current_pod_id)"
+  if have runpodctl; then
+    runpodctl get pod "$id" || true
+    log "for live worker logs, tail the pod in the RunPod console or via runpodctl (VERIFY the command at real-run time)"
+  else
+    log "runpodctl not installed; view logs in the RunPod console for pod ${id}"
+  fi
+}
+
+cmd_fetch() {
+  # Pull an artifact (eval JSON / checkpoint) off the pod to the laptop. RunPod's file transfer
+  # is `runpodctl send` (on the pod) / `runpodctl receive` (here) with a one-time code, or scp
+  # over the pod's SSH proxy. VERIFY the mechanism at real-run time; the eval NUMBER already lands
+  # locally because `pnpm eval` runs laptop-side against the pod URL — `fetch` is for checkpoints.
+  [ "$#" -ge 1 ] || die "usage: rp fetch <one-time-code|remote:path> [local-dest]"
+  have runpodctl || die "runpodctl required for fetch (see the README)"
+  runpodctl receive "$@"
+}
+
+cmd_down() {
+  # TERMINATE, not stop: a stopped pod still bills for storage; only delete frees all cost.
+  # Idempotent: a pod that is already gone is success. Resolve the id WITHOUT demanding the key
+  # first — an empty down (no key, no state) is a clean success, and we only require the key once
+  # there is genuinely a pod to delete.
+  trap - EXIT INT TERM
+  local id=""
+  if [ -n "${RUNPOD_API_KEY:-}" ]; then
+    id="$(find_pod_id || true)"
+  fi
+  if [ -z "$id" ] && [ -f "$STATE_FILE" ]; then
+    id="$(cat "$STATE_FILE")"
+  fi
+  if [ -z "$id" ]; then
+    log "no pod recorded; nothing to terminate"
+    return 0
+  fi
+  require_key
+  log "terminating pod ${id}"
+  if rp_api DELETE "/pods/${id}" >/dev/null 2>&1; then
+    log "terminated ${id}"
+  else
+    # Already gone / not found counts as success (idempotent). Fall back to runpodctl if present.
+    if have runpodctl && runpodctl remove pod "$id" >/dev/null 2>&1; then
+      log "terminated ${id} (via runpodctl)"
+    else
+      log "pod ${id} not found or already terminated (treating as success)"
+    fi
+  fi
+  rm -f "$STATE_FILE"
+}
+
+current_pod_id() {
+  local id
+  id="$(find_pod_id || true)"
+  if [ -z "${id:-}" ] && [ -f "$STATE_FILE" ]; then
+    id="$(cat "$STATE_FILE")"
+  fi
+  [ -n "${id:-}" ] || die "no pod found (run \`rp up\` first)"
+  printf '%s' "$id"
+}
+
+usage() {
+  cat >&2 <<'USAGE'
+rp — dev/build-time RunPod compute wrapper (never a product runtime dependency)
+
+  rp up                 create-or-reuse a spot pod (name-tagged, dead-man's-switch armed), print id
+  rp wait-ready [secs]  poll https://{pod}-{port}.proxy.runpod.net/health until 200
+  rp run <cmd...>       export SBSCORE_WORKER_URL to the pod, run <cmd> inside a trap that always `down`s
+  rp status             show the pod's status
+  rp logs               show pod info / point at logs
+  rp fetch <code> [dst] pull an artifact (eval JSON / checkpoint) off the pod
+  rp down               TERMINATE (delete) the pod — idempotent
+
+Config: tools/runpod/.env (gitignored) supplies RUNPOD_API_KEY (by reference) and overrides.
+See tools/runpod/README.md and docs/adr/0032-*.md.
+USAGE
+}
+
+main() {
+  local sub="${1:-}"
+  [ "$#" -gt 0 ] && shift || true
+  case "$sub" in
+    up)         cmd_up "$@" ;;
+    wait-ready) cmd_wait_ready "$@" ;;
+    run)        cmd_run "$@" ;;
+    status)     cmd_status "$@" ;;
+    logs)       cmd_logs "$@" ;;
+    fetch)      cmd_fetch "$@" ;;
+    down)       cmd_down "$@" ;;
+    ''|-h|--help|help) usage ;;
+    *) usage; die "unknown subcommand: ${sub}" ;;
+  esac
+}
+
+main "$@"
