@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 3;
+export const TABLE_SCHEMA_VERSION = 4;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -86,6 +86,11 @@ CREATE TABLE IF NOT EXISTS import_jobs (
   owner       TEXT    NOT NULL,
   status      TEXT    NOT NULL,
   image_keys  TEXT    NOT NULL CHECK (json_valid(image_keys)),
+  -- The recognition engine a re-parse (V14e) asked for, or NULL for the worker default. A normal
+  -- import leaves it NULL; the runner threads a non-null value to the worker per-request. Added at
+  -- table schema version 4 (see migrateTables), nullable so the ALTER on an existing table needs no
+  -- backfill and every V10..V13 job reads as NULL (the worker default, which is what they ran on).
+  engine      TEXT,
   attempts    INTEGER NOT NULL,
   diagnostic  TEXT,
   result      TEXT    CHECK (result IS NULL OR json_valid(result)),
@@ -123,7 +128,25 @@ export function migrateTables(db: Database): void {
   db.pragma('foreign_keys = ON');
 
   db.exec(DDL);
+
+  // Incremental migrations for a database that pre-dates a column. `CREATE TABLE IF NOT EXISTS` above
+  // brings a *fresh* database straight to the current shape but does nothing to an existing table, so
+  // an added column needs an explicit ALTER. Each step is idempotent (it checks the column is really
+  // missing) rather than gated on `found`, because `migrateTables` runs on every open — belt to the
+  // `user_version` braces.
+  //
+  //   v4 (V14e): `import_jobs.engine` — the engine a re-parse asked for; NULL on every older job.
+  ensureColumn(db, 'import_jobs', 'engine', 'TEXT');
+
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
+}
+
+/** Add `column` to `table` if it is not already there. Idempotent, so it is safe on a fresh database
+ * (where the DDL already created the column) and on an old one (where the ALTER actually runs). */
+function ensureColumn(db: Database, table: string, column: string, type: string): void {
+  const columns = db.pragma(`table_info(${table})`) as { name: string }[];
+  if (columns.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
 }
 
 export function currentTableVersion(db: Database): number {

@@ -16,8 +16,9 @@ import http.client
 import json
 import threading
 import unittest
+from http.server import ThreadingHTTPServer
 
-from sibei_omr.server import serve
+from sibei_omr.server import make_handler, serve
 
 A_DOCUMENT = {
     "schemaVersion": 2,
@@ -102,6 +103,63 @@ class ServerTest(unittest.TestCase):
         port = self._serve(lambda p, n: A_DOCUMENT)
         self.assertEqual(self._request(port, "GET", "/nope")[0], 404)
         self.assertEqual(self._request(port, "POST", "/nope", body=b"x")[0], 404)
+
+    def _serve_with_resolver(self, default_fn, resolve_engine):
+        """Serve a handler wired with a per-request engine resolver (V14e). ``serve`` only wires one
+        for a real engine registry, so this builds the handler directly to exercise the override seam
+        without importing an engine's heavy dependencies."""
+
+        def tagged(tag):
+            def fn(_path, _name):
+                return dict(A_DOCUMENT, source=dict(A_DOCUMENT["source"], engine=tag))
+
+            return fn
+
+        handler = make_handler(
+            default_fn or tagged("default"),
+            threading.Lock(),
+            "oemer",
+            lambda: "test",
+            resolve_engine,
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self._last_port = server.server_address[1]
+        return self._last_port
+
+    def test_per_request_engine_override_selects_the_requested_engine(self):
+        # `?engine=<name>` (V14e) resolves that engine for this one call; no param keeps the default.
+        port = self._serve_with_resolver(None, lambda name: (self._tagged(name), name))
+
+        # No engine param: the server's start-up engine ("oemer") runs.
+        status, payload = self._request(port, "POST", "/recognize?name=x.png", body=b"bytes")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["source"]["engine"], "default")
+
+        # An engine param that differs is resolved and used for this request.
+        status, payload = self._request(port, "POST", "/recognize?name=x.png&engine=heuristic", body=b"bytes")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["source"]["engine"], "resolved:heuristic")
+
+    def _tagged(self, name):
+        def fn(_path, _image_name):
+            return dict(A_DOCUMENT, source=dict(A_DOCUMENT["source"], engine=f"resolved:{name}"))
+
+        return fn
+
+    def test_unknown_engine_override_is_a_500_diagnostic(self):
+        # An unknown engine raises inside the resolver, which becomes the same clean 500 → Q80 diagnostic
+        # a recognition failure does (the API validates names first, so this is defence in depth).
+        def resolve(name):
+            raise ValueError(f"unknown OMR engine {name!r}")
+
+        port = self._serve_with_resolver(None, resolve)
+        status, payload = self._request(port, "POST", "/recognize?name=x.png&engine=nope", body=b"bytes")
+        self.assertEqual(status, 500)
+        self.assertIn("nope", json.loads(payload)["error"])
 
 
 if __name__ == "__main__":

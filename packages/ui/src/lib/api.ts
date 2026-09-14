@@ -182,6 +182,37 @@ export async function getImport(id: Id): Promise<ImportJobView> {
 }
 
 /**
+ * The recognition engines a re-parse may pick (V14e). The **wire** list, restated for the same reason
+ * `ScoreListing` is — the browser bundle may not resolve `@sibei/api` (`tests/arch`) — and it mirrors
+ * the API's `REPARSE_ENGINES`. `oemer` first: the default, the higher-accuracy one where RAM allows;
+ * `heuristic` is the dependency-light dev/test engine for a small host. A name here the server does
+ * not know is a 422, the same no-fallback bargain paper and face make.
+ */
+export interface ReparseEngine {
+  value: string;
+  label: string;
+}
+
+export const REPARSE_ENGINES: readonly ReparseEngine[] = [
+  { value: 'oemer', label: 'oemer' },
+  { value: 'heuristic', label: 'heuristic' },
+];
+
+/**
+ * Re-parse an imported chart (V14e, ADR-0019): `POST /v1/scores/:id/reparse` re-runs OMR on the
+ * chart's retained source scans into a **new** draft — nothing is re-uploaded, and the original chart
+ * and any corrections on it survive. `engine` picks the recogniser (one of {@link REPARSE_ENGINES});
+ * omitted, the worker keeps its default. The job is durable (ADR-0001), so the caller submits, then
+ * polls `getImport` to a terminal status while the recogniser runs, and opens `job.scoreId` on
+ * success — exactly the shape the library's import affordance already uses.
+ */
+export async function reparseScore(id: Id, engine?: string): Promise<ImportJobView> {
+  const body = engine === undefined ? {} : { engine };
+  const result = await postJson<{ job: ImportJobView }>(`${V1}/scores/${encodeURIComponent(id)}/reparse`, body);
+  return result.job;
+}
+
+/**
  * The write side (V4c). Declared here rather than imported from `@sibei/api`'s
  * `packages/api/src/ops/operations.ts` — the same reason `ScoreListing` and `ScoreRecord` above
  * are the wire shape rather than an import: `@sibei/api` also holds the store and the applier,
