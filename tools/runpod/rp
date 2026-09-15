@@ -91,6 +91,29 @@ STATE_FILE="${RP_STATE_FILE:-${SCRIPT_DIR}/.rp-state}"
 # Where wait-ready caches the resolved worker URL (a tcp endpoint is only known once running).
 URL_FILE="${RP_URL_FILE:-${SCRIPT_DIR}/.rp-url}"
 
+# On-pod ssh, for the co-located eval path (ADR-0032, KAN-1379): oemer's ~5.4-min recognition cannot
+# survive a single HTTP request over the internet, so recognition runs ON the pod (no per-image WAN)
+# and only images (up) and OmrDocuments (down) cross the wire, over scp. The PUBLIC key is embedded in
+# the pod's launch command (it is not a secret); the PRIVATE key never leaves the laptop and is only
+# ever handed to ssh/scp by path (`-i`). If the public key file is absent, ssh is simply not enabled
+# (port 22 is not exposed and sshd is not installed) — the plain worker-URL flow is unaffected.
+RP_SSH_KEY="${RP_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+RP_SSH_PUBKEY="${RP_SSH_PUBKEY:-${RP_SSH_KEY}.pub}"
+# The engine the on-pod batch runs (oemer is the point of this path; heuristic is a cheap smoke).
+RP_EVAL_ENGINE="${RP_EVAL_ENGINE:-oemer}"
+
+# The public key text embedded into the launch command, if a key file is present. Only the type +
+# base64 body are taken (never a trailing comment, which could contain shell-hostile characters).
+SSH_PUBKEY_CONTENT=""
+if [ -f "$RP_SSH_PUBKEY" ]; then
+  SSH_PUBKEY_CONTENT="$(awk 'NF>=2{print $1" "$2; exit}' "$RP_SSH_PUBKEY" 2>/dev/null || true)"
+fi
+
+# ssh/scp options shared by every on-pod call. The pod is ephemeral with a fresh host key each time, so
+# host-key checking is disabled against a throwaway known-hosts (a dev pod on a public IP, not a durable
+# host we pin). LogLevel keeps the banner out of piped output.
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10)
+
 # ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
@@ -135,6 +158,32 @@ pod_endpoint() {
   mapped="$(printf '%s' "$info" | jq -r --arg p "$POD_PORT" '(.portMappings[$p] // empty) | tostring' 2>/dev/null | head -n1)"
   { [ -n "$ip" ] && [ -n "$mapped" ] && [ "$mapped" != "null" ]; } || return 0
   printf 'http://%s:%s' "$ip" "$mapped"
+}
+
+# Resolve the pod's public ssh endpoint: the direct publicIp and the public port RunPod mapped the
+# container's port 22 to (portMappings["22"]). Prints "ip port", or nothing if 22 is not mapped yet.
+ssh_host_port() {
+  local id="$1" info ip mapped
+  have jq || die "jq is required for on-pod ssh"
+  info="$(rp_api GET "/pods/${id}" || true)"
+  ip="$(printf '%s' "$info"     | jq -r '.publicIp // empty' 2>/dev/null | head -n1)"
+  mapped="$(printf '%s' "$info" | jq -r '(.portMappings["22"] // empty) | tostring' 2>/dev/null | head -n1)"
+  { [ -n "$ip" ] && [ -n "$mapped" ] && [ "$mapped" != "null" ]; } || return 0
+  printf '%s %s' "$ip" "$mapped"
+}
+
+# Require a usable ssh private key before an on-pod ssh/scp call. Read by path only (never into a var).
+require_ssh_key() {
+  [ -f "$RP_SSH_KEY" ] || die "no ssh private key at ${RP_SSH_KEY} (set RP_SSH_KEY; its .pub is embedded at \`up\`)"
+}
+
+# Print "ip port" for the current pod's ssh, dying with guidance if 22 is not mapped yet.
+resolve_ssh() {
+  local id hp
+  id="$(current_pod_id)"
+  hp="$(ssh_host_port "$id")"
+  [ -n "$hp" ] || die "pod ssh (port 22) not mapped yet — run \`rp up\` with an ssh key present, then \`rp wait-ssh\`"
+  printf '%s' "$hp"
 }
 
 # Find the pod id for POD_NAME, if one exists. Prints the id or nothing.
@@ -186,6 +235,25 @@ terminate() {
   # If runpodctl is unavailable the laptop-side trap and \`rp down\` remain the backstop.
   kill -TERM -1 2>/dev/null || true
 }
+
+# On-pod ssh (ADR-0032 on-pod eval). Enabled only when a public key was embedded at \`up\` time; the
+# private key never leaves the laptop. openssh-server is installed HERE, at pod start, exactly like
+# runpodctl above — so the shipped WORKER IMAGE is untouched (ADR-0032 commitment 1), no sshd baked into
+# a product artifact. RunPod maps the container's port 22 to a public port (portMappings), which the
+# laptop resolves. Best-effort: if the install fails, the laptop-side flow that needs ssh will report it.
+SIBEI_SSH_PUBKEY='${SSH_PUBKEY_CONTENT}'
+if [ -n "\$SIBEI_SSH_PUBKEY" ]; then
+  if ! command -v sshd >/dev/null 2>&1; then
+    (apt-get update && apt-get install -y --no-install-recommends openssh-server) >/dev/null 2>&1 \
+      || echo "rp(pod): could not install openssh-server; on-pod ssh unavailable" >&2
+  fi
+  mkdir -p /root/.ssh /run/sshd
+  printf '%s\n' "\$SIBEI_SSH_PUBKEY" >> /root/.ssh/authorized_keys
+  chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys
+  sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true
+  sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true
+  /usr/sbin/sshd 2>/dev/null && echo "rp(pod): sshd started on :22" >&2 || echo "rp(pod): sshd failed to start" >&2
+fi
 
 # Guard 1: hard max-lifetime ceiling.
 ( sleep ${MAX_LIFETIME_SECS}; terminate "max-lifetime ${MAX_LIFETIME_SECS}s reached" ) &
@@ -245,9 +313,17 @@ cmd_up() {
   # separate boolean; RAM comes from cpuFlavorIds + vcpuCount; ports is an ARRAY; volumeInGb=0 avoids
   # a persistent volume we would otherwise pay for. There is no bid-price field. The dead-man's-switch
   # is baked into dockerStartCmd so it arms the instant the container runs, independent of the laptop.
-  local start_cmd body flavors_json
+  local start_cmd body flavors_json ports_json
   start_cmd="$(launch_command)"
   flavors_json="$(printf '%s' "$CPU_FLAVORS" | awk -F, '{for(i=1;i<=NF;i++) printf "%s\"%s\"",(i>1?",":""),$i}')"
+  # Expose the worker port always, and 22/tcp when on-pod ssh is enabled (a public key was embedded).
+  ports_json="\"${POD_PORT}/${PORT_TYPE}\""
+  if [ -n "$SSH_PUBKEY_CONTENT" ]; then
+    ports_json="${ports_json}, \"22/tcp\""
+    log "on-pod ssh enabled (public key ${RP_SSH_PUBKEY}); exposing 22/tcp"
+  else
+    log "on-pod ssh NOT enabled (no public key at ${RP_SSH_PUBKEY}); exec/push/pull/eval-onpod unavailable"
+  fi
   body="$(cat <<JSON
 {
   "name": "${POD_NAME}",
@@ -259,7 +335,7 @@ cmd_up() {
   "vcpuCount": ${VCPU_COUNT},
   "containerDiskInGb": ${CONTAINER_DISK_GB},
   "volumeInGb": ${VOLUME_GB},
-  "ports": ["${POD_PORT}/${PORT_TYPE}"],
+  "ports": [${ports_json}],
   "dockerStartCmd": ["bash", "-lc", $(json_string "$start_cmd")]
 }
 JSON
@@ -380,6 +456,103 @@ cmd_fetch() {
   runpodctl receive "$@"
 }
 
+cmd_wait_ssh() {
+  require_ssh_key
+  local id timeout deadline hp ip port
+  id="$(current_pod_id)"
+  timeout="${1:-600}"
+  deadline=$(( $(date +%s) + timeout ))
+  log "waiting for pod ${id} ssh (up to ${timeout}s; sshd is apt-installed at pod start, so this is not instant)"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    hp="$(ssh_host_port "$id" || true)"
+    if [ -n "$hp" ]; then
+      ip="${hp% *}"; port="${hp#* }"
+      if ssh "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -p "$port" "root@${ip}" true 2>/dev/null; then
+        log "ssh ready at root@${ip}:${port}"
+        return 0
+      fi
+    fi
+    sleep 5
+  done
+  die "pod ssh did not become ready within ${timeout}s"
+}
+
+cmd_exec() {
+  [ "$#" -ge 1 ] || die "usage: rp exec <cmd...>"
+  require_ssh_key
+  local hp ip port
+  hp="$(resolve_ssh)"; ip="${hp% *}"; port="${hp#* }"
+  ssh "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -p "$port" "root@${ip}" "$@"
+}
+
+cmd_push() {
+  [ "$#" -ge 2 ] || die "usage: rp push <local> <remote>"
+  require_ssh_key
+  local hp ip port
+  hp="$(resolve_ssh)"; ip="${hp% *}"; port="${hp#* }"
+  scp "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -P "$port" -r "$1" "root@${ip}:$2"
+}
+
+cmd_pull() {
+  [ "$#" -ge 2 ] || die "usage: rp pull <remote> <local>"
+  require_ssh_key
+  local hp ip port
+  hp="$(resolve_ssh)"; ip="${hp% *}"; port="${hp#* }"
+  scp "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -P "$port" -r "root@${ip}:$1" "$2"
+}
+
+# The on-pod eval, end to end (ADR-0032, KAN-1379). Generate the corpus laptop-side, recognise it ON
+# the pod (no per-image WAN — the fix for the four gate failures), pull the OmrDocuments back, and score
+# locally through the same `@sibei/synth` metrics a live `--engine worker` run uses. Every extra arg is
+# passed to BOTH the dump-corpus and the score command, so `--seeds/--bars/--levels/--zoom` line up (the
+# per-chart filenames must match). Wrapped in a trap that always `down`s — success, failure, or Ctrl-C.
+cmd_eval_onpod() {
+  require_key
+  require_ssh_key
+  [ -n "$SSH_PUBKEY_CONTENT" ] || die "no ssh public key at ${RP_SSH_PUBKEY}; eval-onpod needs it embedded at \`up\`"
+  local repo work imgs docs batch_py
+  repo="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  batch_py="${repo}/worker/sibei_omr/batch.py"
+  [ -f "$batch_py" ] || die "missing ${batch_py}"
+  work="$(mktemp -d "${TMPDIR:-/tmp}/rp-eval-XXXXXX")"
+  imgs="${work}/imgs"; docs="${work}/docs"
+  mkdir -p "$imgs" "$docs"
+
+  # 1. Generate the corpus images locally (no recognition, no history line here).
+  log "generating corpus locally -> ${imgs}"
+  ( cd "$repo" && pnpm -s eval --dump-corpus "$imgs" --no-history "$@" )
+
+  # Tear the pod down no matter how this exits, on top of the pod-side dead-man's-switch.
+  trap 'cmd_down' EXIT INT TERM
+
+  # 2. Bring a pod up and wait for ssh (idempotent: reuses an existing one).
+  cmd_up >/dev/null
+  cmd_wait_ssh 900
+
+  # 3. Push the batch runner and the images to the pod. batch.py runs as a standalone script against
+  #    the image's already-installed `sibei_omr` package, so the EXISTING worker image needs no rebuild.
+  log "pushing batch runner + corpus to the pod"
+  cmd_exec 'mkdir -p /tmp/eval/imgs /tmp/eval/docs'
+  cmd_push "$batch_py" /tmp/eval/batch.py
+  cmd_push "$imgs/." /tmp/eval/imgs/
+
+  # 4. Recognise on the pod. Tee to the worker log so the ADR-0032 idle watchdog counts each page as
+  #    activity (it greps that log for "recognize") and does not reap the pod mid-batch.
+  log "recognising on the pod with engine=${RP_EVAL_ENGINE} (oemer is ~5.4 min/page; be patient)"
+  cmd_exec "python /tmp/eval/batch.py /tmp/eval/imgs /tmp/eval/docs --engine ${RP_EVAL_ENGINE} 2>&1 | tee -a /tmp/sibei-worker.log"
+
+  # 5. Pull the OmrDocuments back.
+  log "pulling recognised documents -> ${docs}"
+  cmd_pull '/tmp/eval/docs/.' "$docs/"
+
+  # 6. Score locally (this run DOES append to eval/history.jsonl, like any other eval).
+  log "scoring locally"
+  ( cd "$repo" && pnpm -s eval --engine dump --docs-dir "$docs" "$@" )
+
+  log "on-pod eval complete; documents kept at ${docs}"
+  # The trap tears the pod down on return.
+}
+
 cmd_down() {
   # TERMINATE, not stop: a stopped pod still bills for storage; only delete frees all cost.
   # Idempotent: a pod that is already gone is success. Resolve the id WITHOUT demanding the key
@@ -428,11 +601,20 @@ rp — dev/build-time RunPod compute wrapper (never a product runtime dependency
 
   rp up                 create-or-reuse a spot pod (name-tagged, dead-man's-switch armed), print id
   rp wait-ready [secs]  poll https://{pod}-{port}.proxy.runpod.net/health until 200
+  rp wait-ssh [secs]    poll the pod's ssh (port 22) until it accepts a connection (on-pod eval)
   rp run <cmd...>       export SBSCORE_WORKER_URL to the pod, run <cmd> inside a trap that always `down`s
+  rp exec <cmd...>      run a command on the pod over ssh
+  rp push <local> <rem> scp a file/dir up to the pod
+  rp pull <rem> <local> scp a file/dir down from the pod
+  rp eval-onpod [args]  full on-pod eval: dump corpus -> recognise on the pod -> pull -> score locally.
+                        Extra args (e.g. --seeds 1) go to both the dump and score commands. Trap-guarded.
   rp status             show the pod's status
   rp logs               show pod info / point at logs
   rp fetch <code> [dst] pull an artifact (eval JSON / checkpoint) off the pod
   rp down               TERMINATE (delete) the pod — idempotent
+
+On-pod ssh (exec/push/pull/eval-onpod) needs an ssh key: RP_SSH_KEY (default ~/.ssh/id_ed25519). Its
+public half is embedded in the pod's launch command at `up`; the private half never leaves the laptop.
 
 Config: tools/runpod/.env (gitignored) supplies RUNPOD_API_KEY (by reference) and overrides.
 See tools/runpod/README.md and docs/adr/0032-*.md.
@@ -445,7 +627,12 @@ main() {
   case "$sub" in
     up)         cmd_up "$@" ;;
     wait-ready) cmd_wait_ready "$@" ;;
+    wait-ssh)   cmd_wait_ssh "$@" ;;
     run)        cmd_run "$@" ;;
+    exec)       cmd_exec "$@" ;;
+    push)       cmd_push "$@" ;;
+    pull)       cmd_pull "$@" ;;
+    eval-onpod) cmd_eval_onpod "$@" ;;
     status)     cmd_status "$@" ;;
     logs)       cmd_logs "$@" ;;
     fetch)      cmd_fetch "$@" ;;

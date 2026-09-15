@@ -23,7 +23,10 @@ engine later (ADR-0005). It prints a table and appends one line to `eval/history
 > **RAM.** The oemer worker holds a ~7 GB model (V9). On a small machine (e.g. 8 GB, earlyoom) the
 > run can be OOM-killed — that is a datum for v0.3, not a bug (ADR-0031 exists partly because of it).
 > Use `--engine fixture` to exercise everything but oemer, and run the real oemer baseline on a bigger
-> host. To score a **real** engine on a small host, serve the low-RAM heuristic engine (V13c, OpenCV
+> host — or **on a rented pod without one**: `rp eval-onpod` (ADR-0032, KAN-1379) recognises the corpus
+> on the pod and scores it locally through `--engine dump`, avoiding both the RAM wall and the
+> WAN-request failures the ADR-0032 gate hit (see `tools/runpod/README.md`). To score a **real** engine
+> on a small host, serve the low-RAM heuristic engine (V13c, OpenCV
 > only) and point the worker path at it — `SIBEI_OMR_ENGINE=heuristic python -m sibei_omr.server`, then
 > `pnpm eval --engine worker`. Its accuracy is modest by design; the value is a real end-to-end number
 > without oemer's RAM.
