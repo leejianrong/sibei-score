@@ -41,9 +41,6 @@ class CRNN(nn.Module):
             ]
             c_in = c_out
         self.cnn = nn.Sequential(*layers)
-        # Force whatever height survives the conv stack to exactly 1, so the features become a pure
-        # width sequence regardless of the input height chosen.
-        self.height_pool = nn.AdaptiveAvgPool2d((1, None))
         self.rnn = nn.GRU(
             channels[-1],
             rnn_hidden,
@@ -60,8 +57,9 @@ class CRNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         f = self.cnn(x)  # [B, C, H', W']
-        f = self.height_pool(f)  # [B, C, 1, W']
-        f = f.squeeze(2)  # [B, C, W']
+        # Collapse the residual height to one row of features with a mean — an ONNX-exportable
+        # ReduceMean, unlike an adaptive pool whose dynamic output size ONNX rejects.
+        f = f.mean(dim=2)  # [B, C, W']
         f = f.permute(0, 2, 1)  # [B, W', C] — (batch, time, feature)
         f, _ = self.rnn(f)  # [B, W', 2*hidden]
         return self.fc(f)  # [B, W', num_classes] — raw logits; log_softmax lives in loss/decode

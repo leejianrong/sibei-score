@@ -83,6 +83,13 @@ MIN_RAM_GB="${RP_MIN_RAM_GB:-12}"                     # oemer ~7 GB + PaddleOCR 
 CONTAINER_DISK_GB="${RP_CONTAINER_DISK_GB:-20}"       # ephemeral; holds the ~3 GB image + scratch
 VOLUME_GB="${RP_VOLUME_GB:-0}"                        # 0 = NO persistent volume (no wasted storage)
 
+# GPU-pod sizing (train-relay, V15b). computeType=GPU swaps the CPU flavor for a GPU type; everything
+# else (cost cap, dead-man's-switch, spot) is unchanged. List valid ids with `runpodctl gpu list` —
+# the exact string matters. A small CRNN trains fine on one mid-range GPU; the list is tried in order.
+COMPUTE_TYPE="${RP_COMPUTE_TYPE:-CPU}"                # CPU (eval, ADR-0025 floor) | GPU (training)
+GPU_TYPES="${RP_GPU_TYPES:-NVIDIA RTX A6000,NVIDIA A40,NVIDIA L4,NVIDIA RTX 2000 Ada Generation}"
+GPU_COUNT="${RP_GPU_COUNT:-1}"
+
 # RunPod REST API v1 (v2 is beta). VERIFY at real-run time — this surface moves.
 API_BASE="${RP_API_BASE:-https://rest.runpod.io/v1}"
 
@@ -416,6 +423,100 @@ wait "\$EVAL_PID"
 LAUNCH
 }
 
+# The RELAY launch command for TRAINING (train-relay, V15b). Same transport and dead-man's-switch as
+# launch_command_relay, but the payload trains the Stage-2a CRNN on the shipped corpus and sends back
+# model.onnx + metrics.json instead of OmrDocuments. The up-tar carries `corpus/` (the V15a dump) and
+# `pkg/training/` (this checkout's training code); torch comes from the pytorch base image, the light
+# extras are pip-installed on the pod. The idle watchdog counts `progress`/`epoch` lines.
+#
+# $1 = FINAL_UP   $2 = BASE_DOWN   $3 = extra `training.train` args (epochs, batch, tracker, …)
+launch_command_train() {
+  local final_up="$1" base_down="$2" train_args="$3"
+  cat <<LAUNCH
+set -eu
+LOG=/tmp/sibei-train.log
+: > "\$LOG"
+
+if ! command -v runpodctl >/dev/null 2>&1; then
+  ( wget -qO /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RP_RUNPODCTL_VERSION}/runpodctl-linux-amd64 \
+      || curl -fsSL -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RP_RUNPODCTL_VERSION}/runpodctl-linux-amd64 ) \
+    && chmod +x /usr/local/bin/runpodctl \
+    || echo "rp(pod): could not fetch runpodctl ${RP_RUNPODCTL_VERSION}; relying on the image's own" >&2
+fi
+
+terminate() {
+  echo "rp(pod): terminating self (\$1)" >&2
+  runpodctl pod delete "\$RUNPOD_POD_ID" >/dev/null 2>&1 \
+    || runpodctl remove pod "\$RUNPOD_POD_ID" >/dev/null 2>&1 || true
+  kill -TERM -1 2>/dev/null || true
+}
+
+# Guard 1: hard max-lifetime ceiling (survives a laptop disconnect).
+( sleep ${MAX_LIFETIME_SECS}; terminate "max-lifetime ${MAX_LIFETIME_SECS}s reached" ) &
+
+(
+  set +e
+  cd /tmp && rm -rf trainwork && mkdir -p trainwork/in && cd trainwork
+
+  n=0
+  until runpodctl receive "${final_up}" >/tmp/up-recv.log 2>&1; do
+    n=\$(( n + 1 ))
+    echo "progress: up-receive retry \$n" | tee -a "\$LOG"
+    if [ "\$n" -ge 60 ]; then echo "progress: up-receive failed" | tee -a "\$LOG"; terminate "up-receive failed"; exit 1; fi
+    sleep 5
+  done
+  tar xf up.tar -C in || { echo "progress: bad up.tar" | tee -a "\$LOG"; terminate "bad up.tar"; exit 1; }
+  crops=\$(ls in/corpus/crops 2>/dev/null | wc -l || echo 0)
+  echo "progress: corpus received (\${crops} crops); installing training extras" | tee -a "\$LOG"
+
+  # torch/numpy/pillow come from the pytorch base image; add the light extras. Pin numpy<2 so onnx/
+  # tensorboard don't drag in numpy 2.x, whose ABI break makes torch.from_numpy raise "Numpy is not
+  # available" against the image's torch 2.1 (built for numpy 1.x).
+  pip install --no-input --quiet "numpy<2" onnx tensorboard >>"\$LOG" 2>&1 || echo "progress: pip extras had warnings" | tee -a "\$LOG"
+
+  echo "progress: starting training (cuda)" | tee -a "\$LOG"
+  PYTHONPATH="\$(pwd)/in/pkg" python -m training.train --corpus in/corpus --out out --device cuda ${train_args} 2>&1 | tee -a "\$LOG"
+
+  # Ship the ONNX + metrics (+ tb logs) back; drop the big .pt checkpoint (not needed downstream).
+  ( cd out && rm -f model.pt && tar cf ../down.tar . ) \
+    || { echo "progress: no artifact to pack" | tee -a "\$LOG"; terminate "no artifact"; exit 1; }
+  echo "progress: training done, sending artifact (down)" | tee -a "\$LOG"
+  runpodctl send --code "${base_down}" down.tar >/tmp/down-send.log 2>&1 &
+  send_pid=\$!
+  down_code=""
+  for i in \$(seq 1 60); do
+    down_code=\$(grep -oE "${base_down}[-0-9]+" /tmp/down-send.log | head -1)
+    [ -n "\$down_code" ] && break
+    sleep 0.5
+  done
+  echo "SIBEI_DOWN_CODE=\${down_code}" | tee -a "\$LOG"
+  wait "\$send_pid"
+  echo "progress: artifact sent; training complete" | tee -a "\$LOG"
+  terminate "training complete"
+) &
+TRAIN_PID=\$!
+
+# Guard 2: idle watchdog — reap the pod if no new progress/epoch line appears for the timeout.
+(
+  last_change=\$(date +%s)
+  last_count=0
+  while kill -0 "\$TRAIN_PID" 2>/dev/null; do
+    sleep ${IDLE_CHECK_SECS}
+    count=\$(grep -cE 'progress|epoch' "\$LOG" 2>/dev/null || echo 0)
+    now=\$(date +%s)
+    if [ "\$count" != "\$last_count" ]; then
+      last_count=\$count; last_change=\$now
+    elif [ \$(( now - last_change )) -ge ${IDLE_TIMEOUT_SECS} ]; then
+      terminate "idle ${IDLE_TIMEOUT_SECS}s with no training activity"
+      break
+    fi
+  done
+) &
+
+wait "\$TRAIN_PID"
+LAUNCH
+}
+
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
@@ -446,12 +547,20 @@ cmd_up() {
   # separate boolean; RAM comes from cpuFlavorIds + vcpuCount; ports is an ARRAY; volumeInGb=0 avoids
   # a persistent volume we would otherwise pay for. There is no bid-price field. The dead-man's-switch
   # is baked into dockerStartCmd so it arms the instant the container runs, independent of the laptop.
-  local start_cmd body flavors_json ports_json
+  local start_cmd body flavors_json ports_json compute_json gpu_json
   # The RELAY transport (eval-relay) supplies its own launch command via RP_LAUNCH_OVERRIDE — it runs
   # the co-located relay eval, not the HTTP worker, and needs no inbound port (so it also disables ssh
   # baking by clearing SSH_PUBKEY_CONTENT before calling up). The default flow bakes the worker server.
   start_cmd="${RP_LAUNCH_OVERRIDE:-$(launch_command)}"
   flavors_json="$(printf '%s' "$CPU_FLAVORS" | awk -F, '{for(i=1;i<=NF;i++) printf "%s\"%s\"",(i>1?",":""),$i}')"
+  # The compute block differs by type: a CPU pod picks RAM via a flavor + vCPU count; a GPU pod picks a
+  # gpuTypeId + count (train-relay). Everything else in the body is shared.
+  if [ "$COMPUTE_TYPE" = "GPU" ]; then
+    gpu_json="$(printf '%s' "$GPU_TYPES" | awk -F, '{for(i=1;i<=NF;i++) printf "%s\"%s\"",(i>1?",":""),$i}')"
+    compute_json="\"computeType\": \"GPU\", \"gpuTypeIds\": [${gpu_json}], \"gpuCount\": ${GPU_COUNT}"
+  else
+    compute_json="\"computeType\": \"CPU\", \"cpuFlavorIds\": [${flavors_json}], \"vcpuCount\": ${VCPU_COUNT}"
+  fi
   # Expose the worker port always, and 22/tcp when on-pod ssh is enabled (a public key was embedded).
   ports_json="\"${POD_PORT}/${PORT_TYPE}\""
   if [ -n "$SSH_PUBKEY_CONTENT" ]; then
@@ -464,11 +573,9 @@ cmd_up() {
 {
   "name": "${POD_NAME}",
   "imageName": "${POD_IMAGE}",
-  "computeType": "CPU",
+  ${compute_json},
   "cloudType": "${CLOUD_TYPE}",
   "interruptible": ${INTERRUPTIBLE},
-  "cpuFlavorIds": [${flavors_json}],
-  "vcpuCount": ${VCPU_COUNT},
   "containerDiskInGb": ${CONTAINER_DISK_GB},
   "volumeInGb": ${VOLUME_GB},
   "ports": [${ports_json}],
@@ -478,7 +585,8 @@ JSON
 )"
 
   local resp id
-  resp="$(rp_api POST /pods "$body")"
+  resp="$(rp_api POST /pods "$body" 2>&1 || true)"
+  [ -n "${RP_DEBUG_CREATE:-}" ] && printf 'DEBUG create resp: %s\n' "$(printf '%s' "$resp" | head -c 600)" >&2
   if have jq; then
     id="$(printf '%s' "$resp" | jq -r '.id // .pod.id // empty')"
   else
@@ -817,6 +925,119 @@ cmd_eval_relay() {
   # The trap tears the pod down (and kills the send) on return.
 }
 
+# The RELAY on-pod TRAINING run (train-relay, V15b). Same outbound-only relay transport and
+# dead-man's-switch as eval-relay, on a GPU pod: generate the V15a corpus locally, ship it + this
+# checkout's training code up, train the Stage-2a CRNN on the pod's GPU, pull back model.onnx +
+# metrics.json. torch comes from a pytorch base image (RP_TRAIN_IMAGE), not the oemer worker image.
+# Corpus/training knobs via RP_DUMP_ARGS / RP_TRAIN_ARGS; extra args here append to the training args.
+# Trap-guarded: the pod is always torn down.
+cmd_train_relay() {
+  require_key
+  have runpodctl || die "runpodctl is required for the relay transport"
+  have jq || die "jq is required (to read the pod id and stream pod logs)"
+
+  local local_ver
+  local_ver="$(runpodctl version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  if [ -n "$local_ver" ] && [ "v${local_ver}" != "$RP_RUNPODCTL_VERSION" ]; then
+    log "WARNING: laptop runpodctl v${local_ver} != pinned ${RP_RUNPODCTL_VERSION}; a relay transfer may not connect"
+  fi
+
+  # Training needs a GPU pod and a torch image (not the oemer worker image the eval uses). A bigger
+  # container disk holds the pytorch devel image + corpus. These override the CPU-eval defaults.
+  COMPUTE_TYPE=GPU
+  # On-demand, not spot: RunPod returns 500 "Spot pods are no longer offered". On-demand secure GPU
+  # prices ($0.24-0.53 for the mid types) are already under the cost cap.
+  CLOUD_KIND=ondemand
+  INTERRUPTIBLE=false
+  POD_IMAGE="${RP_TRAIN_IMAGE:-runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04}"
+  POD_NAME="${RP_POD_NAME:-sibei-train}"
+  CONTAINER_DISK_GB="${RP_CONTAINER_DISK_GB:-40}"
+  local dump_args train_args
+  dump_args="${RP_DUMP_ARGS:---seeds 300 --bars 16 --levels clean,light,medium}"
+  train_args="${RP_TRAIN_ARGS:---epochs 25 --tracker tensorboard} $*"
+  log "train-relay: GPU pod, image=${POD_IMAGE}"
+  log "  corpus:   dump ${dump_args}"
+  log "  training: ${train_args}"
+
+  local repo work corpus uptar stage
+  repo="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  [ -d "${repo}/worker/training" ] || die "missing ${repo}/worker/training"
+
+  cmd_down >/dev/null 2>&1 || true  # clear any stale pod so cmd_up makes a fresh one
+
+  work="$(mktemp -d "${TMPDIR:-/tmp}/rp-train-XXXXXX")"
+  corpus="${work}/corpus"; uptar="${work}/up.tar"; stage="${work}/stage"
+
+  # 1. Generate the training corpus locally (crops + labels + vocab), Node side.
+  log "generating corpus locally -> ${corpus} (this can take a few minutes)"
+  ( cd "$repo" && pnpm -s dump:v15a --out "$corpus" $dump_args )
+  [ -f "${corpus}/labels.jsonl" ] || die "corpus dump produced no labels.jsonl"
+
+  # 2. Bundle the corpus AND this checkout's training code into one tar (corpus/ + pkg/training/).
+  mkdir -p "${stage}/pkg"
+  cp -r "$corpus" "${stage}/corpus"
+  cp -r "${repo}/worker/training" "${stage}/pkg/training"
+  find "${stage}/pkg" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  tar cf "$uptar" -C "$stage" .
+  log "up-tar built ($(du -h "$uptar" | cut -f1))"
+
+  # 3. Pre-start the UP send and capture its final relay code (see eval-relay for the rationale).
+  local base_up base_down final_up i
+  up_send_pid=""
+  base_up="sibei-train-up-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  base_down="sibei-train-down-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  log "starting UP relay send"
+  runpodctl send --code "$base_up" "$uptar" > "${work}/up-send.log" 2>&1 &
+  up_send_pid=$!
+  trap 'kill "${up_send_pid:-}" 2>/dev/null || true; cmd_down' EXIT INT TERM
+
+  final_up=""
+  for i in $(seq 1 40); do
+    final_up="$(grep -oE "${base_up}[-0-9]+" "${work}/up-send.log" | head -1 || true)"
+    [ -n "$final_up" ] && break
+    kill -0 "$up_send_pid" 2>/dev/null \
+      || die "UP send exited before printing a code: $(tr '\n' ' ' < "${work}/up-send.log" | cut -c1-200)"
+    sleep 0.5
+  done
+  [ -n "$final_up" ] || die "UP send did not print a transfer code in time"
+
+  # 4. Create the GPU pod with the training launch command baked in (no inbound port, no ssh).
+  SSH_PUBKEY_CONTENT="" \
+  RP_LAUNCH_OVERRIDE="$(launch_command_train "$final_up" "$base_down" "$train_args")" \
+    cmd_up >/dev/null
+  local id
+  id="$(current_pod_id)"
+  log "pod ${id} up; training on the GPU (watch the epochs below)"
+
+  # 5. Poll the pod's container logs for the DOWN code, surfacing progress/epoch lines as they appear.
+  local podlog final_down deadline latest
+  podlog="${work}/pod.log"; final_down=""
+  deadline=$(( $(date +%s) + MAX_LIFETIME_SECS ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    RUNPOD_API_KEY="${RUNPOD_API_KEY}" runpodctl pod logs "$id" --source container --tail 5000 --max-wait 5s > "$podlog" 2>&1 || true
+    final_down="$(grep -oE 'SIBEI_DOWN_CODE=[a-z0-9-]+' "$podlog" 2>/dev/null | head -1 | cut -d= -f2 || true)"
+    [ -n "$final_down" ] && break
+    latest="$(grep -oE '(progress|epoch)[^"\\]*' "$podlog" 2>/dev/null | tail -1 || true)"
+    [ -n "$latest" ] && log "  pod: ${latest}"
+    sleep 10
+  done
+  [ -n "$final_down" ] || die "did not observe the pod's artifact code in its logs within ${MAX_LIFETIME_SECS}s (see ${podlog})"
+
+  # 6. Receive the artifact tar over the relay and extract it.
+  local out="${RP_TRAIN_OUT:-${repo}/out/v15b}"
+  mkdir -p "$out"
+  log "artifact code seen; pulling model over the relay -> ${out}"
+  ( cd "$work" && rm -f down.tar && runpodctl receive "$final_down" )
+  [ -f "${work}/down.tar" ] || die "relay receive did not produce down.tar"
+  tar xf "${work}/down.tar" -C "$out"
+  [ -f "${out}/model.onnx" ] || die "no model.onnx in the received tar (${work}/down.tar)"
+  log "train-relay complete: ${out}/model.onnx"
+  if [ -f "${out}/metrics.json" ] && have jq; then
+    log "  best val token accuracy: $(jq -r '.best_token_accuracy // "?"' "${out}/metrics.json")"
+  fi
+  # The trap tears the pod down (and kills the send) on return.
+}
+
 cmd_down() {
   # TERMINATE, not stop: a stopped pod still bills for storage; only delete frees all cost.
   # Idempotent: a pod that is already gone is success. Resolve the id WITHOUT demanding the key
@@ -875,6 +1096,10 @@ rp — dev/build-time RunPod compute wrapper (never a product runtime dependency
   rp eval-relay [args]  full on-pod eval over a runpodctl RELAY — no public IP, no ssh (the pivot for
                         spot pods that come up without a direct-TCP endpoint). Extra args go to both
                         the dump and score commands. Trap-guarded. This is the recommended path.
+  rp train-relay [args] train the Stage-2a CRNN on a GPU pod over the relay (V15b): generate the
+                        corpus locally, ship it + the training code, train, pull back model.onnx.
+                        Corpus/training knobs via RP_DUMP_ARGS / RP_TRAIN_ARGS; args append to training.
+                        Needs a torch image (RP_TRAIN_IMAGE). Trap-guarded.
   rp status             show the pod's status
   rp logs               show pod info / point at logs
   rp fetch <code> [dst] pull an artifact (eval JSON / checkpoint) off the pod
@@ -901,6 +1126,7 @@ main() {
     pull)       cmd_pull "$@" ;;
     eval-onpod) cmd_eval_onpod "$@" ;;
     eval-relay) cmd_eval_relay "$@" ;;
+    train-relay) cmd_train_relay "$@" ;;
     status)     cmd_status "$@" ;;
     logs)       cmd_logs "$@" ;;
     fetch)      cmd_fetch "$@" ;;
