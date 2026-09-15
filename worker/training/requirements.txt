@@ -5,3 +5,4 @@ torch>=2.0
 numpy>=1.24
 pillow>=10.0
 onnx>=1.15
+tensorboard>=2.14   # default metric tracker (offline). wandb is optional, install it only for --tracker wandb.
