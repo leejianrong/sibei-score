@@ -32,7 +32,12 @@ export const VOCAB_DURATIONS: readonly Duration[] = [
   dur(4),
   dur(4, 1),
   dur(8),
+  dur(8, 1),
+  dur(16),
 ];
+
+/** Chromatic inflections the generator may apply to a ladder pitch: ±1 semitone on the step, or none. */
+const CHROMATIC_DELTAS = [-1, 0, 1] as const;
 
 /** The CTC blank symbol, always id 0 (matches PyTorch `nn.CTCLoss(blank=0)`). */
 export const BLANK_SYMBOL = '<blank>';
@@ -101,8 +106,11 @@ export function buildVocabulary(options: BuildVocabularyOptions = {}): Vocabular
     const scale = majorScale(key);
     for (let pos = LADDER_MIN; pos <= LADDER_MAX; pos += 1) {
       const pitch = ladderPitch(scale, pos);
-      for (const d of VOCAB_DURATIONS) {
-        set.add(noteSymbol(pitch.step, pitch.alter, pitch.octave, d.value, d.dots));
+      for (const delta of CHROMATIC_DELTAS) {
+        const alter = Math.max(-2, Math.min(2, pitch.alter + delta)) as Alter;
+        for (const d of VOCAB_DURATIONS) {
+          set.add(noteSymbol(pitch.step, alter, pitch.octave, d.value, d.dots));
+        }
       }
     }
   }
