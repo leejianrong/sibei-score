@@ -21,6 +21,7 @@ import type {
   Chord as ModelChord,
   Duration,
   KeySignature,
+  Pitch,
   Score,
   Step,
   TimeSignature,
@@ -74,7 +75,7 @@ const MAJOR_OFFSETS = [0, 2, 4, 5, 7, 9, 11] as const;
  * The seven pitch classes of a major key, each correctly spelled (F# not Gb in D major). Kept to
  * major keys: it is all the generator needs, and it guarantees a legal `Alter` in [-2, 2].
  */
-function majorScale(key: KeySignature): Root[] {
+export function majorScale(key: KeySignature): Root[] {
   const tonicIndex = STEPS.indexOf(key.tonic);
   const tonicSemitone = STEP_SEMITONE[key.tonic] + key.alter;
   return MAJOR_OFFSETS.map((offset, degree) => {
@@ -114,6 +115,22 @@ function diatonicChord(scale: Root[], degree: number): ChordStructure {
     alt: false,
     bass: null,
   };
+}
+
+/**
+ * The generator's melodic range, as a diatonic "ladder": an integer position where degree =
+ * pos mod 7 and the octave rises every 7 steps. Position 0 is the tonic in octave 4, position 14
+ * the tonic two octaves up. Extracted to module scope and exported so `vocab.ts` covers exactly
+ * the pitches the generator can emit (V15a) — one source, no drift between corpus and vocabulary.
+ */
+export const LADDER_MIN = 0;
+export const LADDER_MAX = 14;
+
+export function ladderPitch(scale: Root[], pos: number): Pitch {
+  const degree = ((pos % 7) + 7) % 7;
+  const octave = 4 + Math.floor(pos / 7);
+  const root = scale[degree] as Root;
+  return { step: root.step, alter: root.alter, octave };
 }
 
 /** Note values a melody is built from, weighted toward the middle of the rhythmic range. */
@@ -164,18 +181,9 @@ export function generateScore(options: GenerateOptions): Score {
   const capacity = barCapacity(time);
   const beat = beatTicks(time);
 
-  // A diatonic "ladder": integer position, degree = pos mod 7, octave rises every 7 steps. The
-  // melody walks it by small intervals so it sounds like a line, not a random-note generator.
-  const LADDER_MIN = 0; // tonic in octave 4
-  const LADDER_MAX = 14; // tonic two octaves up
+  // The melody walks the diatonic ladder (module-level `ladderPitch`) by small intervals so it
+  // sounds like a line, not a random-note generator.
   let position = rng.int(3, 9);
-
-  const ladderToPitch = (pos: number): { step: Step; alter: Alter; octave: number } => {
-    const degree = ((pos % 7) + 7) % 7;
-    const octave = 4 + Math.floor(pos / 7);
-    const root = scale[degree] as Root;
-    return { step: root.step, alter: root.alter, octave };
-  };
 
   const bars: Bar[] = [];
   for (let barNumber = 1; barNumber <= barCount; barNumber += 1) {
@@ -192,7 +200,7 @@ export function generateScore(options: GenerateOptions): Score {
         const step = rng.weighted([-2, -1, 0, 1, 2, 3], [2, 5, 1, 5, 2, 1]);
         position = Math.max(LADDER_MIN, Math.min(LADDER_MAX, position + step));
         items.push(
-          makeNote({ id: ids.next('note'), onset: cursor, duration, pitch: ladderToPitch(position) }),
+          makeNote({ id: ids.next('note'), onset: cursor, duration, pitch: ladderPitch(scale, position) }),
         );
       }
       cursor += durationTicks(duration);
