@@ -165,6 +165,39 @@ Validated end to end locally with the low-RAM heuristic engine (dump-corpus → 
 The `WorkerClient` timeout (cause 4) is a genuine product bug that still bites slow **local** imports;
 it is **not** on the on-pod path and is fixed separately (KAN-1378), not folded into this dev tooling.
 
+### Live pod test — the ssh transport is blocked, the pivot is `runpodctl` relay (2026-09-15)
+
+The first live run of `eval-onpod` surfaced a transport blocker, so **the mechanism above is scaffolding,
+not yet a working delivery** — the pieces that are transport-independent (`batch.py`, the `eval.ts`
+dump/score modes) are proven; the pod-side plumbing that moves the files is not.
+
+**What worked** (cost ~$0.06, every pod terminated to `$0`): the REST create with `22/tcp` exposed,
+pods coming up (SECURE and COMMUNITY, 32 GB, $0.26/hr, dead-man's-switch armed), and **teardown both
+ways** — `rp down` and the interrupt trap each drove the account to zero pods, including the simulated
+disconnect (killing `eval-onpod` fired its trap and terminated the pod). The cost/teardown gate holds.
+
+**What failed:** both a **SECURE** and a **COMMUNITY** spot CPU pod came up with `publicIp: ""` and
+`portMappings: null` — **no direct-TCP public endpoint** — so ssh/scp over `publicIp:port` cannot reach
+them. This is not a bug in `rp`: RunPod's own docs state direct-TCP public IPs are **machine-dependent**
+(assigned per machine, and unstable on Community restarts), and the gate above already called tcp
+"host-inconsistent" (cause 2). The spot scheduler simply placed both pods on machines without one.
+Waiting longer did not help (still empty at ~8 min, pod `RUNNING`).
+
+**The pivot (decided):** move the transport to something that needs **no public IP**:
+
+- **Primary — `runpodctl send`/`receive` relay.** RunPod's relay-based transfer needs only outbound
+  network (which the pod has), not an inbound public IP. Bake the batch into `dockerStartCmd` with
+  pre-shared transfer codes so the pod pulls the images, recognises, and pushes the documents back with
+  **no ssh and no exec**. Verify `runpodctl`'s current send/receive + custom-code surface at run time.
+- **Fallback — everything on the pod.** Bake `git clone` + `pnpm install` + `pnpm eval --engine worker`
+  (the worker is loopback inside the same container, so no WAN, no proxy, no public IP) into
+  `dockerStartCmd`, and read the printed number from the **pod logs**. Heavier setup (a Node toolchain
+  and the native `@resvg`/`sharp` build on the Python image) and depends on logs being API-readable, but
+  needs zero inbound connectivity.
+
+The ssh verbs (`exec`/`push`/`pull`/`wait-ssh`) are kept: they work on a pod that *does* get a public
+IP, and are useful for debugging. The oemer number still lands after the pivoted transport runs.
+
 ## Alternatives considered
 
 | Option | Why not |

@@ -89,6 +89,15 @@ layers, defence-in-depth:
 The corpus is **synthetic / hand-labeled** and fine to send (ADR-0020). **Never upload arbitrary
 user charts.**
 
+> **⚠️ Transport caveat (2026-09-15).** The `eval-onpod` flow below moves files over **ssh/scp to the
+> pod's direct-TCP `publicIp:port`**, and the first live run found that **spot CPU pods often come up
+> with no public IP** (`publicIp: ""`, `portMappings: null`) — direct-TCP public IPs are
+> machine-dependent on RunPod. When that happens `wait-ssh` cannot connect and the run tears the pod
+> down without producing a number. The transport is being pivoted to a `runpodctl` relay that needs no
+> public IP (see the ADR-0032 "Live pod test" note); until that lands, the ssh path here works **only on
+> a pod that happens to get a public IP** (check a pod's *Direct TCP Ports* in the RunPod console). The
+> `batch.py` + `eval.ts --engine dump` halves are transport-independent and fully working.
+
 > **Why on-pod, not `rp run pnpm eval --engine worker --url …`.** The gate (ADR-0032, 2026-09-14)
 > proved oemer's ~5.4-min `/recognize` **cannot survive a single HTTP request over the internet**:
 > RunPod's http proxy 524s at ~100 s, tcp forwarding was host-inconsistent for a multi-minute hold,
