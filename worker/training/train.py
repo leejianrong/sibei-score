@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 from .dataset import CropDataset, collate, load_vocab, _read_records
 from .decode import greedy_decode, sequence_metrics
 from .model import CRNN
+from .tracking import make_tracker
 
 
 def corpus_seeds(corpus_dir: str) -> list[int]:
@@ -79,6 +80,14 @@ def main() -> None:
     parser.add_argument("--val-frac", type=float, default=0.15)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--tracker", choices=["none", "tensorboard", "wandb"], default="tensorboard")
+    parser.add_argument("--run-name", default=None)
+    parser.add_argument(
+        "--augment",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Light per-epoch augmentation on the training split (on by default; --no-augment to disable).",
+    )
     args = parser.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -87,8 +96,8 @@ def main() -> None:
     print(f"vocab {vocab.size} classes | train seeds {len(train_seeds)} | val seeds {len(val_seeds)} | device {args.device}")
 
     down = CRNN.width_downsample()
-    train_ds = CropDataset(args.corpus, seeds=train_seeds, height=args.height)
-    val_ds = CropDataset(args.corpus, seeds=val_seeds, height=args.height)
+    train_ds = CropDataset(args.corpus, seeds=train_seeds, height=args.height, augment=args.augment)
+    val_ds = CropDataset(args.corpus, seeds=val_seeds, height=args.height, augment=False)
     # `partial`, not a lambda: DataLoader workers pickle the collate fn, and a lambda is unpicklable.
     collate_fn = partial(collate, width_downsample=down)
     train_loader = DataLoader(
@@ -101,6 +110,12 @@ def main() -> None:
     model = CRNN(vocab.size).to(args.device)
     ctc = nn.CTCLoss(blank=vocab.blank, zero_infinity=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    tracker = make_tracker(
+        args.tracker,
+        logdir=os.path.join(args.out, "tb"),
+        run_name=args.run_name,
+        config=vars(args),
+    )
 
     best = -1.0
     history: list[dict] = []
@@ -119,6 +134,12 @@ def main() -> None:
         avg = total / max(1, len(train_loader))
         print(f"epoch {epoch:3d} | loss {avg:.3f} | val exact {metrics['exact_match']:.3f} | val token-acc {metrics['token_accuracy']:.3f}")
         history.append({"epoch": epoch, "loss": avg, **metrics})
+        tracker.log(epoch, {
+            "train/loss": avg,
+            "val/exact_match": metrics["exact_match"],
+            "val/token_accuracy": metrics["token_accuracy"],
+            "val/token_error_rate": metrics["token_error_rate"],
+        })
         if metrics["token_accuracy"] > best:
             best = metrics["token_accuracy"]
             torch.save(model.state_dict(), os.path.join(args.out, "model.pt"))
@@ -128,6 +149,7 @@ def main() -> None:
     export_onnx(model, os.path.join(args.out, "model.onnx"), args.height, args.device)
     with open(os.path.join(args.out, "metrics.json"), "w", encoding="utf-8") as fh:
         json.dump({"best_token_accuracy": best, "height": args.height, "vocab_size": vocab.size, "history": history}, fh, indent=2)
+    tracker.close()
     print(f"done | best val token-acc {best:.3f} | wrote {args.out}/model.onnx")
 
 
