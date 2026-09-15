@@ -238,27 +238,37 @@ Two image-shape fixes fell out of the first successful pod execution, neither to
    best-effort fallback, not a requirement. `rp` warns on a laptop/pod version skew (relay-list drift).
 
 **Result.** Both engines run the whole flow end-to-end over the relay on a spot pod (transport,
-recognition, scoring, teardown), every pod torn down to `$0`. The first **oemer baseline** (the
-ADR-0011 stage-2 target) is now recorded, `--seeds 1` on an 8-vCPU spot CPU pod, delivered by
-`eval-relay` and scored through `@sibei/synth` (also in `eval/history.jsonl`):
+recognition, scoring, teardown), every pod torn down to `$0`. The **oemer baseline** (the
+ADR-0011 stage-2 target) is now recorded **complete** — all four degradation levels recognise, the
+first delivery having left `light`/`heavy` blocked on KAN-1391 (now fixed, finding 1) — `--seeds 1` on
+a 32 GB spot CPU pod, delivered by `eval-relay` and scored through `@sibei/synth` (also in
+`eval/history.jsonl`):
 
 | corpus | noteF1 | noteAcc | chordF1 | validBars |
 |--------|--------|---------|---------|-----------|
 | clean  | 0.812  | 0.800   | 0.400   | 0.250     |
+| light  | 0.841  | 0.829   | 0.700   | 0.500     |
 | medium | 0.522  | 0.514   | 0.667   | 0.375     |
-| light  | 0.000  | 0.000   | 0.000   | 1.000     |
-| heavy  | 0.000  | 0.000   | 0.000   | 1.000     |
+| heavy  | 0.829  | 0.829   | 0.333   | 0.250     |
 
-On the pages it recognises (clean, medium) oemer clears the heuristic engine comfortably (heuristic
-clean was noteF1 0.302 / chordF1 0.200). Two findings the run surfaced, both separate from the
-transport:
+This is the **complete** baseline: all four degradation levels recognise. The first delivery of this
+table (KAN-1379) had `light` and `heavy` at empty zeros because of a recognition crash; that bug is
+now fixed (KAN-1391, below), so this section records the post-fix numbers, and `clean`/`medium` are
+unchanged from that first run (0.812/0.400 and 0.522/0.667), confirming the fix left the passing pages
+untouched. On `clean`/`medium` oemer clears the heuristic engine comfortably (heuristic clean was
+noteF1 0.302 / chordF1 0.200). Two findings the run surfaced, both separate from the transport:
 
-1. **A recognition bug caps the number.** `light` and `heavy` (both JPEG-degraded) failed on the pod
-   with `AttributeError: 'numpy.ndarray' object has no attribute 'start'` in the oemer engine, so they
-   score as empty zeros. This is a worker recognition defect, not a transport or eval-delivery issue —
-   filed separately. `eval.ts --engine dump` now scores a **missing** page as an empty chart (a partial
-   batch is a legitimate zero, not a fatal error), mirroring the no-staff handling, so one bad page no
-   longer aborts the whole sweep.
+1. **The recognition bug that capped the first run is fixed (KAN-1391).** `light` and `heavy` (both
+   JPEG-degraded) had failed with `AttributeError: 'numpy.ndarray' object has no attribute 'start'` in
+   the oemer engine, scoring as empty zeros. Root cause: oemer's `init_zones` returns the staff zones as
+   `np.array([range(a, b), …], dtype=object)`, and when every range is the **same length** numpy
+   collapses the list into a 2-D int array — so iterating the zones yields ndarray *rows*, not `range`
+   objects, and the worker's `int(z.start)` dump threw. It was input-specific because the collapse only
+   happens when the detected staff bounds divide evenly (hence some JPEGs failed while others passed).
+   The fix (`recognize.py:_zone_bounds`) normalises a zone to `[start, stop)` whether it is a
+   range/slice or an array-like row, with a worker regression test. Independently, `eval.ts --engine
+   dump` now scores a **missing** page as an empty chart (a partial batch is a legitimate zero, not a
+   fatal error), mirroring the no-staff handling, so one bad page no longer aborts the whole sweep.
 2. **oemer is CPU-thread-bound here, not core-bound.** A page took ~14 min on 4 vCPU and still ~13 min
    (medium: 776 s) on 8 vCPU — the container sees ~128 host cores and onnxruntime over-subscribes
    threads (`pthread_setaffinity_np failed …`), so more vCPUs barely help. Capping threads to the
