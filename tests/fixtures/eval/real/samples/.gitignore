@@ -1,0 +1,6 @@
+# Sample images dropped here are for LOCAL validation only and are NOT committed — most real lead
+# sheets are copyrighted, and this is a local eyeball aid, not a redistributed asset. Ignore
+# everything in this folder except the two files that document it.
+*
+!.gitignore
+!README.md
