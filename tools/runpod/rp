@@ -1026,6 +1026,9 @@ cmd_train_relay() {
   # 6. Receive the artifact tar over the relay and extract it.
   local out="${RP_TRAIN_OUT:-${repo}/out/v15b}"
   mkdir -p "$out"
+  # Clear stale outputs first: if training exported nothing (e.g. an ONNX-export error), the tar holds
+  # only tb logs, and a leftover model.onnx from a previous run would false-pass the check below.
+  rm -f "${out}/model.onnx" "${out}/metrics.json"
   log "artifact code seen; pulling model over the relay -> ${out}"
   ( cd "$work" && rm -f down.tar && runpodctl receive "$final_down" )
   [ -f "${work}/down.tar" ] || die "relay receive did not produce down.tar"
