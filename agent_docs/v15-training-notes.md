@@ -1,0 +1,126 @@
+# V15 build notes: the bespoke Stage-2a training pipeline
+
+A working log of the session that took the bespoke recogniser (ADR-0031) from "scaffolded" to a
+GPU training run that produces an ONNX model. It records the decisions, and — more usefully — the
+things that broke and how, so the next person doesn't rediscover them. Newest context first; the
+plan of record is `SLICES.md` (V15) and the decisions are the ADRs.
+
+## What got built
+
+- **Phase 0 — a trustworthy oemer baseline.** Fixed KAN-1391 (below) and recorded the complete
+  four-level oemer baseline in `docs/adr/0032`.
+- **V15a — the synthetic training data** (`packages/synth`), in four merged slices: the flat-semantic
+  CTC vocabulary (`vocab.ts`), per-system labels + crop cutter (`systems.ts`, `imaging/crops.ts`),
+  the corpus dump (`scripts/v15a-dump-corpus.ts`, `pnpm dump:v15a`), and a wide symbol-variety
+  expansion of the generator.
+- **V15b — training** (`worker/training/`): a small CRNN+CTC, dataset/decode/train modules, TensorBoard/
+  wandb tracking, on-the-fly augmentation, and `rp train-relay` — GPU training on a RunPod pod over the
+  outbound-only relay, proven end-to-end (corpus → ship → train → ONNX → pull back → teardown).
+
+## Decisions worth remembering
+
+- **Flat-semantic CTC vocabulary** (one class per pitch×duration event) for the probe, over a factored
+  or two-head scheme. It's the encoding the monophonic-OMR literature validated and its decode is one
+  lookup, so a probe failure is a *data* failure, not a tokeniser one. The cost is a large, thin-tailed
+  alphabet — 81 classes at first, **512** after the variety expansion. Watch per-class coverage; factor
+  later if the tail bites. (Discussed in the CTC-vocabulary explainer; SLICES V15 note.)
+- **Full-system crop** (staff + chord band + rehearsal letter), not a staff-only crop. High notes sit
+  very close to the chord band, so a naive tight crop clips them, and the right tight-crop definition
+  should match V15c's inference cropper, which doesn't exist yet. Settle it at V15c so train and
+  inference crop identically.
+- **The vocabulary is complete-by-construction** — derived from the same ladder + duration menu the
+  generator draws from, so every token a corpus can emit has a class. A coverage test enforces it. This
+  is why the variety expansion had to touch `generate.ts` and `vocab.ts` together.
+- **On-the-fly augmentation is label-safe only.** OMR pitch is vertical position, so photometric jitter,
+  a *small* rotation (staff + notes rotate together), and random erasing are fine; vertical shifts are
+  not. Heavy degradation is baked into the corpus by the dump (`--levels`), matching the eval.
+- **On-demand GPUs, not spot** (see below). **Small model on purpose** — the gate is accuracy *and* CPU
+  RAM/speed, and the domain is narrow.
+
+## What didn't work (the useful part)
+
+### The oemer bug that started it all — KAN-1391
+
+oemer threw `AttributeError: 'numpy.ndarray' object has no attribute 'start'` on some JPEG pages but
+not others. Root cause: oemer's `init_zones` returns `np.array([range(a,b), …], dtype=object)`, and
+**when every range has the same length numpy collapses the list into a 2-D int array**, so iterating
+yields ndarray rows, not `range` objects, and `int(z.start)` blew up. It was input-specific because the
+collapse only happens when the detected staff bounds divide evenly. Fix: `_zone_bounds` normalises a
+zone whether it's a range/slice or an array-like row. Lesson: `np.array(list_of_sequences, dtype=object)`
+is not shape-stable — equal-length inners silently become a rectangular array.
+
+### RunPod, one failure at a time
+
+The GPU training path took **five pod cycles** to get right. Each failure cost cents and none leaked a
+pod (the verify-after-create guard and the trap teardown held every time), but they had to be found in
+order:
+
+1. **A mid-run 401.** During the oemer baseline run the API key started returning `401 Invalid API key`
+   for ~15 minutes. It turned out the user had toggled the key; it wasn't rate-limiting. While it lasted
+   I could neither read logs nor terminate via the API — the lesson being that **API-based teardown is
+   not a backstop when auth is the thing that's broken**; the account spend cap and the pod's own
+   dead-man's-switch are. Ended cleanly once the key came back (`pod list` empty).
+2. **Spot pods are discontinued.** `interruptible: true` now returns
+   `500 {"error":"create pod: Spot pods are no longer offered"}`. The eval path had used interruptible
+   CPU pods happily days earlier, so this is recent. Fix: on-demand. (Also updated the `runpod-jobs`
+   skill.)
+3. **GPU availability and price.** The default GPU list (RTX A5000, RTX 3090) was unavailable, and the
+   scheduler picked an RTX 4090 at $0.74/hr — over the $0.60 cap, so the guard terminated it. `runpodctl
+   gpu list` shows the exact `gpuId` strings, cloud, on-demand price and stock; the working list is the
+   available mid types (A6000 $0.53, A40 $0.49, L4, RTX 2000 Ada $0.24), dropping anything over cap.
+4. **numpy 2 ABI break.** Training crashed at the first batch with `RuntimeError: Numpy is not available`
+   — `pip install onnx tensorboard` had pulled numpy 2.x, whose ABI break makes `torch.from_numpy` fail
+   against the image's torch 2.1. Fix: `pip install "numpy<2" …` on the pod.
+5. **ONNX export of a dynamic op.** Training then ran to completion but exported no model:
+   `AdaptiveAvgPool2d((1, None))` fails `torch.onnx.export` ("adaptive pooling, since output_size is not
+   constant"). Fix: collapse the height with a plain mean (`ReduceMean`), which traces fine.
+
+Diagnosing #2 needed the 500's response *body*, which `set -e` was swallowing before it printed — a
+`--fail-with-body` curl captured behind `|| true` and a `RP_DEBUG_CREATE` flag surfaced it.
+
+### Real validation images barely exist
+
+A subagent went looking for freely-licensed real lead sheets (single staff + chord symbols) and found
+the gap is structural, not effort: the chord-symbol lead-sheet format is a 20th-century convention, so
+nearly every song in it is still under copyright, while public-domain music predates the convention and
+was printed as grand-staff. The one genuine hit was handwritten and framed in a museum case —
+out-of-distribution for a model trained on printed engraving. Conclusion: the real control set is the
+maintainer photographing their own printed lead sheets (render-print-photograph gives exact ground
+truth for free), not web-sourcing. The drop folder is `tests/fixtures/eval/real/samples/` (gitignored).
+
+### Smaller things
+
+- **8va/ottava is out of scope** — the engraver has no ottava at all, so octave lines can't be rendered
+  or labelled. Requested, but can't be trained for.
+- **The local box is an unreliable place to run the infra suite.** On the 8 GB WSL host, `pnpm check`'s
+  infra layer times out spawning `sbscore serve` subprocesses (server-startup timeouts, plus orphaned
+  serve processes from old sessions). It's environmental — CI on a clean host is green every time. Trust
+  CI for the infra layer; the fast layer + typecheck are the deterministic local signal.
+- **oemer is thread-bound, not core-bound** on a pod (onnxruntime over-subscribes ~128 host cores), so
+  more vCPUs barely help — ~13 min/page regardless. A multi-seed oemer sweep is therefore expensive
+  (filed as KAN-1426).
+
+## What worked in the end
+
+- **The relay transport generalised cleanly.** `rp train-relay` reuses the `eval-relay` pattern —
+  generate locally, ship over a `runpodctl send`/`receive` relay (outbound-only, no public IP), run on
+  the pod, ship the artifact back, dead-man's-switch throughout. A 120-chart / 20-epoch validation run
+  went corpus → GPU → `model.onnx` end to end. Loss dropped 8.5 → 3.9; token accuracy was 0, which is
+  the toy corpus, not the pipeline.
+- **Cost safety held through five failed pod cycles.** Every failure terminated its pod (or never
+  created one), and `runpodctl pod list` was empty after each. The layered guard (cap + verify + trap +
+  pod-side switch) is worth the ceremony.
+- **The complete-by-construction vocabulary caught its own drift.** Widening the generator would have
+  silently produced unlabelable tokens; the coverage test failed loudly until `vocab.ts` enumerated the
+  new durations and chromatic variants.
+
+## Open items / next
+
+- A **real training run** (bigger corpus, more epochs) for a meaningful number — the runs so far
+  validated plumbing.
+- **Per-class coverage** monitoring: 512 classes with a skewed distribution means rare pitch×duration
+  combos are starved; check before blaming the model.
+- **V15c**: wire the ONNX into `worker/sibei_omr/engines/bespoke`, reuse the heuristic staff-finder for
+  crops, and score on the V12 harness against oemer (accuracy + speed + peak RAM).
+- **oemer baseline re-run**: the variety expansion made the eval corpus materially harder, so the
+  `docs/adr/0032` baseline predates it (noted there).
