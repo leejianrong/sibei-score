@@ -18,6 +18,11 @@ import { units } from './font.js';
 import type { MusicFontName } from './fonts/index.js';
 import { DEFAULT_MUSIC_FONT, musicFontNamed } from './fonts/index.js';
 import { restFor, restPosition } from './rests.js';
+import {
+  flaggedChordShade,
+  flaggedItemShade,
+  invalidBarShade,
+} from './shading.js';
 import { clef, keySignature, timeSignature } from './signatures.js';
 import type { PlacedItem } from './spacing.js';
 import { ACCIDENTAL_GAP, accidentalGlyph, placeItems } from './spacing.js';
@@ -163,21 +168,28 @@ export function engraveSystem(
   // way — visible immediately in the proof of bar 12.
   const opensOnRepeat = system.bars[0]?.items.some((item) => item.kind === 'barline') ?? false;
 
-  const children: SvgElement[] = [];
-  if (options.staffLines) {
-    children.push(...staffLines(font, { x: system.x, width: system.width, staveY: system.staveY }));
-    if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY));
-  }
-
   const bands: Bands = {
     top: system.staveY - system.aboveStaff,
     chordBaseline: system.staveY - system.chordBaselineOffset,
   };
 
+  // Review shading is a wash behind everything, so it is gathered first and emitted before a
+  // single stroke of ink — the staff lines included (V14c). Drawing it after would occlude
+  // the notation it is meant to highlight, which is the whole point of `all geometry, then
+  // all ink` one z-layer down.
+  const shading: SvgElement[] = [];
+  const barInk: SvgElement[] = [];
   const anchors: NoteAnchors = new Map();
   for (const bar of system.bars) {
-    children.push(...engraveBar(font, bar, system, time, options, bands, anchors, skipped));
+    barInk.push(...engraveBar(font, bar, system, time, options, bands, anchors, shading, skipped));
   }
+
+  const children: SvgElement[] = [...shading];
+  if (options.staffLines) {
+    children.push(...staffLines(font, { x: system.x, width: system.width, staveY: system.staveY }));
+    if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY));
+  }
+  children.push(...barInk);
 
   // Where this system's *music* begins, which is past the clef and key signature rather
   // than at the system's left edge: a half-tie arriving from the previous system runs
@@ -221,16 +233,22 @@ function engraveBar(
   options: EngraveOptions,
   bands: Bands,
   anchors: NoteAnchors,
+  shading: SvgElement[],
   skipped: Map<LayoutBarItemKind, number>,
 ): SvgElement[] {
   const staveY = system.staveY;
   const before: SvgElement[] = [];
   const after: SvgElement[] = [];
 
+  // A bar whose rhythm does not fill the meter gets a wash under its whole box (ADR-0013).
+  // The metric verdict is layout's, carried on `bar.metrics`, never re-derived here. It goes
+  // in first so a flagged object's own stripe reads on top of it (V14c).
+  if (!bar.metrics.valid) shading.push(invalidBarShade(bar.x, bar.width, staveY));
+
   // The prefix is drawn inside the room layout allocated for it, left to right.
   let prefixX = bar.x + units(0.6);
 
-  const chords: { anchorItemId: Id | null; text: string; plain: boolean }[] = [];
+  const chords: { anchorItemId: Id | null; text: string; plain: boolean; flagged: boolean }[] = [];
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
@@ -293,11 +311,21 @@ function engraveBar(
         break;
 
       case 'chordSymbol':
-        chords.push({ anchorItemId: item.anchorItemId, text: item.text, plain: false });
+        chords.push({
+          anchorItemId: item.anchorItemId,
+          text: item.text,
+          plain: false,
+          flagged: item.flagged,
+        });
         break;
 
       case 'annotation':
-        chords.push({ anchorItemId: item.anchorItemId, text: item.text, plain: true });
+        chords.push({
+          anchorItemId: item.anchorItemId,
+          text: item.text,
+          plain: true,
+          flagged: item.flagged,
+        });
         break;
 
       case 'tupletBracket':
@@ -356,6 +384,9 @@ function engraveBar(
         stem: note.stem?.direction ?? null,
       });
     }
+    // A note or rest the recogniser was unsure of gets a stripe down its column (ADR-0019),
+    // sized from the notehead's own box rather than a measurement (ADR-0015).
+    if (entry.item.flagged) shading.push(flaggedItemShade(note.x, font.width(note.glyph), staveY));
     ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
   }
 
@@ -385,10 +416,16 @@ function engraveBar(
 
   for (const chord of chords) {
     const anchor = chord.anchorItemId === null ? undefined : byItemId.get(chord.anchorItemId);
+    const x = anchor?.x ?? bar.x + bar.prefixWidth + units(1);
+    // A flagged chord symbol or annotation gets a wash behind it (ADR-0019). Its box is
+    // estimated from the character count, never measured (ADR-0015).
+    if (chord.flagged) {
+      shading.push(flaggedChordShade(x, chord.text.length, bands.chordBaseline, options.chordFontSize));
+    }
     before.push(
       chordSymbol({
         text: chord.text,
-        x: anchor?.x ?? bar.x + bar.prefixWidth + units(1),
+        x,
         y: bands.chordBaseline,
         size: options.chordFontSize,
         plain: chord.plain,

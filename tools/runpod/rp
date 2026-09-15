@@ -1,0 +1,913 @@
+#!/usr/bin/env bash
+#
+# rp — a thin, guardrail-owning wrapper over RunPod for DEV/BUILD-TIME compute only.
+#
+# This is NOT product runtime. The sibei-score app stays local-first and offline (ADR-0001,
+# ADR-0024); RunPod is never called by the running app. This tool exists to run the EXISTING
+# ADR-0005 OMR worker container on a rented pod to PRODUCE ARTIFACTS — an oemer eval number now,
+# trained checkpoints later — and then guarantee the pod is torn down so it stops billing. See
+# tools/runpod/README.md and docs/adr/0032-*.md.
+#
+# It imports no packages/* code. It only shells out (curl, runpodctl) and sets env vars.
+# "Run oemer on RunPod" == deploy this worker image there and point SBSCORE_WORKER_URL /
+# `pnpm eval --engine worker --url …` at it — no product code changes.
+#
+# Cost safety is layered and does NOT rely on the laptop staying connected:
+#   * `up` bakes a POD-SIDE DEAD-MAN'S-SWITCH into the launch command — a hard max-lifetime
+#     ceiling PLUS an idle watchdog — so a disconnected laptop cannot leave a pod running forever.
+#   * `run` wraps the work in a `trap … EXIT` that always calls `down` (success/failure/crash).
+#   * `down` TERMINATES (deletes) the pod — a merely *stopped* pod still bills for storage — and
+#     is idempotent (deleting an already-gone pod is success).
+#
+# NOTE: RunPod's CLI/REST surface changes. Endpoint shapes and runpodctl flags below are the
+# best current understanding; VERIFY THEM AT REAL-RUN TIME (see the README runbook). This wrapper
+# is Proposed and gated on a go/no-go spike; nothing here has spent money or created a pod yet.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# Config. Non-secret defaults live here and in .env.example; a real (gitignored)
+# tools/runpod/.env supplies the key and any overrides. We source .env if present.
+# ---------------------------------------------------------------------------
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+  # shellcheck disable=SC1091
+  . "${SCRIPT_DIR}/.env"
+fi
+
+# The pod is identified by a fixed name tag so `up` is idempotent (reuse-if-present).
+POD_NAME="${RP_POD_NAME:-sibei-omr-eval}"
+
+# The worker image to deploy. Must be pushed to a registry the pod can pull (a one-time
+# prerequisite — worker/Dockerfile builds but pushes nowhere today; see the README runbook).
+POD_IMAGE="${RP_POD_IMAGE:-}"
+
+# The port the worker's HTTP server listens on (ADR-0005). PORT_TYPE=tcp gives a DIRECT public
+# IP:port (no proxy) — REQUIRED here, because oemer's /recognize runs minutes and RunPod's http proxy
+# (proxy.runpod.net) is Cloudflare-fronted with a ~100s response cap that 524s a long request. A tcp
+# port has no such cap. http is fine only for sub-100s services.
+POD_PORT="${RP_POD_PORT:-8000}"
+PORT_TYPE="${RP_PORT_TYPE:-tcp}"                      # tcp (direct, no timeout) | http (proxy, <100s)
+
+# Cost guardrails.
+#   RP_MAX_HOURLY_USD — the hard cap. `up` refuses if the price we would pay exceeds it.
+#   RP_HOURLY_USD     — the price/bid we are willing to pay for this pod (spot/interruptible).
+RP_MAX_HOURLY_USD="${RP_MAX_HOURLY_USD:-0.60}"
+RP_HOURLY_USD="${RP_HOURLY_USD:-0.40}"
+
+# Pod-side dead-man's-switch timers (seconds). These are baked into the launch command and run
+# INSIDE the pod, so they hold even if the laptop disconnects.
+MAX_LIFETIME_SECS="${RP_MAX_LIFETIME_SECS:-3600}"   # hard ceiling: terminate no matter what.
+IDLE_TIMEOUT_SECS="${RP_IDLE_TIMEOUT_SECS:-900}"    # terminate after this long with no /recognize.
+IDLE_CHECK_SECS="${RP_IDLE_CHECK_SECS:-60}"         # how often the watchdog checks.
+
+# The command that starts the worker inside the image. Must match the image (ADR-0005 worker).
+WORKER_CMD="${RP_WORKER_CMD:-python -m sibei_omr.server}"
+
+# Prefer spot/interruptible pods: cheaper, ~5s reclaim warning, and the eval job is re-runnable.
+# NOTE: on RunPod REST v1 the cloud TYPE (SECURE/COMMUNITY) and spot are SEPARATE fields — cloudType
+# is the enum, interruptible is the boolean. RP_CLOUD_KIND=interruptible sets the boolean true.
+CLOUD_KIND="${RP_CLOUD_KIND:-interruptible}"
+case "$CLOUD_KIND" in interruptible|spot) INTERRUPTIBLE=true ;; *) INTERRUPTIBLE=false ;; esac
+CLOUD_TYPE="${RP_CLOUD_TYPE:-SECURE}"                 # SECURE | COMMUNITY
+
+# CPU-pod sizing (ADR-0025 floor; oemer needs RAM ~7 GB, not a GPU). RunPod REST v1 requires
+# computeType=CPU and picks RAM via a CPU flavor + vcpuCount. Memory-tier flavors (…m) give the most
+# RAM per vCPU, so a small vcpuCount clears oemer's ~7 GB with headroom cheaply. The list is tried in
+# order for availability. `up` VERIFIES the pod's actual RAM and price from the create response and
+# aborts (terminating) if the RAM is short or the price exceeds the cap — so a wrong guess costs cents.
+CPU_FLAVORS="${RP_CPU_FLAVORS:-cpu5m,cpu3m}"
+VCPU_COUNT="${RP_VCPU_COUNT:-4}"
+MIN_RAM_GB="${RP_MIN_RAM_GB:-12}"                     # oemer ~7 GB + PaddleOCR + OS headroom
+CONTAINER_DISK_GB="${RP_CONTAINER_DISK_GB:-20}"       # ephemeral; holds the ~3 GB image + scratch
+VOLUME_GB="${RP_VOLUME_GB:-0}"                        # 0 = NO persistent volume (no wasted storage)
+
+# RunPod REST API v1 (v2 is beta). VERIFY at real-run time — this surface moves.
+API_BASE="${RP_API_BASE:-https://rest.runpod.io/v1}"
+
+# Where the wrapper stashes the current pod id between invocations (gitignored).
+STATE_FILE="${RP_STATE_FILE:-${SCRIPT_DIR}/.rp-state}"
+# Where wait-ready caches the resolved worker URL (a tcp endpoint is only known once running).
+URL_FILE="${RP_URL_FILE:-${SCRIPT_DIR}/.rp-url}"
+
+# On-pod ssh, for the co-located eval path (ADR-0032, KAN-1379): oemer's ~5.4-min recognition cannot
+# survive a single HTTP request over the internet, so recognition runs ON the pod (no per-image WAN)
+# and only images (up) and OmrDocuments (down) cross the wire, over scp. The PUBLIC key is embedded in
+# the pod's launch command (it is not a secret); the PRIVATE key never leaves the laptop and is only
+# ever handed to ssh/scp by path (`-i`). If the public key file is absent, ssh is simply not enabled
+# (port 22 is not exposed and sshd is not installed) — the plain worker-URL flow is unaffected.
+RP_SSH_KEY="${RP_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+RP_SSH_PUBKEY="${RP_SSH_PUBKEY:-${RP_SSH_KEY}.pub}"
+# The engine the on-pod batch runs (oemer is the point of this path; heuristic is a cheap smoke).
+RP_EVAL_ENGINE="${RP_EVAL_ENGINE:-oemer}"
+
+# The runpodctl version the RELAY transport (eval-relay) pins on BOTH sides. The relay index in a
+# transfer code (`<code>-<idx>`) selects a relay from runpodctl's built-in list; if the laptop and the
+# pod ran different versions their lists could disagree and the index would resolve to different
+# relays, so a transfer would never rendezvous. Pinning the same version on the pod install and asking
+# the laptop to match removes that drift. VERIFY this is the version installed locally
+# (`runpodctl version`) before a run — bump it here if you upgrade the laptop's runpodctl.
+RP_RUNPODCTL_VERSION="${RP_RUNPODCTL_VERSION:-v2.14.0}"
+
+# The public key text embedded into the launch command, if a key file is present. Only the type +
+# base64 body are taken (never a trailing comment, which could contain shell-hostile characters).
+SSH_PUBKEY_CONTENT=""
+if [ -f "$RP_SSH_PUBKEY" ]; then
+  SSH_PUBKEY_CONTENT="$(awk 'NF>=2{print $1" "$2; exit}' "$RP_SSH_PUBKEY" 2>/dev/null || true)"
+fi
+
+# ssh/scp options shared by every on-pod call. The pod is ephemeral with a fresh host key each time, so
+# host-key checking is disabled against a throwaway known-hosts (a dev pod on a public IP, not a durable
+# host we pin). LogLevel keeps the banner out of piped output.
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10)
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+log()  { printf 'rp: %s\n' "$*" >&2; }
+die()  { printf 'rp: error: %s\n' "$*" >&2; exit 1; }
+
+require_key() {
+  # Read the key BY REFERENCE. Never echo, print, log, or bake it. If it is missing, point at
+  # the README rather than leaking anything.
+  : "${RUNPOD_API_KEY:?set RUNPOD_API_KEY (a dedicated, limited-scope key — see tools/runpod/README.md)}"
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Call the RunPod REST API. The bearer token is fed to curl through a config file on STDIN
+# (`curl -K -`), so the secret NEVER appears in argv (and so never in `ps`, shell history, or a
+# process listing) and is NEVER placed in a URL query parameter. $1=method $2=path [$3=json body].
+rp_api() {
+  require_key
+  local method="$1" path="$2" body="${3:-}"
+  local args=(--silent --show-error --fail-with-body -X "$method")
+  if [ -n "$body" ]; then
+    args+=(-H 'content-type: application/json' --data-binary "$body")
+  fi
+  # The Authorization header arrives via -K (curl config) on stdin; the key is not an argument.
+  printf 'header = "Authorization: Bearer %s"\n' "$RUNPOD_API_KEY" \
+    | curl "${args[@]}" -K - "${API_BASE}${path}"
+}
+
+# Resolve the pod's reachable base URL. For a tcp port this is the DIRECT publicIp:mappedPort read
+# live from GET /pods/{id} (portMappings maps the private port to a public one, and publicIp is empty
+# until the pod is running) — no Cloudflare proxy, so oemer's multi-minute /recognize is not 524'd.
+# For an http port it is the static proxy URL. Prints the URL, or nothing if not yet assigned.
+pod_endpoint() {
+  local id="$1" info ip mapped
+  if [ "$PORT_TYPE" = "http" ]; then
+    printf 'https://%s-%s.proxy.runpod.net' "$id" "$POD_PORT"; return 0
+  fi
+  have jq || die "jq is required to resolve a tcp pod endpoint"
+  info="$(rp_api GET "/pods/${id}" || true)"
+  ip="$(printf '%s' "$info"     | jq -r '.publicIp // empty' 2>/dev/null | head -n1)"
+  mapped="$(printf '%s' "$info" | jq -r --arg p "$POD_PORT" '(.portMappings[$p] // empty) | tostring' 2>/dev/null | head -n1)"
+  { [ -n "$ip" ] && [ -n "$mapped" ] && [ "$mapped" != "null" ]; } || return 0
+  printf 'http://%s:%s' "$ip" "$mapped"
+}
+
+# Resolve the pod's public ssh endpoint: the direct publicIp and the public port RunPod mapped the
+# container's port 22 to (portMappings["22"]). Prints "ip port", or nothing if 22 is not mapped yet.
+ssh_host_port() {
+  local id="$1" info ip mapped
+  have jq || die "jq is required for on-pod ssh"
+  info="$(rp_api GET "/pods/${id}" || true)"
+  ip="$(printf '%s' "$info"     | jq -r '.publicIp // empty' 2>/dev/null | head -n1)"
+  mapped="$(printf '%s' "$info" | jq -r '(.portMappings["22"] // empty) | tostring' 2>/dev/null | head -n1)"
+  { [ -n "$ip" ] && [ -n "$mapped" ] && [ "$mapped" != "null" ]; } || return 0
+  printf '%s %s' "$ip" "$mapped"
+}
+
+# Require a usable ssh private key before an on-pod ssh/scp call. Read by path only (never into a var).
+require_ssh_key() {
+  [ -f "$RP_SSH_KEY" ] || die "no ssh private key at ${RP_SSH_KEY} (set RP_SSH_KEY; its .pub is embedded at \`up\`)"
+}
+
+# Print "ip port" for the current pod's ssh, dying with guidance if 22 is not mapped yet.
+resolve_ssh() {
+  local id hp
+  id="$(current_pod_id)"
+  hp="$(ssh_host_port "$id")"
+  [ -n "$hp" ] || die "pod ssh (port 22) not mapped yet — run \`rp up\` with an ssh key present, then \`rp wait-ssh\`"
+  printf '%s' "$hp"
+}
+
+# Find the pod id for POD_NAME, if one exists. Prints the id or nothing.
+find_pod_id() {
+  # GET /pods returns the account's pods; we match on our fixed name tag. `grep/sed` keeps this
+  # dependency-free (no jq required). VERIFY the response shape at real-run time.
+  local json
+  json="$(rp_api GET /pods || true)"
+  [ -n "$json" ] || return 0
+  # Match the id of the object whose "name" is POD_NAME. jq is the robust path; without it we fall
+  # back to the saved state file (a fresh clone with no state must have jq to discover an existing pod).
+  if have jq; then
+    printf '%s' "$json" | jq -r --arg n "$POD_NAME" \
+      '.. | objects | select(.name==$n) | .id' 2>/dev/null | head -n1
+  elif [ -f "$STATE_FILE" ]; then
+    cat "$STATE_FILE"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# The pod-side dead-man's-switch, baked into the launch command.
+#
+# This runs INSIDE the pod, so it protects against a disconnected laptop, which RunPod does NOT
+# stop on its own (no native idle-terminate, no max-lifetime, no per-pod spend cap). Two guards:
+#
+#   1. Hard max-lifetime ceiling: sleep MAX_LIFETIME_SECS, then `runpodctl remove pod $RUNPOD_POD_ID`.
+#      RunPod injects RUNPOD_POD_ID into every container. runpodctl is installed best-effort here
+#      because the slim worker image does not ship it (VERIFY the install URL at real-run time).
+#   2. Idle watchdog: the worker's stdout is tee'd to a log; every /recognize request prints a line.
+#      If no new /recognize line appears for IDLE_TIMEOUT_SECS, self-terminate. (Sustained work
+#      keeps the log growing; a finished-but-forgotten pod goes quiet and is reaped.)
+#
+# Both call the SAME terminate as the laptop's `down`, so teardown is defence-in-depth.
+# ---------------------------------------------------------------------------
+launch_command() {
+  cat <<LAUNCH
+set -eu
+LOG=/tmp/sibei-worker.log
+
+# Ensure runpodctl exists (slim image ships none). Best-effort; VERIFY URL at real-run time.
+if ! command -v runpodctl >/dev/null 2>&1; then
+  (wget -qO /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 \
+     && chmod +x /usr/local/bin/runpodctl) || echo "rp(pod): could not install runpodctl; API-based teardown from the laptop still applies" >&2
+fi
+
+terminate() {
+  echo "rp(pod): terminating self (\$1)" >&2
+  runpodctl remove pod "\$RUNPOD_POD_ID" || true
+  # If runpodctl is unavailable the laptop-side trap and \`rp down\` remain the backstop.
+  kill -TERM -1 2>/dev/null || true
+}
+
+# On-pod ssh (ADR-0032 on-pod eval). Enabled only when a public key was embedded at \`up\` time; the
+# private key never leaves the laptop. openssh-server is installed HERE, at pod start, exactly like
+# runpodctl above — so the shipped WORKER IMAGE is untouched (ADR-0032 commitment 1), no sshd baked into
+# a product artifact. RunPod maps the container's port 22 to a public port (portMappings), which the
+# laptop resolves. Best-effort: if the install fails, the laptop-side flow that needs ssh will report it.
+SIBEI_SSH_PUBKEY='${SSH_PUBKEY_CONTENT}'
+if [ -n "\$SIBEI_SSH_PUBKEY" ]; then
+  if ! command -v sshd >/dev/null 2>&1; then
+    (apt-get update && apt-get install -y --no-install-recommends openssh-server) >/dev/null 2>&1 \
+      || echo "rp(pod): could not install openssh-server; on-pod ssh unavailable" >&2
+  fi
+  mkdir -p /root/.ssh /run/sshd
+  printf '%s\n' "\$SIBEI_SSH_PUBKEY" >> /root/.ssh/authorized_keys
+  chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys
+  sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config 2>/dev/null || true
+  sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config 2>/dev/null || true
+  /usr/sbin/sshd 2>/dev/null && echo "rp(pod): sshd started on :22" >&2 || echo "rp(pod): sshd failed to start" >&2
+fi
+
+# Guard 1: hard max-lifetime ceiling.
+( sleep ${MAX_LIFETIME_SECS}; terminate "max-lifetime ${MAX_LIFETIME_SECS}s reached" ) &
+
+# Start the worker, tee-ing its output so the watchdog can see /recognize activity.
+( ${WORKER_CMD} 2>&1 | tee "\$LOG" ) &
+WORKER_PID=\$!
+
+# Guard 2: idle watchdog.
+(
+  last_change=\$(date +%s)
+  last_count=0
+  while kill -0 "\$WORKER_PID" 2>/dev/null; do
+    sleep ${IDLE_CHECK_SECS}
+    count=\$(grep -c recognize "\$LOG" 2>/dev/null || echo 0)
+    now=\$(date +%s)
+    if [ "\$count" != "\$last_count" ]; then
+      last_count=\$count; last_change=\$now
+    elif [ \$(( now - last_change )) -ge ${IDLE_TIMEOUT_SECS} ]; then
+      terminate "idle ${IDLE_TIMEOUT_SECS}s with no /recognize"
+      break
+    fi
+  done
+) &
+
+wait "\$WORKER_PID"
+LAUNCH
+}
+
+# ---------------------------------------------------------------------------
+# The RELAY launch command (eval-relay, ADR-0032 transport pivot).
+#
+# Baked into dockerStartCmd. Instead of the HTTP worker, the pod runs the co-located eval over a
+# `runpodctl send`/`receive` RELAY, which needs only OUTBOUND network — no public IP, no ssh. This is
+# the fix for the live-pod blocker (2026-09-15): spot CPU pods came up with no direct-TCP public IP,
+# so the ssh/scp transport (eval-onpod) could not reach them.
+#
+# Why a relay needs this exact dance (verified against runpodctl 2.14.0): a transfer code is
+# `<base>-<relayIndex>`, and the SENDER picks the relay index RANDOMLY at send time, so the receiver
+# must be told the sender's final code out of band. Two channels carry that:
+#   * UP (laptop -> pod): the laptop pre-starts its `send`, reads the final code it printed, and bakes
+#     `runpodctl receive <FINAL_UP>` here ($1) — so the pod knows the exact code before it boots.
+#   * DOWN (pod -> laptop): the pod `send`s with base code $2, then echoes SIBEI_DOWN_CODE=<final> to
+#     stdout; the laptop reads it via `runpodctl pod logs` and receives. (`pod logs` needs no public IP.)
+#
+# The UP tar carries the CURRENT worker package (pkg/sibei_omr) alongside the images (imgs/), so the pod
+# needs nothing pushed to it (no ssh). batch runs via `PYTHONPATH=in/pkg python -m sibei_omr.batch`
+# against that bundled code, using the EXISTING worker image only for its heavy installed deps
+# (opencv/oemer/paddle) — unchanged image, no rebuild (ADR-0032 commitment 1), and the eval tracks this
+# checkout even though the pushed image's own sibei_omr can be older. runpodctl already ships in the
+# image (the install below is a best-effort fallback). The dead-man's-switch (max-lifetime + idle
+# watchdog on the tee'd "recognize" log) is preserved, so a laptop disconnect still cannot leak a bill.
+#
+# $1 = FINAL_UP (fully-suffixed receive code)  $2 = BASE_DOWN (send base)  $3 = engine name
+# ---------------------------------------------------------------------------
+launch_command_relay() {
+  local final_up="$1" base_down="$2" engine="$3"
+  cat <<LAUNCH
+set -eu
+LOG=/tmp/sibei-worker.log
+: > "\$LOG"
+
+# runpodctl drives the relay. The worker image already ships it (verified: the relay rendezvous with
+# the laptop's ${RP_RUNPODCTL_VERSION}), so this install is a best-effort fallback for an image that
+# does not — and the slim image has no wget/curl, so it will usually no-op. Not fatal either way: if
+# runpodctl is genuinely absent the receive below fails and the dead-man's-switch reaps the pod.
+if ! command -v runpodctl >/dev/null 2>&1; then
+  ( wget -qO /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RP_RUNPODCTL_VERSION}/runpodctl-linux-amd64 \
+      || curl -fsSL -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RP_RUNPODCTL_VERSION}/runpodctl-linux-amd64 ) \
+    && chmod +x /usr/local/bin/runpodctl \
+    || echo "rp(pod): note: could not fetch runpodctl ${RP_RUNPODCTL_VERSION} (no wget/curl); relying on the image's own runpodctl" >&2
+fi
+
+terminate() {
+  echo "rp(pod): terminating self (\$1)" >&2
+  # 'pod delete' is the current verb; 'remove pod' is the deprecated fallback. Either frees all cost.
+  runpodctl pod delete "\$RUNPOD_POD_ID" >/dev/null 2>&1 \
+    || runpodctl remove pod "\$RUNPOD_POD_ID" >/dev/null 2>&1 || true
+  # If runpodctl is unavailable the laptop-side trap and \`rp down\` remain the backstop.
+  kill -TERM -1 2>/dev/null || true
+}
+
+# Guard 1: hard max-lifetime ceiling (survives a laptop disconnect).
+( sleep ${MAX_LIFETIME_SECS}; terminate "max-lifetime ${MAX_LIFETIME_SECS}s reached" ) &
+
+# The relay eval. Runs in a subshell with set +e so one hiccup falls through to teardown rather than
+# killing the guards. Every stage tees a line containing "recognize" to \$LOG so the idle watchdog
+# (below) counts it as activity and does not reap the pod mid-transfer.
+(
+  set +e
+  cd /tmp && rm -rf evalwork && mkdir -p evalwork/in evalwork/docs && cd evalwork
+
+  # UP: receive the images+batch tar. Retry while the relay/room settles or the laptop send is still
+  # coming up; each retry logs a "recognize" line to keep the watchdog fed during a slow image pull.
+  n=0
+  until runpodctl receive "${final_up}" >/tmp/up-recv.log 2>&1; do
+    n=\$(( n + 1 ))
+    echo "recognize: up-receive retry \$n" | tee -a "\$LOG"
+    if [ "\$n" -ge 60 ]; then
+      echo "rp(pod): up-receive did not complete; aborting" | tee -a "\$LOG"
+      terminate "up-receive failed"; exit 1
+    fi
+    sleep 5
+  done
+  tar xf up.tar -C in || { echo "rp(pod): could not extract up.tar" | tee -a "\$LOG"; terminate "bad up.tar"; exit 1; }
+  imgs=\$(ls in/imgs 2>/dev/null | grep -icE '\.(png|jpg|jpeg)\$' || echo 0)
+  echo "recognize: corpus received (\${imgs} images); running batch engine=${engine}" | tee -a "\$LOG"
+
+  # Recognise on the pod (no per-image WAN). Run the BUNDLED sibei_omr (via PYTHONPATH) against the
+  # image's heavy deps, so the eval tracks this checkout regardless of the image's baked-in code age.
+  PYTHONPATH="\$(pwd)/in/pkg" python -m sibei_omr.batch in/imgs docs --engine "${engine}" 2>&1 | tee -a "\$LOG"
+
+  # DOWN: tar the OmrDocuments and send them back over the relay. Background the send so we can read
+  # the final code it prints, echo it for the laptop's log reader, then wait for the transfer.
+  tar cf down.tar -C docs . || { echo "rp(pod): could not tar docs" | tee -a "\$LOG"; terminate "bad docs"; exit 1; }
+  echo "recognize: batch done, sending results (down)" | tee -a "\$LOG"
+  runpodctl send --code "${base_down}" down.tar >/tmp/down-send.log 2>&1 &
+  send_pid=\$!
+  down_code=""
+  for i in \$(seq 1 60); do
+    down_code=\$(grep -oE "${base_down}[-0-9]+" /tmp/down-send.log | head -1)
+    [ -n "\$down_code" ] && break
+    sleep 0.5
+  done
+  # The laptop greps container logs for this exact marker to learn the DOWN final code.
+  echo "SIBEI_DOWN_CODE=\${down_code}" | tee -a "\$LOG"
+  wait "\$send_pid"
+  echo "recognize: results sent; eval complete" | tee -a "\$LOG"
+  terminate "eval complete"
+) &
+EVAL_PID=\$!
+
+# Guard 2: idle watchdog — reap the pod if no new "recognize" line appears for the timeout (a hung
+# receive, or a laptop that never comes to collect the results, must not bill forever).
+(
+  last_change=\$(date +%s)
+  last_count=0
+  while kill -0 "\$EVAL_PID" 2>/dev/null; do
+    sleep ${IDLE_CHECK_SECS}
+    count=\$(grep -c recognize "\$LOG" 2>/dev/null || echo 0)
+    now=\$(date +%s)
+    if [ "\$count" != "\$last_count" ]; then
+      last_count=\$count; last_change=\$now
+    elif [ \$(( now - last_change )) -ge ${IDLE_TIMEOUT_SECS} ]; then
+      terminate "idle ${IDLE_TIMEOUT_SECS}s with no recognize activity"
+      break
+    fi
+  done
+) &
+
+wait "\$EVAL_PID"
+LAUNCH
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+cmd_up() {
+  require_key
+  [ -n "$POD_IMAGE" ] || die "set RP_POD_IMAGE to the pushed worker image (see the README runbook)"
+
+  # Refuse if the price we would pay exceeds the configured hard cap. A coarse but load-bearing
+  # backstop; the account-level spend limit is the coarser one behind it.
+  if awk "BEGIN{exit !(${RP_HOURLY_USD} > ${RP_MAX_HOURLY_USD})}"; then
+    die "requested \$${RP_HOURLY_USD}/hr exceeds cap \$${RP_MAX_HOURLY_USD}/hr (RP_MAX_HOURLY_USD). Refusing."
+  fi
+
+  # Idempotent: reuse an existing pod with our name tag rather than creating a second one.
+  local existing
+  existing="$(find_pod_id || true)"
+  if [ -n "${existing:-}" ]; then
+    log "reusing existing pod ${existing} (name=${POD_NAME})"
+    printf '%s' "$existing" > "$STATE_FILE"
+    printf '%s\n' "$existing"
+    return 0
+  fi
+
+  log "creating ${CLOUD_KIND} pod (name=${POD_NAME}, image=${POD_IMAGE}, <= \$${RP_HOURLY_USD}/hr)"
+
+  # The create body follows the RunPod REST v1 CPU-pod schema (verified against the API reference):
+  # computeType=CPU is required; cloudType is the SECURE/COMMUNITY enum and interruptible is a
+  # separate boolean; RAM comes from cpuFlavorIds + vcpuCount; ports is an ARRAY; volumeInGb=0 avoids
+  # a persistent volume we would otherwise pay for. There is no bid-price field. The dead-man's-switch
+  # is baked into dockerStartCmd so it arms the instant the container runs, independent of the laptop.
+  local start_cmd body flavors_json ports_json
+  # The RELAY transport (eval-relay) supplies its own launch command via RP_LAUNCH_OVERRIDE — it runs
+  # the co-located relay eval, not the HTTP worker, and needs no inbound port (so it also disables ssh
+  # baking by clearing SSH_PUBKEY_CONTENT before calling up). The default flow bakes the worker server.
+  start_cmd="${RP_LAUNCH_OVERRIDE:-$(launch_command)}"
+  flavors_json="$(printf '%s' "$CPU_FLAVORS" | awk -F, '{for(i=1;i<=NF;i++) printf "%s\"%s\"",(i>1?",":""),$i}')"
+  # Expose the worker port always, and 22/tcp when on-pod ssh is enabled (a public key was embedded).
+  ports_json="\"${POD_PORT}/${PORT_TYPE}\""
+  if [ -n "$SSH_PUBKEY_CONTENT" ]; then
+    ports_json="${ports_json}, \"22/tcp\""
+    log "on-pod ssh enabled (public key ${RP_SSH_PUBKEY}); exposing 22/tcp"
+  else
+    log "on-pod ssh NOT enabled (no public key at ${RP_SSH_PUBKEY}); exec/push/pull/eval-onpod unavailable"
+  fi
+  body="$(cat <<JSON
+{
+  "name": "${POD_NAME}",
+  "imageName": "${POD_IMAGE}",
+  "computeType": "CPU",
+  "cloudType": "${CLOUD_TYPE}",
+  "interruptible": ${INTERRUPTIBLE},
+  "cpuFlavorIds": [${flavors_json}],
+  "vcpuCount": ${VCPU_COUNT},
+  "containerDiskInGb": ${CONTAINER_DISK_GB},
+  "volumeInGb": ${VOLUME_GB},
+  "ports": [${ports_json}],
+  "dockerStartCmd": ["bash", "-lc", $(json_string "$start_cmd")]
+}
+JSON
+)"
+
+  local resp id
+  resp="$(rp_api POST /pods "$body")"
+  if have jq; then
+    id="$(printf '%s' "$resp" | jq -r '.id // .pod.id // empty')"
+  else
+    id="$(printf '%s' "$resp" | tr ',' '\n' | sed -n 's/.*"id"[: ]*"\([^"]*\)".*/\1/p' | head -n1)"
+  fi
+  [ -n "${id:-}" ] || die "create returned no pod id (verify the REST shape; response withheld to avoid leaking anything)"
+  printf '%s' "$id" > "$STATE_FILE"
+  log "created pod ${id}"
+
+  # Verify what we actually got before trusting it: enough RAM for oemer, and within the cost cap.
+  # A wrong flavor or price is caught here and TERMINATED within seconds (cents), never after a run.
+  if have jq; then
+    local info ram cost
+    info="$(rp_api GET "/pods/${id}" || true)"
+    ram="$(printf '%s' "$info"  | jq -r '.. | (.memoryInGb? // .memoryGb? // empty)' 2>/dev/null | head -n1)"
+    cost="$(printf '%s' "$info" | jq -r '.. | (.costPerHr? // .costPerHour? // empty)'  2>/dev/null | head -n1)"
+    if [ -n "$ram" ] && awk "BEGIN{exit !(${ram} < ${MIN_RAM_GB})}"; then
+      log "pod ${id}: ${ram} GB RAM < ${MIN_RAM_GB} GB needed — terminating and aborting"
+      rp_api DELETE "/pods/${id}" >/dev/null 2>&1 || true; rm -f "$STATE_FILE"
+      die "insufficient RAM (${ram} GB); raise RP_VCPU_COUNT or use a memory flavor via RP_CPU_FLAVORS"
+    fi
+    if [ -n "$cost" ] && awk "BEGIN{exit !(${cost} > ${RP_MAX_HOURLY_USD})}"; then
+      log "pod ${id}: \$${cost}/hr > cap \$${RP_MAX_HOURLY_USD} — terminating and aborting"
+      rp_api DELETE "/pods/${id}" >/dev/null 2>&1 || true; rm -f "$STATE_FILE"
+      die "price \$${cost}/hr exceeds RP_MAX_HOURLY_USD"
+    fi
+    [ -n "$ram" ]  && log "pod ${id}: ${ram} GB RAM"
+    [ -n "$cost" ] && log "pod ${id}: \$${cost}/hr"
+  fi
+
+  printf '%s\n' "$id"
+}
+
+# JSON-encode a string (for embedding the launch command). Uses jq if present, else a minimal escaper.
+json_string() {
+  if have jq; then
+    printf '%s' "$1" | jq -Rs .
+  else
+    # Minimal: escape backslash, double-quote, and newlines. Adequate for our launch script.
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    printf '"%s"' "$s"
+  fi
+}
+
+cmd_wait_ready() {
+  local id timeout deadline url
+  id="$(current_pod_id)"
+  timeout="${1:-600}"
+  deadline=$(( $(date +%s) + timeout ))
+  log "waiting for pod ${id} to expose ${POD_PORT}/${PORT_TYPE} and go healthy (up to ${timeout}s)"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    url="$(pod_endpoint "$id")"
+    if [ -n "$url" ] && curl --silent --show-error --fail --max-time 10 "${url}/health" >/dev/null 2>&1; then
+      log "worker healthy at ${url}"
+      printf '%s' "$url" > "$URL_FILE"
+      return 0
+    fi
+    sleep 5
+  done
+  die "worker did not become healthy within ${timeout}s"
+}
+
+cmd_run() {
+  [ "$#" -ge 1 ] || die "usage: rp run <cmd...>"
+  local id url
+  id="$(current_pod_id)"
+  url="$(cat "$URL_FILE" 2>/dev/null || true)"
+  [ -n "$url" ] || url="$(pod_endpoint "$id")"
+  [ -n "$url" ] || die "could not resolve the pod endpoint (run 'rp wait-ready' first)"
+
+  # The laptop-side safety net: whatever happens to the command — success, failure, Ctrl-C, crash —
+  # tear the pod down. Combined with the pod-side dead-man's-switch, teardown is defence-in-depth.
+  trap 'cmd_down' EXIT INT TERM
+
+  log "SBSCORE_WORKER_URL=${url}"
+  SBSCORE_WORKER_URL="$url" "$@"
+}
+
+cmd_status() {
+  local id
+  id="$(current_pod_id)"
+  if have jq; then
+    rp_api GET "/pods/${id}" | jq -r '"pod \(.id): \(.desiredStatus // .status // "?") \(.costPerHr // "" )"' 2>/dev/null \
+      || rp_api GET "/pods/${id}"
+  else
+    rp_api GET "/pods/${id}"
+  fi
+}
+
+cmd_logs() {
+  local id
+  id="$(current_pod_id)"
+  if have runpodctl; then
+    runpodctl get pod "$id" || true
+    log "for live worker logs, tail the pod in the RunPod console or via runpodctl (VERIFY the command at real-run time)"
+  else
+    log "runpodctl not installed; view logs in the RunPod console for pod ${id}"
+  fi
+}
+
+cmd_fetch() {
+  # Pull an artifact (eval JSON / checkpoint) off the pod to the laptop. RunPod's file transfer
+  # is `runpodctl send` (on the pod) / `runpodctl receive` (here) with a one-time code, or scp
+  # over the pod's SSH proxy. VERIFY the mechanism at real-run time; the eval NUMBER already lands
+  # locally because `pnpm eval` runs laptop-side against the pod URL — `fetch` is for checkpoints.
+  [ "$#" -ge 1 ] || die "usage: rp fetch <one-time-code|remote:path> [local-dest]"
+  have runpodctl || die "runpodctl required for fetch (see the README)"
+  runpodctl receive "$@"
+}
+
+cmd_wait_ssh() {
+  require_ssh_key
+  local id timeout deadline hp ip port
+  id="$(current_pod_id)"
+  timeout="${1:-600}"
+  deadline=$(( $(date +%s) + timeout ))
+  log "waiting for pod ${id} ssh (up to ${timeout}s; sshd is apt-installed at pod start, so this is not instant)"
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    hp="$(ssh_host_port "$id" || true)"
+    if [ -n "$hp" ]; then
+      ip="${hp% *}"; port="${hp#* }"
+      if ssh "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -p "$port" "root@${ip}" true 2>/dev/null; then
+        log "ssh ready at root@${ip}:${port}"
+        return 0
+      fi
+    fi
+    sleep 5
+  done
+  die "pod ssh did not become ready within ${timeout}s"
+}
+
+cmd_exec() {
+  [ "$#" -ge 1 ] || die "usage: rp exec <cmd...>"
+  require_ssh_key
+  local hp ip port
+  hp="$(resolve_ssh)"; ip="${hp% *}"; port="${hp#* }"
+  ssh "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -p "$port" "root@${ip}" "$@"
+}
+
+cmd_push() {
+  [ "$#" -ge 2 ] || die "usage: rp push <local> <remote>"
+  require_ssh_key
+  local hp ip port
+  hp="$(resolve_ssh)"; ip="${hp% *}"; port="${hp#* }"
+  scp "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -P "$port" -r "$1" "root@${ip}:$2"
+}
+
+cmd_pull() {
+  [ "$#" -ge 2 ] || die "usage: rp pull <remote> <local>"
+  require_ssh_key
+  local hp ip port
+  hp="$(resolve_ssh)"; ip="${hp% *}"; port="${hp#* }"
+  scp "${SSH_OPTS[@]}" -i "$RP_SSH_KEY" -P "$port" -r "root@${ip}:$1" "$2"
+}
+
+# The on-pod eval, end to end (ADR-0032, KAN-1379). Generate the corpus laptop-side, recognise it ON
+# the pod (no per-image WAN — the fix for the four gate failures), pull the OmrDocuments back, and score
+# locally through the same `@sibei/synth` metrics a live `--engine worker` run uses. Every extra arg is
+# passed to BOTH the dump-corpus and the score command, so `--seeds/--bars/--levels/--zoom` line up (the
+# per-chart filenames must match). Wrapped in a trap that always `down`s — success, failure, or Ctrl-C.
+cmd_eval_onpod() {
+  require_key
+  require_ssh_key
+  [ -n "$SSH_PUBKEY_CONTENT" ] || die "no ssh public key at ${RP_SSH_PUBKEY}; eval-onpod needs it embedded at \`up\`"
+  local repo work imgs docs batch_py
+  repo="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  batch_py="${repo}/worker/sibei_omr/batch.py"
+  [ -f "$batch_py" ] || die "missing ${batch_py}"
+  work="$(mktemp -d "${TMPDIR:-/tmp}/rp-eval-XXXXXX")"
+  imgs="${work}/imgs"; docs="${work}/docs"
+  mkdir -p "$imgs" "$docs"
+
+  # 1. Generate the corpus images locally (no recognition, no history line here).
+  log "generating corpus locally -> ${imgs}"
+  ( cd "$repo" && pnpm -s eval --dump-corpus "$imgs" --no-history "$@" )
+
+  # Tear the pod down no matter how this exits, on top of the pod-side dead-man's-switch.
+  trap 'cmd_down' EXIT INT TERM
+
+  # 2. Bring a pod up and wait for ssh (idempotent: reuses an existing one).
+  cmd_up >/dev/null
+  cmd_wait_ssh 900
+
+  # 3. Push the batch runner and the images to the pod. batch.py runs as a standalone script against
+  #    the image's already-installed `sibei_omr` package, so the EXISTING worker image needs no rebuild.
+  log "pushing batch runner + corpus to the pod"
+  cmd_exec 'mkdir -p /tmp/eval/imgs /tmp/eval/docs'
+  cmd_push "$batch_py" /tmp/eval/batch.py
+  cmd_push "$imgs/." /tmp/eval/imgs/
+
+  # 4. Recognise on the pod. Tee to the worker log so the ADR-0032 idle watchdog counts each page as
+  #    activity (it greps that log for "recognize") and does not reap the pod mid-batch.
+  log "recognising on the pod with engine=${RP_EVAL_ENGINE} (oemer is ~5.4 min/page; be patient)"
+  cmd_exec "python /tmp/eval/batch.py /tmp/eval/imgs /tmp/eval/docs --engine ${RP_EVAL_ENGINE} 2>&1 | tee -a /tmp/sibei-worker.log"
+
+  # 5. Pull the OmrDocuments back.
+  log "pulling recognised documents -> ${docs}"
+  cmd_pull '/tmp/eval/docs/.' "$docs/"
+
+  # 6. Score locally (this run DOES append to eval/history.jsonl, like any other eval).
+  log "scoring locally"
+  ( cd "$repo" && pnpm -s eval --engine dump --docs-dir "$docs" "$@" )
+
+  log "on-pod eval complete; documents kept at ${docs}"
+  # The trap tears the pod down on return.
+}
+
+# The RELAY on-pod eval (ADR-0032 transport pivot) — the ssh-free replacement for eval-onpod. It needs
+# NO public IP and NO ssh: the corpus goes up and the OmrDocuments come down over a `runpodctl` relay
+# (outbound-only), and the pod's results code is learned from `runpodctl pod logs`. See
+# launch_command_relay for the full rationale. Generate the corpus locally, ship it + the current
+# worker package to the pod, recognise on the pod, pull the results back, and score locally through the
+# same @sibei/synth metrics a live `--engine worker` run uses — identical number. Trap-guarded: always `down`.
+cmd_eval_relay() {
+  require_key
+  have runpodctl || die "runpodctl is required for the relay transport (install it; see tools/runpod/README.md)"
+  have jq || die "jq is required (to read the pod id and stream pod logs)"
+
+  # A laptop/pod runpodctl version mismatch can make the relay index resolve to different relays, so a
+  # transfer never rendezvous. Warn (don't fail — the operator may know better) if they differ.
+  local local_ver
+  local_ver="$(runpodctl version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  if [ -n "$local_ver" ] && [ "v${local_ver}" != "$RP_RUNPODCTL_VERSION" ]; then
+    log "WARNING: laptop runpodctl v${local_ver} != pinned ${RP_RUNPODCTL_VERSION}; set RP_RUNPODCTL_VERSION to match or a relay transfer may not connect"
+  fi
+
+  local repo batch_py work imgs docs uptar
+  repo="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  batch_py="${repo}/worker/sibei_omr/batch.py"
+  [ -f "$batch_py" ] || die "missing ${batch_py}"
+
+  # A relay pod bakes its launch command at create time, so a reused (stale) pod would run the wrong
+  # command. Clear any existing pod first so `cmd_up` creates a fresh one. Idempotent (no-op if none).
+  cmd_down >/dev/null 2>&1 || true
+
+  work="$(mktemp -d "${TMPDIR:-/tmp}/rp-relay-XXXXXX")"
+  imgs="${work}/imgs"; docs="${work}/docs"; uptar="${work}/up.tar"
+  mkdir -p "$imgs" "$docs"
+
+  # 1. Generate the corpus images locally (no recognition, no history line here).
+  log "generating corpus locally -> ${imgs}"
+  ( cd "$repo" && pnpm -s eval --dump-corpus "$imgs" --no-history "$@" )
+
+  # 2. Bundle the CURRENT worker package (sibei_omr) AND the images into one tar. Shipping the whole
+  #    package — not just batch.py — is deliberate: the pushed image's installed sibei_omr can be OLDER
+  #    than this checkout (the :baseline image predates the V13 engine seam, so `import sibei_omr.engines`
+  #    fails against it). We run batch.py from the bundled package via PYTHONPATH and use the image only
+  #    for its heavy, already-installed dependencies (oemer/tensorflow, opencv, paddleocr). So the eval
+  #    tracks THIS code and the worker image still needs no rebuild (ADR-0032 commitment 1). Tar layout:
+  #    pkg/sibei_omr/… (the package) and imgs/… (the corpus).
+  local stage="${work}/stage"
+  mkdir -p "${stage}/pkg" "${stage}/imgs"
+  cp -r "${repo}/worker/sibei_omr" "${stage}/pkg/sibei_omr"
+  find "${stage}/pkg" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  find "$imgs" -maxdepth 1 -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \) \
+    -exec cp {} "${stage}/imgs/" \;
+  tar cf "$uptar" -C "$stage" .
+
+  # 3. Pre-start the UP send and capture its FINAL code (base + the relay index `send` picks randomly).
+  #    Doing this BEFORE the pod is created is what lets the pod's baked `receive` know the exact code;
+  #    the send holds its relay room while the pod boots and receives (verified to hold >= 80s). The
+  #    bases are random and unguessable so the synthetic (non-sensitive, ADR-0020) transfer can't clash.
+  # up_send_pid is intentionally NOT `local`: the EXIT trap below fires after this function returns, so
+  # a local would be out of scope (and unbound under `set -u`) when the trap tries to kill the send.
+  local base_up base_down final_up i
+  up_send_pid=""
+  base_up="sibei-omr-up-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  base_down="sibei-omr-down-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  log "starting UP relay send (holds the room for the pod to receive)"
+  runpodctl send --code "$base_up" "$uptar" > "${work}/up-send.log" 2>&1 &
+  up_send_pid=$!
+
+  # From here on, whatever happens — success, failure, Ctrl-C — kill the send and tear the pod down.
+  # `${up_send_pid:-}` so the trap is safe under `set -u` even if it fires before/after the assignment.
+  trap 'kill "${up_send_pid:-}" 2>/dev/null || true; cmd_down' EXIT INT TERM
+
+  final_up=""
+  for i in $(seq 1 40); do
+    final_up="$(grep -oE "${base_up}[-0-9]+" "${work}/up-send.log" | head -1 || true)"
+    [ -n "$final_up" ] && break
+    kill -0 "$up_send_pid" 2>/dev/null \
+      || die "UP send exited before printing a code: $(tr '\n' ' ' < "${work}/up-send.log" | cut -c1-200)"
+    sleep 0.5
+  done
+  [ -n "$final_up" ] || die "UP send did not print a transfer code in time"
+  log "UP code ready; baking the pod's receive into the launch command"
+
+  # 4. Create a pod running the RELAY launch command. It needs no inbound port and no ssh, so clear the
+  #    ssh pubkey (keeps `up` from exposing 22) and override the launch command. (No public IP needed.)
+  SSH_PUBKEY_CONTENT="" \
+  RP_LAUNCH_OVERRIDE="$(launch_command_relay "$final_up" "$base_down" "$RP_EVAL_ENGINE")" \
+    cmd_up >/dev/null
+  local id
+  id="$(current_pod_id)"
+  log "pod ${id} up; recognising on the pod with engine=${RP_EVAL_ENGINE} (oemer ~5.4 min/page — be patient)"
+
+  # 5. Poll the pod's container logs (no public IP required) for the DOWN final code the pod echoes when
+  #    it starts sending results. We POLL with a large `--tail` (replaying history each call) rather than
+  #    `--follow --tail 0`: RunPod's log pipeline lags several seconds, and a live-only follower both
+  #    misses a line printed before it connected and loses history whenever it reconnects — so the code
+  #    (printed once, then the pod blocks) could be missed forever. A replaying poll cannot miss it.
+  #    The API key is passed to runpodctl by reference (never printed); `|| true` because grep exits 1
+  #    until the marker appears, which under `set -e`+pipefail would otherwise abort the run.
+  local podlog final_down deadline latest
+  podlog="${work}/pod.log"
+  final_down=""
+  deadline=$(( $(date +%s) + MAX_LIFETIME_SECS ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    RUNPOD_API_KEY="${RUNPOD_API_KEY}" runpodctl pod logs "$id" --source container --tail 5000 --max-wait 5s > "$podlog" 2>&1 || true
+    final_down="$(grep -oE 'SIBEI_DOWN_CODE=[a-z0-9-]+' "$podlog" 2>/dev/null | head -1 | cut -d= -f2 || true)"
+    [ -n "$final_down" ] && break
+    latest="$(grep -oE 'recognize[^"\\]*' "$podlog" 2>/dev/null | tail -1 || true)"
+    [ -n "$latest" ] && log "  pod: ${latest}"
+    sleep 10
+  done
+  [ -n "$final_down" ] || die "did not observe the pod's results code in its logs within ${MAX_LIFETIME_SECS}s (see ${podlog})"
+
+  # 6. Receive the results tar over the relay and extract the OmrDocuments.
+  log "results code seen in the logs; pulling documents over the relay"
+  ( cd "$work" && rm -f down.tar && runpodctl receive "$final_down" )
+  [ -f "${work}/down.tar" ] || die "relay receive did not produce down.tar"
+  tar xf "${work}/down.tar" -C "$docs"
+  local got
+  got="$(find "$docs" -name '*.omr.json' | wc -l | tr -d ' ')"
+  [ "$got" -gt 0 ] || die "no OmrDocuments in the received tar (${work}/down.tar)"
+  log "received ${got} OmrDocument(s)"
+
+  # 7. Score locally (this run DOES append to eval/history.jsonl, like any other eval).
+  log "scoring locally"
+  ( cd "$repo" && pnpm -s eval --engine dump --docs-dir "$docs" "$@" )
+
+  log "relay eval complete; documents kept at ${docs}"
+  # The trap tears the pod down (and kills the send) on return.
+}
+
+cmd_down() {
+  # TERMINATE, not stop: a stopped pod still bills for storage; only delete frees all cost.
+  # Idempotent: a pod that is already gone is success. Resolve the id WITHOUT demanding the key
+  # first — an empty down (no key, no state) is a clean success, and we only require the key once
+  # there is genuinely a pod to delete.
+  trap - EXIT INT TERM
+  local id=""
+  if [ -n "${RUNPOD_API_KEY:-}" ]; then
+    id="$(find_pod_id || true)"
+  fi
+  if [ -z "$id" ] && [ -f "$STATE_FILE" ]; then
+    id="$(cat "$STATE_FILE")"
+  fi
+  if [ -z "$id" ]; then
+    log "no pod recorded; nothing to terminate"
+    return 0
+  fi
+  require_key
+  log "terminating pod ${id}"
+  if rp_api DELETE "/pods/${id}" >/dev/null 2>&1; then
+    log "terminated ${id}"
+  else
+    # Already gone / not found counts as success (idempotent). Fall back to runpodctl if present.
+    if have runpodctl && runpodctl remove pod "$id" >/dev/null 2>&1; then
+      log "terminated ${id} (via runpodctl)"
+    else
+      log "pod ${id} not found or already terminated (treating as success)"
+    fi
+  fi
+  rm -f "$STATE_FILE" "$URL_FILE"
+}
+
+current_pod_id() {
+  local id
+  id="$(find_pod_id || true)"
+  if [ -z "${id:-}" ] && [ -f "$STATE_FILE" ]; then
+    id="$(cat "$STATE_FILE")"
+  fi
+  [ -n "${id:-}" ] || die "no pod found (run \`rp up\` first)"
+  printf '%s' "$id"
+}
+
+usage() {
+  cat >&2 <<'USAGE'
+rp — dev/build-time RunPod compute wrapper (never a product runtime dependency)
+
+  rp up                 create-or-reuse a spot pod (name-tagged, dead-man's-switch armed), print id
+  rp wait-ready [secs]  poll https://{pod}-{port}.proxy.runpod.net/health until 200
+  rp wait-ssh [secs]    poll the pod's ssh (port 22) until it accepts a connection (on-pod eval)
+  rp run <cmd...>       export SBSCORE_WORKER_URL to the pod, run <cmd> inside a trap that always `down`s
+  rp exec <cmd...>      run a command on the pod over ssh
+  rp push <local> <rem> scp a file/dir up to the pod
+  rp pull <rem> <local> scp a file/dir down from the pod
+  rp eval-onpod [args]  full on-pod eval over SSH/SCP (needs a pod with a direct-TCP public IP).
+                        Extra args (e.g. --seeds 1) go to both the dump and score commands. Trap-guarded.
+  rp eval-relay [args]  full on-pod eval over a runpodctl RELAY — no public IP, no ssh (the pivot for
+                        spot pods that come up without a direct-TCP endpoint). Extra args go to both
+                        the dump and score commands. Trap-guarded. This is the recommended path.
+  rp status             show the pod's status
+  rp logs               show pod info / point at logs
+  rp fetch <code> [dst] pull an artifact (eval JSON / checkpoint) off the pod
+  rp down               TERMINATE (delete) the pod — idempotent
+
+On-pod ssh (exec/push/pull/eval-onpod) needs an ssh key: RP_SSH_KEY (default ~/.ssh/id_ed25519). Its
+public half is embedded in the pod's launch command at `up`; the private half never leaves the laptop.
+
+Config: tools/runpod/.env (gitignored) supplies RUNPOD_API_KEY (by reference) and overrides.
+See tools/runpod/README.md and docs/adr/0032-*.md.
+USAGE
+}
+
+main() {
+  local sub="${1:-}"
+  [ "$#" -gt 0 ] && shift || true
+  case "$sub" in
+    up)         cmd_up "$@" ;;
+    wait-ready) cmd_wait_ready "$@" ;;
+    wait-ssh)   cmd_wait_ssh "$@" ;;
+    run)        cmd_run "$@" ;;
+    exec)       cmd_exec "$@" ;;
+    push)       cmd_push "$@" ;;
+    pull)       cmd_pull "$@" ;;
+    eval-onpod) cmd_eval_onpod "$@" ;;
+    eval-relay) cmd_eval_relay "$@" ;;
+    status)     cmd_status "$@" ;;
+    logs)       cmd_logs "$@" ;;
+    fetch)      cmd_fetch "$@" ;;
+    down)       cmd_down "$@" ;;
+    ''|-h|--help|help) usage ;;
+    *) usage; die "unknown subcommand: ${sub}" ;;
+  esac
+}
+
+main "$@"

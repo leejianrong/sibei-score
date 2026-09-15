@@ -9,6 +9,8 @@ import {
   makeNote,
   makeRest,
   makeScore,
+  makeSection,
+  NO_SECTIONS_ADVISORY,
   projectScore,
   resolveAddress,
 } from '@sibei/model';
@@ -188,6 +190,40 @@ describe('chord symbols carry beat placement', () => {
     ]);
     expect(find(score, 'Ebm7')).toContain('Ebm7!');
   });
+
+  it('shows a flagged import chord’s OCR confidence after the flag (V13)', () => {
+    const score = chart([
+      makeBar({
+        id: 'bar-1',
+        number: 1,
+        chords: [
+          makeChord({
+            id: 'chord-1',
+            onset: 0,
+            text: 'Cmaj7',
+            confidence: 0.62,
+            review: { flagged: true, reasons: ['low-confidence'] },
+          }),
+        ],
+      }),
+    ]);
+    // `!` never occurs in a chord symbol, so `Cmaj7!62` is unambiguous — flagged, 62% confident.
+    expect(find(score, 'Cmaj7')).toContain('Cmaj7!62');
+  });
+
+  it('keeps a confident import chord clean — no number when it is not flagged (lossy by design)', () => {
+    const score = chart([
+      makeBar({
+        id: 'bar-1',
+        number: 1,
+        chords: [makeChord({ id: 'chord-1', onset: 0, text: 'Cmaj7', confidence: 0.98 })],
+      }),
+    ]);
+    const cell = find(score, 'Cmaj7');
+    expect(cell).toContain('Cmaj7');
+    expect(cell).not.toContain('98');
+    expect(cell).not.toContain('!');
+  });
 });
 
 describe('the melody line', () => {
@@ -362,6 +398,26 @@ describe('the review legend', () => {
 
     const blank = chart([makeBar({ id: 'bar-1', number: 1 })]);
     expect(projectScore(blank)).not.toContain('needs review');
+  });
+});
+
+describe('the no-sections advisory (V14, ADR-0015)', () => {
+  it('prints a non-blocking layout advisory for a section-less chart', () => {
+    // Sections drive line-breaking (ADR-0015) and a fresh import has none (ADR-0021), so the chart
+    // lays out on a plain four-bar grid until one is added. It is a prompt, never a refusal or a `!`.
+    const score = chart([makeBar({ id: 'bar-1', number: 1 })]);
+    const advisory = find(score, 'no sections');
+    expect(advisory).toContain(NO_SECTIONS_ADVISORY);
+    // Not dressed up as review: no bang, and it does not claim anything needs review.
+    expect(advisory).not.toContain('!');
+    expect(advisory).not.toContain('needs review');
+  });
+
+  it('says nothing once the chart carries a section', () => {
+    const score = chart([makeBar({ id: 'bar-1', number: 1 })], {
+      sections: [makeSection({ id: 'section-1', startBar: 1, letter: 'A', name: 'A' })],
+    });
+    expect(projectScore(score)).not.toContain(NO_SECTIONS_ADVISORY);
   });
 });
 

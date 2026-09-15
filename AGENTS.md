@@ -8,7 +8,7 @@ stale — fix it, in the same PR that made it stale.
 
 ## Status
 
-**V1–V8 are done and v0.1 is complete; V9, V10, V11 and V12 (the first four v0.2 slices) have landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. **V10 is the worker, offline and in a job:** the V9 spike is promoted into a real recogniser (`worker/sibei_omr/recognize.py`) behind an HTTP worker (`worker/sibei_omr/server.py`), and the API side records an import as a durable **job** (ADR-0001) — an upload validated by decoding at the boundary (ADR-0029), stored in the BlobStore, enqueued, and run by a background runner that calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the API is fully functional with the worker stopped. The worker is a second compose container with weights baked + checksummed at build time (ADR-0024, offline) and CPU-only as the floor with an opt-in GPU image (ADR-0025). **Mapping the recognised objects onto a `Score` via `score.import` is V11, not V10** — a succeeded V10 job carries the raw objects and creates no score. **V12 is the evaluation harness (R6, ADR-0020):** a new dev-only `packages/synth` (a deliberate ADR-0031 exception to the no-Node rule — a build-time tool, guarded out of every shipped bundle by `tests/arch`) generates plausible lead sheets, renders + degrades them into photos behind the `@sibei/synth/imaging` subpath (native `@resvg/resvg-js` + `sharp`, kept off the fast layer), and scores a recogniser against the ground truth by LCS/Levenshtein alignment; `make eval` / `pnpm eval` print the table and append `eval/history.jsonl`, with the recogniser an injected `Predict` seam so the same harness scores oemer now and v0.3's bespoke engine later. `packages/synth` is built a slice ahead of SLICES V15 on purpose, so v0.3 extends it. See `docs/eval.md` and the SLICES V12 note. See the ADR-0023 status update, `worker/README.md`, and `agent_docs/server.md` (the import job section).
+**V1–V8 are done and v0.1 is complete; v0.2 (import) is now complete — V9, V10, V11, V12, V13 and V14 have all landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. **V10 is the worker, offline and in a job:** the V9 spike is promoted into a real recogniser (`worker/sibei_omr/recognize.py`) behind an HTTP worker (`worker/sibei_omr/server.py`), and the API side records an import as a durable **job** (ADR-0001) — an upload validated by decoding at the boundary (ADR-0029), stored in the BlobStore, enqueued, and run by a background runner that calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the API is fully functional with the worker stopped. The worker is a second compose container with weights baked + checksummed at build time (ADR-0024, offline) and CPU-only as the floor with an opt-in GPU image (ADR-0025). **Mapping the recognised objects onto a `Score` via `score.import` is V11, not V10** — a succeeded V10 job carries the raw objects and creates no score. **V12 is the evaluation harness (R6, ADR-0020):** a new dev-only `packages/synth` (a deliberate ADR-0031 exception to the no-Node rule — a build-time tool, guarded out of every shipped bundle by `tests/arch`) generates plausible lead sheets, renders + degrades them into photos behind the `@sibei/synth/imaging` subpath (native `@resvg/resvg-js` + `sharp`, kept off the fast layer), and scores a recogniser against the ground truth by LCS/Levenshtein alignment; `make eval` / `pnpm eval` print the table and append `eval/history.jsonl`, with the recogniser an injected `Predict` seam so the same harness scores oemer now and v0.3's bespoke engine later. `packages/synth` is built a slice ahead of SLICES V15 on purpose, so v0.3 extends it. See `docs/eval.md` and the SLICES V12 note. **V13 reads chords from the photo (R5, completes the import pipeline):** the worker schema gains `bandTokens` (`OMR_SCHEMA_VERSION` 1→2) — raw chord-band OCR text with pixel boxes; a pure-TS step in `mapOmrToScore` snaps each token to a legal chord with the **V5 grammar corrector** (injected, since `model` can't import `music`, ADR-0011), **beat-maps** it to the note/onset at or before its box (stage 3, Q71), or keeps it as a flagged `Annotation` (Q56), carrying OCR confidence and flags into the model (ADR-0019); the worker crops the band and runs **PaddleOCR** (`worker/sibei_omr/band_ocr.py`, ADR-0027). V13 also pulls v0.3's **engine-selection seam forward** (`worker/sibei_omr/engines/{oemer,heuristic}`, chosen by `--engine`/`$SIBEI_OMR_ENGINE`, oemer the default): the **heuristic engine** is OpenCV-only, low-RAM **dev/test scaffolding** — NOT the trained V15/V16 bespoke model, and it earns no default swap (decided on the V12 harness, ADR-0020/0031) — so the whole flow and `make eval` run on a small host where oemer OOMs; it lifted chordF1 from 0 to 0.100 there. Rehearsal letters and sections are still **not detected** (ADR-0021); the oemer chord baseline (the ADR-0011 stage-2 target) and the PaddleOCR+oemer image build are deferred to a bigger host. Confidence shows in `sbscore show` as `Cmaj7!62` on flagged import chords (ADR-0009 stays lossy otherwise). See the SLICES V13 note and `worker/README.md`. See the ADR-0023 status update, `worker/README.md`, and `agent_docs/server.md` (the import job section).
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -71,10 +71,27 @@ not carry them** (nor does the worker emit them), so their detection is deferred
 deviation from ADR-0021, since it needs the worker + schema + a real-oemer fixture. (That fixture was
 unproducible on the V11 build host — no Docker/registry there — but **not** on all hosts: V12 built and
 ran the worker image where access exists; oemer's real block is RAM, ~7 GB, which OOM-kills it on a
-small machine. See the SLICES V12 note.) Not built yet (v0.2): MusicXML import; clef/key/time/tie/triplet
-**detection** (worker + `OMR_SCHEMA_VERSION` bump + fixture); title/composer OCR (Q37, needs V13's OCR +
-a meta review field); and the chord-band OCR and stage-3 beat mapping (V13). Don't assume a module exists
-because a plan mentions it.
+small machine. See the SLICES V12 note.) **V14 completes v0.2 — correcting a parse.** An OMR draft is
+now fixed against its own photo from both surfaces (ADR-0019). The source is retained and reachable:
+`JobReader.getByScoreId` (a store lookup, not a `Score`-schema change) plus `GET
+/v1/imports/:jobId/images/:index` (V14a), surfaced as `GET /v1/scores/:id/source` (`{jobId, imageCount}`,
+always 200) behind the browser's `SourcePane.svelte` split-pane (V14b) — the scans were validated at the
+ADR-0029 upload boundary and re-parse writes no new blob. The engraver washes a metrically-invalid bar
+rose (`INVALID_BAR_FILL`, ADR-0013) and a low-confidence flagged object yellow (`FLAGGED_OBJECT_FILL`,
+ADR-0019) in `packages/engrave` (the `reviewChart` fixture), through the one byte-identical render path
+(ADR-0014/0015) (V14c). `reviewSummary().hasSections` drives a `NO_SECTIONS_ADVISORY` on both surfaces —
+import never detects sections and the four-bar layout depends on them (ADR-0021/0015) — with a
+flag-parity test pinning `sbscore show`'s `!` flags equal to the browser's (V14d). And `POST
+/v1/scores/:id/reparse` (`ImportService.reparse`, `sbscore reparse <id> [--engine oemer|heuristic]`, a UI
+Re-parse control) re-runs OMR over the kept scans with no re-upload — `getByScoreId` → runner (ADR-0005)
+→ the server-only `Applier.import` (ADR-0003/0008) → a **new** draft, the original untouched; the engine
+is threaded end-to-end (job table schema v3→v4) with a `422 unsupported-engine` (V14e). The V12
+human-time ship gate is written into `docs/eval.md` as a repeatable procedure, but the run itself is
+**deferred** — its 32-bar fixture is not yet committed (V14f). Still **not built yet:** MusicXML import;
+clef/key/time/tie/triplet **detection** (worker + a further `OMR_SCHEMA_VERSION` bump + fixture); and
+title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `ScoreMeta` review field to
+flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
+module exists because a plan mentions it.
 
 ## Layout
 
@@ -97,8 +114,19 @@ packages/
              native (resvg+sharp) render+degrade half
 worker/      the OMR worker (Python, ADR-0005) — OUTSIDE the pnpm workspace, its own pyproject/venv.
              V10: the recogniser (`sibei_omr/recognize.py`) behind an HTTP server (`server.py`); the V9
-             spike (`spike.py`) is a CLI over the same core. A Dockerfile bakes weights; GPU is Dockerfile.gpu.
-             Never touches the store; stateless; its own `unittest`s, not in the Node CI
+             spike (`spike.py`) is a CLI over the same core. V13: an engine-selection seam
+             (`sibei_omr/engines/{oemer,heuristic}`, chosen by `--engine`/`$SIBEI_OMR_ENGINE`) — the
+             `heuristic` engine is OpenCV-only, low-RAM dev/test scaffolding (v0.3's V15 seam pulled
+             forward, ADR-0031); and chord-band OCR (`sibei_omr/band_ocr.py`, PaddleOCR, ADR-0027) shared
+             by both engines. A Dockerfile bakes weights; GPU is Dockerfile.gpu. Never touches the store;
+             stateless; its own `unittest`s, not in the Node CI
+tools/runpod/ DEV/BUILD-TIME ONLY (ADR-0032): a guardrail shell wrapper (`rp`) that runs the
+             EXISTING worker container on a rented RunPod pod to produce an artifact (an oemer eval
+             number now, checkpoints later) and guarantees teardown. OUTSIDE the pnpm workspace, no
+             Node deps, imports no `packages/*`; never a product runtime dependency, never in a bundle.
+             The `RUNPOD_API_KEY` lives only in the gitignored `tools/runpod/.env` and `rp` reads it
+             BY REFERENCE. **Never read `tools/runpod/.env` (or the key value) into context, and never
+             cat/echo/print/log it** — handle it blind, machine-to-machine only (ADR-0032)
 tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer

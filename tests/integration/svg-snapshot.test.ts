@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, everyGlyphChart, longFormChart, nastyChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, everyGlyphChart, longFormChart, nastyChart, reviewChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -66,6 +66,14 @@ describe('rendered SVG', () => {
     // it, so a header band reappearing above the top system is something a file records
     // rather than something only a person could notice (KAN-525).
     snapshotScore(untitledChart(), 'untitled');
+  });
+
+  it('matches the committed snapshot for the review-shading chart', () => {
+    // V14c: the fixture of record for both review washes. Bar 1 shows the flagged-object
+    // stripe alone, bar 2 the invalid-bar wash with a flagged note over it, bar 3 a flagged
+    // annotation. Nothing else in the corpus draws either treatment, so this file is where a
+    // change to the shading geometry or colour shows up as something to look at (ADR-0019).
+    snapshotScore(reviewChart(), 'review');
   });
 
   it('is identical when the same score is rendered twice', () => {

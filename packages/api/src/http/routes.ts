@@ -81,10 +81,53 @@ export interface ImportService {
   submit(owner: Owner, images: Buffer[]): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
   retry(owner: Owner, id: JobId): ImportJob | null;
+  /**
+   * Re-run OMR on a score's retained source images (V14e), producing a **new** draft job over the same
+   * blob keys — no re-upload — that the runner maps and lands through `Applier.import` exactly as a
+   * normal import does (so re-parse is not a second write path, ADR-0003). `options.engine` is the
+   * engine the user chose (heuristic on a small host, oemer where RAM allows); omitted, the worker
+   * keeps its default. `null` when the score has no import behind it (hand-authored or duplicated) and
+   * so no source to re-run — the route turns that into a clean 4xx, never a 500.
+   */
+  reparse(owner: Owner, scoreId: Id, options: { engine?: string }): Promise<ImportJob | null>;
+  /**
+   * The retained source image at page `index` of a job — the scan V14's split-pane review shows beside
+   * the recognised score and `sbscore reparse` re-runs (ADR-0019 keeps them permanently for exactly
+   * this). `null` when the job is missing or not this owner's, or there is no page at that index. The
+   * content-type is recovered from the bytes (`imageFormatOf`), never from a stored declaration —
+   * reading the blob back is the same round-trip the runner takes to hand the worker an upload. Kept
+   * behind the service, not a raw `BlobStore` on the routes, so this file still touches no infra
+   * directly (ADR-0003's narrowing).
+   */
+  sourceImage(owner: Owner, id: JobId, index: number): Promise<SourceImage | null>;
+  /**
+   * The import provenance of a *score* (V14b) — the bridge the split-pane review starts from. The
+   * browser opens a chart by `scoreId` and has to reach the scans that produced it (ADR-0019), which
+   * are keyed by `jobId`; this reverses `ImportJob.scoreId` (through `JobReader.getByScoreId`) into
+   * just what the review view needs to fetch each page — the owning job's id and how many pages it
+   * has — and the browser then GETs `sourceImage` for each index. `null` when the score has no import
+   * behind it: a hand-authored, duplicated, or unknown score simply has no source, which is not an
+   * error (the score view asks this of *every* chart, so it must answer emptily rather than fail).
+   * Owner-scoped like every other import read, and a plain read — no blob round-trip, so unlike
+   * `sourceImage` it need not be async.
+   */
+  source(owner: Owner, scoreId: Id): SourceProvenance | null;
   /** Reads over the job store: list (summaries) and get (full, with the recognised objects). */
   reader: JobReader;
   /** The SSE progress streams. Subscribe-only from here, like the score event streams. */
   streams: JobStreams;
+}
+
+/** A retained source image on its way out: the bytes and the content-type derived from them. */
+export interface SourceImage {
+  bytes: Buffer;
+  contentType: string;
+}
+
+/** A score's import provenance: the job that produced it and how many source pages it retained (V14b). */
+export interface SourceProvenance {
+  jobId: JobId;
+  imageCount: number;
 }
 
 /** A body larger than this is refused unread. An op batch is kilobytes (ADR-0029: real caps). */
@@ -92,6 +135,16 @@ export const MAX_BODY_BYTES = 1_000_000;
 
 const SCORES = '/v1/scores';
 const IMPORTS = '/v1/imports';
+
+/**
+ * The engines a re-parse may ask for (V14e). This restates the worker's own `ENGINE_NAMES`
+ * (`worker/sibei_omr/engines/__init__.py`) so the surfaces can offer a selector and a bad choice is a
+ * clean 422 here rather than a whole job failing at the worker with a diagnostic. It is deliberately
+ * the *only* place the API names an engine: nothing downstream interprets the value (ADR-0005 keeps
+ * which engine ran invisible to the model and both surfaces), so this is a selection-UX list, not
+ * knowledge of what an engine *does*. If the worker gains an engine, this list gains its name.
+ */
+export const REPARSE_ENGINES = ['oemer', 'heuristic'] as const;
 
 /**
  * The cap on an uploaded image, at the transport. Larger than an op batch's 1 MB because an image is
@@ -156,6 +209,15 @@ export async function route(
     return await exportScore(request, response, context, exportFor);
   }
 
+  // The import provenance of a score (V14b): where the split-pane review reaches the retained scans
+  // from. A read that always answers 200 — a chart with no import behind it has an empty source, not
+  // a 404, because the score view asks this of every chart and a scan-less answer must not error it.
+  const sourceFor = match(path, /^\/v1\/scores\/([^/]+)\/source$/);
+  if (sourceFor !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return sourceOfScore(response, context, sourceFor);
+  }
+
   const eventsFor = match(path, /^\/v1\/scores\/([^/]+)\/events$/);
   if (eventsFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
@@ -204,6 +266,18 @@ export async function route(
     return sendJson(response, 201, result);
   }
 
+  // Re-parse (V14e): re-run OMR on a score's retained source images into a *new* draft. A
+  // `/v1/scores/:id/…` action like duplicate — it *creates* a score (through a fresh import job), so
+  // it is state-changing and behind the same Origin check every POST here gets (ADR-0029, applied
+  // before routing). It reuses the existing blob keys, so nothing is re-uploaded.
+  const reparseFor = match(path, /^\/v1\/scores\/([^/]+)\/reparse$/);
+  if (reparseFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    return await reparseScore(response, context, reparseFor, body);
+  }
+
   // The OMR import pipeline (V10). Submit a scan and it becomes a job the client polls or subscribes
   // to (ADR-0001); the raw recognised objects land on the job, and mapping them to a score is V11.
   if (path === IMPORTS) {
@@ -227,6 +301,15 @@ export async function route(
     return retryImport(response, context, importRetryFor);
   }
 
+  // The retained source images of an import (V14a). Two captures — the job id and the page index — so
+  // it is matched here rather than through `match` (which pulls a single group). Ahead of the
+  // single-segment `/v1/imports/:id` below it, though the extra segments already keep them apart.
+  const importImage = /^\/v1\/imports\/([^/]+)\/images\/([^/]+)$/.exec(path);
+  if (importImage !== null) {
+    if (method !== 'GET') return methodNotAllowed(response, ['GET']);
+    return await serveImportImage(response, context, decodeURIComponent(importImage[1]!), importImage[2]!);
+  }
+
   const importFor = match(path, /^\/v1\/imports\/([^/]+)$/);
   if (importFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
@@ -246,6 +329,28 @@ export async function route(
   }
 
   return send(response, problem(404, 'no-such-route', `nothing at ${path}`));
+}
+
+/**
+ * `GET /v1/scores/:id/source` — a score's import provenance (V14b), the seam the split-pane review
+ * starts from (ADR-0019). It answers `{ jobId, imageCount }` when the score came from an import and
+ * `{ jobId: null, imageCount: 0 }` when it did not — always 200, never a 404. That the empty case is
+ * a value and not an error is the point: the score view fetches this for *every* chart it opens, and
+ * a hand-authored or duplicated chart legitimately has no scan behind it (a duplicate gets a fresh
+ * log, not a job, ADR-0003/Q79). The browser reads `imageCount` and, for a source-bearing score,
+ * GETs `…/imports/:jobId/images/:index` for each page. Owner-scoped through the `ImportService` like
+ * every other import read; a server built without an OMR pipeline has no imports at all, so it too
+ * answers the empty shape rather than a 503 — nothing it holds could carry a source.
+ */
+function sourceOfScore(response: ServerResponse, context: RouteContext, scoreId: Id): number {
+  const provenance = context.imports?.source(context.owner, scoreId) ?? null;
+  return sendJson(
+    response,
+    200,
+    provenance === null
+      ? { jobId: null, imageCount: 0 }
+      : { jobId: provenance.jobId, imageCount: provenance.imageCount },
+  );
 }
 
 /**
@@ -324,6 +429,85 @@ async function submitImport(
 }
 
 /**
+ * `POST /v1/scores/:id/reparse` — re-run OMR on a score's retained source images into a new draft
+ * (V14e, ADR-0019). It produces a **new** score, never an in-place replacement: the original document
+ * and any human corrections survive, and it reuses the same server-only `Applier.import` a normal
+ * import does (through the runner), so it is not a second write path (ADR-0003/0008).
+ *
+ * The optional `{ engine }` in the JSON body lets the caller pick a recogniser (heuristic on a small
+ * host, oemer where RAM allows); an unknown engine is a 422 carrying the list, the same no-fallback
+ * bargain export makes. Like a submit it needs a worker to run the job — a server built without one is
+ * a 503. A score with no import behind it has no scan to re-run, which is a clean 422, not a 500. On
+ * success it answers 202 with the queued job and a Location pointing at it, exactly as submit does, so
+ * the same poll/subscribe path follows the new draft.
+ */
+async function reparseScore(
+  response: ServerResponse,
+  context: RouteContext,
+  scoreId: Id,
+  body: unknown,
+): Promise<number> {
+  if (context.imports === undefined || !context.imports.available) {
+    return send(response, noImportPipeline());
+  }
+
+  const engine = engineFrom(body);
+  if (engine === UNKNOWN_ENGINE) {
+    const requested = rawEngine(body);
+    // The same shape `unsupported` gives an export value — a 422 whose `unsupported-*` kind maps to the
+    // CLI's validation exit, carrying the list a client branches on (ADR-0008) — but its own wording,
+    // since this is a recognition engine, not an export parameter.
+    return send(
+      response,
+      problem(
+        422,
+        'unsupported-engine',
+        `${JSON.stringify(requested ?? '')} is not a recognition engine this build knows; try ${REPARSE_ENGINES.join(' or ')}`,
+        { detail: { kind: 'unsupported-engine', requested, supported: [...REPARSE_ENGINES] } },
+      ),
+    );
+  }
+
+  const job = await context.imports.reparse(context.owner, scoreId, engine === undefined ? {} : { engine });
+  if (job === null) {
+    // No import behind this score — a hand-authored or duplicated chart has no scan to re-run. A 422
+    // (readable request, nothing to act on), never a 500, and its `detail` lets a client branch (ADR-0008).
+    return send(
+      response,
+      problem(
+        422,
+        'no-source-to-reparse',
+        `score ${JSON.stringify(scoreId)} was not imported from a scan, so there is nothing to re-parse`,
+        { detail: { kind: 'no-source-to-reparse' } },
+      ),
+    );
+  }
+  response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
+  return sendJson(response, 202, { job });
+}
+
+/** Sentinel: the body named an engine, but not one this build knows (a 422, not the worker's error). */
+const UNKNOWN_ENGINE = Symbol('unknown-engine');
+
+/** The raw `engine` field of a reparse body, for the 422 message; `null` when it was not a string. */
+function rawEngine(body: unknown): string | null {
+  const value = (body as { engine?: unknown } | null)?.engine;
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * The engine a reparse body asks for: `undefined` when none was named (the worker's default),
+ * a known name when it is one of {@link REPARSE_ENGINES}, or {@link UNKNOWN_ENGINE} when a string
+ * that is not. A non-string engine field is treated as absent — the same leniency `newIdFrom` shows.
+ */
+function engineFrom(body: unknown): string | undefined | typeof UNKNOWN_ENGINE {
+  const value = (body as { engine?: unknown } | null)?.engine;
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') return undefined;
+  return (REPARSE_ENGINES as readonly string[]).includes(value) ? value : UNKNOWN_ENGINE;
+}
+
+/**
  * `POST /v1/imports/:id/retry` — requeue a failed import (Q80). A retry is a user action, so it is
  * owner-scoped. A job that is not failed cannot be retried — a running or succeeded one is a 409
  * carrying its current status, the same "branch on data, not prose" shape an address miss has
@@ -365,6 +549,48 @@ function openImportStream(
   const job = context.imports.reader.get(context.owner, id);
   if (job === null) return send(response, noSuchImport(id));
   return context.imports.streams.open(request, response, context.owner, id, job.status);
+}
+
+/**
+ * `GET /v1/imports/:id/images/:index` — one retained source image of an import (V14a).
+ *
+ * The scan the split-pane review shows beside the recognised score and `sbscore reparse` re-runs,
+ * kept permanently for exactly this (ADR-0019). A read, owner-scoped through the `ImportService`
+ * (which resolves the job through the `JobReader`) like every other import read, and a GET — exempt
+ * from the Origin check but not the Host check (ADR-0029). The bytes are streamed but **never
+ * logged**: the request logger records method/path/status only, so the image never reaches a log.
+ *
+ * A miss — no such job, not this owner's, or no page at that index — is a 404 rather than leaking
+ * which of those it was, the same shape a `GET /v1/imports/:id` miss has. Inspecting a past import
+ * does not need a worker, so this is gated only on the pipeline existing at all, not on `available`
+ * (a server built without a worker still 404s a real miss and serves what it stored, like the
+ * listing route above).
+ */
+async function serveImportImage(
+  response: ServerResponse,
+  context: RouteContext,
+  id: JobId,
+  rawIndex: string,
+): Promise<number> {
+  if (context.imports === undefined) return send(response, noImportPipeline());
+  const index = parseImageIndex(rawIndex);
+  if (index === null) return send(response, noSuchImage(id, rawIndex));
+  const image = await context.imports.sourceImage(context.owner, id, index);
+  if (image === null) return send(response, noSuchImage(id, rawIndex));
+  response.writeHead(200, {
+    'content-type': image.contentType,
+    'content-length': image.bytes.length,
+    'x-content-type-options': 'nosniff',
+  });
+  response.end(image.bytes);
+  return 200;
+}
+
+/** A page index from the path: a non-negative integer, or `null` for anything else (a 404). */
+function parseImageIndex(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const index = Number(raw);
+  return Number.isSafeInteger(index) ? index : null;
 }
 
 /**
@@ -446,6 +672,15 @@ function noSuchScore(scoreId: Id): Problem {
 
 function noSuchImport(id: JobId): Problem {
   return problem(404, 'no-such-import', `there is no import job with the id ${JSON.stringify(id)}`);
+}
+
+/** A source image the import does not have — a bad job id, a wrong owner, or an out-of-range page. */
+function noSuchImage(id: JobId, index: string): Problem {
+  return problem(
+    404,
+    'no-such-import-image',
+    `import ${JSON.stringify(id)} has no source image at ${JSON.stringify(index)}`,
+  );
 }
 
 /** This build was started without an OMR worker, so import is unavailable (but nothing else is). */

@@ -8,6 +8,7 @@ import { createJobBus } from '../events/job-bus.js';
 import { createExporter } from '../export/export.js';
 import { createJobRunner } from '../imports/runner.js';
 import type { JobRunner } from '../imports/runner.js';
+import { imageFormatOf } from '../imports/upload.js';
 import type { WorkerClient } from '../imports/worker-client.js';
 import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
@@ -178,6 +179,45 @@ export function createApi(options: ApiOptions): Api {
       const job = jobs.retry(owner, id);
       if (job !== null) runner?.wake();
       return job;
+    },
+    async reparse(owner: Owner, scoreId, options) {
+      // Re-run OMR on a score's *retained* source images (ADR-0019), producing a NEW draft rather than
+      // replacing the score in place — an in-place "replace document" op does not exist and inventing
+      // one would be a second write path (ADR-0003/0008). The linkage from a score back to its scans is
+      // the importing job's `imageKeys` (there is no provenance on the `Score` itself), so this reverses
+      // `scoreId → job` (owner-scoped) and enqueues a fresh job over the SAME blob keys — nothing is
+      // re-uploaded, no blob is written. The runner then takes the identical map → `Applier.import` path
+      // a normal import does, minting a new score; re-parse is not a second write path. A score with no
+      // import behind it (hand-authored, duplicated) has no source to re-run, and that is `null` here —
+      // the route turns it into a clean 4xx, never a 500. The chosen engine (V14e) rides on the new job
+      // so the runner can thread it to the worker; `null` leaves the worker its default.
+      const source = jobs.getByScoreId(owner, scoreId);
+      if (source === null) return null;
+      const job = jobs.create(owner, source.imageKeys, options.engine ?? null);
+      runner?.wake();
+      return job;
+    },
+    async sourceImage(owner: Owner, id, index) {
+      // The reverse of `submit`: resolve the owner's job, then read the retained blob for the page it
+      // named (ADR-0019 keeps them). Owner scoping is the job store's (`get` returns null for another
+      // owner's job), so an out-of-range index and a foreign job both fall to the same null the route
+      // turns into a 404. The content-type comes from the bytes, never a stored declaration (ADR-0029).
+      const job = jobs.get(owner, id);
+      if (job === null || index < 0 || index >= job.imageKeys.length) return null;
+      const bytes = await blobs.get(job.imageKeys[index]!);
+      if (bytes === null) return null;
+      const format = imageFormatOf(bytes);
+      const contentType =
+        format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'application/octet-stream';
+      return { bytes, contentType };
+    },
+    source(owner: Owner, scoreId) {
+      // The reverse of `submit`, for the split-pane review (V14b): find the job that produced this
+      // score (`getByScoreId`, owner-scoped) and report just its id and page count — no blob read, so
+      // no round-trip. A score with no import behind it returns null, which the route turns into the
+      // empty provenance rather than a 404 (a scan-less chart is the common case, not an error).
+      const job = jobs.getByScoreId(owner, scoreId);
+      return job === null ? null : { jobId: job.id, imageCount: job.imageKeys.length };
     },
     reader: jobs,
     streams: jobStreams,

@@ -49,6 +49,15 @@ export interface ImportJob {
   status: JobStatus;
   /** BlobStore keys for the uploaded source images, in page order. Always ≥ 1. */
   imageKeys: BlobKey[];
+  /**
+   * The recognition engine the runner should ask the worker for, or `null` to let the worker pick its
+   * own default (`--engine`/`$SIBEI_OMR_ENGINE`). A normal import (`POST /v1/imports`) leaves this
+   * `null`; a **re-parse** (V14e) records the engine the user chose so the runner can thread it to the
+   * worker per-request — the durable job is the only channel the runner has to learn it (ADR-0001).
+   * The value is opaque here: the worker owns the set of engine names (ADR-0005), so nothing on this
+   * side interprets it.
+   */
+  engine: string | null;
   /** How many times the runner has started this job. 0 while `queued` and never run. */
   attempts: number;
   /** The failure reason when `failed`; `null` otherwise (Q80). */
@@ -75,6 +84,16 @@ export interface JobReader {
   list(owner: Owner): ImportJobSummary[];
   /** One job in full, or `null` if it is not this owner's or does not exist. */
   get(owner: Owner, id: JobId): ImportJob | null;
+  /**
+   * The import job that produced a given score, in full, or `null` if this owner has none for it —
+   * the reverse of {@link ImportJob.scoreId}. V14 correcting a parse starts from a score the user
+   * opened (a re-parse, the split-pane review) and has to reach back to the retained source images
+   * (ADR-0019), which are the importing job's `imageKeys`; there is no provenance on the `Score`
+   * itself, so this reverse lookup is the linkage (the user's choice over a schema change). A score
+   * is produced by at most one import — a duplicate gets a fresh log, not a job (ADR-0003, Q79) — so
+   * it is a single job, not a list. Owner-scoped like {@link JobReader.get}.
+   */
+  getByScoreId(owner: Owner, scoreId: Id): ImportJob | null;
 }
 
 /**
@@ -83,8 +102,12 @@ export interface JobReader {
  * job cannot be moved twice — the guard is a fact of the write, not of the caller's discipline.
  */
 export interface JobWriter {
-  /** Record a new `queued` job for these images (≥ 1, in page order). Mints the id. */
-  create(owner: Owner, imageKeys: BlobKey[]): ImportJob;
+  /**
+   * Record a new `queued` job for these images (≥ 1, in page order). Mints the id. `engine` names the
+   * recognition engine the runner should request (V14e's re-parse); omitted (or `null`) leaves the
+   * worker to pick its default, which is every normal import's path.
+   */
+  create(owner: Owner, imageKeys: BlobKey[], engine?: string | null): ImportJob;
   /**
    * Atomically take the oldest `queued` job across all owners into `running`, incrementing its
    * attempt count, or return `null` when nothing is waiting. The runner is a system actor, so this

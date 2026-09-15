@@ -42,6 +42,7 @@ function aDocument(): OmrDocument {
     noteGroups: [],
     barlines: [],
     rests: [],
+    bandTokens: [],
   };
 }
 
@@ -151,6 +152,38 @@ describe('the SQLite job store', () => {
     expect(recovered).toBe(2);
     expect(store.get(OWNER, a.id)?.status).toBe('failed');
     expect(store.get(OWNER, b.id)?.diagnostic).toBe('interrupted');
+  });
+
+  it('finds the job that produced a score, scoped to its owner (V14)', () => {
+    // The reverse of `scoreId`: a re-parse (V14) opens with a score and reaches back to the job that
+    // imported it, for the source images it retained (ADR-0019).
+    const job = store.create(OWNER, ['a']);
+    store.claim();
+    store.complete(job.id, [aDocument()], 'import-42');
+
+    const found = store.getByScoreId(OWNER, 'import-42');
+    expect(found?.id).toBe(job.id);
+    expect(found?.scoreId).toBe('import-42');
+    // The full job, not a summary — it carries the recognised result.
+    expect(found?.result).toEqual([aDocument()]);
+
+    // Not another owner's, and not a score no import produced (a queued job has a null scoreId).
+    expect(store.getByScoreId(OTHER, 'import-42')).toBeNull();
+    expect(store.getByScoreId(OWNER, 'no-such-score')).toBeNull();
+    store.create(OWNER, ['b']); // still queued, scoreId null — never matches a lookup
+    expect(store.getByScoreId(OWNER, 'import-99')).toBeNull();
+  });
+
+  it('records and reads back the engine a re-parse chose (V14e), null by default', () => {
+    const plain = store.create(OWNER, ['a']);
+    expect(plain.engine).toBeNull();
+    expect(store.get(OWNER, plain.id)?.engine).toBeNull();
+
+    const chosen = store.create(OWNER, ['b'], 'heuristic');
+    expect(chosen.engine).toBe('heuristic');
+    expect(store.get(OWNER, chosen.id)?.engine).toBe('heuristic');
+    // The listing summary carries it too.
+    expect(store.list(OWNER).find((j) => j.id === chosen.id)?.engine).toBe('heuristic');
   });
 
   it('persists jobs across a reopen of the same database', () => {

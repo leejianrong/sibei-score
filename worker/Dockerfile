@@ -14,12 +14,14 @@
 
 FROM python:3.11-slim-bookworm
 
-# The only system libraries oemer's runtime needs. opencv-python-headless is the GUI-free build, so
-# no libGL/X11 — it needs glib, and scipy/scikit-learn need libgomp (OpenMP). Kept to exactly these
-# so the offline image's surface stays small and auditable (ADR-0024's argument is only as strong as
-# the dependency list is short).
+# The system libraries the Python runtime needs. oemer wants glib (libglib2.0-0), and
+# scipy/scikit-learn want libgomp (OpenMP). PaddleOCR (V13, ADR-0027) pulls in a `cv2` that links
+# libGL.so.1 even though we install opencv-python-headless — headless drops the GUI *Python* deps but
+# the native module still dlopens libGL — so libgl1 is required or `import cv2` fails at build time in
+# fetch_weights.py. Kept to exactly these so the offline image's surface stays small and auditable
+# (ADR-0024's argument is only as strong as the dependency list is short).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libglib2.0-0 libgomp1 \
+  && apt-get install -y --no-install-recommends libglib2.0-0 libgomp1 libgl1 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -35,8 +37,14 @@ RUN pip install --no-cache-dir .
 # disabled, the offline requirement's whole point (a fresh container's first import must work on a
 # gig with no connectivity). A silently changed or replaced upstream artefact fails the build here,
 # not at runtime. This is the layer that makes the image large, and Q43 accepts that size as the
-# direct price of the offline guarantee. Build time needs the network (to fetch the ~104 MB of
-# weights); runtime does not.
+# direct price of the offline guarantee. Build time needs the network (to fetch the weights); runtime
+# does not.
+#
+# fetch_weights.py bakes oemer's two .onnx checkpoints AND warms PaddleOCR's chord-band model cache
+# (V13d, ADR-0027). PaddleOCR caches under PADDLE_PDX_CACHE_HOME, set into /app here so the later
+# `chown -R worker /app` hands it to the runtime user (the fetch runs as root); the runtime disables
+# the model-source network check so PaddleOCR reads the baked cache instead of probing upstream.
+ENV PADDLE_PDX_CACHE_HOME=/app/.paddlex
 RUN python fetch_weights.py
 
 # Run unprivileged: the worker processes untrusted image bytes (ADR-0029), so it holds no more than
@@ -50,7 +58,9 @@ USER worker
 # interfaces here exposes it only to other services on that network, never the host or the LAN
 # (ADR-0029's separation of bind from publish, V8h).
 ENV SIBEI_OMR_HOST=0.0.0.0 \
-    SIBEI_OMR_PORT=8000
+    SIBEI_OMR_PORT=8000 \
+    PADDLE_PDX_CACHE_HOME=/app/.paddlex \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 EXPOSE 8000
 
 # The server binds immediately (oemer's heavy imports are lazy, deferred to the first recognition),

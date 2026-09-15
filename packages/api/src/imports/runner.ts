@@ -1,5 +1,6 @@
 import { OmrMappingError, mapOmrToScore } from '@sibei/model';
 import type { Id, OmrDocument, Score } from '@sibei/model';
+import { correctChord } from '@sibei/music';
 import type { BlobStore } from '../blob/blob-store.js';
 import type { JobPublisher } from '../events/job-bus.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
@@ -119,7 +120,13 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
           // corrupted store, not a user error — but it is still this job's failure, not the API's.
           throw new WorkerError(`source image ${index + 1} is no longer a decodable image`);
         }
-        const doc = await worker.recognize(bytes, { imagePath: `page-${index + 1}`, format });
+        const doc = await worker.recognize(bytes, {
+          imagePath: `page-${index + 1}`,
+          format,
+          // A re-parse recorded the engine the user chose on the job (V14e); a normal import left it
+          // null and the worker uses its own default. `null` → omit, so the port sees `undefined`.
+          ...(job.engine === null ? {} : { engine: job.engine }),
+        });
         results.push(doc);
       }
 
@@ -129,7 +136,9 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       // with no score, nor a score with no succeeded job. A `mapOmrToScore` throw (no staff detected,
       // ADR-0018/Q28) or a store conflict fails the job, committing nothing (Q80), exactly like a
       // worker error — a failed import leaves no half-written score to undo (ADR-0003).
-      const document = mapOmrToScore(results, { id: `import-${job.id}` });
+      // Inject the V5 grammar corrector so band OCR becomes chords and annotations (V13, ADR-0011);
+      // `model` cannot import `music`, so the seam is passed in here.
+      const document = mapOmrToScore(results, { id: `import-${job.id}` }, correctChord);
       const { scoreId } = importer.import(job.owner, document);
 
       const done = jobs.complete(job.id, results, scoreId);

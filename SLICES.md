@@ -830,6 +830,42 @@ human-time gate is the right criterion).
 
 ## V13: Chords from the photo
 
+> **Update, 2026-09-14. Landed, in five stacked sub-PRs V13a–e (the V12 pattern), plus one
+> deliberate addition confirmed with the maintainer: the v0.3 engine seam pulled forward.** The chord
+> pipeline is built and, crucially, **runs end to end on the small build host** — the RAM wall that
+> OOM-kills oemer here is oemer-specific, and V13's chord work (PaddleOCR + the corrector + beat
+> mapping) is light. **V13a** extends the worker-output schema: `OmrDocument.bandTokens`
+> (`{text, bbox, confidence, group}`), `OMR_SCHEMA_VERSION` 1→2, both sides (`packages/model/src/omr.ts`,
+> `worker/sibei_omr/recognize.py`). **V13b** is the measurable core — a pure-TS mapper step in
+> `mapOmrToScore`: each band token is snapped to a legal chord (the **V5 grammar corrector**, injected
+> as a seam because `model` cannot import `music`, ADR-0011/0005) and **beat-mapped** to the note/rest
+> onset at or before its box (stage 3, Q71), or kept as a flagged `Annotation` (Q56); OCR confidence
+> and low-confidence flags ride into the model (ADR-0019). **V13c** pulls v0.3's engine-selection seam
+> (SLICES V15, ADR-0031) forward: `worker/sibei_omr/engines/{oemer,heuristic}`, chosen by
+> `--engine`/`$SIBEI_OMR_ENGINE`, oemer the default. The **heuristic engine** is OpenCV-only (no ML
+> weights, low RAM) so the whole photo→draft→PDF flow and `make eval` run where oemer is OOM-killed —
+> **dev/test scaffolding and the seed of the bespoke direction, NOT the trained V15/V16 model, and it
+> earns no default swap** (a swap is decided on the V12 harness, ADR-0020, never by fiat). **V13d** adds
+> the chord band: `worker/sibei_omr/band_ocr.py` crops the strip above each staff and runs **PaddleOCR**
+> (ADR-0027) on both engines, emitting `bandTokens`; offline weights are baked (ADR-0024). **V13e**
+> surfaces a flagged import chord's confidence in the text projection (`Cmaj7!62`, respecting ADR-0009's
+> "lossy by design": unflagged confidence and annotations stay in the structured dump / score view) and
+> lands these notes.
+>
+> **Measured:** the heuristic engine + PaddleOCR lifted `chordF1` from 0.000 to **0.100** on the
+> synthetic corpus, end to end on the 8 GB host — the whole flow works and the number is real.
+> **Deferred to a bigger host** (author + reviewed, the V10/V11 discipline): the **oemer** chord
+> baseline (the ADR-0011 stage-2 target), the full PaddleOCR+oemer co-install on py3.11, and the image
+> build — this host ran the heuristic engine + PaddleOCR in a light venv.
+>
+> **A decision from the corpus, surfaced not worked around:** rehearsal letters and sections are **not
+> created**. ADR-0021 is explicit that both are "supported … but not detected"; a lone A–G is a legal
+> chord *and* a plausible rehearsal letter and the schema carries no box/position cue to tell them
+> apart, so a readable token becomes a chord and the human promotes a genuine rehearsal mark to a
+> section in correction (V14) — which ADR-0021 already requires. This is the documented reading of Q56's
+> "matched separately by pattern": non-chord text is kept and flagged; auto-structure is not. Read the
+> build plan below as the plan it was.
+
 **Delivers:** R5 (completes the pipeline)
 
 **Build plan**
@@ -874,6 +910,30 @@ coordinates.
 ---
 
 ## V14: Correcting a parse
+
+> **Update, 2026-09-14. Landed, in seven stacked sub-PRs V14a–g (the V12/V13 pattern).** Correction is
+> built and **v0.2 (import) is complete — V9–V14 have all landed.** Every parse is a draft the human
+> fixes against the photo (ADR-0019), reachable from both surfaces. **V14a** retains the source: the
+> reverse lookup `JobReader.getByScoreId` (a store method, not a `Score` schema change) plus
+> `GET /v1/imports/:jobId/images/:index`, which streams the kept scan bytes with a content-type read
+> from them. **V14b** is the split-pane review: `GET /v1/scores/:id/source` (`ImportService.source`)
+> answers `{jobId, imageCount}` for an imported chart and `{jobId: null, imageCount: 0}` for a
+> hand-authored one — always 200, so the score view can ask it of *any* chart — and `SourcePane.svelte`
+> lays the source image beside the rendered score. **V14c** shades the review on the score surface, in
+> `packages/engrave`: a rose wash behind a metrically-invalid bar (ADR-0013) and a yellow wash behind a
+> low-confidence flagged object (ADR-0019), with a `reviewChart` fixture that enters the byte-identical
+> (ADR-0014/0015) and snapshot suites so the shading is one render path like everything else. **V14d**
+> is the no-sections advisory: `reviewSummary().hasSections` drives `NO_SECTIONS_ADVISORY` on both
+> surfaces (import never detects sections, ADR-0021, and layout silently depends on them, ADR-0015), and
+> a flag-parity integration test pins that `sbscore show`'s `!` flags and the browser's are the same set
+> for the same score. **V14e** is re-parse: `POST /v1/scores/:id/reparse` (`ImportService.reparse`)
+> reuses `getByScoreId` → the same `imageKeys`, no re-upload → the runner → the server-only
+> `Applier.import` (ADR-0003/0008) → a **new** draft, the original untouched; `sbscore reparse <id>
+> [--engine oemer|heuristic]` and a UI Re-parse control, with `engine` threaded end-to-end to the worker
+> (ADR-0005; the job table went schema v3→v4 to carry it, the worker resolves it per-request) and a
+> `422 unsupported-engine`. **V14f** wrote and ran the V12 human-time ship-gate procedure into
+> `docs/eval.md`; the gate run itself is **deferred** — its 32-bar fixture is not yet committed. **V14g**
+> is this note and the docs closeout (AGENTS.md, `docs/cli.md`, this file, the server route table).
 
 **Delivers:** R6
 
@@ -952,6 +1012,58 @@ baked and checksummed into the worker image at build (ADR-0024).
 scores it. V12 is therefore a hard prerequisite for V15, not merely prior art.
 
 ## V15: The synthetic-data gate
+
+> **Update, 2026-09-15 (scoping, pre-build).** Scoped with the maintainer after the oemer
+> baseline was completed (KAN-1391 fixed, ADR-0032 now records all four degradation levels).
+> Two build-plan items below are **already done**, ahead of schedule, so V15 shrinks to the
+> parts that are actually new:
+> - **Item 1 (`packages/synth`) exists** — built at V12 as the eval corpus generator
+>   (`generateScore` + `@sibei/synth/imaging` render+degrade), the sanctioned ADR-0031 exception,
+>   guarded out of every bundle by `tests/arch`. It emits **sequence** labels (the `Score`) but
+>   **not yet pixel boxes / per-system crops** — its own `generate.ts` comment flags that as
+>   "V15's extension". That gap is now **V15a**.
+> - **Item 4 (the engine seam) exists** — `worker/sibei_omr/engines/{oemer,heuristic}`, chosen
+>   by `--engine`/`$SIBEI_OMR_ENGINE` (V13c). The bespoke engine slots in beside them as a third
+>   `engines/bespoke`; `oemer` stays the default until it wins the harness.
+>
+> **Decisions locked (maintainer, this session):**
+> - **Stage-2a melody only** for the probe — no chords (V17), no layout detector (V16). Isolate
+>   the most-solved sub-problem so a failure is a *data-strategy* failure, per ADR-0031.
+> - **Training compute is always a RunPod GPU pod** (`worker/Dockerfile.gpu` + `tools/runpod/rp`,
+>   ADR-0032). The CPU spot pod is thread-bound (~13 min/page, ADR-0032 finding 2) and unusable
+>   for training.
+> - **PyTorch → ONNX → onnxruntime CPU inference.** Training is GPU; the shipped engine is
+>   CPU-first (ADR-0025) and rides the onnxruntime path the worker already loads for oemer, so no
+>   new heavy runtime dependency. Weights baked + checksummed at build time (ADR-0024, the
+>   `fetch_weights.py` pattern).
+> - **Model is small on purpose** — no hard RAM ceiling, but the floor is "comfortable on an 8 GB
+>   machine" (oemer's ~7 GB is the thing v0.3 exists to escape). Small also means **fast**, which
+>   the gate now measures as a first-class axis (see the metrics note below and `docs/eval.md`).
+>
+> **The gate is now three-dimensional, not just accuracy** (ADR-0031 makes RAM half the point,
+> and the maintainer added speed): the bespoke Stage-2a must beat oemer on **note accuracy**
+> *and* run **materially faster at a materially smaller peak-RAM footprint**, on the CPU
+> inference floor. The new speed/RAM metrics are defined in `docs/eval.md` ("Performance
+> metrics"); the headline insight is that **speed is only meaningful measured thread-pinned** —
+> oemer's wall-clock is distorted by onnxruntime thread over-subscription (ADR-0032 finding 2),
+> so both engines are timed under a fixed thread budget or the comparison lies.
+>
+> **V15 decomposes into three sub-slices (stacked PRs, the V12/V13 pattern):**
+> - **V15a — labels from the render stack (pure, no model, no compute).** Extend `@sibei/synth`
+>   to emit, per staff system, its **pixel bounding box** in the rendered image and the ordered
+>   note/rest **token sequence** inside it, and to cut `(system-crop image, token-sequence)`
+>   training pairs. This is the load-bearing piece: `layout` already computes every position, so
+>   this reads boxes off the layout rather than detecting them. Deterministic per seed. It is the
+>   labeller the whole strategy rests on, and it ships before any model.
+> - **V15b — train the Stage-2a CRNN+CTC (RunPod GPU).** A CNN over a fixed-height staff crop →
+>   BiLSTM → CTC over a compact note/rest vocabulary (staff-position pitch × duration class,
+>   kept to a few hundred symbols so CTC stays tractable). Domain randomisation from V15a's
+>   generator. Train on GPU, export ONNX, bake + checksum the weights.
+> - **V15c — wire `engines/bespoke` + score on the harness.** The bespoke engine takes system
+>   crops (for the probe, reuse the **heuristic engine's OpenCV staff-finder** to get crops, since
+>   the Stage-1 detector is V16 — this isolates 2a's recognition quality on real staff geometry),
+>   runs the ONNX model, and emits a schema-valid `OmrDocument` (notes with bbox, pitch, duration).
+>   Score noteF1 + sec/page + peak-RAM against oemer through the V12 harness.
 
 **Delivers:** the exit condition for ADR-0031, and the go/no-go on training our own
 

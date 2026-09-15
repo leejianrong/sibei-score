@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { OmrDocument } from '@sibei/model';
+import type { Id, OmrDocument } from '@sibei/model';
 import type { BlobKey } from '../blob/blob-store.js';
 import type { Owner } from './repository.js';
 import type { ImportJob, ImportJobSummary, JobId, JobStore } from './jobs.js';
@@ -41,7 +41,15 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return job !== undefined && job.owner === owner ? copy(job) : null;
     },
 
-    create(owner: Owner, imageKeys: BlobKey[]) {
+    getByScoreId(owner: Owner, scoreId: Id) {
+      // At most one job references a score (V14), so the first match is the answer.
+      for (const job of jobs.values()) {
+        if (job.owner === owner && job.scoreId === scoreId) return copy(job);
+      }
+      return null;
+    },
+
+    create(owner: Owner, imageKeys: BlobKey[], engine: string | null = null) {
       if (imageKeys.length === 0) throw new Error('an import job must carry at least one image');
       const when = stamp();
       const job: ImportJob = {
@@ -49,6 +57,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
         owner,
         status: 'queued',
         imageKeys: [...imageKeys],
+        engine,
         attempts: 0,
         diagnostic: null,
         result: null,

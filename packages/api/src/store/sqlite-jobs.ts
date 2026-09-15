@@ -39,6 +39,7 @@ interface JobRow {
   owner: string;
   status: string;
   image_keys: string;
+  engine: string | null;
   attempts: number;
   diagnostic: string | null;
   result: string | null;
@@ -58,17 +59,22 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
 
   const statements = {
     list: db.prepare<[Owner], SummaryRow>(
-      `SELECT id, owner, status, image_keys, attempts, diagnostic, score_id, version, created_at, updated_at
+      `SELECT id, owner, status, image_keys, engine, attempts, diagnostic, score_id, version, created_at, updated_at
          FROM import_jobs WHERE owner = ? ORDER BY created_at DESC, id ASC`,
     ),
     get: db.prepare<[Owner, JobId], JobRow>(
       `SELECT * FROM import_jobs WHERE owner = ? AND id = ?`,
     ),
     byId: db.prepare<[JobId], JobRow>(`SELECT * FROM import_jobs WHERE id = ?`),
+    byScoreId: db.prepare<[Owner, string], JobRow>(
+      // At most one row matches: only a succeeded job has a non-null score_id, and a score is
+      // produced by a single import (V14). LIMIT 1 makes that a fact of the query, not an assumption.
+      `SELECT * FROM import_jobs WHERE owner = ? AND score_id = ? LIMIT 1`,
+    ),
     insert: db.prepare(
       `INSERT INTO import_jobs
-         (id, owner, status, image_keys, attempts, diagnostic, result, score_id, version, created_at, updated_at)
-       VALUES (@id, @owner, 'queued', @image_keys, 0, NULL, NULL, NULL, 1, @created_at, @created_at)`,
+         (id, owner, status, image_keys, engine, attempts, diagnostic, result, score_id, version, created_at, updated_at)
+       VALUES (@id, @owner, 'queued', @image_keys, @engine, 0, NULL, NULL, NULL, 1, @created_at, @created_at)`,
     ),
     /**
      * The claim, as one conditional UPDATE with a subquery: pick the oldest queued job and move it
@@ -118,13 +124,19 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
       return row === undefined ? null : toJob(row);
     },
 
-    create(owner, imageKeys: BlobKey[]) {
+    getByScoreId(owner, scoreId) {
+      const row = statements.byScoreId.get(owner, scoreId);
+      return row === undefined ? null : toJob(row);
+    },
+
+    create(owner, imageKeys: BlobKey[], engine: string | null = null) {
       if (imageKeys.length === 0) throw new Error('an import job must carry at least one image');
       const id = newId();
       statements.insert.run({
         id,
         owner,
         image_keys: JSON.stringify(imageKeys),
+        engine,
         created_at: timestamp(now),
       });
       // Read it back rather than reconstruct it, so the row is the store's truth and not this
@@ -168,6 +180,7 @@ function toJob(row: JobRow): ImportJob {
     owner: row.owner,
     status: row.status as ImportJob['status'],
     imageKeys: JSON.parse(row.image_keys) as BlobKey[],
+    engine: row.engine,
     attempts: row.attempts,
     diagnostic: row.diagnostic,
     result: row.result === null ? null : (JSON.parse(row.result) as OmrDocument[]),
@@ -184,6 +197,7 @@ function toSummary(row: SummaryRow): ImportJobSummary {
     owner: row.owner,
     status: row.status as ImportJob['status'],
     imageKeys: JSON.parse(row.image_keys) as BlobKey[],
+    engine: row.engine,
     attempts: row.attempts,
     diagnostic: row.diagnostic,
     scoreId: row.score_id,

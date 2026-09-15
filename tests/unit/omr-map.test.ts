@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { correctChord } from '@sibei/music';
 import {
   DEFAULT_KEY,
   DEFAULT_TIME,
@@ -11,11 +12,13 @@ import {
   parseOmrDocument,
   reviewSummary,
   type Note,
+  type OmrBandToken,
   type OmrBarline,
   type OmrDocument,
   type OmrNotehead,
   type OmrRest,
   type OmrStaff,
+  type Score,
 } from '@sibei/model';
 
 /**
@@ -69,11 +72,22 @@ function barline(x: number, group = 0): OmrBarline {
   return { bbox: [x, STAFF_DEFAULTS.yUpper, x + 1, STAFF_DEFAULTS.yLower], group };
 }
 
+/**
+ * A chord-band OCR token centred at pixel `x`, sitting in the band above the staff (cy ≈ yUpper - 2
+ * spaces). `group` defaults to 0 to attach by the reliable group key; pass `group: null` to exercise
+ * the geometric fallback.
+ */
+function bandToken(x: number, text: string, over: Partial<OmrBandToken> = {}): OmrBandToken {
+  const cy = STAFF_DEFAULTS.yUpper - STAFF_DEFAULTS.unitSize * 2;
+  return { text, bbox: [x - 20, cy - 8, x + 20, cy + 8], confidence: 0.9, group: 0, ...over };
+}
+
 function page(parts: {
   staves?: OmrStaff[];
   noteheads?: OmrNotehead[];
   rests?: OmrRest[];
   barlines?: OmrBarline[];
+  bandTokens?: OmrBandToken[];
 }): OmrDocument {
   return {
     schemaVersion: 1,
@@ -92,6 +106,7 @@ function page(parts: {
     noteGroups: [],
     barlines: parts.barlines ?? [],
     rests: parts.rests ?? [],
+    bandTokens: parts.bandTokens ?? [],
   };
 }
 
@@ -388,5 +403,154 @@ describe('mapOmrToScore — the committed real dump', () => {
       expect(n.pitch.octave).toBeGreaterThanOrEqual(3);
       expect(n.pitch.octave).toBeLessThanOrEqual(6);
     }
+  });
+});
+
+/**
+ * V13b: chords from the band. The mapper is pure TS over `bandTokens`, with the grammar corrector
+ * injected (`@sibei/music`), so the whole classify + beat-map + confidence path is exercised here at
+ * the fast layer — no worker, no PaddleOCR, no oemer. The V13 test plan's Unit and E2E chord clauses
+ * ("chord at the correct beat", "a bar with two chords maps both", "non-chord text survives as a
+ * flagged annotation, not a bogus chord", "a box between two onsets resolves to the earlier beat").
+ */
+describe('mapOmrToScore — chords from the band (V13)', () => {
+  const chordsOf = (score: Score) => score.bars.flatMap((b) => b.chords);
+  const annotationsOf = (score: Score) => score.bars.flatMap((b) => b.annotations);
+
+  it('turns a band token above a note into a chord at that beat', () => {
+    const score = mapOmrToScore(
+      [page({ noteheads: [note(300, 2)], bandTokens: [bandToken(300, 'Cmaj7')] })],
+      { id: 's' },
+      correctChord,
+    );
+    const chords = chordsOf(score);
+    expect(chords).toHaveLength(1);
+    expect(chords[0]!.text).toBe('Cmaj7');
+    expect(chords[0]!.onset).toBe(0);
+    expect(chords[0]!.confidence).toBe(0.9);
+  });
+
+  it('beat-maps a box between two onsets to the earlier beat (the unit contract)', () => {
+    // Two quarter notes: onset 0 at x=200, onset TICKS_PER_QUARTER at x=400.
+    const score = mapOmrToScore(
+      [
+        page({
+          noteheads: [note(200, 2), note(400, 4)],
+          // A token at x=300 sits strictly between the two notes -> the earlier beat, onset 0.
+          bandTokens: [bandToken(300, 'F7')],
+        }),
+      ],
+      { id: 's' },
+      correctChord,
+    );
+    expect(chordsOf(score)[0]!.onset).toBe(0);
+  });
+
+  it('a token left of every note maps to the bar start', () => {
+    const score = mapOmrToScore(
+      [page({ noteheads: [note(400, 2)], bandTokens: [bandToken(150, 'C')] })],
+      { id: 's' },
+      correctChord,
+    );
+    expect(chordsOf(score)[0]!.onset).toBe(0);
+  });
+
+  it('maps two chords in one bar to their own beats', () => {
+    const score = mapOmrToScore(
+      [
+        page({
+          noteheads: [note(200, 2), note(400, 4)],
+          bandTokens: [bandToken(200, 'C'), bandToken(400, 'G7')],
+        }),
+      ],
+      { id: 's' },
+      correctChord,
+    );
+    const chords = chordsOf(score);
+    expect(chords.map((c) => c.text)).toEqual(['C', 'G7']);
+    expect(chords.map((c) => c.onset)).toEqual([0, TICKS_PER_QUARTER]);
+  });
+
+  it('reuses the V5 grammar corrector to snap a garbled read to a legal chord', () => {
+    const score = mapOmrToScore(
+      [page({ noteheads: [note(300, 2)], bandTokens: [bandToken(300, 'Cm7bS')] })],
+      { id: 's' },
+      correctChord,
+    );
+    // `Cm7bS` (OCR read `5` as `S`) snaps to `Cm7b5` — the corrector, not a second implementation.
+    expect(chordsOf(score)[0]!.text).toBe('Cm7b5');
+  });
+
+  it('keeps non-chord band text as a flagged annotation, never a bogus chord (Q56)', () => {
+    const score = mapOmrToScore(
+      [page({ noteheads: [note(300, 2)], bandTokens: [bandToken(300, 'Latin')] })],
+      { id: 's' },
+      correctChord,
+    );
+    expect(chordsOf(score)).toHaveLength(0);
+    const annotations = annotationsOf(score);
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0]!.text).toBe('Latin');
+    expect(annotations[0]!.review.flagged).toBe(true);
+  });
+
+  it('flags a low-confidence chord and leaves a confident one unflagged (ADR-0019)', () => {
+    const score = mapOmrToScore(
+      [
+        page({
+          noteheads: [note(200, 2), note(400, 4)],
+          bandTokens: [bandToken(200, 'C', { confidence: 0.4 }), bandToken(400, 'G7', { confidence: 0.95 })],
+        }),
+      ],
+      { id: 's' },
+      correctChord,
+    );
+    const [c, g7] = chordsOf(score);
+    expect(c!.review.flagged).toBe(true);
+    expect(g7!.review.flagged).toBe(false);
+  });
+
+  it('attaches a band token to its staff by geometry when the group is unknown', () => {
+    const score = mapOmrToScore(
+      [page({ noteheads: [note(300, 2)], bandTokens: [bandToken(300, 'Cmaj7', { group: null })] })],
+      { id: 's' },
+      correctChord,
+    );
+    expect(chordsOf(score)[0]!.text).toBe('Cmaj7');
+  });
+
+  it('produces no chords or annotations when no corrector is injected (the V11 result)', () => {
+    const doc = page({ noteheads: [note(300, 2)], bandTokens: [bandToken(300, 'Cmaj7'), bandToken(350, 'Latin')] });
+    const score = mapOmrToScore([doc], { id: 's' });
+    expect(chordsOf(score)).toHaveLength(0);
+    expect(annotationsOf(score)).toHaveLength(0);
+  });
+});
+
+/**
+ * V13c: the heuristic engine (`worker/sibei_omr/engines/heuristic.py`) is a second engine behind the
+ * seam, emitting the *same* OmrDocument as oemer (ADR-0005). This is its committed real output on a
+ * deterministic 2-system drawn chart — proof, in Node CI, that the heuristic engine conforms to the
+ * schema and that the whole TS pipeline consumes it with no engine-specific branch. (The engine runs
+ * on a small host — OpenCV only, no oemer RAM — so its output is committable, unlike an oemer chord
+ * dump.)
+ */
+describe('mapOmrToScore — the committed heuristic engine dump (V13c)', () => {
+  const doc: OmrDocument = parseOmrDocument(
+    JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/omr/heuristic-synthetic.omr.json'), 'utf8')),
+  );
+
+  it('the heuristic output validates against the model schema', () => {
+    expect(doc.schemaVersion).toBe(2);
+    expect(doc.source.engine).toBe('heuristic');
+  });
+
+  it('maps to a two-system draft with a note in every bar', () => {
+    const score = mapOmrToScore([doc], { id: 'heur' });
+    // Two systems of four bars each; the count may dip if a barline merged (a draft, ADR-0019).
+    expect(score.bars.length).toBeGreaterThanOrEqual(6);
+    expect(score.bars.length).toBeLessThanOrEqual(8);
+    expect(notesOf(score).length).toBe(doc.noteheads.length);
+    expect(score.meta.key).toEqual(DEFAULT_KEY);
   });
 });

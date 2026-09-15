@@ -1,8 +1,8 @@
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { orderedItems } from './address.js';
-import { barReview, NEEDS_REVIEW, reviewSummary } from './review.js';
-import type { Bar, BarItem, Score, TimeSignature } from './score.js';
+import { barReview, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from './review.js';
+import type { Bar, BarItem, Confidence, Review, Score, TimeSignature } from './score.js';
 
 /**
  * The agent-facing text projection (ADR-0009). A **contract**, not ad-hoc formatting: agents will
@@ -46,6 +46,11 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (review.anythingFlagged) {
     lines.push(`  ! = ${NEEDS_REVIEW}${review.meterNote === null ? '' : ` · ${review.meterNote}`}`);
   }
+  // A non-blocking layout advisory, not a review flag: a section-less chart lays out on a plain
+  // four-bar grid because sections drive line-breaking (ADR-0015), and a fresh import has none
+  // (ADR-0021). The wording is the model's, shared with the score rail (V14) — never refused,
+  // never a `!` (ADR-0013/0019). It rides `hasSections`, so it is not per-surface reasoning.
+  if (!review.hasSections) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
   lines.push('');
 
   const pickup = score.bars.find((bar) => bar.number === 0);
@@ -123,7 +128,10 @@ function cell(bar: Bar, time: TimeSignature): string {
   let cursor = 0;
 
   for (const chord of chords) {
-    const text = `${chord.text}${chord.review.flagged ? '!' : ''}`;
+    // On an import, a flagged chord shows its OCR confidence after the flag (V13); an authored one
+    // shows just `!`. Non-chord annotations stay out of this compact view — they live in the
+    // structured dump and render on the score surface (the projection is lossy by design, ADR-0009).
+    const text = symbol(chord.text, chord.review, chord.confidence);
     const wanted = Math.round(((beatOfOnset(chord.onset, time) - 1) / time.beats) * MIN_CELL);
     const at = Math.max(wanted, cursor);
     placed.push({ at, text });
@@ -168,7 +176,24 @@ function describe(item: BarItem, bar: Bar): string {
   const ratio =
     tuplet === null ? '' : tuplet.actual === 3 && tuplet.normal === 2 ? '(3)' : `(${tuplet.actual}:${tuplet.normal})`;
 
-  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${item.review.flagged ? ' !' : ''}`;
+  const flag = flagSuffix(item.review, item.confidence);
+  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${flag === '' ? '' : ` ${flag}`}`;
+}
+
+/** A band symbol (chord or quoted annotation) with its review flag and, on imports, its confidence. */
+function symbol(text: string, review: Review, confidence: Confidence): string {
+  return `${text}${flagSuffix(review, confidence)}`;
+}
+
+/**
+ * The review suffix: `` for an unflagged object, `!` for a flagged one, and `!NN` when it also carries
+ * a recognition confidence (an import), NN being the percent. `!` never appears inside a chord symbol
+ * or a pitch, so `Cmaj7!62` and `c5/4 !40` are unambiguous. This is how confidence reaches the text
+ * projection (V13): it rides the flag it explains, so a reviewer sees *how* unsure the parse is.
+ */
+function flagSuffix(review: Review, confidence: Confidence): string {
+  if (!review.flagged) return '';
+  return confidence === null ? '!' : `!${Math.round(confidence * 100)}`;
 }
 
 /** `8`, `4.`, `2..` — the note value, then a dot per dot. */

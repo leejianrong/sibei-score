@@ -31,9 +31,12 @@ import os
 import time
 from typing import Any
 
+from .band_ocr import BandStaff, default_band_ocr, read_band_tokens
+
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-SCHEMA_VERSION = 1
+# Mirrors OMR_SCHEMA_VERSION in packages/model/src/omr.ts (ADR-0005). v2 (V13) adds `bandTokens`.
+SCHEMA_VERSION = 2
 ENGINE = "oemer"
 
 
@@ -53,6 +56,28 @@ def _bbox(bbox: Any) -> list[int] | None:
     if bbox is None:
         return None
     return [int(v) for v in bbox]
+
+
+def _zone_bounds(zone: Any) -> list[int]:
+    """A staff zone as a half-open ``[start, stop)`` pair (schema: ``OmrDocument.zones``, model).
+
+    KAN-1391: oemer's ``init_zones`` builds the zones as ``np.array([range(a, b), ...], dtype=object)``.
+    When every ``range`` happens to have the SAME length, numpy does not keep them as objects — it
+    collapses the list into a 2-D int array, so iterating ``zones`` yields an ndarray *row* (the range's
+    expanded indices) instead of a ``range``. That row has no ``.start``/``.stop`` and the old
+    ``int(z.start)`` raised ``AttributeError: 'numpy.ndarray' object has no attribute 'start'`` on exactly
+    the pages whose detected staff bounds divided evenly (input-specific, hence some JPEGs failed while
+    others passed). Accept either form: a ``range``/``slice`` exposes ``.start``/``.stop`` directly; an
+    array-like zone is its expanded index list, whose half-open bounds are ``first`` and ``last + 1``.
+    """
+    start = getattr(zone, "start", None)
+    stop = getattr(zone, "stop", None)
+    if start is not None and stop is not None:
+        return [int(start), int(stop)]
+    seq = list(zone)
+    if not seq:
+        return [0, 0]
+    return [int(seq[0]), int(seq[-1]) + 1]
 
 
 def _label_name(obj: Any) -> str | None:
@@ -150,6 +175,13 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
     # Assigns each note/symbol its track & group (which staff, which system).
     rhythm_extract()
 
+    # Chord band above each staff (V13d, ADR-0010 stage 1/2, ADR-0027). oemer's `image` here is the
+    # dewarped BGR frame, in the same resized/deskewed coordinate space as every object above, which is
+    # the space stage-3 beat mapping needs (Q71). A null OCR (no PaddlePaddle) yields no band and the
+    # melody still imports.
+    ocr_fn = default_band_ocr()
+    band_tokens = read_band_tokens(image, _band_staves(_flatten(staffs), np), ocr_fn) if ocr_fn is not None else []
+
     elapsed = time.perf_counter() - start
 
     height, width = image.shape[:2]
@@ -166,7 +198,7 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
         },
         # Staves carry their extent as x_left/x_right/y_upper/y_lower, always present.
         "staves": [_staff_dict(i, s) for i, s in enumerate(_flatten(staffs))],
-        "zones": [[int(z.start), int(z.stop)] for z in zones],
+        "zones": [_zone_bounds(z) for z in zones],
         # Everything else is coordinate-first: an object with no bbox is detection noise with nothing
         # for stage 3 to align to, so it is dropped rather than dumped with a null coordinate (the
         # model schema requires bbox — see packages/model/src/omr.ts).
@@ -174,8 +206,30 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
         "noteGroups": [_group_dict(g) for g in _flatten(groups) if g.bbox is not None],
         "barlines": [_barline_dict(b) for b in _flatten(barlines) if b.bbox is not None],
         "rests": [_rest_dict(r) for r in _flatten(rests) if r.bbox is not None],
+        "bandTokens": band_tokens,
     }
     return doc
+
+
+def _band_staves(staffs: list[Any], np: Any) -> list[BandStaff]:
+    """Collapse oemer's per-(system, track) staff cells into one band-crop staff per system (its
+    `group`), spanning the union x-extent, the topmost `y_upper`, and the median unit size. Mirrors the
+    system collapse the TS mapper does (V9 finding: oemer tiles a staff across a track/x grid)."""
+    by_group: dict[Any, list[Any]] = {}
+    for staff in staffs:
+        if staff is None or not hasattr(staff, "x_left"):
+            continue
+        by_group.setdefault(staff.group, []).append(staff)
+    out: list[BandStaff] = []
+    for group, cells in by_group.items():
+        x_left = min(float(c.x_left) for c in cells)
+        x_right = max(float(c.x_right) for c in cells)
+        y_upper = min(float(c.y_upper) for c in cells)
+        y_lower = max(float(c.y_lower) for c in cells)
+        units = [float(c.unit_size) for c in cells if getattr(c, "unit_size", None)]
+        unit = float(np.median(units)) if units else max((y_lower - y_upper) / 4.0, 1.0)
+        out.append(BandStaff(int(group) if group is not None else 0, x_left, x_right, y_upper, unit))
+    return out
 
 
 def _register_note_id(layers: Any, np: Any) -> None:

@@ -21,7 +21,7 @@
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { Paper } from '@sibei/layout';
-  import { formatKeySignature, formatPitch, NEEDS_REVIEW, reviewSummary } from '@sibei/model';
+  import { formatKeySignature, formatPitch, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
   import type { Id, KeySignature, Score } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
   import {
@@ -59,6 +59,9 @@
   import { sectionStartingAt } from '@sibei/model';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
+  import SourcePane from './SourcePane.svelte';
+  import { getScoreSource, getImport, reparseScore, REPARSE_ENGINES } from '../lib/api.js';
+  import { hashOf } from '../lib/routing.js';
 
   interface Props {
     id: string;
@@ -87,6 +90,27 @@
   let paper = $state<Paper>(DEFAULT_PAPER);
   let font = $state<MusicFontName>(DEFAULT_MUSIC_FONT);
   let zoom = $state(100);
+
+  // The retained source scan, for the split-pane review (V14b, ADR-0019). A chart that came from an
+  // import has one or more source pages kept forever and shown beside the engraved result; a
+  // hand-authored or duplicated chart has none, and then this view is unchanged — no pane, no error.
+  // `source` is null until the provenance is fetched and stays null for a scan-less chart; `showSource`
+  // is the reader's toggle, defaulted on when a scan exists (side-by-side is the whole point of the
+  // review, per ADR-0019) and flipped off to give the sheet the full width for editing.
+  let source = $state<{ jobId: string; imageCount: number } | null>(null);
+  let showSource = $state(false);
+  const hasSource = $derived(source !== null && source.imageCount > 0);
+  const splitView = $derived(hasSource && showSource);
+
+  // Re-parse (V14e, ADR-0019): re-run OMR on this chart's retained scans into a NEW draft, so the
+  // original chart and any corrections on it survive. Shown only for a source-bearing chart (`hasSource`,
+  // the same gate the scan toggle uses). `reparseEngine` is the recogniser the user picks — the worker's
+  // default until they choose one; `reparsing` guards the control and drives the progress label while the
+  // job runs (recognition is minutes, ADR-0025); `reparseError` shows a failure in place rather than
+  // navigating away.
+  let reparseEngine = $state<string>('');
+  let reparsing = $state(false);
+  let reparseError = $state<string | null>(null);
 
   // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
   // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
@@ -304,6 +328,59 @@
         return;
       }
       failure = { kind: 'error', message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * The source-scan provenance (V14b, ADR-0019). Fetched once per opened chart (the id is fixed for
+   * this component's life — `App.svelte` keys it on the id), separately from `load` because it never
+   * changes with an edit: `GET /v1/scores/:id/source` answers the owning import and its page count,
+   * or the empty shape for a chart with no scan behind it. A failure here is swallowed on purpose —
+   * the scan is an aid to correction, not the chart, so nothing about not reaching it may disturb the
+   * score view (which is exactly why the route answers a value, not a 404, for a scan-less chart).
+   */
+  async function loadSource(): Promise<void> {
+    try {
+      const provenance = await getScoreSource(id);
+      if (provenance.jobId !== null && provenance.imageCount > 0) {
+        source = { jobId: provenance.jobId, imageCount: provenance.imageCount };
+        showSource = true;
+      } else {
+        source = null;
+      }
+    } catch {
+      source = null;
+    }
+  }
+
+  /**
+   * Re-parse (V14e, ADR-0019): submit the chart's retained scans for a fresh OMR run and open the new
+   * draft. It reuses the same server-only import path a normal import does (the runner → `Applier.import`),
+   * so it is not a second write path, and it produces a *new* score — the chart on screen is untouched.
+   * The job is durable (ADR-0001), so this submits, polls to a terminal status while the recogniser runs,
+   * then navigates to the new draft on success (the hash change remounts the view on the new id). A
+   * failure is shown in place; the original chart is still there to keep correcting by hand.
+   */
+  async function handleReparse(): Promise<void> {
+    if (reparsing) return;
+    reparsing = true;
+    reparseError = null;
+    try {
+      let job = await reparseScore(id, reparseEngine === '' ? undefined : reparseEngine);
+      while (job.status === 'queued' || job.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        job = await getImport(job.id);
+      }
+      if (job.status === 'succeeded' && job.scoreId !== null) {
+        // Open the new draft. Keyed on the id in `App.svelte`, so this remounts the view fresh.
+        window.location.hash = hashOf({ view: 'score', id: job.scoreId });
+      } else {
+        reparseError = job.diagnostic ?? 'the re-parse did not produce a chart';
+      }
+    } catch (error) {
+      reparseError = error instanceof Error ? error.message : 'the re-parse could not be started';
+    } finally {
+      reparsing = false;
     }
   }
 
@@ -591,6 +668,7 @@
   );
 
   void load();
+  void loadSource();
 </script>
 
 {#if failure !== null}
@@ -659,6 +737,14 @@
               <span class="bars">{formatBarRanges(review.invalidBars)}</span>
             {/if}
           </div>
+        {/if}
+        <!-- A layout advisory, not a review flag (V14, ADR-0015): sections drive line-breaking, so
+             a section-less chart — every fresh import (ADR-0021) — lays out on a plain four-bar grid
+             until one is added. Non-blocking by decision (ADR-0013/0019 never refuse a draft), so it
+             is a prompt beside the flags, never a `!`. `hasSections` is the model's single answer, the
+             same one the text projection prints, so the two surfaces cannot word it differently. -->
+        {#if review !== null && !review.hasSections}
+          <p class="review-advisory">{NO_SECTIONS_ADVISORY}</p>
         {/if}
       </div>
 
@@ -819,36 +905,79 @@
       </div>
     </aside>
 
-    <div class="stage" style="--sheet-w: {(SHEET_WIDTH * zoom) / 100}px">
-      <div class="stage-inner">
-        <div class="stage-bar">
-          <span>
-            {pages.length} {pages.length === 1 ? 'page' : 'pages'}
-            {#if !editable}· <span class="part-flag">{INSTRUMENTS.find((o) => o.value === instrument)?.label} part</span>{/if}
-          </span>
-          <div class="zoom" role="group" aria-label="Zoom">
-            <button
-              aria-label="Zoom out"
-              disabled={zoom <= ZOOM_MIN}
-              onclick={() => stepZoom(-ZOOM_STEP)}>−</button
-            >
-            <span class="val">{zoom}%</span>
-            <button
-              aria-label="Zoom in"
-              disabled={zoom >= ZOOM_MAX}
-              onclick={() => stepZoom(ZOOM_STEP)}>+</button
-            >
+    <!-- The workspace: just the sheet stage for most charts, and the retained scan beside it for one
+         that came from an import (V14b, ADR-0019). The `split` class turns the single stage into a
+         two-column review, each side its own scroll and its own zoom. -->
+    <div class="workspace" class:split={splitView}>
+      {#if splitView && source !== null}
+        <SourcePane jobId={source.jobId} imageCount={source.imageCount} />
+      {/if}
+      <div class="stage" style="--sheet-w: {(SHEET_WIDTH * zoom) / 100}px">
+        <div class="stage-inner">
+          <div class="stage-bar">
+            <span>
+              {pages.length} {pages.length === 1 ? 'page' : 'pages'}
+              {#if !editable}· <span class="part-flag">{INSTRUMENTS.find((o) => o.value === instrument)?.label} part</span>{/if}
+            </span>
+            <!-- The scan toggle lives here — always visible, so it can bring the scan back after it is
+                 hidden (the pane itself is gone then). Shown only for a chart that has a scan. -->
+            {#if hasSource}
+              <button
+                type="button"
+                class="scan-toggle"
+                aria-pressed={showSource}
+                onclick={() => (showSource = !showSource)}
+              >
+                {showSource ? 'Hide scan' : 'Show scan'}
+              </button>
+              <!-- Re-parse (V14e): re-run OMR on the kept scans into a NEW draft. Shown only for a
+                   source-bearing chart, beside the scan toggle. The engine selector is optional — the
+                   worker's default until the reader picks one (heuristic on a small host, oemer where
+                   RAM allows). -->
+              <div class="reparse" role="group" aria-label="Re-parse">
+                <select
+                  class="reparse-engine"
+                  aria-label="Recognition engine"
+                  bind:value={reparseEngine}
+                  disabled={reparsing}
+                >
+                  <option value="">default engine</option>
+                  {#each REPARSE_ENGINES as engine (engine.value)}
+                    <option value={engine.value}>{engine.label}</option>
+                  {/each}
+                </select>
+                <button type="button" class="reparse-btn" disabled={reparsing} onclick={handleReparse}>
+                  {reparsing ? 'Re-parsing…' : 'Re-parse'}
+                </button>
+                {#if reparseError !== null}
+                  <span class="reparse-error" role="alert">{reparseError}</span>
+                {/if}
+              </div>
+            {/if}
+            <div class="zoom" role="group" aria-label="Zoom">
+              <button
+                aria-label="Zoom out"
+                disabled={zoom <= ZOOM_MIN}
+                onclick={() => stepZoom(-ZOOM_STEP)}>−</button
+              >
+              <span class="val">{zoom}%</span>
+              <button
+                aria-label="Zoom in"
+                disabled={zoom >= ZOOM_MAX}
+                onclick={() => stepZoom(ZOOM_STEP)}>+</button
+              >
+            </div>
           </div>
+          <SheetStack
+            {pages}
+            selection={selectionOverlay}
+            chordSelection={chordOverlay}
+            barSelection={barOverlay}
+            addHint={hoverSlot}
+            onselect={handleSheetClick}
+            onhover={handleSheetHover}
+          />
         </div>
-        <SheetStack
-          {pages}
-          selection={selectionOverlay}
-          chordSelection={chordOverlay}
-          barSelection={barOverlay}
-          addHint={hoverSlot}
-          onselect={handleSheetClick}
-          onhover={handleSheetHover}
-        />
       </div>
     </div>
   </section>
@@ -968,6 +1097,14 @@
     font-size: 11px;
     letter-spacing: 0.03em;
   }
+  /* An advisory, not a flag: muted, no alarm wash, and separated from the flag block above so it
+     reads as a suggestion about layout rather than something that needs fixing (ADR-0013/0019). */
+  .review-advisory {
+    margin: 8px 0 0;
+    color: var(--ink-soft);
+    font-size: 12px;
+    line-height: 1.55;
+  }
 
   .inspector-empty {
     font-size: 12px;
@@ -1082,6 +1219,88 @@
     color: var(--ink-soft);
   }
 
+  /* The right-hand area. For most charts it is just the stage and behaves exactly as before (the
+     page body scrolls). For a chart with its scan shown (V14b) it becomes a two-column review: the
+     `SourcePane` and the stage side by side, each filling the viewport height and scrolling on its
+     own — the two panes read against each other, so neither may scroll or zoom the other. */
+  .workspace {
+    min-width: 0;
+  }
+  .workspace.split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    height: calc(100vh - var(--top-h));
+  }
+  .workspace.split :global(.source-pane) {
+    height: 100%;
+    border-right: 1px solid var(--rule);
+  }
+  /* In the split, the stage scrolls inside its own column instead of the body — so the scan column
+     and the sheet column move independently (ADR-0019: both scrollable). */
+  .workspace.split .stage {
+    height: 100%;
+    overflow-y: auto;
+    padding-top: 22px;
+  }
+
+  /* The scan toggle in the stage bar: a quiet text button, since it flips a view and writes nothing. */
+  .scan-toggle {
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+    padding: 4px 10px;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .scan-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .scan-toggle[aria-pressed='true'] {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Re-parse (V14e): the engine picker and its trigger, styled to sit beside the scan toggle. */
+  .reparse {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .reparse-engine {
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+    padding: 3px 6px;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .reparse-btn {
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-soft);
+    padding: 4px 10px;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .reparse-btn:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .reparse-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .reparse-error {
+    color: var(--danger, #b00020);
+    font-size: 10.5px;
+    max-width: 22ch;
+  }
+
   /* The stage scrolls sideways rather than the page body, so zooming past the window width is a
      document-viewer scroll and never a broken layout. */
   .stage {
@@ -1149,6 +1368,21 @@
     }
     .stage {
       padding: 22px 14px 150px;
+    }
+    /* Too narrow for two columns: stack the scan above the sheet, each scrolling on its own, and let
+       the body scroll again rather than pinning both to the viewport height. */
+    .workspace.split {
+      grid-template-columns: 1fr;
+      height: auto;
+    }
+    .workspace.split :global(.source-pane) {
+      height: 70vh;
+      border-right: 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    .workspace.split .stage {
+      height: auto;
+      overflow-y: visible;
     }
   }
 </style>

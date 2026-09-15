@@ -600,6 +600,7 @@ describe('the import verb (V11)', () => {
     noteGroups: [],
     barlines: [],
     rests: [],
+    bandTokens: [],
   });
 
   const pngBytes = (): Buffer => {
@@ -613,10 +614,19 @@ describe('the import verb (V11)', () => {
   };
 
   let behave: () => Promise<OmrDocument>;
-  const worker: WorkerClient = { recognize: () => behave() };
+  // Captures the engine the runner asked the worker for, so the reparse `--engine` test can assert the
+  // thread-through (V14e).
+  let lastEngine: string | undefined;
+  const worker: WorkerClient = {
+    recognize: (_image, meta) => {
+      lastEngine = meta.engine;
+      return behave();
+    },
+  };
 
   beforeEach(async () => {
     behave = () => Promise.resolve(aDocument());
+    lastEngine = undefined;
     importStore = openSqliteStore({ filename: ':memory:' });
     importApi = createApi({ store: importStore, worker, logger: { request: () => {}, error: () => {} } });
     const { port } = await importApi.listen(0);
@@ -681,5 +691,41 @@ describe('the import verb (V11)', () => {
     const result = await runImport('import', join(dir, 'nope.png'));
     expect(result.code).toBe(EXIT.usage);
     expect(result.err).toContain('cannot read');
+  });
+
+  it('re-parses an imported chart into a NEW draft (V14e), reusing the kept scan', async () => {
+    const path = join(dir, 'chart.png');
+    writeFileSync(path, pngBytes());
+    const imported = json<{ scoreId: string }>((await runImport('import', path, '--json')).out);
+
+    const result = await runImport('reparse', imported.scoreId, '--json');
+    expect(result.code).toBe(EXIT.ok);
+    const job = json<{ status: string; scoreId: string }>(result.out);
+    expect(job.status).toBe('succeeded');
+    // A NEW draft, not the original — the imported chart survives, and the new one opens.
+    expect(job.scoreId).not.toBe(imported.scoreId);
+    expect((await runImport('open', imported.scoreId, '--json')).code).toBe(EXIT.ok);
+    const opened = await runImport('open', job.scoreId, '--json');
+    expect(json<{ score: { bars: unknown[] } }>(opened.out).score.bars.length).toBeGreaterThan(0);
+  });
+
+  it('forwards --engine to the worker (V14e)', async () => {
+    const path = join(dir, 'chart.png');
+    writeFileSync(path, pngBytes());
+    const imported = json<{ scoreId: string }>((await runImport('import', path, '--json')).out);
+
+    const result = await runImport('reparse', imported.scoreId, '--engine', 'heuristic', '--json');
+    expect(result.code).toBe(EXIT.ok);
+    expect(lastEngine).toBe('heuristic');
+  });
+
+  it('reports a clean error re-parsing a chart with no scan behind it', async () => {
+    // A hand-authored chart has no source to re-run — a validation error, not a crash.
+    const created = json<{ scoreId: string }>(
+      (await runImport('new', '--title', 'By Hand', '--json')).out,
+    );
+    const result = await runImport('reparse', created.scoreId);
+    expect(result.code).toBe(EXIT.validation);
+    expect(result.err).toContain('nothing to re-parse');
   });
 });

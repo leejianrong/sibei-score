@@ -199,8 +199,13 @@ POST   /v1/scores/:id/ops    one operation, or a transactional list
 POST   /v1/scores/:id/undo   undo the last batch by replay (V8a); redo is the sibling
 POST   /v1/scores/:id/redo   reapply the last undone batch (V8a)
 POST   /v1/scores/:id/duplicate  copy to a new score with a fresh history (V8c)
+POST   /v1/scores/:id/reparse re-OMR the kept scans into a NEW draft (V14e): {job} over the same
+                             images, optional {engine}; 422 unsupported-engine, no-source-to-reparse
+                             when the chart has no scan behind it
 GET    /v1/scores/:id/export ?format=pdf|musicxml&paper=a4|letter&font=normal|jazz&instrument=concert
 GET    /v1/scores/:id/events SSE: this score's changes (V4a)
+GET    /v1/scores/:id/source the import behind a score (V14b): {jobId, imageCount}, or {jobId: null,
+                             imageCount: 0} for a chart with no scan — always 200, never a 404
 GET    (anything else)       the built UI, when serving it (V8g); else 404
 ```
 
@@ -392,7 +397,27 @@ GET    /v1/imports            this owner's jobs (summaries, no result)
 GET    /v1/imports/:id        one job in full, with the recognised objects and (V11) the scoreId when succeeded
 GET    /v1/imports/:id/events SSE: this job's progress
 POST   /v1/imports/:id/retry  requeue a failed job (Q80) -> 200; 409 if it is not failed
+GET    /v1/imports/:id/images/:index  the retained source image of page :index (V14a, ADR-0019) ->
+                              the bytes with a content-type read from them; 404 for an unknown job or page
 ```
+
+The reverse lookup a re-parse needs — score back to the job that made it — is `JobReader.getByScoreId`
+(V14a). A score is produced by at most one import (a duplicate gets a fresh log, not a job), so it is a
+single job. The `Score` carries no provenance of its own; this lookup is the linkage (a store method,
+chosen over a schema change). **V14b exposes it to the surfaces** as `GET /v1/scores/:id/source`
+(`ImportService.source`), which the browser's split-pane review opens on: it answers `{jobId,
+imageCount}` for an imported chart and the empty `{jobId: null, imageCount: 0}` for one with no scan —
+always 200, so opening *any* chart's review view (the score view asks this of every chart) can never
+error on a scan-less one. The review pane then GETs `…/imports/:jobId/images/:index` for each page.
+
+**V14e adds re-parse** as `POST /v1/scores/:id/reparse` (`ImportService.reparse`): the same
+`getByScoreId` lookup finds the job behind a score, so the retained `imageKeys` are re-enqueued through
+the runner with no new upload, run to a raw `OmrDocument`, and landed by the server-only `Applier.import`
+(ADR-0003/0008) as a **new** draft — the original is never mutated. An optional `engine` rides the
+request (threaded end-to-end to the worker, which resolves it per-request; the job table went schema
+v3→v4 to carry it); an unknown one is a **422 `unsupported-engine`**, and a score with no scan behind it
+a **422 `no-source-to-reparse`** (readable request, nothing to produce — the export-value class, CLI
+exit 2).
 
 The routes get an `ImportService`, not the job store and runner directly — the same narrowing every
 capability here gets. It holds no `ScoreWriter`, so nothing an import route can do writes a score.
