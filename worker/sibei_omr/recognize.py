@@ -58,6 +58,28 @@ def _bbox(bbox: Any) -> list[int] | None:
     return [int(v) for v in bbox]
 
 
+def _zone_bounds(zone: Any) -> list[int]:
+    """A staff zone as a half-open ``[start, stop)`` pair (schema: ``OmrDocument.zones``, model).
+
+    KAN-1391: oemer's ``init_zones`` builds the zones as ``np.array([range(a, b), ...], dtype=object)``.
+    When every ``range`` happens to have the SAME length, numpy does not keep them as objects — it
+    collapses the list into a 2-D int array, so iterating ``zones`` yields an ndarray *row* (the range's
+    expanded indices) instead of a ``range``. That row has no ``.start``/``.stop`` and the old
+    ``int(z.start)`` raised ``AttributeError: 'numpy.ndarray' object has no attribute 'start'`` on exactly
+    the pages whose detected staff bounds divided evenly (input-specific, hence some JPEGs failed while
+    others passed). Accept either form: a ``range``/``slice`` exposes ``.start``/``.stop`` directly; an
+    array-like zone is its expanded index list, whose half-open bounds are ``first`` and ``last + 1``.
+    """
+    start = getattr(zone, "start", None)
+    stop = getattr(zone, "stop", None)
+    if start is not None and stop is not None:
+        return [int(start), int(stop)]
+    seq = list(zone)
+    if not seq:
+        return [0, 0]
+    return [int(seq[0]), int(seq[-1]) + 1]
+
+
 def _label_name(obj: Any) -> str | None:
     """oemer labels are enums (NoteType/RestType); dump their name, guarding None."""
     try:
@@ -176,7 +198,7 @@ def recognize(img_path: str, image_name: str | None = None) -> dict[str, Any]:
         },
         # Staves carry their extent as x_left/x_right/y_upper/y_lower, always present.
         "staves": [_staff_dict(i, s) for i, s in enumerate(_flatten(staffs))],
-        "zones": [[int(z.start), int(z.stop)] for z in zones],
+        "zones": [_zone_bounds(z) for z in zones],
         # Everything else is coordinate-first: an object with no bbox is detection noise with nothing
         # for stage 3 to align to, so it is dropped rather than dumped with a null coordinate (the
         # model schema requires bbox — see packages/model/src/omr.ts).
