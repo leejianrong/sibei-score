@@ -18,6 +18,8 @@
     "render": "tsx scripts/render-fixture.ts",
     "render:nasty": "tsx scripts/render-fixture.ts nasty-chart",
     "proof": "tsx scripts/proof.ts",
+    "proof:v15a": "tsx scripts/v15a-crops-proof.ts",
+    "dump:v15a": "tsx scripts/v15a-dump-corpus.ts",
     "eval": "tsx scripts/eval.ts",
     "vendor:fonts": "tsx scripts/vendor-music-fonts.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
