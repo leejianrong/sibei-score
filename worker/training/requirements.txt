@@ -1,0 +1,7 @@
+# Training-only dependencies (V15b). NOT installed in the runtime worker image — the shipped worker
+# loads the baked ONNX through onnxruntime and never imports torch. Install these only on the GPU
+# training host (worker/Dockerfile.gpu) or a local box doing a CPU smoke run.
+torch>=2.0
+numpy>=1.24
+pillow>=10.0
+onnx>=1.15
