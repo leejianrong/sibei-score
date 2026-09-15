@@ -50,6 +50,36 @@ not measuring what it claims. The `real` row is the hand-labelled control set
 (`tests/fixtures/eval/real/`, see its README) — the gap between it and `clean` is the
 synthetic→real gap every training decision has to respect.
 
+## Performance metrics (speed + RAM)
+
+Accuracy is only half of what decides the v0.3 engine swap. ADR-0031 makes **peak RAM** a
+first-class gate metric — escaping oemer's ~7 GB is half the reason the bespoke engine exists — and
+the maintainer added **speed**, because a smaller model is a faster one and latency is what a user
+feels. So the harness reports three axes, not one: accuracy (above), speed, and footprint.
+
+| Metric | What it means |
+|---|---|
+| **sec/page** | Wall-clock seconds to recognise one page, single recogniser call. Sourced from `OmrDocument.source.wallClockSeconds`, which the worker already records. |
+| **peakMB** | Peak resident memory (RSS) during one recognition, in MB. Measured worker-side (`resource.getrusage`/`psutil`) and carried on `OmrDocument.source` (a schema addition when the bespoke engine lands). oemer ~7 GB; the bespoke target is comfortably under an 8 GB machine. |
+| **weightsMB** | Static size of the baked model weights on disk — a cheap footprint proxy, reported once per engine, not per page. |
+
+**Speed is only honest measured thread-pinned.** oemer's wall-clock is distorted by onnxruntime
+**thread over-subscription** — on a pod that reports ~128 host cores it spawns far more threads than
+the vCPU allocation and *slows down* (`pthread_setaffinity_np failed …`, ADR-0032 finding 2). A
+sec/page compared across engines under different thread counts is meaningless. So both engines are
+timed under a **fixed thread budget** (pin `OMP_NUM_THREADS` / onnxruntime intra-op threads to a
+small, stated number, e.g. 1–2), reflecting the CPU-first deployment floor (ADR-0025). The number is
+a floor to beat, not a peak to brag about.
+
+**Measure speed and RAM in the CPU inference environment, never on the GPU training pod.** Training
+compute is a RunPod GPU pod (ADR-0031 / ADR-0032); the *gate* is what ships — CPU inference, thread-
+pinned — so the perf numbers are taken there. A GPU training run says nothing about the shipped
+footprint.
+
+These columns join the accuracy table `make eval` prints and each `eval/history.jsonl` row, so a
+change to the recogniser moves accuracy, speed and RAM together and a regression in any one is
+visible.
+
 ## The human-time ship gate
 
 Accuracy is necessary but not sufficient: import ships when a person can **correct** a real chart

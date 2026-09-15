@@ -1013,6 +1013,58 @@ scores it. V12 is therefore a hard prerequisite for V15, not merely prior art.
 
 ## V15: The synthetic-data gate
 
+> **Update, 2026-09-15 (scoping, pre-build).** Scoped with the maintainer after the oemer
+> baseline was completed (KAN-1391 fixed, ADR-0032 now records all four degradation levels).
+> Two build-plan items below are **already done**, ahead of schedule, so V15 shrinks to the
+> parts that are actually new:
+> - **Item 1 (`packages/synth`) exists** — built at V12 as the eval corpus generator
+>   (`generateScore` + `@sibei/synth/imaging` render+degrade), the sanctioned ADR-0031 exception,
+>   guarded out of every bundle by `tests/arch`. It emits **sequence** labels (the `Score`) but
+>   **not yet pixel boxes / per-system crops** — its own `generate.ts` comment flags that as
+>   "V15's extension". That gap is now **V15a**.
+> - **Item 4 (the engine seam) exists** — `worker/sibei_omr/engines/{oemer,heuristic}`, chosen
+>   by `--engine`/`$SIBEI_OMR_ENGINE` (V13c). The bespoke engine slots in beside them as a third
+>   `engines/bespoke`; `oemer` stays the default until it wins the harness.
+>
+> **Decisions locked (maintainer, this session):**
+> - **Stage-2a melody only** for the probe — no chords (V17), no layout detector (V16). Isolate
+>   the most-solved sub-problem so a failure is a *data-strategy* failure, per ADR-0031.
+> - **Training compute is always a RunPod GPU pod** (`worker/Dockerfile.gpu` + `tools/runpod/rp`,
+>   ADR-0032). The CPU spot pod is thread-bound (~13 min/page, ADR-0032 finding 2) and unusable
+>   for training.
+> - **PyTorch → ONNX → onnxruntime CPU inference.** Training is GPU; the shipped engine is
+>   CPU-first (ADR-0025) and rides the onnxruntime path the worker already loads for oemer, so no
+>   new heavy runtime dependency. Weights baked + checksummed at build time (ADR-0024, the
+>   `fetch_weights.py` pattern).
+> - **Model is small on purpose** — no hard RAM ceiling, but the floor is "comfortable on an 8 GB
+>   machine" (oemer's ~7 GB is the thing v0.3 exists to escape). Small also means **fast**, which
+>   the gate now measures as a first-class axis (see the metrics note below and `docs/eval.md`).
+>
+> **The gate is now three-dimensional, not just accuracy** (ADR-0031 makes RAM half the point,
+> and the maintainer added speed): the bespoke Stage-2a must beat oemer on **note accuracy**
+> *and* run **materially faster at a materially smaller peak-RAM footprint**, on the CPU
+> inference floor. The new speed/RAM metrics are defined in `docs/eval.md` ("Performance
+> metrics"); the headline insight is that **speed is only meaningful measured thread-pinned** —
+> oemer's wall-clock is distorted by onnxruntime thread over-subscription (ADR-0032 finding 2),
+> so both engines are timed under a fixed thread budget or the comparison lies.
+>
+> **V15 decomposes into three sub-slices (stacked PRs, the V12/V13 pattern):**
+> - **V15a — labels from the render stack (pure, no model, no compute).** Extend `@sibei/synth`
+>   to emit, per staff system, its **pixel bounding box** in the rendered image and the ordered
+>   note/rest **token sequence** inside it, and to cut `(system-crop image, token-sequence)`
+>   training pairs. This is the load-bearing piece: `layout` already computes every position, so
+>   this reads boxes off the layout rather than detecting them. Deterministic per seed. It is the
+>   labeller the whole strategy rests on, and it ships before any model.
+> - **V15b — train the Stage-2a CRNN+CTC (RunPod GPU).** A CNN over a fixed-height staff crop →
+>   BiLSTM → CTC over a compact note/rest vocabulary (staff-position pitch × duration class,
+>   kept to a few hundred symbols so CTC stays tractable). Domain randomisation from V15a's
+>   generator. Train on GPU, export ONNX, bake + checksum the weights.
+> - **V15c — wire `engines/bespoke` + score on the harness.** The bespoke engine takes system
+>   crops (for the probe, reuse the **heuristic engine's OpenCV staff-finder** to get crops, since
+>   the Stage-1 detector is V16 — this isolates 2a's recognition quality on real staff geometry),
+>   runs the ONNX model, and emits a schema-valid `OmrDocument` (notes with bbox, pitch, duration).
+>   Score noteF1 + sec/page + peak-RAM against oemer through the V12 harness.
+
 **Delivers:** the exit condition for ADR-0031, and the go/no-go on training our own
 
 The riskiest unknown in the milestone, taken first, the way V1/V1b/V9 were. Everything
