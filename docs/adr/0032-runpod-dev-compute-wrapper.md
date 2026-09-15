@@ -276,6 +276,12 @@ noteF1 0.302 / chordF1 0.200). Two findings the run surfaced, both separate from
 
 (`eval-onpod` and the ssh verbs are kept for a pod that does get a public IP and for debugging.)
 
+> **Note (2026-09-16, V15 corpus variety).** These numbers predate the V15 symbol-variety expansion,
+> which widened the synthetic generator — semiquavers and dotted eighths, chromatic accidentals, and a
+> wider ledger-line range (`packages/synth`). The corpus the harness now generates is materially harder
+> and more representative, so this table is a baseline for the *earlier, narrower* corpus; a current
+> oemer baseline needs a re-run on the widened corpus.
+
 ## Alternatives considered
 
 | Option | Why not |

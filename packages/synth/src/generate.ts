@@ -61,6 +61,13 @@ export interface GenerateOptions {
   chords?: boolean;
   /** Emit one section starting at bar 1 (default true) — layout breaks lines at sections (ADR-0015). */
   section?: boolean;
+  /**
+   * Probability a melody note is chromatically inflected — raised or lowered a semitone on its step,
+   * which draws a sharp or flat (and a natural when the bar later restates the diatonic pitch).
+   * Default 0.12, so the corpus carries accidentals a recogniser must read; set 0 for a strictly
+   * diatonic melody.
+   */
+  chromatic?: number;
   /** Melody title/composer, for the header. Default empty (a real import has none until OCR, Q37). */
   title?: string;
   composer?: string;
@@ -123,8 +130,8 @@ function diatonicChord(scale: Root[], degree: number): ChordStructure {
  * the tonic two octaves up. Extracted to module scope and exported so `vocab.ts` covers exactly
  * the pitches the generator can emit (V15a) — one source, no drift between corpus and vocabulary.
  */
-export const LADDER_MIN = 0;
-export const LADDER_MAX = 14;
+export const LADDER_MIN = -5; // ~E3, a few ledger lines below the treble staff
+export const LADDER_MAX = 18; // ~G6, several ledger lines above
 
 export function ladderPitch(scale: Root[], pos: number): Pitch {
   const degree = ((pos % 7) + 7) % 7;
@@ -135,8 +142,10 @@ export function ladderPitch(scale: Root[], pos: number): Pitch {
 
 /** Note values a melody is built from, weighted toward the middle of the rhythmic range. */
 const RHYTHM_MENU: readonly { duration: Duration; weight: number }[] = [
-  { duration: dur(4), weight: 6 }, // quarter
-  { duration: dur(8), weight: 4 }, // eighth
+  { duration: dur(4), weight: 5 }, // quarter
+  { duration: dur(8), weight: 5 }, // eighth
+  { duration: dur(16), weight: 2 }, // semiquaver
+  { duration: dur(8, 1), weight: 2 }, // dotted eighth
   { duration: dur(2), weight: 2 }, // half
   { duration: dur(4, 1), weight: 2 }, // dotted quarter
   { duration: dur(2, 1), weight: 1 }, // dotted half
@@ -149,10 +158,11 @@ function fillBar(rng: Rng, capacity: number): Duration[] {
   while (remaining > 0) {
     const affordable = RHYTHM_MENU.filter((entry) => durationTicks(entry.duration) <= remaining);
     if (affordable.length === 0) {
-      // No menu value fits (a fraction left by a dotted value); close the bar with the largest
-      // plain value that divides the remainder. eighth = 240 divides every tick this menu leaves.
-      durations.push(dur(remaining >= 480 ? 4 : 8));
-      remaining -= remaining >= 480 ? 480 : 240;
+      // No menu value fits (a fraction left by a dotted value); close with the largest plain value
+      // that divides the remainder. Every tick this menu leaves is a multiple of a semiquaver (120).
+      const closer = remaining >= 480 ? dur(4) : remaining >= 240 ? dur(8) : dur(16);
+      durations.push(closer);
+      remaining -= durationTicks(closer);
       continue;
     }
     const choice = rng.weighted(
@@ -176,6 +186,7 @@ export function generateScore(options: GenerateOptions): Score {
   const key = options.key ?? DEFAULT_KEY;
   const withChords = options.chords ?? true;
   const withSection = options.section ?? true;
+  const chromatic = options.chromatic ?? 0.12;
   const scale = majorScale(key);
   const ids = createIdFactory();
   const capacity = barCapacity(time);
@@ -196,12 +207,22 @@ export function generateScore(options: GenerateOptions): Score {
       if (rest) {
         items.push(makeRest({ id: ids.next('rest'), onset: cursor, duration }));
       } else {
-        // Move by a small diatonic interval, biased to steps, clamped to the ladder range.
-        const step = rng.weighted([-2, -1, 0, 1, 2, 3], [2, 5, 1, 5, 2, 1]);
-        position = Math.max(LADDER_MIN, Math.min(LADDER_MAX, position + step));
-        items.push(
-          makeNote({ id: ids.next('note'), onset: cursor, duration, pitch: ladderPitch(scale, position) }),
+        // Move by a mostly-small diatonic interval, with the occasional leap so the full ledger-line
+        // range gets exercised; clamp to the ladder.
+        const step = rng.weighted(
+          [-7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 7],
+          [1, 1, 1, 2, 4, 6, 1, 6, 4, 2, 1, 1, 1],
         );
+        position = Math.max(LADDER_MIN, Math.min(LADDER_MAX, position + step));
+        let pitch = ladderPitch(scale, position);
+        // A chromatic inflection now and then: raise or lower the note a semitone on its step, drawing
+        // a sharp or flat (and a natural when the bar later restates the diatonic pitch — the layout's
+        // per-bar accidental resolution handles which glyph shows).
+        if (rng.bool(chromatic)) {
+          const dir = rng.bool(0.5) ? 1 : -1;
+          pitch = { ...pitch, alter: Math.max(-2, Math.min(2, pitch.alter + dir)) as Alter };
+        }
+        items.push(makeNote({ id: ids.next('note'), onset: cursor, duration, pitch }));
       }
       cursor += durationTicks(duration);
     }

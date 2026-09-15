@@ -27,10 +27,10 @@ describe('buildVocabulary', () => {
     expect(a.idOfSymbol(BLANK_SYMBOL)).toBe(0);
   });
 
-  it('has a modest, closed size for the probe (C major)', () => {
+  it('has a closed, complete size for the probe (C major)', () => {
     const vocab = buildVocabulary();
-    // 15 ladder pitches x 5 durations = 75 notes, + 5 rests, + 1 blank = 81.
-    expect(vocab.size).toBe(81);
+    // 24 ladder pitches x 3 chromatic inflections x 7 durations = 504 notes, + 7 rests + 1 blank.
+    expect(vocab.size).toBe(512);
     expect(vocab.symbols.length).toBe(vocab.size);
   });
 
@@ -53,21 +53,18 @@ describe('buildVocabulary', () => {
     }
   });
 
-  it('covers other keys when asked, and rejects their tokens otherwise', () => {
-    const cMajorOnly = buildVocabulary();
+  it('covers a corpus generated in another key when that key is included', () => {
     const withD = buildVocabulary({ keys: [{ tonic: 'C', alter: 0, mode: 'major' }, D_MAJOR] });
-    // D major introduces F# and C#, which C-major-only cannot spell.
+    // Widening the key set can only grow the vocabulary (D major's double-sharp spellings differ).
+    expect(withD.size).toBeGreaterThanOrEqual(buildVocabulary().size);
+    // Every token a D-major corpus emits — including its sharps — has a class in the widened vocab.
     const labels = extractLabels(generateScore({ seed: 7, bars: 16, key: D_MAJOR }));
-    let sawSharp = false;
+    let sawAccidental = false;
     for (const token of itemSequence(labels)) {
       expect(() => withD.idOf(token)).not.toThrow();
-      if (token.kind === 'note' && token.alter !== 0) {
-        sawSharp = true;
-        expect(cMajorOnly.idOfSymbol(tokenSymbol(token))).toBeUndefined();
-      }
+      if (token.kind === 'note' && token.alter !== 0) sawAccidental = true;
     }
-    expect(sawSharp).toBe(true); // the test is only meaningful if D major actually altered a pitch
-    expect(withD.size).toBeGreaterThan(cMajorOnly.size);
+    expect(sawAccidental).toBe(true); // D major's key signature alone guarantees F#/C#
   });
 
   it('names notes and rests the way training reads them', () => {
