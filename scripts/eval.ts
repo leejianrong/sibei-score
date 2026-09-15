@@ -136,18 +136,28 @@ async function makePredict(args: Args): Promise<Predict> {
     const dir = resolve(args.docsDir);
     return async (_image, _format, spec): Promise<Score> => {
       const path = join(dir, `${specName(spec)}.omr.json`);
+      const id = `eval-${specName(spec)}`;
       let raw: unknown;
       try {
         raw = JSON.parse(await readFile(path, 'utf8'));
       } catch (error) {
-        throw new Error(
-          `no recognised document for ${specName(spec)} at ${path} ` +
-            `(${(error as Error).message}). Did the batch run over the same --seeds/--bars/--levels ` +
-            `you passed here, and finish this page?`,
-        );
+        // A MISSING document means the batch could not recognise this page (the on-pod runner skips a
+        // page whose recognition threw — e.g. an engine bug on a heavily-degraded image — rather than
+        // aborting the whole batch). For a measurement sweep that is a legitimate zero, not a fatal
+        // error: score it as an empty chart, exactly as `mapOrEmpty` scores a page with no staff. This
+        // keeps a partial batch (some pages ok, some failed) from throwing away the pages that worked.
+        // A document that EXISTS but is malformed is a real defect and still throws.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          process.stderr.write(
+            `  ${id}: no recognised document at ${path} (the batch did not produce this page) ` +
+              `— scoring as an empty chart\n`,
+          );
+          return makeScore({ id, bars: [] });
+        }
+        throw new Error(`could not read the recognised document for ${specName(spec)} at ${path}: ${(error as Error).message}`);
       }
       const doc = parseOmrDocument(raw);
-      return mapOrEmpty(doc, `eval-${specName(spec)}`);
+      return mapOrEmpty(doc, id);
     };
   }
 

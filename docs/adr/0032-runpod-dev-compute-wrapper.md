@@ -198,6 +198,74 @@ Waiting longer did not help (still empty at ~8 min, pod `RUNNING`).
 The ssh verbs (`exec`/`push`/`pull`/`wait-ssh`) are kept: they work on a pod that *does* get a public
 IP, and are useful for debugging. The oemer number still lands after the pivoted transport runs.
 
+### Delivery: the relay transport (`rp eval-relay`) — landed and proven live (2026-09-15)
+
+The pivot is built as **`rp eval-relay`** and validated on real spot pods (all torn down to `$0`; the
+cost/teardown gate continued to hold, including the trap on a simulated disconnect). It needs **no
+public IP and no ssh**: the corpus goes up and the `OmrDocument`s come down over a `runpodctl`
+send/receive **relay** (outbound-only), and the pod's results code is read back via `runpodctl pod
+logs`. It reuses the existing worker image (commitment 1) — no rebuild, no repush.
+
+**What the runpodctl 2.14.0 surface actually is** (re-verified at run time, per the gate discipline —
+and it had moved: `get`/`create`/`remove`/`exec` are now *deprecated* under `pod …` verbs):
+
+- `send --code <base>` takes a **custom** base code but **appends a random relay index** (`<base>-<n>`)
+  at send time, and `receive` needs that exact final code — a mismatched index gives "room not ready".
+  So a purely pre-shared code (the original "Primary" sketch) cannot work by itself; the sender's final
+  code must reach the receiver out of band.
+- `runpodctl pod logs <id>` **exists** (JSON-lines, container/system source, `--follow`/`--tail`/
+  `--since`), reaches the pod with **no public IP**, and is the feedback channel that closes the gap.
+
+**The mechanism** carries each side's random final code over an outbound-only channel:
+
+- **Up (laptop → pod):** the laptop **pre-starts** its `send`, reads the final code it printed, and only
+  then bakes `runpodctl receive <final>` into the pod's `dockerStartCmd` — so the pod knows the exact
+  code before it boots. The croc sender holds its relay room while the pod boots and receives (verified
+  to hold ≥ 80 s locally, and end-to-end on a real pod).
+- **Down (pod → laptop):** the pod `send`s the results and echoes `SIBEI_DOWN_CODE=<final>` to stdout;
+  the laptop **polls** `pod logs --tail 5000` (a replaying poll, not a `--tail 0` live follow, so a line
+  printed before/between reads is never missed) and receives.
+
+Two image-shape fixes fell out of the first successful pod execution, neither touching product code:
+
+1. **Ship the current `sibei_omr` package up, don't trust the image's copy.** The pushed `:baseline`
+   image predates the V13 engine seam, so `import sibei_omr.engines` failed against it. `eval-relay`
+   now bundles the checkout's `worker/sibei_omr/` into the up-tar and runs `python -m sibei_omr.batch`
+   over it via `PYTHONPATH`, using the image only for its heavy installed deps (opencv, oemer, paddle).
+   The eval tracks this code regardless of the image's baked-in age, and the image still needs no rebuild.
+2. **runpodctl is already in the image.** The slim image has no `wget`/`curl`, so the pinned install
+   no-ops; the image's own runpodctl rendezvoused with the laptop's 2.14.0, so the pinned install is a
+   best-effort fallback, not a requirement. `rp` warns on a laptop/pod version skew (relay-list drift).
+
+**Result.** Both engines run the whole flow end-to-end over the relay on a spot pod (transport,
+recognition, scoring, teardown), every pod torn down to `$0`. The first **oemer baseline** (the
+ADR-0011 stage-2 target) is now recorded, `--seeds 1` on an 8-vCPU spot CPU pod, delivered by
+`eval-relay` and scored through `@sibei/synth` (also in `eval/history.jsonl`):
+
+| corpus | noteF1 | noteAcc | chordF1 | validBars |
+|--------|--------|---------|---------|-----------|
+| clean  | 0.812  | 0.800   | 0.400   | 0.250     |
+| medium | 0.522  | 0.514   | 0.667   | 0.375     |
+| light  | 0.000  | 0.000   | 0.000   | 1.000     |
+| heavy  | 0.000  | 0.000   | 0.000   | 1.000     |
+
+On the pages it recognises (clean, medium) oemer clears the heuristic engine comfortably (heuristic
+clean was noteF1 0.302 / chordF1 0.200). Two findings the run surfaced, both separate from the
+transport:
+
+1. **A recognition bug caps the number.** `light` and `heavy` (both JPEG-degraded) failed on the pod
+   with `AttributeError: 'numpy.ndarray' object has no attribute 'start'` in the oemer engine, so they
+   score as empty zeros. This is a worker recognition defect, not a transport or eval-delivery issue —
+   filed separately. `eval.ts --engine dump` now scores a **missing** page as an empty chart (a partial
+   batch is a legitimate zero, not a fatal error), mirroring the no-staff handling, so one bad page no
+   longer aborts the whole sweep.
+2. **oemer is CPU-thread-bound here, not core-bound.** A page took ~14 min on 4 vCPU and still ~13 min
+   (medium: 776 s) on 8 vCPU — the container sees ~128 host cores and onnxruntime over-subscribes
+   threads (`pthread_setaffinity_np failed …`), so more vCPUs barely help. Capping threads to the
+   allocation, or a GPU, is the real lever (see ADR-0025 for the GPU profile).
+
+(`eval-onpod` and the ssh verbs are kept for a pod that does get a public IP and for debugging.)
+
 ## Alternatives considered
 
 | Option | Why not |

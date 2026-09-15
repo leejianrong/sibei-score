@@ -53,7 +53,8 @@ rp run <cmd…>       # export SBSCORE_WORKER_URL to the pod, run <cmd> inside a
 rp exec <cmd…>      # run a command on the pod over ssh
 rp push <local> <r> # scp a file/dir up to the pod
 rp pull <r> <local> # scp a file/dir down from the pod
-rp eval-onpod [a…]  # full on-pod eval (see below); extra args go to both the dump and score commands
+rp eval-onpod [a…]  # full on-pod eval over ssh/scp (needs a pod with a direct-TCP public IP)
+rp eval-relay [a…]  # full on-pod eval over a runpodctl RELAY — NO public IP, NO ssh (recommended)
 rp status           # the pod's status
 rp logs             # pod info / where to read logs
 rp fetch <code>     # pull a checkpoint/artifact off the pod (eval numbers already land locally)
@@ -84,19 +85,59 @@ layers, defence-in-depth:
    `rp down` (on success, failure, Ctrl-C, or crash).
 3. **Account-level spend limit** — set one in the RunPod console as a coarse backstop.
 
-## First-job runbook (oemer eval) — the on-pod path
+## First-job runbook (oemer eval) — the relay path
 
 The corpus is **synthetic / hand-labeled** and fine to send (ADR-0020). **Never upload arbitrary
 user charts.**
 
-> **⚠️ Transport caveat (2026-09-15).** The `eval-onpod` flow below moves files over **ssh/scp to the
-> pod's direct-TCP `publicIp:port`**, and the first live run found that **spot CPU pods often come up
-> with no public IP** (`publicIp: ""`, `portMappings: null`) — direct-TCP public IPs are
-> machine-dependent on RunPod. When that happens `wait-ssh` cannot connect and the run tears the pod
-> down without producing a number. The transport is being pivoted to a `runpodctl` relay that needs no
-> public IP (see the ADR-0032 "Live pod test" note); until that lands, the ssh path here works **only on
-> a pod that happens to get a public IP** (check a pod's *Direct TCP Ports* in the RunPod console). The
-> `batch.py` + `eval.ts --engine dump` halves are transport-independent and fully working.
+`rp eval-relay` is the recommended path: it needs **no public IP and no ssh**. It generates the corpus
+locally, ships the images (with `batch.py`) up to the pod over a `runpodctl` relay, recognises on the
+pod, pulls the `OmrDocument`s back over the relay, and scores locally — the number is identical to a
+live `--engine worker` run (`buildEntry` is deterministic, so the ground truth regenerates at scoring
+time). The pod runs the **existing** worker image unchanged (ADR-0032 commitment 1).
+
+**How the relay avoids a public IP** (verified against runpodctl 2.14.0 — its surface moves, so
+re-verify): a transfer code is `<base>-<relayIndex>` and the **sender picks the relay index randomly**
+at send time, so the receiver must be told the sender's *final* code out of band. Two channels carry it,
+both outbound-only:
+
+- **Up (laptop → pod):** the laptop pre-starts its `send`, reads the final code it printed, then bakes
+  `runpodctl receive <final>` into the pod's launch command — so the pod knows the exact code before it
+  boots. The croc sender holds its relay room while the pod boots and receives (verified ≥ 80 s).
+- **Down (pod → laptop):** the pod `send`s the results and echoes `SIBEI_DOWN_CODE=<final>` to its
+  stdout; the laptop reads it via `runpodctl pod logs <id>` (which needs no public IP) and receives.
+
+Both sides must run the **same** runpodctl version, or the relay index can resolve to different relays
+and a transfer never rendezvous — `rp` pins it (`RP_RUNPODCTL_VERSION`, default matching the laptop's)
+and warns on a mismatch. `runpodctl` must be installed locally (`wget -qO- cli.runpod.net | sudo bash`,
+or grab the pinned release binary) — `rp eval-relay` uses it for the relay and for `pod logs`.
+
+```sh
+# 0. one-time: push the worker image; set RP_POD_IMAGE in tools/runpod/.env (Prerequisites). No ssh key.
+export PATH="$PWD/tools/runpod:$PATH"
+
+# One command, trap-guarded (down on success/failure/Ctrl-C). Start SMALL. For a cheap plumbing smoke
+# that skips oemer's minutes/RAM entirely, use the low-RAM heuristic engine (~$0.03):
+RP_EVAL_ENGINE=heuristic rp eval-relay --seeds 1
+# The oemer run (the point of this path). Raise the dead-man's-switch ceiling so it outlasts the batch:
+RP_MAX_LIFETIME_SECS=7200 RP_EVAL_ENGINE=oemer rp eval-relay --seeds 1
+# The printed table is the number; the score run appends it to eval/history.jsonl. The trap tears the
+# pod down; `rp down` afterwards is a belt-and-braces no-op (idempotent).
+```
+
+## First-job runbook (oemer eval) — the ssh path (needs a public IP)
+
+The corpus is **synthetic / hand-labeled** and fine to send (ADR-0020). **Never upload arbitrary
+user charts.**
+
+> **✅ Use `rp eval-relay` — the transport pivot has landed (2026-09-15).** `eval-onpod` moves files over
+> **ssh/scp to the pod's direct-TCP `publicIp:port`**, and the first live run found that **spot CPU pods
+> often come up with no public IP** (`publicIp: ""`, `portMappings: null`) — direct-TCP public IPs are
+> machine-dependent on RunPod, so `wait-ssh` cannot connect and the run tears the pod down without a
+> number. **`rp eval-relay` replaces it with a `runpodctl send`/`receive` relay that needs only outbound
+> network — no public IP, no ssh** (see [The relay runbook](#first-job-runbook-oemer-eval--the-relay-path)
+> and the ADR-0032 "Live pod test" note). `eval-onpod` is kept for a pod that *does* get a public IP and
+> for debugging, but `eval-relay` is the path that works on any spot pod.
 
 > **Why on-pod, not `rp run pnpm eval --engine worker --url …`.** The gate (ADR-0032, 2026-09-14)
 > proved oemer's ~5.4-min `/recognize` **cannot survive a single HTTP request over the internet**:

@@ -102,6 +102,14 @@ RP_SSH_PUBKEY="${RP_SSH_PUBKEY:-${RP_SSH_KEY}.pub}"
 # The engine the on-pod batch runs (oemer is the point of this path; heuristic is a cheap smoke).
 RP_EVAL_ENGINE="${RP_EVAL_ENGINE:-oemer}"
 
+# The runpodctl version the RELAY transport (eval-relay) pins on BOTH sides. The relay index in a
+# transfer code (`<code>-<idx>`) selects a relay from runpodctl's built-in list; if the laptop and the
+# pod ran different versions their lists could disagree and the index would resolve to different
+# relays, so a transfer would never rendezvous. Pinning the same version on the pod install and asking
+# the laptop to match removes that drift. VERIFY this is the version installed locally
+# (`runpodctl version`) before a run — bump it here if you upgrade the laptop's runpodctl.
+RP_RUNPODCTL_VERSION="${RP_RUNPODCTL_VERSION:-v2.14.0}"
+
 # The public key text embedded into the launch command, if a key file is present. Only the type +
 # base64 body are taken (never a trailing comment, which could contain shell-hostile characters).
 SSH_PUBKEY_CONTENT=""
@@ -284,6 +292,131 @@ LAUNCH
 }
 
 # ---------------------------------------------------------------------------
+# The RELAY launch command (eval-relay, ADR-0032 transport pivot).
+#
+# Baked into dockerStartCmd. Instead of the HTTP worker, the pod runs the co-located eval over a
+# `runpodctl send`/`receive` RELAY, which needs only OUTBOUND network — no public IP, no ssh. This is
+# the fix for the live-pod blocker (2026-09-15): spot CPU pods came up with no direct-TCP public IP,
+# so the ssh/scp transport (eval-onpod) could not reach them.
+#
+# Why a relay needs this exact dance (verified against runpodctl 2.14.0): a transfer code is
+# `<base>-<relayIndex>`, and the SENDER picks the relay index RANDOMLY at send time, so the receiver
+# must be told the sender's final code out of band. Two channels carry that:
+#   * UP (laptop -> pod): the laptop pre-starts its `send`, reads the final code it printed, and bakes
+#     `runpodctl receive <FINAL_UP>` here ($1) — so the pod knows the exact code before it boots.
+#   * DOWN (pod -> laptop): the pod `send`s with base code $2, then echoes SIBEI_DOWN_CODE=<final> to
+#     stdout; the laptop reads it via `runpodctl pod logs` and receives. (`pod logs` needs no public IP.)
+#
+# The UP tar carries the CURRENT worker package (pkg/sibei_omr) alongside the images (imgs/), so the pod
+# needs nothing pushed to it (no ssh). batch runs via `PYTHONPATH=in/pkg python -m sibei_omr.batch`
+# against that bundled code, using the EXISTING worker image only for its heavy installed deps
+# (opencv/oemer/paddle) — unchanged image, no rebuild (ADR-0032 commitment 1), and the eval tracks this
+# checkout even though the pushed image's own sibei_omr can be older. runpodctl already ships in the
+# image (the install below is a best-effort fallback). The dead-man's-switch (max-lifetime + idle
+# watchdog on the tee'd "recognize" log) is preserved, so a laptop disconnect still cannot leak a bill.
+#
+# $1 = FINAL_UP (fully-suffixed receive code)  $2 = BASE_DOWN (send base)  $3 = engine name
+# ---------------------------------------------------------------------------
+launch_command_relay() {
+  local final_up="$1" base_down="$2" engine="$3"
+  cat <<LAUNCH
+set -eu
+LOG=/tmp/sibei-worker.log
+: > "\$LOG"
+
+# runpodctl drives the relay. The worker image already ships it (verified: the relay rendezvous with
+# the laptop's ${RP_RUNPODCTL_VERSION}), so this install is a best-effort fallback for an image that
+# does not — and the slim image has no wget/curl, so it will usually no-op. Not fatal either way: if
+# runpodctl is genuinely absent the receive below fails and the dead-man's-switch reaps the pod.
+if ! command -v runpodctl >/dev/null 2>&1; then
+  ( wget -qO /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RP_RUNPODCTL_VERSION}/runpodctl-linux-amd64 \
+      || curl -fsSL -o /usr/local/bin/runpodctl https://github.com/runpod/runpodctl/releases/download/${RP_RUNPODCTL_VERSION}/runpodctl-linux-amd64 ) \
+    && chmod +x /usr/local/bin/runpodctl \
+    || echo "rp(pod): note: could not fetch runpodctl ${RP_RUNPODCTL_VERSION} (no wget/curl); relying on the image's own runpodctl" >&2
+fi
+
+terminate() {
+  echo "rp(pod): terminating self (\$1)" >&2
+  # 'pod delete' is the current verb; 'remove pod' is the deprecated fallback. Either frees all cost.
+  runpodctl pod delete "\$RUNPOD_POD_ID" >/dev/null 2>&1 \
+    || runpodctl remove pod "\$RUNPOD_POD_ID" >/dev/null 2>&1 || true
+  # If runpodctl is unavailable the laptop-side trap and \`rp down\` remain the backstop.
+  kill -TERM -1 2>/dev/null || true
+}
+
+# Guard 1: hard max-lifetime ceiling (survives a laptop disconnect).
+( sleep ${MAX_LIFETIME_SECS}; terminate "max-lifetime ${MAX_LIFETIME_SECS}s reached" ) &
+
+# The relay eval. Runs in a subshell with set +e so one hiccup falls through to teardown rather than
+# killing the guards. Every stage tees a line containing "recognize" to \$LOG so the idle watchdog
+# (below) counts it as activity and does not reap the pod mid-transfer.
+(
+  set +e
+  cd /tmp && rm -rf evalwork && mkdir -p evalwork/in evalwork/docs && cd evalwork
+
+  # UP: receive the images+batch tar. Retry while the relay/room settles or the laptop send is still
+  # coming up; each retry logs a "recognize" line to keep the watchdog fed during a slow image pull.
+  n=0
+  until runpodctl receive "${final_up}" >/tmp/up-recv.log 2>&1; do
+    n=\$(( n + 1 ))
+    echo "recognize: up-receive retry \$n" | tee -a "\$LOG"
+    if [ "\$n" -ge 60 ]; then
+      echo "rp(pod): up-receive did not complete; aborting" | tee -a "\$LOG"
+      terminate "up-receive failed"; exit 1
+    fi
+    sleep 5
+  done
+  tar xf up.tar -C in || { echo "rp(pod): could not extract up.tar" | tee -a "\$LOG"; terminate "bad up.tar"; exit 1; }
+  imgs=\$(ls in/imgs 2>/dev/null | grep -icE '\.(png|jpg|jpeg)\$' || echo 0)
+  echo "recognize: corpus received (\${imgs} images); running batch engine=${engine}" | tee -a "\$LOG"
+
+  # Recognise on the pod (no per-image WAN). Run the BUNDLED sibei_omr (via PYTHONPATH) against the
+  # image's heavy deps, so the eval tracks this checkout regardless of the image's baked-in code age.
+  PYTHONPATH="\$(pwd)/in/pkg" python -m sibei_omr.batch in/imgs docs --engine "${engine}" 2>&1 | tee -a "\$LOG"
+
+  # DOWN: tar the OmrDocuments and send them back over the relay. Background the send so we can read
+  # the final code it prints, echo it for the laptop's log reader, then wait for the transfer.
+  tar cf down.tar -C docs . || { echo "rp(pod): could not tar docs" | tee -a "\$LOG"; terminate "bad docs"; exit 1; }
+  echo "recognize: batch done, sending results (down)" | tee -a "\$LOG"
+  runpodctl send --code "${base_down}" down.tar >/tmp/down-send.log 2>&1 &
+  send_pid=\$!
+  down_code=""
+  for i in \$(seq 1 60); do
+    down_code=\$(grep -oE "${base_down}[-0-9]+" /tmp/down-send.log | head -1)
+    [ -n "\$down_code" ] && break
+    sleep 0.5
+  done
+  # The laptop greps container logs for this exact marker to learn the DOWN final code.
+  echo "SIBEI_DOWN_CODE=\${down_code}" | tee -a "\$LOG"
+  wait "\$send_pid"
+  echo "recognize: results sent; eval complete" | tee -a "\$LOG"
+  terminate "eval complete"
+) &
+EVAL_PID=\$!
+
+# Guard 2: idle watchdog — reap the pod if no new "recognize" line appears for the timeout (a hung
+# receive, or a laptop that never comes to collect the results, must not bill forever).
+(
+  last_change=\$(date +%s)
+  last_count=0
+  while kill -0 "\$EVAL_PID" 2>/dev/null; do
+    sleep ${IDLE_CHECK_SECS}
+    count=\$(grep -c recognize "\$LOG" 2>/dev/null || echo 0)
+    now=\$(date +%s)
+    if [ "\$count" != "\$last_count" ]; then
+      last_count=\$count; last_change=\$now
+    elif [ \$(( now - last_change )) -ge ${IDLE_TIMEOUT_SECS} ]; then
+      terminate "idle ${IDLE_TIMEOUT_SECS}s with no recognize activity"
+      break
+    fi
+  done
+) &
+
+wait "\$EVAL_PID"
+LAUNCH
+}
+
+# ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
 cmd_up() {
@@ -314,7 +447,10 @@ cmd_up() {
   # a persistent volume we would otherwise pay for. There is no bid-price field. The dead-man's-switch
   # is baked into dockerStartCmd so it arms the instant the container runs, independent of the laptop.
   local start_cmd body flavors_json ports_json
-  start_cmd="$(launch_command)"
+  # The RELAY transport (eval-relay) supplies its own launch command via RP_LAUNCH_OVERRIDE — it runs
+  # the co-located relay eval, not the HTTP worker, and needs no inbound port (so it also disables ssh
+  # baking by clearing SSH_PUBKEY_CONTENT before calling up). The default flow bakes the worker server.
+  start_cmd="${RP_LAUNCH_OVERRIDE:-$(launch_command)}"
   flavors_json="$(printf '%s' "$CPU_FLAVORS" | awk -F, '{for(i=1;i<=NF;i++) printf "%s\"%s\"",(i>1?",":""),$i}')"
   # Expose the worker port always, and 22/tcp when on-pod ssh is enabled (a public key was embedded).
   ports_json="\"${POD_PORT}/${PORT_TYPE}\""
@@ -553,6 +689,134 @@ cmd_eval_onpod() {
   # The trap tears the pod down on return.
 }
 
+# The RELAY on-pod eval (ADR-0032 transport pivot) — the ssh-free replacement for eval-onpod. It needs
+# NO public IP and NO ssh: the corpus goes up and the OmrDocuments come down over a `runpodctl` relay
+# (outbound-only), and the pod's results code is learned from `runpodctl pod logs`. See
+# launch_command_relay for the full rationale. Generate the corpus locally, ship it + the current
+# worker package to the pod, recognise on the pod, pull the results back, and score locally through the
+# same @sibei/synth metrics a live `--engine worker` run uses — identical number. Trap-guarded: always `down`.
+cmd_eval_relay() {
+  require_key
+  have runpodctl || die "runpodctl is required for the relay transport (install it; see tools/runpod/README.md)"
+  have jq || die "jq is required (to read the pod id and stream pod logs)"
+
+  # A laptop/pod runpodctl version mismatch can make the relay index resolve to different relays, so a
+  # transfer never rendezvous. Warn (don't fail — the operator may know better) if they differ.
+  local local_ver
+  local_ver="$(runpodctl version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+  if [ -n "$local_ver" ] && [ "v${local_ver}" != "$RP_RUNPODCTL_VERSION" ]; then
+    log "WARNING: laptop runpodctl v${local_ver} != pinned ${RP_RUNPODCTL_VERSION}; set RP_RUNPODCTL_VERSION to match or a relay transfer may not connect"
+  fi
+
+  local repo batch_py work imgs docs uptar
+  repo="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  batch_py="${repo}/worker/sibei_omr/batch.py"
+  [ -f "$batch_py" ] || die "missing ${batch_py}"
+
+  # A relay pod bakes its launch command at create time, so a reused (stale) pod would run the wrong
+  # command. Clear any existing pod first so `cmd_up` creates a fresh one. Idempotent (no-op if none).
+  cmd_down >/dev/null 2>&1 || true
+
+  work="$(mktemp -d "${TMPDIR:-/tmp}/rp-relay-XXXXXX")"
+  imgs="${work}/imgs"; docs="${work}/docs"; uptar="${work}/up.tar"
+  mkdir -p "$imgs" "$docs"
+
+  # 1. Generate the corpus images locally (no recognition, no history line here).
+  log "generating corpus locally -> ${imgs}"
+  ( cd "$repo" && pnpm -s eval --dump-corpus "$imgs" --no-history "$@" )
+
+  # 2. Bundle the CURRENT worker package (sibei_omr) AND the images into one tar. Shipping the whole
+  #    package — not just batch.py — is deliberate: the pushed image's installed sibei_omr can be OLDER
+  #    than this checkout (the :baseline image predates the V13 engine seam, so `import sibei_omr.engines`
+  #    fails against it). We run batch.py from the bundled package via PYTHONPATH and use the image only
+  #    for its heavy, already-installed dependencies (oemer/tensorflow, opencv, paddleocr). So the eval
+  #    tracks THIS code and the worker image still needs no rebuild (ADR-0032 commitment 1). Tar layout:
+  #    pkg/sibei_omr/… (the package) and imgs/… (the corpus).
+  local stage="${work}/stage"
+  mkdir -p "${stage}/pkg" "${stage}/imgs"
+  cp -r "${repo}/worker/sibei_omr" "${stage}/pkg/sibei_omr"
+  find "${stage}/pkg" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  find "$imgs" -maxdepth 1 -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' \) \
+    -exec cp {} "${stage}/imgs/" \;
+  tar cf "$uptar" -C "$stage" .
+
+  # 3. Pre-start the UP send and capture its FINAL code (base + the relay index `send` picks randomly).
+  #    Doing this BEFORE the pod is created is what lets the pod's baked `receive` know the exact code;
+  #    the send holds its relay room while the pod boots and receives (verified to hold >= 80s). The
+  #    bases are random and unguessable so the synthetic (non-sensitive, ADR-0020) transfer can't clash.
+  # up_send_pid is intentionally NOT `local`: the EXIT trap below fires after this function returns, so
+  # a local would be out of scope (and unbound under `set -u`) when the trap tries to kill the send.
+  local base_up base_down final_up i
+  up_send_pid=""
+  base_up="sibei-omr-up-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  base_down="sibei-omr-down-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  log "starting UP relay send (holds the room for the pod to receive)"
+  runpodctl send --code "$base_up" "$uptar" > "${work}/up-send.log" 2>&1 &
+  up_send_pid=$!
+
+  # From here on, whatever happens — success, failure, Ctrl-C — kill the send and tear the pod down.
+  # `${up_send_pid:-}` so the trap is safe under `set -u` even if it fires before/after the assignment.
+  trap 'kill "${up_send_pid:-}" 2>/dev/null || true; cmd_down' EXIT INT TERM
+
+  final_up=""
+  for i in $(seq 1 40); do
+    final_up="$(grep -oE "${base_up}[-0-9]+" "${work}/up-send.log" | head -1 || true)"
+    [ -n "$final_up" ] && break
+    kill -0 "$up_send_pid" 2>/dev/null \
+      || die "UP send exited before printing a code: $(tr '\n' ' ' < "${work}/up-send.log" | cut -c1-200)"
+    sleep 0.5
+  done
+  [ -n "$final_up" ] || die "UP send did not print a transfer code in time"
+  log "UP code ready; baking the pod's receive into the launch command"
+
+  # 4. Create a pod running the RELAY launch command. It needs no inbound port and no ssh, so clear the
+  #    ssh pubkey (keeps `up` from exposing 22) and override the launch command. (No public IP needed.)
+  SSH_PUBKEY_CONTENT="" \
+  RP_LAUNCH_OVERRIDE="$(launch_command_relay "$final_up" "$base_down" "$RP_EVAL_ENGINE")" \
+    cmd_up >/dev/null
+  local id
+  id="$(current_pod_id)"
+  log "pod ${id} up; recognising on the pod with engine=${RP_EVAL_ENGINE} (oemer ~5.4 min/page — be patient)"
+
+  # 5. Poll the pod's container logs (no public IP required) for the DOWN final code the pod echoes when
+  #    it starts sending results. We POLL with a large `--tail` (replaying history each call) rather than
+  #    `--follow --tail 0`: RunPod's log pipeline lags several seconds, and a live-only follower both
+  #    misses a line printed before it connected and loses history whenever it reconnects — so the code
+  #    (printed once, then the pod blocks) could be missed forever. A replaying poll cannot miss it.
+  #    The API key is passed to runpodctl by reference (never printed); `|| true` because grep exits 1
+  #    until the marker appears, which under `set -e`+pipefail would otherwise abort the run.
+  local podlog final_down deadline latest
+  podlog="${work}/pod.log"
+  final_down=""
+  deadline=$(( $(date +%s) + MAX_LIFETIME_SECS ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    RUNPOD_API_KEY="${RUNPOD_API_KEY}" runpodctl pod logs "$id" --source container --tail 5000 --max-wait 5s > "$podlog" 2>&1 || true
+    final_down="$(grep -oE 'SIBEI_DOWN_CODE=[a-z0-9-]+' "$podlog" 2>/dev/null | head -1 | cut -d= -f2 || true)"
+    [ -n "$final_down" ] && break
+    latest="$(grep -oE 'recognize[^"\\]*' "$podlog" 2>/dev/null | tail -1 || true)"
+    [ -n "$latest" ] && log "  pod: ${latest}"
+    sleep 10
+  done
+  [ -n "$final_down" ] || die "did not observe the pod's results code in its logs within ${MAX_LIFETIME_SECS}s (see ${podlog})"
+
+  # 6. Receive the results tar over the relay and extract the OmrDocuments.
+  log "results code seen in the logs; pulling documents over the relay"
+  ( cd "$work" && rm -f down.tar && runpodctl receive "$final_down" )
+  [ -f "${work}/down.tar" ] || die "relay receive did not produce down.tar"
+  tar xf "${work}/down.tar" -C "$docs"
+  local got
+  got="$(find "$docs" -name '*.omr.json' | wc -l | tr -d ' ')"
+  [ "$got" -gt 0 ] || die "no OmrDocuments in the received tar (${work}/down.tar)"
+  log "received ${got} OmrDocument(s)"
+
+  # 7. Score locally (this run DOES append to eval/history.jsonl, like any other eval).
+  log "scoring locally"
+  ( cd "$repo" && pnpm -s eval --engine dump --docs-dir "$docs" "$@" )
+
+  log "relay eval complete; documents kept at ${docs}"
+  # The trap tears the pod down (and kills the send) on return.
+}
+
 cmd_down() {
   # TERMINATE, not stop: a stopped pod still bills for storage; only delete frees all cost.
   # Idempotent: a pod that is already gone is success. Resolve the id WITHOUT demanding the key
@@ -606,8 +870,11 @@ rp — dev/build-time RunPod compute wrapper (never a product runtime dependency
   rp exec <cmd...>      run a command on the pod over ssh
   rp push <local> <rem> scp a file/dir up to the pod
   rp pull <rem> <local> scp a file/dir down from the pod
-  rp eval-onpod [args]  full on-pod eval: dump corpus -> recognise on the pod -> pull -> score locally.
+  rp eval-onpod [args]  full on-pod eval over SSH/SCP (needs a pod with a direct-TCP public IP).
                         Extra args (e.g. --seeds 1) go to both the dump and score commands. Trap-guarded.
+  rp eval-relay [args]  full on-pod eval over a runpodctl RELAY — no public IP, no ssh (the pivot for
+                        spot pods that come up without a direct-TCP endpoint). Extra args go to both
+                        the dump and score commands. Trap-guarded. This is the recommended path.
   rp status             show the pod's status
   rp logs               show pod info / point at logs
   rp fetch <code> [dst] pull an artifact (eval JSON / checkpoint) off the pod
@@ -633,6 +900,7 @@ main() {
     push)       cmd_push "$@" ;;
     pull)       cmd_pull "$@" ;;
     eval-onpod) cmd_eval_onpod "$@" ;;
+    eval-relay) cmd_eval_relay "$@" ;;
     status)     cmd_status "$@" ;;
     logs)       cmd_logs "$@" ;;
     fetch)      cmd_fetch "$@" ;;
