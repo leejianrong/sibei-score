@@ -1043,7 +1043,7 @@ cmd_train_relay() {
   [ -f "${out}/${artifact}" ] || die "no ${artifact} in the received tar (${work}/down.tar)"
   log "train-relay complete: ${out}/${artifact}"
   if [ -f "${out}/metrics.json" ] && have jq; then
-    log "  best metric: $(jq -r '.best_token_accuracy // .best_score // "?"' "${out}/metrics.json")"
+    log "  best metric: $(jq -r '.best_token_accuracy // .best_chord_accuracy // .best_score // "?"' "${out}/metrics.json")"
   fi
   # The trap tears the pod down (and kills the send) on return.
 }
