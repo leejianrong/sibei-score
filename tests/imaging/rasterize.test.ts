@@ -9,7 +9,12 @@ import {
   makeScore,
 } from '@sibei/model';
 import { generateScore } from '@sibei/synth';
-import { rasterizeSvg, renderScoreToPng, renderScoreToSvg } from '@sibei/synth/imaging';
+import {
+  rasterizeSvg,
+  renderScoreToPng,
+  renderScoreToSvg,
+  textFontFiles,
+} from '@sibei/synth/imaging';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 
@@ -95,6 +100,27 @@ describe('render-style randomisation reaches the pixels (V17a)', () => {
     const style = { ...CANONICAL_CHORD_STYLE, majorSeventh: 'maj' as const };
     const a = renderScoreToPng(score, { chordStyle: style, font: 'jazz', zoom: 1 })[0] as Buffer;
     const b = renderScoreToPng(score, { chordStyle: style, font: 'jazz', zoom: 1 })[0] as Buffer;
+    expect(a.equals(b)).toBe(true);
+  });
+});
+
+describe('vendored text typefaces (V17a-iii)', () => {
+  const score = chordChart();
+
+  it('locates the vendored font files', () => {
+    // Four TTFs are committed under assets/fonts; they must reach the rasteriser.
+    expect(textFontFiles().length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('draws a different image in a handwriting face than in the serif', () => {
+    const serif = renderScoreToPng(score, { textFont: 'Tinos', zoom: 2 })[0] as Buffer;
+    const hand = renderScoreToPng(score, { textFont: 'Patrick Hand', zoom: 2 })[0] as Buffer;
+    expect(serif.equals(hand)).toBe(false);
+  });
+
+  it('renders a vendored face deterministically', () => {
+    const a = renderScoreToPng(score, { textFont: 'Caveat', zoom: 1 })[0] as Buffer;
+    const b = renderScoreToPng(score, { textFont: 'Caveat', zoom: 1 })[0] as Buffer;
     expect(a.equals(b)).toBe(true);
   });
 });
