@@ -19,9 +19,10 @@ sibei_omr/
   recognize.py   the oemer recogniser: one image path in, an OmrDocument dict out
   server.py      the HTTP server: POST /recognize (raw image bytes) -> OmrDocument JSON; GET /health
   spike.py       the V9 CLI: run the recogniser on a file, write the JSON + wall-clock line
-  engines/       the engine-selection seam (V13c): get_engine(name) -> {oemer, heuristic}
+  engines/       the engine-selection seam (V13c): get_engine(name) -> {oemer, heuristic, bespoke}
     oemer.py       adapts recognize.py behind the seam (the default; weights baked, ADR-0024)
     heuristic.py   a dependency-light OpenCV engine, low RAM — runs where oemer is OOM-killed
+    bespoke.py     the trained Stage-2a CRNN+CTC melody recogniser (V15c, ADR-0031), CPU/low-RAM
 ```
 
 ## The engine seam and the heuristic engine (V13c)
@@ -43,12 +44,39 @@ engine-selection seam (SLICES V15, ADR-0031) pulled forward.
   on the V12 harness (ADR-0020), never by fiat. It needs no new dependency (OpenCV + numpy are
   already the oemer pins) and no weights, so it is offline by construction.
 
-Run the whole import stack against it, no oemer container needed:
+- **`bespoke`** — the trained Stage-2a melody recogniser (V15c, ADR-0031): a small CRNN+CTC
+  we trained on synthetic data (`packages/synth` + `worker/training`), read on CPU via
+  onnxruntime and sized for low RAM — the challenger that has to beat oemer on the harness to
+  earn the default (it does **not** get the default by fiat, same rule as the heuristic engine).
+  It reuses the heuristic engine's OpenCV staff-finder to get staff + barline geometry (the
+  Stage-1 layout detector is V16), crops each system the way training did (a full-system box:
+  chord band + staff + descenders — measured proportions, so train and inference match), runs the
+  model, greedy-CTC-decodes, and emits noteheads/rests with **coordinates derived from the CTC
+  column index** (ADR-0023/Q71 — stage-3 chord beat-mapping rides on them). It reads notes only;
+  the bespoke chord band is V17, so `bandTokens` is empty. Two baked artifacts, checksum-verified
+  (`bespoke_weights.py`, ADR-0024): `model.onnx` and its matched `vocab.json` (regenerate with
+  `pnpm export:v15c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR` (dev) or `/opt/sibei/bespoke`
+  (image). onnxruntime is already an oemer dependency, so no new runtime dep; torch is
+  training-only and never imported at inference.
+
+Run the whole import stack against either non-default engine, no oemer container needed:
 
 ```sh
 SIBEI_OMR_ENGINE=heuristic python -m sibei_omr.server     # serve the heuristic engine
 pnpm eval --engine worker --url http://127.0.0.1:8000     # score it on the synthetic corpus
+
+# The bespoke engine (point it at the baked model + vocab):
+pnpm export:v15c-vocab --out out/v15b/vocab.json          # regenerate the matched vocab manifest
+SIBEI_BESPOKE_MODEL_DIR=$PWD/../out/v15b \
+  SIBEI_OMR_ENGINE=bespoke python -m sibei_omr.server
+pnpm eval --engine worker --url http://127.0.0.1:8000
 ```
+
+The bespoke engine beats the heuristic engine on notes decisively — on a clean synthetic corpus
+(seeds 6, bars 16) noteF1 **0.868 vs 0.120** — because it reads rhythm *and* pitch where the
+heuristic engine labels every head a quarter. On degraded images both are bottlenecked by the
+shared OpenCV staff-finder (it fails to find a staff under perspective/blur), which is exactly what
+V16's trained Stage-1 detector is for.
 
 ## The chord band: PaddleOCR (V13d)
 

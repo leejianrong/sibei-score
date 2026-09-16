@@ -120,7 +120,23 @@ truth for free), not web-sourcing. The drop folder is `tests/fixtures/eval/real/
   validated plumbing.
 - **Per-class coverage** monitoring: 512 classes with a skewed distribution means rare pitch×duration
   combos are starved; check before blaming the model.
-- **V15c**: wire the ONNX into `worker/sibei_omr/engines/bespoke`, reuse the heuristic staff-finder for
-  crops, and score on the V12 harness against oemer (accuracy + speed + peak RAM).
+- **V15c — DONE (2026-09-16).** `worker/sibei_omr/engines/bespoke.py` loads the V15b ONNX on
+  onnxruntime CPU, reuses the heuristic staff-finder for staves+barlines, crops each system to the
+  full-system box (measured V15a proportions: above ≈1.6×, below ≈0.8× staff height — settled here so
+  train and inference crop alike, the deferred decision), greedy-CTC-decodes, and derives each token's x
+  from its **CTC column** (`crop_left + (t+0.5)·cropW/T`; the ÷4 downsample and the resize cancel). The
+  flat-semantic token carries pitch+duration, so the notehead y is synthesised on the detected staff and
+  round-trips through the mapper's `pitchFromGeometry` — the model gives the *sequence and x*, the
+  geometry the *y*. Vocab is exported deterministically (`pnpm export:v15c-vocab`); model+vocab baked +
+  checksummed (`bespoke_weights.py`). **Result:** clean-synthetic noteF1 **0.868 vs 0.120** heuristic, at
+  ~0.3 sec/page and ~176 MB peak RAM (oemer ~7 GB / ~13 min) — the ADR-0031 footprint escape. The
+  synthetic→real gap held up by eye on real photos (`worker/visualize_bespoke.py` → `out/v15c-real-preds/`):
+  good note x-alignment on higher-res scans; the failure mode is the **borrowed staff-finder** (phantom
+  title "staff", missed low-contrast staff) → V16, plus the **leading clef/key head** being OOD (the
+  corpus renders none — a generator gap for v0.3). Two things learned worth carrying: (1) the mapper reads
+  pitch from *geometry*, not a pitch field, so the engine only needs the sequence + a self-consistent y;
+  (2) a `peakMB` schema field is a v2→v3 bump touching every engine/fixture, so it was deferred to the
+  swap decision (V16) and peak RAM measured directly instead.
 - **oemer baseline re-run**: the variety expansion made the eval corpus materially harder, so the
-  `docs/adr/0032` baseline predates it (noted there).
+  `docs/adr/0032` baseline predates it (noted there). Still open (KAN-1426) — it is the accuracy-vs-oemer
+  half of "earn the swap", which is V16's gate, not V15c's.

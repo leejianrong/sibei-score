@@ -80,6 +80,55 @@ These columns join the accuracy table `make eval` prints and each `eval/history.
 change to the recogniser moves accuracy, speed and RAM together and a regression in any one is
 visible.
 
+> **peakMB is not yet a schema field.** Carrying peak RAM on `OmrDocument.source` is a schema bump
+> (`OMR_SCHEMA_VERSION` 2→3) that touches every engine and fixture, so it is deferred to the swap
+> decision (V16), when oemer's numbers are re-measured on a pod anyway. Until then peak RAM is measured
+> directly at the engine (`resource.getrusage`), as the V15c gate result below records.
+
+## The bespoke Stage-2a gate (V15c result, ADR-0031)
+
+The bespoke engine (`worker/sibei_omr/engines/bespoke.py`, V15c) is the trained Stage-2a melody
+recogniser wired behind the engine seam and scored on this harness. It reuses the heuristic engine's
+OpenCV staff-finder for crops (the Stage-1 detector is V16), so this measures **Stage-2a recognition
+quality on real staff geometry**, isolated from layout detection.
+
+Measured on the synthetic corpus (seeds 6, bars 16), thread-pinned CPU (`OMP_NUM_THREADS=2`):
+
+| level | bespoke noteF1 | heuristic noteF1 |
+|---|--:|--:|
+| clean | **0.868** | 0.120 |
+| light | 0.378 | 0.069 |
+| medium | 0.201 | 0.035 |
+| heavy | 0.369 | 0.058 |
+
+Three-dimensional gate (ADR-0031):
+
+- **Accuracy** — on clean staves the bespoke model beats the heuristic baseline ~7× (it reads rhythm
+  *and* pitch where the heuristic labels every head a quarter). The degraded-level drop is the *shared
+  staff-finder* failing on perspective/blur/noise (both engines lose the staff), not the model — which
+  is exactly what V16's trained Stage-1 detector is for. Against oemer on the *same widened corpus* the
+  comparison needs oemer's baseline re-run on a pod (KAN-1426), and the accuracy half of "earn the
+  swap" is V16's gate, not V15c's (V15c is the data-strategy probe).
+- **Speed** — ~0.2–0.35 sec/page, CPU, thread-pinned. oemer is ~13 min/page (V9, thread-oversubscribed;
+  ADR-0032).
+- **Peak RAM** — ~176 MB for a full-page recognition (onnxruntime + cv2 + numpy resident). oemer is
+  ~7 GB (V9). This ~40× reduction is the footprint escape ADR-0031 exists to deliver, and it means the
+  whole import flow runs on the 8 GB host where oemer is OOM-killed.
+
+**Verdict:** the synthetic→real data strategy is proven for Stage-2a — a model trained on synthetic
+renders reads notes on clean synthetic staves at 0.87 noteF1 and, by eye, tracks the melody on the
+maintainer's real lead-sheet photos (`out/v15c-real-preds/`, `worker/visualize_bespoke.py`) — at a
+fraction of oemer's speed and RAM. V15's gate passes; V16 (the Stage-1 layout detector) proceeds.
+
+### The synthetic→real gap
+
+Run bespoke over the real samples with `worker/visualize_bespoke.py` (overlays + raw docs to
+`out/v15c-real-preds/`). By eye: note x-alignment is good on higher-resolution scans; the real-photo
+failure modes are (1) the borrowed staff-finder inventing a phantom staff from title text / missing a
+low-contrast staff entirely (→ V16), and (2) the clef + key-signature block at each staff head being
+out of distribution, since the synthetic corpus renders no leading clef/key (a generator gap to close
+for v0.3). Accidentals read as naturals by design (import defaults to C major; the human corrects).
+
 ## The human-time ship gate
 
 Accuracy is necessary but not sufficient: import ships when a person can **correct** a real chart

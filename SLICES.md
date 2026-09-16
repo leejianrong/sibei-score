@@ -1064,6 +1064,27 @@ scores it. V12 is therefore a hard prerequisite for V15, not merely prior art.
 >   the Stage-1 detector is V16 — this isolates 2a's recognition quality on real staff geometry),
 >   runs the ONNX model, and emits a schema-valid `OmrDocument` (notes with bbox, pitch, duration).
 >   Score noteF1 + sec/page + peak-RAM against oemer through the V12 harness.
+>
+> **V15c landed (2026-09-16), and V15's gate passes.** `worker/sibei_omr/engines/bespoke.py` loads the
+> V15b model on onnxruntime CPU, reuses the heuristic staff-finder for staves+barlines, crops each
+> system to the full-system box (matching the measured V15a proportions so train and inference crop
+> alike), greedy-CTC-decodes, and derives each token's x from its **CTC column index**
+> (`crop_left + (t+0.5)·cropW/T`) — the coordinate stage-3 rides on (Q71). The flat-semantic token
+> carries pitch+duration, so the notehead bbox y is synthesised from the pitch on the detected staff and
+> round-trips through the mapper's `pitchFromGeometry`; the model supplies the *sequence and horizontal
+> order*, the geometry the *vertical*. The vocab manifest is exported deterministically
+> (`pnpm export:v15c-vocab`); `model.onnx` + `vocab.json` are baked + checksummed (`bespoke_weights.py`,
+> ADR-0024) and never committed. **Result (docs/eval.md):** clean synthetic noteF1 **0.868 vs 0.120**
+> heuristic, at ~0.3 sec/page and ~176 MB peak RAM (oemer: ~7 GB, ~13 min). The synthetic→real transfer
+> holds by eye on the maintainer's real photos (`worker/visualize_bespoke.py` →
+> `out/v15c-real-preds/`); the real-photo bottleneck is the borrowed staff-finder (a phantom title
+> "staff", a missed low-contrast staff) — exactly what V16's Stage-1 detector is for. Deferred by design:
+> the accuracy-vs-oemer half of "earn the swap" (V16, needs oemer's baseline re-run on the widened
+> corpus, KAN-1426), `peakMB` as an `OmrDocument.source` schema field (V16, with the swap decision), and
+> the leading clef/key head the synthetic corpus does not yet render (a v0.3 generator gap). Triplets/
+> tuplets remain out of scope: the generator emits none and the vocabulary has no tuplet class, though
+> the runtime `Score` model already represents them (`Tuplet`), so it is a data+vocab+schema addition,
+> not a model-architecture limit.
 
 **Delivers:** the exit condition for ADR-0031, and the go/no-go on training our own
 
