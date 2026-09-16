@@ -93,6 +93,26 @@ title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `Sc
 flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
 module exists because a plan mentions it.
 
+**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15a, V15b and V15c have landed.** V15a is the
+synthetic Stage-2a corpus (`packages/synth`: per-system crops + a 512-class flat-semantic CTC vocab,
+`pnpm dump:v15a`); V15b trained the first bespoke model (a small CRNN+CTC in `worker/training/`, GPU via
+`rp train-relay`, ~99.8% held-out token accuracy; `out/v15b/model.onnx`, gitignored). **V15c wired it
+into the worker as a third engine** (`worker/sibei_omr/engines/bespoke.py`, `--engine bespoke`): it
+reuses the heuristic staff-finder for staves+barlines (Stage-1 is V16), crops each system to the
+measured full-system proportions, runs the ONNX model on onnxruntime CPU, and emits a schema-valid
+`OmrDocument` whose notehead **x comes from the CTC column index** and whose pitch/duration come from the
+decoded flat-semantic token (the notehead y is synthesised on the detected staff, round-tripping through
+`pitchFromGeometry`). `model.onnx` + `vocab.json` (`pnpm export:v15c-vocab`) are baked + checksummed
+(`bespoke_weights.py`, ADR-0024), never committed. It **beats the heuristic engine ~7× on clean-synthetic
+noteF1 (0.868 vs 0.120) at ~0.3 sec/page and ~176 MB peak RAM** (oemer: ~7 GB, ~13 min) — the ADR-0031
+footprint escape — and by eye tracks the melody on real photos (`worker/visualize_bespoke.py` →
+`out/v15c-real-preds/`). It is **not the default**: earning the swap needs the accuracy-vs-oemer
+comparison on the widened corpus (V16 + KAN-1426). Still deferred in v0.3: the Stage-1 layout detector
+(V16, which fixes the real-photo staff-finding bottleneck), bespoke chords (V17), `peakMB` as a schema
+field, a rendered clef/key head in the corpus, and triplets/tuplets (excluded at the generator + vocab +
+schema, though the runtime `Score` model already has `Tuplet`). See the SLICES V15 note, `docs/eval.md`
+and `worker/README.md`.
+
 ## Layout
 
 ```
@@ -115,11 +135,14 @@ packages/
 worker/      the OMR worker (Python, ADR-0005) — OUTSIDE the pnpm workspace, its own pyproject/venv.
              V10: the recogniser (`sibei_omr/recognize.py`) behind an HTTP server (`server.py`); the V9
              spike (`spike.py`) is a CLI over the same core. V13: an engine-selection seam
-             (`sibei_omr/engines/{oemer,heuristic}`, chosen by `--engine`/`$SIBEI_OMR_ENGINE`) — the
-             `heuristic` engine is OpenCV-only, low-RAM dev/test scaffolding (v0.3's V15 seam pulled
-             forward, ADR-0031); and chord-band OCR (`sibei_omr/band_ocr.py`, PaddleOCR, ADR-0027) shared
-             by both engines. A Dockerfile bakes weights; GPU is Dockerfile.gpu. Never touches the store;
-             stateless; its own `unittest`s, not in the Node CI
+             (`sibei_omr/engines/{oemer,heuristic,bespoke}`, chosen by `--engine`/`$SIBEI_OMR_ENGINE`) —
+             the `heuristic` engine is OpenCV-only, low-RAM dev/test scaffolding (v0.3's V15 seam pulled
+             forward, ADR-0031); the `bespoke` engine (V15c) is the trained Stage-2a CRNN+CTC on
+             onnxruntime CPU (`bespoke.py`; artifacts baked+checksummed via `bespoke_weights.py`, vocab
+             from `pnpm export:v15c-vocab`, eyeball with `visualize_bespoke.py`); and chord-band OCR
+             (`sibei_omr/band_ocr.py`, PaddleOCR, ADR-0027) shared by the engines. A Dockerfile bakes
+             weights; GPU is Dockerfile.gpu. Never touches the store; stateless; its own `unittest`s,
+             not in the Node CI
 tools/runpod/ DEV/BUILD-TIME ONLY (ADR-0032): a guardrail shell wrapper (`rp`) that runs the
              EXISTING worker container on a rented RunPod pod to produce an artifact (an oemer eval
              number now, checkpoints later) and guarantees teardown. OUTSIDE the pnpm workspace, no

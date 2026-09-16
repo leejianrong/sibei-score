@@ -13,3 +13,4 @@ weights/
 # the CI tests validate); everything the spike emits here is throwaway.
 out/
 *.pkl
+.venv-bespoke/
