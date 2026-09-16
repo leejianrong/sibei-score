@@ -10,6 +10,7 @@ export * from './fonts.js';
 export * from './degrade.js';
 export * from './harness.js';
 export * from './crops.js';
+export * from './band-crops.js';
 export * from './detect.js';
 export type { RawImage } from './perspective.js';
 export { perspectiveWarp } from './perspective.js';
