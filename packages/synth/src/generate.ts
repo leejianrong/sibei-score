@@ -43,6 +43,7 @@ import {
 } from '@sibei/model';
 import type { ChordStructure, Root } from '@sibei/music';
 import { formatChord } from '@sibei/music';
+import { randomChordStructure } from './chords.js';
 import type { Rng } from './rng.js';
 import { makeRng } from './rng.js';
 
@@ -59,6 +60,14 @@ export interface GenerateOptions {
   key?: KeySignature;
   /** Emit chord symbols above the staff (default true). */
   chords?: boolean;
+  /**
+   * Rich, chromatic chords across the whole grammar (default true, V17b) — what a real lead sheet
+   * has, and what a chord recogniser must train on. `false` restores the original seven diatonic
+   * sevenths of the key. Either way the melody stays diatonic to `key`, and the note stream is
+   * byte-identical (chord content is drawn from a separate `Rng`), so the Stage-2a note corpus is
+   * unchanged (KAN-1487 defers widening the melody key with a note retrain).
+   */
+  richChords?: boolean;
   /** Emit one section starting at bar 1 (default true) — layout breaks lines at sections (ADR-0015). */
   section?: boolean;
   /**
@@ -187,8 +196,20 @@ export function generateScore(options: GenerateOptions): Score {
   const withChords = options.chords ?? true;
   const withSection = options.section ?? true;
   const chromatic = options.chromatic ?? 0.12;
+  const richChords = options.richChords ?? true;
   const scale = majorScale(key);
   const ids = createIdFactory();
+
+  // Chord content is drawn from its own stream, salted off the seed, so the note stream above is
+  // untouched by the chord axis — the Stage-2a note corpus stays byte-identical whatever the chords do.
+  const chordRng = makeRng((seed ^ 0x5f3759df) >>> 0);
+  // A chord's text. `degree` is still drawn from the *melody* rng (below) for note-stream parity even
+  // when it goes unused, so `richChords` never shifts a single note.
+  const chordText = (degree: number): string =>
+    formatChord({
+      kind: 'chord',
+      structure: richChords ? randomChordStructure(chordRng) : diatonicChord(scale, degree),
+    });
   const capacity = barCapacity(time);
   const beat = beatTicks(time);
 
@@ -229,22 +250,10 @@ export function generateScore(options: GenerateOptions): Score {
 
     const chords: ModelChord[] = [];
     if (withChords) {
-      chords.push(
-        makeChord({
-          id: ids.next('chord'),
-          onset: 0,
-          text: formatChord({ kind: 'chord', structure: diatonicChord(scale, rng.int(0, 6)) }),
-        }),
-      );
+      chords.push(makeChord({ id: ids.next('chord'), onset: 0, text: chordText(rng.int(0, 6)) }));
       // A second chord on beat 3 some of the time, so bars are not uniformly one-chord.
       if (time.beats >= 4 && rng.bool(0.35)) {
-        chords.push(
-          makeChord({
-            id: ids.next('chord'),
-            onset: 2 * beat,
-            text: formatChord({ kind: 'chord', structure: diatonicChord(scale, rng.int(0, 6)) }),
-          }),
-        );
+        chords.push(makeChord({ id: ids.next('chord'), onset: 2 * beat, text: chordText(rng.int(0, 6)) }));
       }
     }
 

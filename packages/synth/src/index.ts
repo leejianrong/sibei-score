@@ -11,6 +11,7 @@
 
 export * from './rng.js';
 export * from './generate.js';
+export * from './chords.js';
 export * from './render-style.js';
 export * from './text-fonts.js';
 export * from './labels.js';
