@@ -44,7 +44,15 @@ import type { SvgElement } from './svg.js';
 import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
-import { chordSymbol, headerText, rehearsalMark, text } from './text.js';
+import type { ChordStyle } from './text.js';
+import {
+  CANONICAL_CHORD_STYLE,
+  DEFAULT_TEXT_FONT,
+  chordSymbol,
+  headerText,
+  rehearsalMark,
+  text,
+} from './text.js';
 import { tuplet } from './tuplets.js';
 
 /**
@@ -76,6 +84,17 @@ export interface EngraveOptions {
   barNumberFontSize: number;
   rehearsalFontSize: number;
   endingFontSize: number;
+  /**
+   * Chord-symbol typography (V17a): which glyphs a quality draws — `Δ` vs `maj`, `ø` vs a spelled
+   * `m7♭5`, and so on. Defaults to the canonical style every surface used before, so a plain render
+   * is byte-identical (ADR-0014/0015); a corpus varies it to teach a recogniser real spellings.
+   */
+  chordStyle: ChordStyle;
+  /**
+   * The text font family for the title block and chord symbols (V17a). Defaults to the serif every
+   * surface used before. Bar numbers and rehearsal marks stay serif — they are not recognition targets.
+   */
+  textFont: string;
 }
 
 /**
@@ -92,6 +111,8 @@ const DEFAULT_OPTIONS: EngraveOptions = {
   barNumberFontSize: 11,
   rehearsalFontSize: 13,
   endingFontSize: 11,
+  chordStyle: CANONICAL_CHORD_STYLE,
+  textFont: DEFAULT_TEXT_FONT,
 };
 
 export interface EngravedPage {
@@ -118,7 +139,7 @@ export function engravePage(
 
   const font = musicFontNamed(opts.font);
   const skipped = new Map<LayoutBarItemKind, number>();
-  const children: SvgElement[] = page.header.map(headerText);
+  const children: SvgElement[] = page.header.map((item) => headerText(item, opts.textFont));
 
   for (const system of page.systems) {
     children.push(...engraveSystem(font, system, result.time, opts, skipped));
@@ -429,6 +450,8 @@ function engraveBar(
         y: bands.chordBaseline,
         size: options.chordFontSize,
         plain: chord.plain,
+        style: options.chordStyle,
+        family: options.textFont,
       }),
     );
   }

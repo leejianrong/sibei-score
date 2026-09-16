@@ -1,6 +1,7 @@
 import type { LayoutText, LayoutTextRole } from '@sibei/layout';
-import { formatRoot, parseChord } from '@sibei/music';
-import type { Alteration, ChordStructure } from '@sibei/music';
+import { formatAlter } from '@sibei/model';
+import { parseChord } from '@sibei/music';
+import type { Alteration, ChordStructure, Root } from '@sibei/music';
 import type { SvgElement } from './svg.js';
 import { el, textEl } from './svg.js';
 
@@ -16,6 +17,14 @@ import { el, textEl } from './svg.js';
  */
 
 const SERIF = 'Times New Roman, serif';
+
+/**
+ * The text font a default render uses. Threaded through the header and chord symbols as
+ * `EngraveOptions.textFont`, so a corpus can render the same score in a variety of typefaces
+ * (V17a domain randomisation) while a plain render stays on the serif every surface used
+ * before. Bar numbers and rehearsal marks stay on the serif — they are not recognition targets.
+ */
+export const DEFAULT_TEXT_FONT = SERIF;
 
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' } as const;
 
@@ -68,7 +77,7 @@ export function text(spec: TextSpec): SvgElement {
   );
 }
 
-export function headerText(item: LayoutText): SvgElement {
+export function headerText(item: LayoutText, family?: string): SvgElement {
   const style = styleForRole(item.role);
   return text({
     text: item.text,
@@ -78,6 +87,8 @@ export function headerText(item: LayoutText): SvgElement {
     align: item.align,
     class: `se-${item.role}`,
     ...style,
+    // A varied render swaps the family but keeps the role's weight/style (a title stays bold).
+    ...(family === undefined ? {} : { family }),
   });
 }
 
@@ -98,6 +109,15 @@ export function headerText(item: LayoutText): SvgElement {
  * superscripting half of `solo break` would be worse than leaving it whole. `N.C.` parses to a
  * no-chord marking and is likewise drawn as written.
  *
+ * **Symbology is a style (V17a).** Which glyph a quality draws — `Δ` vs the word `maj`, `ø` vs a
+ * spelled `m7♭5`, `°` vs `dim`, `+` vs `aug`, a `♭`/`♯` glyph vs an ASCII `b`/`#` — is a
+ * `ChordStyle` the caller chooses, so the OMR training corpus can render the same chord the many
+ * ways real charts print it (domain randomisation, ADR-0031). The `Chord` model's `.text` stays
+ * the one canonical ASCII spelling (ADR-0012); the *typography* varies here. `CANONICAL_CHORD_STYLE`
+ * reproduces exactly what every surface drew before the knob existed, so a plain render is
+ * byte-identical (ADR-0014/0015). `chordGlyphText` returns the string this actually draws for a
+ * style, so a recogniser's label is read from the same code that inked the pixels — they cannot drift.
+ *
  * Nothing here is measured (ADR-0015). The one place width matters — sliding a stacked alteration
  * back under the one above it — uses a character-count estimate, the same technique `rehearsalMark`
  * uses to size its box, never `getBBox`.
@@ -113,6 +133,60 @@ const STACK_ADVANCE = 0.5;
 const SHARP = '♯';
 const FLAT = '♭';
 
+/** How a major seventh is marked: the `Δ` glyph, or the word spelled `maj` / `ma` / `M`. */
+export type MajorSeventhGlyph = 'delta' | 'maj' | 'ma' | 'M';
+/** How a minor triad is marked. */
+export type MinorGlyph = 'm' | 'min' | 'dash';
+/** A half-diminished chord as the `ø` glyph, or spelled out as an ordinary `m7♭5`. */
+export type HalfDiminishedGlyph = 'circle' | 'spell';
+/** A diminished triad as the `°` glyph, or the word `dim`. */
+export type DiminishedGlyph = 'circle' | 'dim';
+/** An augmented triad as the `+` glyph, or the word `aug`. */
+export type AugmentedGlyph = 'plus' | 'aug';
+/** Accidentals as the `♭`/`♯` glyphs, or plain ASCII `b`/`#`. */
+export type AccidentalGlyph = 'ascii' | 'glyph';
+
+/**
+ * The typographic choices for one chord render. Every field varies a real-world spelling of the
+ * same structure; `CANONICAL_CHORD_STYLE` is the one every surface used before V17a.
+ */
+export interface ChordStyle {
+  majorSeventh: MajorSeventhGlyph;
+  minor: MinorGlyph;
+  halfDiminished: HalfDiminishedGlyph;
+  diminished: DiminishedGlyph;
+  augmented: AugmentedGlyph;
+  /** The accidental in a root or slash-bass (`E♭` vs `Eb`). */
+  rootAccidental: AccidentalGlyph;
+  /** The accidental in an altered tension (`♭9` vs `b9`). */
+  tensionAccidental: AccidentalGlyph;
+  /** Parenthesise inline altered tensions — `C7(♭9)` vs `C7♭9`. */
+  parenthesizeAlterations: boolean;
+  /** Stack two-or-more alterations vertically (a bassless chord) rather than run them inline. */
+  stackAlterations: boolean;
+  /** The `Δ` glyph's size relative to the chord size; `1` draws it inline at full size. */
+  triangleScale: number;
+}
+
+/**
+ * The style every surface drew before the knob existed: `Δ`/`ø`/`°`/`+` glyphs, a full-size
+ * triangle, ASCII accidentals in the root and `♭`/`♯` glyphs in the tensions (the historical
+ * asymmetry), inline alterations parenthesised, two-or-more stacked. A render with this style is
+ * byte-identical to the pre-V17a output (ADR-0014/0015).
+ */
+export const CANONICAL_CHORD_STYLE: ChordStyle = {
+  majorSeventh: 'delta',
+  minor: 'm',
+  halfDiminished: 'circle',
+  diminished: 'circle',
+  augmented: 'plus',
+  rootAccidental: 'ascii',
+  tensionAccidental: 'glyph',
+  parenthesizeAlterations: true,
+  stackAlterations: true,
+  triangleScale: 1,
+};
+
 export interface ChordSpec {
   text: string;
   x: number;
@@ -120,6 +194,10 @@ export interface ChordSpec {
   size: number;
   /** Free text — an instruction, or something the recogniser could not read (Q56). */
   plain: boolean;
+  /** Typographic style; defaults to the canonical one every surface used before V17a. */
+  style?: ChordStyle;
+  /** Text font family; defaults to the serif every surface used before V17a. */
+  family?: string;
 }
 
 export function chordSymbol(spec: ChordSpec): SvgElement {
@@ -127,7 +205,7 @@ export function chordSymbol(spec: ChordSpec): SvgElement {
     class: spec.plain ? 'se-annotation' : 'se-chord',
     x: spec.x,
     y: spec.y,
-    'font-family': SERIF,
+    'font-family': spec.family ?? SERIF,
     'font-size': `${spec.size}px`,
     'font-weight': 'normal',
     'font-style': 'normal',
@@ -143,45 +221,117 @@ export function chordSymbol(spec: ChordSpec): SvgElement {
     return textEl(attrs, [spec.text]);
   }
 
-  return textEl(attrs, chordRuns(parsed.structure, spec.size));
-}
-
-/** The ordered runs of one engraved chord: baseline root + quality, a superscript, a slash bass. */
-function chordRuns(s: ChordStructure, size: number): (SvgElement | string)[] {
-  const runs: (SvgElement | string)[] = [formatRoot(s.root)];
-
-  const quality = baselineQuality(s);
-  if (quality !== '') runs.push(quality);
-
-  const alterations = shownAlterations(s);
-  const lead = superscriptLead(s);
-  // Two or more alterations with nothing after them stack; otherwise they ride inline in parens.
-  if (alterations.length >= 2 && s.bass === null) {
-    runs.push(...stackedSuperscript(lead, alterations, size));
-  } else {
-    const parenthesised = alterations.length === 0 ? '' : `(${alterations.map(formatAlteration).join('')})`;
-    const raised = `${lead}${parenthesised}`;
-    if (raised !== '') runs.push(superscript(raised, size));
-  }
-
-  // The slash and the bass stay at full size: a superscripted bass reads as an extension.
-  if (s.bass !== null) runs.push(`/${formatRoot(s.bass)}`);
-  return runs;
+  const style = spec.style ?? CANONICAL_CHORD_STYLE;
+  return textEl(attrs, chordParts(parsed.structure, spec.size, style).runs);
 }
 
 /**
- * The full-size glyphs after the root: `m`, `+`, `°`, `ø`, and the `Δ` of a major seventh. A
- * half-diminished chord is `ø` alone — the `m` and the `♭5` are what `ø` *means*, so drawing them
- * too would be saying it twice (that `♭5` is dropped in `shownAlterations`).
+ * The plain string a given style draws for a chord — its root, quality glyphs and tensions run
+ * together in reading order (`Ebmaj7` → `EbΔ7`, or `Ebmaj7` under a spelled style). This is the
+ * label a chord-band recogniser is trained against (V17b): it is produced by the *same* builder
+ * that emits the SVG runs, so what the model learns to read is exactly what was inked. A `plain`
+ * annotation or unparseable text is returned verbatim, as it is drawn.
  */
-function baselineQuality(s: ChordStructure): string {
-  if (isHalfDiminished(s)) return 'ø';
-  let out = '';
-  if (s.triad === 'minor') out += 'm';
-  else if (s.triad === 'augmented') out += '+';
-  else if (s.triad === 'diminished') out += '°';
-  if (s.seventh === 'major') out += 'Δ';
-  return out;
+export function chordGlyphText(
+  chordText: string,
+  style: ChordStyle = CANONICAL_CHORD_STYLE,
+): string {
+  const parsed = parseChord(chordText);
+  if (parsed === null || parsed.kind === 'no-chord') return chordText;
+  // Size only scales the runs; the label is size-independent, so any size does.
+  return chordParts(parsed.structure, 14, style).label;
+}
+
+/**
+ * The ordered runs of one engraved chord AND the plain string they spell, built together so a
+ * recogniser's label cannot drift from the pixels. Runs are a mix of baseline strings (drawn at
+ * the parent size) and raised/scaled tspans.
+ */
+function chordParts(
+  s: ChordStructure,
+  size: number,
+  style: ChordStyle,
+): { runs: (SvgElement | string)[]; label: string } {
+  const runs: (SvgElement | string)[] = [];
+  let label = '';
+  const push = (run: string): void => {
+    runs.push(run);
+    label += run;
+  };
+
+  push(formatRootStyled(s.root, style));
+
+  // A half-diminished chord drawn `ø` is the `m` and the `♭5` said once as a glyph; a `spell` style
+  // draws it as the ordinary `m7♭5` it is, so it flows through the normal path with the `♭5` shown.
+  const halfDimCircle = isHalfDiminished(s) && style.halfDiminished === 'circle';
+
+  if (halfDimCircle) {
+    push('ø');
+  } else {
+    if (s.triad === 'minor') push(minorMarker(style));
+    else if (s.triad === 'augmented') push(augmentedMarker(style));
+    else if (s.triad === 'diminished') push(diminishedMarker(style));
+
+    if (s.seventh === 'major') {
+      if (style.majorSeventh === 'delta') {
+        if (style.triangleScale === 1) push('Δ');
+        else {
+          runs.push(scaledDelta(size, style.triangleScale));
+          label += 'Δ';
+        }
+      } else {
+        push(majorSeventhWord(style.majorSeventh));
+      }
+    }
+  }
+
+  const alterations = shownAlterations(s, halfDimCircle);
+  const lead = superscriptLead(s);
+
+  if (style.stackAlterations && alterations.length >= 2 && s.bass === null) {
+    const stacked = stackedSuperscript(lead, alterations, size, style);
+    runs.push(...stacked.runs);
+    label += stacked.label;
+  } else {
+    const rendered = alterations.map((a) => formatAlteration(a, style)).join('');
+    const parenthesised =
+      alterations.length === 0 ? '' : style.parenthesizeAlterations ? `(${rendered})` : rendered;
+    const raised = `${lead}${parenthesised}`;
+    if (raised !== '') {
+      runs.push(superscript(raised, size));
+      label += raised;
+    }
+  }
+
+  // The slash and the bass stay at full size: a superscripted bass reads as an extension.
+  if (s.bass !== null) push(`/${formatRootStyled(s.bass, style)}`);
+  return { runs, label };
+}
+
+function formatRootStyled(root: Root, style: ChordStyle): string {
+  return `${root.step}${styledAccidental(formatAlter(root.alter), style.rootAccidental)}`;
+}
+
+/** ASCII `b`/`#` (as `formatAlter` and the tension code produce them) → the chosen glyph form. */
+function styledAccidental(ascii: string, mode: AccidentalGlyph): string {
+  if (mode === 'ascii') return ascii;
+  return ascii.replaceAll('b', FLAT).replaceAll('#', SHARP);
+}
+
+function minorMarker(style: ChordStyle): string {
+  return style.minor === 'min' ? 'min' : style.minor === 'dash' ? '-' : 'm';
+}
+
+function augmentedMarker(style: ChordStyle): string {
+  return style.augmented === 'aug' ? 'aug' : '+';
+}
+
+function diminishedMarker(style: ChordStyle): string {
+  return style.diminished === 'dim' ? 'dim' : '°';
+}
+
+function majorSeventhWord(glyph: MajorSeventhGlyph): string {
+  return glyph === 'maj' ? 'maj' : glyph === 'ma' ? 'ma' : 'M';
 }
 
 /** The superscript number: the extension or seventh, a sixth, the `alt` shorthand, a suspension. */
@@ -191,10 +341,10 @@ function superscriptLead(s: ChordStructure): string {
   return s.suspension === null ? top : `${top}${s.suspension}`;
 }
 
-function shownAlterations(s: ChordStructure): Alteration[] {
-  return isHalfDiminished(s)
+function shownAlterations(s: ChordStructure, halfDimCircle: boolean): Alteration[] {
+  return halfDimCircle
     ? s.alterations.filter((a) => !(a.degree === 5 && a.alter === -1))
-    : s.alterations;
+    : [...s.alterations];
 }
 
 function isHalfDiminished(s: ChordStructure): boolean {
@@ -205,8 +355,26 @@ function isHalfDiminished(s: ChordStructure): boolean {
   );
 }
 
-function formatAlteration(a: Alteration): string {
-  return `${a.alter < 0 ? FLAT : SHARP}${a.degree}`;
+function formatAlteration(a: Alteration, style: ChordStyle): string {
+  const sign =
+    a.alter < 0
+      ? style.tensionAccidental === 'glyph'
+        ? FLAT
+        : 'b'
+      : style.tensionAccidental === 'glyph'
+        ? SHARP
+        : '#';
+  return `${sign}${a.degree}`;
+}
+
+/** A `Δ` drawn at less than full size, as its own baseline tspan (a `triangleScale` other than 1). */
+function scaledDelta(size: number, scale: number): SvgElement {
+  return {
+    name: 'tspan',
+    attrs: { 'font-size': `${round(size * scale)}px` },
+    children: [],
+    text: ['Δ'],
+  };
 }
 
 /**
@@ -228,12 +396,19 @@ function superscript(value: string, size: number): SvgElement {
 /**
  * The lead and the first alteration on one raised line, then the remaining alterations stacked
  * beneath the first — each slid left by an estimate of the run above it so their left edges line
- * up. Only reached when there is no bass, so nothing has to resume after the stack.
+ * up. Only reached when there is no bass, so nothing has to resume after the stack. Returns the
+ * runs and the plain string they spell (lead then alterations, low line last), in reading order.
  */
-function stackedSuperscript(lead: string, alterations: Alteration[], size: number): SvgElement[] {
+function stackedSuperscript(
+  lead: string,
+  alterations: Alteration[],
+  size: number,
+  style: ChordStyle,
+): { runs: SvgElement[]; label: string } {
   const scaled = size * STACK_SCALE;
   const first = alterations[0] as Alteration;
-  const top = `${lead}${formatAlteration(first)}`;
+  const firstText = formatAlteration(first, style);
+  const top = `${lead}${firstText}`;
 
   const runs: SvgElement[] = [
     {
@@ -243,10 +418,11 @@ function stackedSuperscript(lead: string, alterations: Alteration[], size: numbe
       text: [top],
     },
   ];
+  let label = top;
 
-  let previous = formatAlteration(first);
+  let previous = firstText;
   for (const alteration of alterations.slice(1)) {
-    const text = formatAlteration(alteration);
+    const text = formatAlteration(alteration, style);
     runs.push({
       name: 'tspan',
       attrs: {
@@ -257,9 +433,10 @@ function stackedSuperscript(lead: string, alterations: Alteration[], size: numbe
       children: [],
       text: [text],
     });
+    label += text;
     previous = text;
   }
-  return runs;
+  return { runs, label };
 }
 
 function round(value: number): number {
