@@ -49,7 +49,7 @@ flowchart TD
 | Stage | Does | Consumes → produces | State |
 |---|---|---|---|
 | **0 · Upload** | Validate the image by decoding it at the boundary; store it in the BlobStore; record a durable import **job** | bytes → a job + a retained scan | **done** (V10, ADR-0029/0018) |
-| **1 · Layout detection** | Find staff systems, barlines, the chord band, title/text blocks. Bars & four-bar phrases are *derived* from barlines + system breaks, not detected | page → object boxes | **not built (V16).** Today a geometric **OpenCV staff-finder** (`engines/heuristic.py`) substitutes for it — good on clean scans, the real-photo bottleneck (phantom title "staff", missed low-contrast staff) |
+| **1 · Layout detection** | Find staff systems, barlines, the chord band, title/text blocks. Bars & four-bar phrases are *derived* from barlines + system breaks, not detected | page → object boxes | **done (V16, bespoke engine).** A small centre-point detector (`engines/bespoke/layout.py`, `detect.onnx`) trained on synthetic page-box labels; staff recall ~0.92 on held-out synthetic, robust on real photos where the OpenCV finder invents a phantom title-staff. oemer and the `heuristic` engine still do their own geometric staff-finding |
 | **2a · Staff recogniser** | One system crop → an ordered note/rest sequence with x-coordinates | crop → notes+rests (bbox, duration; pitch carried by the token) | **done (V15, bespoke engine).** A small CRNN+CTC trained on synthetic data; coordinates from the CTC column index. oemer does its own equivalent internally |
 | **2b · Chord band** | Read the chord-band strip into raw text tokens with boxes | band strip → `bandTokens` | **done on oemer/heuristic via PaddleOCR (V13d, ADR-0027).** The **bespoke** chord recogniser is **V17** — the bespoke engine currently emits an empty band |
 | **Map · `mapOmrToScore`** | Turn recognised objects into a `Score`: bars from barlines, notes end-to-end by x, pitch from staff geometry (treble) | `OmrDocument` → `Score` | **done (V11)** |
@@ -79,9 +79,10 @@ Stages 1+2a+2b are the *recogniser*, and there are three interchangeable ones be
 - **`heuristic`** — OpenCV only, no weights, low RAM (V13c). Dev/test scaffolding and the seed of the
   bespoke direction; also the source of the staff-finder the bespoke engine borrows until Stage 1
   exists.
-- **`bespoke`** — the trained pipeline being built (ADR-0031). Today: Stage 2a (V15c) + the borrowed
-  heuristic staff-finder. It earns the **default** only by beating oemer on the harness (accuracy *and*
-  RAM), never by fiat.
+- **`bespoke`** — the trained pipeline (ADR-0031). Stage 1 (V16, `detect.onnx`) + Stage 2a (V15c,
+  `model.onnx`); the borrowed heuristic staff-finder is gone. Stage 2b (chords) is still V17. It earns
+  the **default** only by beating oemer on the harness (accuracy *and* RAM), never by fiat — the V16
+  harness run.
 
 ## Data and training
 

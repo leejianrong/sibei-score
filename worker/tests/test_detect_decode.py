@@ -13,7 +13,7 @@ import unittest
 import numpy as np
 
 from training.detect_config import GH, GW, IN_H, IN_W, STRIDE
-from training.detect_decode import decode, detection_metrics, iou
+from training.detect_decode import decode, detection_metrics, iou, nms
 
 NUM_CLASSES = 4  # staff, barline, chordBand, title
 
@@ -69,6 +69,28 @@ class DecodeTest(unittest.TestCase):
 
     def test_blank_output_yields_nothing(self) -> None:
         self.assertEqual(decode(_blank_output(), IN_W, IN_H, thresh=0.3), [])
+
+
+class NmsTest(unittest.TestCase):
+    def test_merges_overlapping_same_class_duplicates(self) -> None:
+        # A wide object's ridge leaves two heavily-overlapping boxes; NMS keeps the higher-scoring one.
+        a = {"cls": 0, "score": 0.9, "x": 0, "y": 0, "w": 100, "h": 40}
+        b = {"cls": 0, "score": 0.6, "x": 5, "y": 2, "w": 100, "h": 40}
+        kept = nms([a, b], iou_thresh=0.35)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["score"], 0.9)
+
+    def test_keeps_distinct_thin_barlines(self) -> None:
+        # Two separate barlines do not overlap, so both survive.
+        a = {"cls": 1, "score": 0.9, "x": 100, "y": 0, "w": 6, "h": 40}
+        b = {"cls": 1, "score": 0.9, "x": 400, "y": 0, "w": 6, "h": 40}
+        self.assertEqual(len(nms([a, b], iou_thresh=0.35)), 2)
+
+    def test_never_suppresses_across_classes(self) -> None:
+        # A staff and a chord band sit on top of each other but are different classes — both kept.
+        staff = {"cls": 0, "score": 0.9, "x": 0, "y": 0, "w": 100, "h": 40}
+        band = {"cls": 2, "score": 0.9, "x": 0, "y": 0, "w": 100, "h": 40}
+        self.assertEqual(len(nms([staff, band], iou_thresh=0.35)), 2)
 
 
 class IouTest(unittest.TestCase):

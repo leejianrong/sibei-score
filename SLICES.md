@@ -1203,14 +1203,23 @@ unchanged from V11). Barline *type* is still not detected (ADR-0021), same as oe
 >   V15a did. **Degradation in the dump is photometric only** (perspective forced to 0) so the boxes
 >   stay pixel-aligned; the geometric half (perspective/rotation, which moves boxes) is on-the-fly,
 >   label-safe augmentation in V16b, transforming image + boxes jointly — the same split V15 used.
-> - **V16b — train the Stage-1 detector (RunPod GPU).** A small CPU/ONNX object detector (YOLO-nano
->   class, ADR-0031; a staff/barline heatmap hybrid held in reserve if box regression is data-hungry)
->   on the V16a corpus. Staff detection is the must-win; barline/band/title are easier. Keep it
->   ONNX-exportable — no dynamic-output ops (the V15b AdaptiveAvgPool lesson).
-> - **V16c — `assemble.py`.** Stage-1 boxes → crop each system (the V15c full-system reconstruction) →
->   the **unchanged** V15c Stage-2a model → notes/rests; the borrowed heuristic staff-finder is
->   dropped. Chord band stays on oemer/PaddleOCR (bespoke chords are V17). Bars/phrases derived from
->   barline x + system breaks. One `OmrDocument`, coordinates in the source-image grid.
+> - **V16b — train the Stage-1 detector (RunPod GPU). LANDED.** A small CPU/ONNX **centre-point**
+>   detector (`worker/training/detect_model.py`) — the "YOLO-nano class" of ADR-0031 built heatmap-style
+>   (CenterNet), which the ADR sanctions as the fair alternative when box regression is data-hungry, and
+>   which avoids the NMS + dynamic-output machinery that fought the V15b ONNX export. Trained on the V16a
+>   corpus on a RunPod GPU (`rp train-relay`, parameterized for either bespoke stage). The `/8` grid
+>   (finer than `/16`) separates the short, adjacent staff/band rows and lifted **staff recall 0.66 →
+>   0.92** (held-out synthetic); barlines F1 0.99; decode is host-side numpy peak-pick + per-class
+>   IoU-NMS (`detect_decode.py`), so the graph has no dynamic op. ~1.8 MB. On real photos staves localise
+>   page-wide at a lower score threshold (the synth→real gap is a confidence shift, not a localisation
+>   failure) — the phantom-title-staff failure is gone.
+> - **V16c — `engines/bespoke/` package. LANDED.** `bespoke.py` became a package: `layout.py` (Stage-1
+>   inference + assembling detections into staves/barlines — a *system* is a cluster of detections at one
+>   staff-centre y, its height from the reliable barlines, its x-extent from the staff box), `stage2a.py`
+>   (the **unchanged** V15c crop+CRNN), `assemble.py` (both stages → one `OmrDocument`). The borrowed
+>   heuristic staff-finder is dropped. Chord band stays empty (bespoke chords are V17). Bars/phrases
+>   derived from barline x + system breaks (in the mapper). End-to-end: a synthetic page → a schema-valid
+>   `OmrDocument` → `mapOmrToScore` → a draft with the correct bar count, at ~0.6 sec/page.
 > - **V16d — score on the V12 harness** vs oemer, heuristic and the current (staff-finder-borrowing)
 >   bespoke: noteF1 + validBars + sec/page + **peak RAM**, over the synthetic corpus and the real
 >   samples; report whether Stage-1 kills the phantom-title-staff / missed-staff failures. `peakMB`
