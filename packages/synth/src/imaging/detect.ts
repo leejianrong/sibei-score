@@ -9,18 +9,17 @@
  * `page-boxes.ts`.
  */
 
-import type { MusicFontName } from '@sibei/engrave';
 import type { PageSpecInput } from '@sibei/layout';
 import type { Score } from '@sibei/model';
 import sharp from 'sharp';
 import type { BoxClass } from '../page-boxes.js';
 import { extractPageBoxes } from '../page-boxes.js';
+import type { RenderStyleOptions } from './rasterize.js';
 import { renderScoreToPng } from './rasterize.js';
 
-export interface DetectPageOptions {
+export interface DetectPageOptions extends RenderStyleOptions {
   /** Render scale (default 2, matching the corpus). */
   zoom?: number;
-  font?: MusicFontName;
   pageSpec?: PageSpecInput;
   background?: string;
 }
@@ -58,6 +57,8 @@ function renderPages(score: Score, options: DetectPageOptions): Buffer[] {
   return renderScoreToPng(score, {
     ...(options.zoom === undefined ? {} : { zoom: options.zoom }),
     ...(options.font === undefined ? {} : { font: options.font }),
+    ...(options.chordStyle === undefined ? {} : { chordStyle: options.chordStyle }),
+    ...(options.textFont === undefined ? {} : { textFont: options.textFont }),
     pageSpec: options.pageSpec ?? {},
     ...(options.background === undefined ? {} : { background: options.background }),
   });
