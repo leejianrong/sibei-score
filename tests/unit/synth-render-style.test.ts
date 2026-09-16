@@ -1,5 +1,13 @@
 import { CANONICAL_CHORD_STYLE, chordGlyphText } from '@sibei/engrave';
-import { makeRng, randomChordStyle, randomMusicFont, randomRenderStyle } from '@sibei/synth';
+import {
+  TEXT_FACES,
+  constrainSymbology,
+  makeRng,
+  randomChordStyle,
+  randomMusicFont,
+  randomRenderStyle,
+  randomTextFace,
+} from '@sibei/synth';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -42,6 +50,41 @@ describe('coverage across seeds', () => {
   it('produces more than one distinct chord style over a sweep', () => {
     const distinct = new Set(styles.map((s) => JSON.stringify(s.chordStyle)));
     expect(distinct.size).toBeGreaterThan(10);
+  });
+});
+
+describe('the text typeface axis (V17a-iii)', () => {
+  it('picks a family and carries it on the render style', () => {
+    const families = new Set(TEXT_FACES.map((f) => f.family));
+    for (let seed = 0; seed < 50; seed += 1) {
+      expect(families.has(randomRenderStyle(makeRng(seed)).textFont)).toBe(true);
+    }
+  });
+
+  it('exercises both an engraved and a handwriting face across seeds', () => {
+    const faces = new Set(
+      Array.from({ length: 200 }, (_, seed) => randomTextFace(makeRng(seed)).family),
+    );
+    expect(faces.has('Tinos')).toBe(true);
+    expect([...faces].some((f) => f === 'Patrick Hand' || f === 'Caveat')).toBe(true);
+  });
+
+  it('never asks a handwriting face (no Δ) to draw a triangle', () => {
+    for (let seed = 0; seed < 300; seed += 1) {
+      const style = randomRenderStyle(makeRng(seed));
+      const face = TEXT_FACES.find((f) => f.family === style.textFont);
+      if (face && !face.supportsDelta) {
+        expect(style.chordStyle.majorSeventh).not.toBe('delta');
+      }
+    }
+  });
+
+  it('constrainSymbology spells maj7 as a word for a Δ-less face and leaves a Δ-capable one alone', () => {
+    const noDelta = { family: 'Patrick Hand', supportsDelta: false };
+    const withDelta = { family: 'Tinos', supportsDelta: true };
+    const delta = { ...CANONICAL_CHORD_STYLE, majorSeventh: 'delta' as const };
+    expect(constrainSymbology(noDelta, delta).majorSeventh).toBe('maj');
+    expect(constrainSymbology(withDelta, delta).majorSeventh).toBe('delta');
   });
 });
 

@@ -17,6 +17,7 @@ import { engravePage } from '@sibei/engrave';
 import type { PageSpecInput } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import type { Score } from '@sibei/model';
+import { textFontFiles } from './fonts.js';
 
 export interface RenderedPage {
   index: number;
@@ -64,9 +65,13 @@ export interface RasterizeOptions {
 
 /** One SVG string → a PNG buffer. */
 export function rasterizeSvg(svg: string, options: RasterizeOptions = {}): Buffer {
+  // The vendored text faces (V17a-iii) are added to resvg's font database so the corpus's chosen
+  // typeface is deterministic; system fonts stay loaded as a fallback for the rare glyph a face lacks.
+  const fontFiles = textFontFiles();
   const png = new Resvg(svg, {
     background: options.background ?? 'white',
     fitTo: { mode: 'zoom', value: options.zoom ?? 2 },
+    font: { loadSystemFonts: true, ...(fontFiles.length > 0 ? { fontFiles } : {}) },
   })
     .render()
     .asPng();

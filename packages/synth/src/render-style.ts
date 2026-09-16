@@ -20,11 +20,14 @@
 import type { ChordStyle, MusicFontName } from '@sibei/engrave';
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
 import type { Rng } from './rng.js';
+import { constrainSymbology, randomTextFace } from './text-fonts.js';
 
-/** The drawing choices for one rendered chart. Extended with a text typeface in V17a-iii. */
+/** The drawing choices for one rendered chart: music face, chord symbology, and text typeface. */
 export interface RenderStyle {
   font: MusicFontName;
   chordStyle: ChordStyle;
+  /** The text font family for the title block and chord symbols (V17a-iii). */
+  textFont: string;
 }
 
 /**
@@ -66,7 +69,14 @@ export function randomChordStyle(rng: Rng): ChordStyle {
   };
 }
 
-/** A full render style: a music face and a chord symbology, both drawn from the one `Rng`. */
+/**
+ * A full render style: a music face, a text typeface, and a chord symbology, all drawn from the one
+ * `Rng`. The symbology is constrained to what the chosen typeface can draw (a handwriting face has no
+ * `Δ`), so nothing renders as tofu — the corpus's soundness rests on this (V17a-iii).
+ */
 export function randomRenderStyle(rng: Rng): RenderStyle {
-  return { font: randomMusicFont(rng), chordStyle: randomChordStyle(rng) };
+  const font = randomMusicFont(rng);
+  const face = randomTextFace(rng);
+  const chordStyle = constrainSymbology(face, randomChordStyle(rng));
+  return { font, chordStyle, textFont: face.family };
 }

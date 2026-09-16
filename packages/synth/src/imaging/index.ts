@@ -6,6 +6,7 @@
  */
 
 export * from './rasterize.js';
+export * from './fonts.js';
 export * from './degrade.js';
 export * from './harness.js';
 export * from './crops.js';
