@@ -24,6 +24,7 @@
     "dump:v17b": "tsx scripts/v17b-dump-band-corpus.ts",
     "proof:v16a": "tsx scripts/v16a-detect-proof.ts",
     "export:v15c-vocab": "tsx scripts/v15c-export-vocab.ts",
+    "export:v17c-vocab": "tsx scripts/v17c-export-chord-vocab.ts",
     "eval": "tsx scripts/eval.ts",
     "vendor:fonts": "tsx scripts/vendor-music-fonts.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
