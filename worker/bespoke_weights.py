@@ -42,6 +42,14 @@ ARTIFACTS = {
     "chord-vocab.json": (438, "5c28fb6be1cec5ef295ab10c49a2172a51899850a4fbaa90a4603714f74a2286"),
 }
 
+# The GitHub Release whose assets ARE this exact artifact set (ADR-0033). Because a retrained model is
+# a *different* model — nondeterministic GPU training breaks the checksum pin — a trained artifact is
+# irreplaceable, so the pinned set is published as immutable Release assets and `fetch_bespoke.py`
+# pulls them by checksum at build time (the `fetch_weights.py` pattern, for oemer, extended to the
+# bespoke models). Bump this tag in the SAME commit that changes ARTIFACTS above, and cut the matching
+# Release, so the tag always names the assets these digests describe. Repo is public → no-auth download.
+RELEASE_TAG = "bespoke-weights-v17c"
+
 
 def sha256(path: str) -> str:
     h = hashlib.sha256()
