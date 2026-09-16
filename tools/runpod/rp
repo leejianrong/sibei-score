@@ -466,19 +466,19 @@ terminate() {
     sleep 5
   done
   tar xf up.tar -C in || { echo "progress: bad up.tar" | tee -a "\$LOG"; terminate "bad up.tar"; exit 1; }
-  crops=\$(ls in/corpus/crops 2>/dev/null | wc -l || echo 0)
-  echo "progress: corpus received (\${crops} crops); installing training extras" | tee -a "\$LOG"
+  items=\$(( \$(ls in/corpus/crops 2>/dev/null | wc -l) + \$(ls in/corpus/pages 2>/dev/null | wc -l) ))
+  echo "progress: corpus received (\${items} items); installing training extras" | tee -a "\$LOG"
 
   # torch/numpy/pillow come from the pytorch base image; add the light extras. Pin numpy<2 so onnx/
   # tensorboard don't drag in numpy 2.x, whose ABI break makes torch.from_numpy raise "Numpy is not
   # available" against the image's torch 2.1 (built for numpy 1.x).
   pip install --no-input --quiet "numpy<2" onnx tensorboard >>"\$LOG" 2>&1 || echo "progress: pip extras had warnings" | tee -a "\$LOG"
 
-  echo "progress: starting training (cuda)" | tee -a "\$LOG"
-  PYTHONPATH="\$(pwd)/in/pkg" python -m training.train --corpus in/corpus --out out --device cuda ${train_args} 2>&1 | tee -a "\$LOG"
+  echo "progress: starting training (cuda) module=${RP_TRAIN_MODULE:-training.train}" | tee -a "\$LOG"
+  PYTHONPATH="\$(pwd)/in/pkg" python -m ${RP_TRAIN_MODULE:-training.train} --corpus in/corpus --out out --device cuda ${train_args} 2>&1 | tee -a "\$LOG"
 
-  # Ship the ONNX + metrics (+ tb logs) back; drop the big .pt checkpoint (not needed downstream).
-  ( cd out && rm -f model.pt && tar cf ../down.tar . ) \
+  # Ship the ONNX + metrics (+ tb logs) back; drop the big .pt checkpoint(s) (not needed downstream).
+  ( cd out && rm -f *.pt && tar cf ../down.tar . ) \
     || { echo "progress: no artifact to pack" | tee -a "\$LOG"; terminate "no artifact"; exit 1; }
   echo "progress: training done, sending artifact (down)" | tee -a "\$LOG"
   runpodctl send --code "${base_down}" down.tar >/tmp/down-send.log 2>&1 &
@@ -930,6 +930,11 @@ cmd_eval_relay() {
 # checkout's training code up, train the Stage-2a CRNN on the pod's GPU, pull back model.onnx +
 # metrics.json. torch comes from a pytorch base image (RP_TRAIN_IMAGE), not the oemer worker image.
 # Corpus/training knobs via RP_DUMP_ARGS / RP_TRAIN_ARGS; extra args here append to the training args.
+# The STAGE is selectable so the same relay trains either bespoke model (V15b Stage-2a or V16b Stage-1):
+#   RP_DUMP_SCRIPT   the pnpm dump script (default dump:v15a; dump:v16a for the detector)
+#   RP_TRAIN_MODULE  the training module    (default training.train; training.detect_train for detector)
+#   RP_TRAIN_ARTIFACT the ONNX filename to pull back (default model.onnx; detect.onnx for the detector)
+#   RP_TRAIN_OUT     where to drop the artifact (default out/v15b; out/v16b for the detector)
 # Trap-guarded: the pod is always torn down.
 cmd_train_relay() {
   require_key
@@ -970,7 +975,7 @@ cmd_train_relay() {
 
   # 1. Generate the training corpus locally (crops + labels + vocab), Node side.
   log "generating corpus locally -> ${corpus} (this can take a few minutes)"
-  ( cd "$repo" && pnpm -s dump:v15a --out "$corpus" $dump_args )
+  ( cd "$repo" && pnpm -s "${RP_DUMP_SCRIPT:-dump:v15a}" --out "$corpus" $dump_args )
   [ -f "${corpus}/labels.jsonl" ] || die "corpus dump produced no labels.jsonl"
 
   # 2. Bundle the corpus AND this checkout's training code into one tar (corpus/ + pkg/training/).
@@ -1024,19 +1029,21 @@ cmd_train_relay() {
   [ -n "$final_down" ] || die "did not observe the pod's artifact code in its logs within ${MAX_LIFETIME_SECS}s (see ${podlog})"
 
   # 6. Receive the artifact tar over the relay and extract it.
-  local out="${RP_TRAIN_OUT:-${repo}/out/v15b}"
+  local out artifact
+  out="${RP_TRAIN_OUT:-${repo}/out/v15b}"
+  artifact="${RP_TRAIN_ARTIFACT:-model.onnx}"
   mkdir -p "$out"
   # Clear stale outputs first: if training exported nothing (e.g. an ONNX-export error), the tar holds
-  # only tb logs, and a leftover model.onnx from a previous run would false-pass the check below.
-  rm -f "${out}/model.onnx" "${out}/metrics.json"
+  # only tb logs, and a leftover artifact from a previous run would false-pass the check below.
+  rm -f "${out}/${artifact}" "${out}/metrics.json"
   log "artifact code seen; pulling model over the relay -> ${out}"
   ( cd "$work" && rm -f down.tar && runpodctl receive "$final_down" )
   [ -f "${work}/down.tar" ] || die "relay receive did not produce down.tar"
   tar xf "${work}/down.tar" -C "$out"
-  [ -f "${out}/model.onnx" ] || die "no model.onnx in the received tar (${work}/down.tar)"
-  log "train-relay complete: ${out}/model.onnx"
+  [ -f "${out}/${artifact}" ] || die "no ${artifact} in the received tar (${work}/down.tar)"
+  log "train-relay complete: ${out}/${artifact}"
   if [ -f "${out}/metrics.json" ] && have jq; then
-    log "  best val token accuracy: $(jq -r '.best_token_accuracy // "?"' "${out}/metrics.json")"
+    log "  best metric: $(jq -r '.best_token_accuracy // .best_score // "?"' "${out}/metrics.json")"
   fi
   # The trap tears the pod down (and kills the send) on return.
 }
@@ -1099,8 +1106,10 @@ rp — dev/build-time RunPod compute wrapper (never a product runtime dependency
   rp eval-relay [args]  full on-pod eval over a runpodctl RELAY — no public IP, no ssh (the pivot for
                         spot pods that come up without a direct-TCP endpoint). Extra args go to both
                         the dump and score commands. Trap-guarded. This is the recommended path.
-  rp train-relay [args] train the Stage-2a CRNN on a GPU pod over the relay (V15b): generate the
-                        corpus locally, ship it + the training code, train, pull back model.onnx.
+  rp train-relay [args] train a bespoke model on a GPU pod over the relay: generate the corpus
+                        locally, ship it + the training code, train, pull back the ONNX. Defaults to
+                        the V15b Stage-2a CRNN; set RP_DUMP_SCRIPT=dump:v16a RP_TRAIN_MODULE=training.detect_train
+                        RP_TRAIN_ARTIFACT=detect.onnx RP_TRAIN_OUT=out/v16b for the V16b Stage-1 detector.
                         Corpus/training knobs via RP_DUMP_ARGS / RP_TRAIN_ARGS; args append to training.
                         Needs a torch image (RP_TRAIN_IMAGE). Trap-guarded.
   rp status             show the pod's status
