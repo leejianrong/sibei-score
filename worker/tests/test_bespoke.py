@@ -1,4 +1,4 @@
-"""The bespoke Stage-2a engine's unit tests (V15c, ADR-0031).
+"""The bespoke engine's unit tests (V15c Stage-2a, V16c Stage-1; ADR-0031).
 
 Two layers, mirroring the engine's two halves:
 
@@ -7,7 +7,8 @@ Two layers, mirroring the engine's two halves:
   and no weights. This is the load-bearing, deterministic part a probe failure would hide in, so it is
   tested exactly.
 - A **guarded smoke** of the full `recognize()` runs only when onnxruntime + cv2 are importable *and* a
-  baked model is reachable (`$SIBEI_BESPOKE_MODEL_DIR`, dev: out/v15b). It asserts the document is
+  baked model pair is reachable (`$SIBEI_BESPOKE_MODEL_DIR`, dev: out/v15b + detect.onnx). It
+  asserts the document is
   schema-shaped and every coordinate lands inside the image — recognition *accuracy* is the V12
   harness's job (docs/eval.md), not a unit test's.
 """
@@ -19,6 +20,7 @@ import tempfile
 import unittest
 
 from sibei_omr.engines import bespoke
+from sibei_omr.engines.bespoke import stage2a
 
 try:
     import cv2
@@ -30,7 +32,11 @@ except Exception:  # noqa: BLE001
 
 _MODEL_DIR = os.environ.get("SIBEI_BESPOKE_MODEL_DIR")
 _HAVE_MODEL = False
-if _MODEL_DIR and os.path.isfile(os.path.join(_MODEL_DIR, "model.onnx")):
+if (
+    _MODEL_DIR
+    and os.path.isfile(os.path.join(_MODEL_DIR, "model.onnx"))
+    and os.path.isfile(os.path.join(_MODEL_DIR, "detect.onnx"))
+):
     try:
         import onnxruntime  # noqa: F401
 
@@ -43,26 +49,26 @@ class SymbolParsing(unittest.TestCase):
     """`_parse_symbol` is the inverse of the TS `tokenSymbol`; get it wrong and every note is wrong."""
 
     def test_plain_note(self) -> None:
-        self.assertEqual(bespoke._parse_symbol("note_C4_4"), ("note", 4, 0, ("C", 0, 4)))
+        self.assertEqual(stage2a._parse_symbol("note_C4_4"), ("note", 4, 0, ("C", 0, 4)))
 
     def test_dotted_note(self) -> None:
-        self.assertEqual(bespoke._parse_symbol("note_A4_4d"), ("note", 4, 1, ("A", 0, 4)))
+        self.assertEqual(stage2a._parse_symbol("note_A4_4d"), ("note", 4, 1, ("A", 0, 4)))
 
     def test_sharp_and_flat(self) -> None:
-        self.assertEqual(bespoke._parse_symbol("note_F#5_8"), ("note", 8, 0, ("F", 1, 5)))
-        self.assertEqual(bespoke._parse_symbol("note_Bb3_16"), ("note", 16, 0, ("B", -1, 3)))
+        self.assertEqual(stage2a._parse_symbol("note_F#5_8"), ("note", 8, 0, ("F", 1, 5)))
+        self.assertEqual(stage2a._parse_symbol("note_Bb3_16"), ("note", 16, 0, ("B", -1, 3)))
 
     def test_double_accidental(self) -> None:
-        self.assertEqual(bespoke._parse_symbol("note_Gbb2_2"), ("note", 2, 0, ("G", -2, 2)))
+        self.assertEqual(stage2a._parse_symbol("note_Gbb2_2"), ("note", 2, 0, ("G", -2, 2)))
 
     def test_rest(self) -> None:
-        self.assertEqual(bespoke._parse_symbol("rest_2"), ("rest", 2, 0, None))
-        self.assertEqual(bespoke._parse_symbol("rest_4d"), ("rest", 4, 1, None))
+        self.assertEqual(stage2a._parse_symbol("rest_2"), ("rest", 2, 0, None))
+        self.assertEqual(stage2a._parse_symbol("rest_4d"), ("rest", 4, 1, None))
 
     def test_blank_and_garbage(self) -> None:
-        self.assertIsNone(bespoke._parse_symbol("<blank>"))
-        self.assertIsNone(bespoke._parse_symbol("note_"))
-        self.assertIsNone(bespoke._parse_symbol("note_Z4_4"))
+        self.assertIsNone(stage2a._parse_symbol("<blank>"))
+        self.assertIsNone(stage2a._parse_symbol("note_"))
+        self.assertIsNone(stage2a._parse_symbol("note_Z4_4"))
 
 
 class CropReconstruction(unittest.TestCase):
@@ -71,19 +77,19 @@ class CropReconstruction(unittest.TestCase):
     def test_extends_above_more_than_below(self) -> None:
         # A staff 4 spaces (40 px) tall at y 100..140, unit 10.
         staff = {"yUpper": 100.0, "yLower": 140.0, "yCenter": 120.0, "unit": 10.0, "xLeft": 50.0, "xRight": 950.0}
-        box = bespoke._crop_box(staff, img_w=1000, img_h=400)
+        box = stage2a._crop_box(staff, img_w=1000, img_h=400)
         staff_h = 40
         # above ~1.6x staffH, below ~0.8x staffH (the measured V15a distribution).
-        self.assertEqual(box.top, round(100 - bespoke._ABOVE_STAFF_RATIO * staff_h))
+        self.assertEqual(box.top, round(100 - stage2a._ABOVE_STAFF_RATIO * staff_h))
         self.assertEqual(box.left, 50)
         self.assertEqual(box.width, 900)
-        expected_bottom = 140 + bespoke._BELOW_STAFF_RATIO * staff_h
+        expected_bottom = 140 + stage2a._BELOW_STAFF_RATIO * staff_h
         self.assertEqual(box.top + box.height, round(expected_bottom))
 
     def test_clamps_to_image(self) -> None:
         # A staff near the top edge: the reconstructed top clamps to 0, never negative.
         staff = {"yUpper": 5.0, "yLower": 45.0, "yCenter": 25.0, "unit": 10.0, "xLeft": 0.0, "xRight": 500.0}
-        box = bespoke._crop_box(staff, img_w=500, img_h=300)
+        box = stage2a._crop_box(staff, img_w=500, img_h=300)
         self.assertGreaterEqual(box.top, 0)
         self.assertGreaterEqual(box.left, 0)
         self.assertLessEqual(box.left + box.width, 500)
@@ -94,13 +100,13 @@ class Coordinates(unittest.TestCase):
     """A token's x comes from its CTC column: crop_left + (t+0.5)*cropWidth/T. Beat mapping rides on it."""
 
     def test_column_to_x_maps_across_the_crop(self) -> None:
-        box = bespoke._CropBox(left=100, top=0, width=400, height=100)
+        box = stage2a._CropBox(left=100, top=0, width=400, height=100)
         staff = {"yUpper": 0.0, "yLower": 40.0, "yCenter": 20.0, "unit": 10.0, "xLeft": 100.0, "xRight": 500.0}
         noteheads: list = []
         rests: list = []
         # Two notes, columns 0 and 9 of T=10, so x ~ left+20 and left+380.
         seq = [(0, "note_E4_4"), (9, "note_C5_4")]
-        bespoke._emit_objects((seq, 10), staff, group=0, box=box, noteheads=noteheads, rests=rests)
+        stage2a._emit_objects((seq, 10), staff, group=0, box=box, noteheads=noteheads, rests=rests)
         self.assertEqual(len(noteheads), 2)
         cx0 = (noteheads[0]["bbox"][0] + noteheads[0]["bbox"][2]) / 2
         cx1 = (noteheads[1]["bbox"][0] + noteheads[1]["bbox"][2]) / 2
@@ -111,10 +117,10 @@ class Coordinates(unittest.TestCase):
 
     def test_pitch_round_trips_through_staff_geometry(self) -> None:
         # E4 sits on the bottom line; its bbox centre y should be ~yLower. C5 is a sixth above.
-        box = bespoke._CropBox(left=0, top=0, width=200, height=100)
+        box = stage2a._CropBox(left=0, top=0, width=200, height=100)
         staff = {"yUpper": 0.0, "yLower": 40.0, "yCenter": 20.0, "unit": 10.0, "xLeft": 0.0, "xRight": 200.0}
         noteheads: list = []
-        bespoke._emit_objects(([(0, "note_E4_4"), (5, "note_C5_4")], 10), staff, 0, box, noteheads, [])
+        stage2a._emit_objects(([(0, "note_E4_4"), (5, "note_C5_4")], 10), staff, 0, box, noteheads, [])
         cy_e4 = (noteheads[0]["bbox"][1] + noteheads[0]["bbox"][3]) / 2
         # E4 → 0 steps above the bottom line → centre at yLower (40).
         self.assertAlmostEqual(cy_e4, 40, delta=1.5)
@@ -123,20 +129,20 @@ class Coordinates(unittest.TestCase):
         self.assertAlmostEqual(cy_c5, 40 - 5 * (10 / 2), delta=1.5)
 
     def test_rest_has_no_pitch_and_sits_at_staff_centre(self) -> None:
-        box = bespoke._CropBox(left=0, top=0, width=100, height=100)
+        box = stage2a._CropBox(left=0, top=0, width=100, height=100)
         staff = {"yUpper": 0.0, "yLower": 40.0, "yCenter": 20.0, "unit": 10.0, "xLeft": 0.0, "xRight": 100.0}
         rests: list = []
-        bespoke._emit_objects(([(2, "rest_4")], 5), staff, 0, box, [], rests)
+        stage2a._emit_objects(([(2, "rest_4")], 5), staff, 0, box, [], rests)
         self.assertEqual(len(rests), 1)
         self.assertEqual(rests[0]["label"], "QUARTER")
         cy = (rests[0]["bbox"][1] + rests[0]["bbox"][3]) / 2
         self.assertAlmostEqual(cy, 20, delta=1.5)
 
     def test_value_to_label(self) -> None:
-        box = bespoke._CropBox(left=0, top=0, width=100, height=100)
+        box = stage2a._CropBox(left=0, top=0, width=100, height=100)
         staff = {"yUpper": 0.0, "yLower": 40.0, "yCenter": 20.0, "unit": 10.0, "xLeft": 0.0, "xRight": 100.0}
         noteheads: list = []
-        bespoke._emit_objects(([(0, "note_E4_8"), (1, "note_E4_16"), (2, "note_E4_2")], 5), staff, 0, box, noteheads, [])
+        stage2a._emit_objects(([(0, "note_E4_8"), (1, "note_E4_16"), (2, "note_E4_2")], 5), staff, 0, box, noteheads, [])
         self.assertEqual([n["label"] for n in noteheads], ["EIGHTH", "SIXTEENTH", "HALF"])
 
 

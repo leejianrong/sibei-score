@@ -1,10 +1,8 @@
-"""Shared geometry for the Stage-1 detector (V16b, ADR-0031) — torch-free on purpose.
+"""Stage-1 detector geometry (V16c, ADR-0031) — mirrors worker/training/detect_config.py.
 
-The model (`detect_model.py`, torch) and the decoder (`detect_decode.py`, numpy only) both need these
-constants, and the decoder must import nothing heavy so the *inference* side can reuse its peak-picking
-on onnxruntime output without pulling torch in. Keeping the constants here lets `detect_decode` stay
-pure numpy.
-"""
+The engine ships without the training package, so it carries its own torch-free copy of the
+detector constants and decode (like ``bespoke`` mirrors ``vocab.ts``). Keep in lockstep with
+training when the model input geometry changes."""
 
 from __future__ import annotations
 

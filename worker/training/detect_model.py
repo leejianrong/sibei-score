@@ -37,9 +37,13 @@ class Detector(nn.Module):
     def __init__(self, num_classes: int, channels: tuple[int, ...] = (16, 32, 64, 128), head: int = 128) -> None:
         super().__init__()
         self.num_classes = num_classes
+        # Pool in every block but the last, so four blocks downsample by /8 = STRIDE (the last block
+        # refines features at full grid resolution). A finer grid than /16 keeps the short, adjacent
+        # staff and chord-band rows separable (detect_config.py).
+        pool_blocks = len(channels) - 1
         blocks: list[nn.Module] = []
         c_in = 1
-        for c_out in channels:
+        for i, c_out in enumerate(channels):
             blocks += [
                 nn.Conv2d(c_in, c_out, 3, padding=1),
                 nn.BatchNorm2d(c_out),
@@ -47,8 +51,9 @@ class Detector(nn.Module):
                 nn.Conv2d(c_out, c_out, 3, padding=1),
                 nn.BatchNorm2d(c_out),
                 nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),  # /2 per block; four blocks → /16 = STRIDE
             ]
+            if i < pool_blocks:
+                blocks.append(nn.MaxPool2d(2))
             c_in = c_out
         self.backbone = nn.Sequential(*blocks)
         self.head = nn.Sequential(

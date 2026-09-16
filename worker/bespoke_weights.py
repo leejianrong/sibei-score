@@ -1,6 +1,6 @@
 """Verify (and record the checksums of) the bespoke Stage-2a artifacts (V15c, ADR-0031, ADR-0024).
 
-The bespoke engine loads two baked artifacts side by side — the trained model and its matched
+The bespoke engine loads three baked artifacts side by side — the two trained models and the matched
 vocabulary manifest — from ``$SIBEI_BESPOKE_MODEL_DIR`` (dev) or the image's baked path
 (``/opt/sibei/bespoke``). This is the ``fetch_weights.py`` pattern for that pair: neither artifact is
 in version control (``out/`` is gitignored — the model comes off a GPU training run, the vocab is
@@ -29,10 +29,13 @@ import os
 import sys
 
 # filename -> (expected size in bytes, sha256). The vocab is deterministic (buildVocabulary, closed by
-# construction); the model is the V15b training artifact (out/v15b/model.onnx, ~7.4 MB CRNN+CTC).
+# construction); the models are the training artifacts — Stage 2a (out/v15b/model.onnx, ~7.4 MB
+# CRNN+CTC, V15b) and Stage 1 (out/v16b/detect.onnx, ~1.8 MB centre-point detector, V16b). All three
+# are baked side by side in the bespoke model dir.
 ARTIFACTS = {
     "model.onnx": (7406608, "ca0174d6010e9d21d2bd595fccc31037093aab5e73f5fdb7284783a5411165c7"),
     "vocab.json": (9359, "bf02a789c2634c0b037a61962a8ddc5a9f4d30631b5dbd04ddaa044e8d945dc6"),
+    "detect.onnx": (1771920, "03f1766886fe479c37927a22e00cce09973467da77b9cd51869a439b65080183"),
 }
 
 
