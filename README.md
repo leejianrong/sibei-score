@@ -4,13 +4,17 @@ A local-only jazz lead sheet notation app: a single staff with chord symbols abo
 to a line, the way a Real Book prints it — authored and edited **equally from a browser and a
 command line**, and exported as a print-ready PDF.
 
-> **Status: v0.1 is complete**, and local-only by design (ADR-0001). Built and landed (V1–V8): the
+> **Status: v0.1 and v0.2 are complete**, and local-only by design (ADR-0001). v0.1 (V1–V8): the
 > score model, layout engine, our own engraver, PDF **and MusicXML** export, the store, the `/v1/`
 > API, the CLI, and an editing browser with live updates; jazz **chords**, enharmonic **spelling**
 > and **transposition**, instrument **parts**, **structure** (sections, rehearsal letters, repeat and
 > ending barlines), **undo/redo**, a **library** with duplicate and delete, and a **container** you
-> can bring up with `make up`. Photo (OMR) import is v0.2 — see [`SLICES.md`](SLICES.md); the hosted,
-> multi-user direction is sketched in [`docs/hosting.md`](docs/hosting.md).
+> can bring up with `make up`. v0.2 (V9–V14): **photo (OMR) import** — upload a scan, it becomes an
+> editable draft with the uncertain bits flagged, corrected beside the retained image. **v0.3 is under
+> way:** a bespoke, low-RAM OMR recogniser we train ourselves ([ADR-0031](docs/adr/0031-bespoke-recogniser.md));
+> its melody stage now reads notes at a fraction of the incumbent's speed and memory — see the pipeline
+> map in [`docs/omr-pipeline.md`](docs/omr-pipeline.md). The build order is [`SLICES.md`](SLICES.md); the
+> hosted, multi-user direction is sketched in [`docs/hosting.md`](docs/hosting.md).
 
 <p align="center">
   <img src="screenshots/score-view.png" alt="The sibei-score browser: a rail of chart metadata and controls beside an engraved lead sheet, four bars to a line" width="860">
@@ -102,12 +106,14 @@ contract). The two live surfaces:
 
 - **CLI** — charts (`new`, `list`, `open`, `show`, `duplicate`, `rm`, `meta set`), notes and rests
   (`note add|set|rm`, `rest add|rm`), chords (`chord set|rm`), `transpose`, structure
-  (`section`, `barline`, `repeat`, `ending`), `undo`/`redo`, `batch`, and `export` (PDF or
-  `--musicxml`, with `--for` an instrument part). `--json` on every verb for machine-readable output.
-- **Browser** — a library view with search, duplicate and delete, and a score view that renders
-  through the *same* layout and engrave packages the PDF does. It edits notes, rests and chords,
-  transposes, sets structure from a bar's panel, exports (a PDF | MusicXML toggle), undoes with
-  ctrl-Z, and repaints live when the chart changes elsewhere.
+  (`section`, `barline`, `repeat`, `ending`), `undo`/`redo`, `batch`, `export` (PDF or
+  `--musicxml`, with `--for` an instrument part), and **`import <file>…`** / **`reparse`** for photo
+  OMR. `--json` on every verb for machine-readable output.
+- **Browser** — a library view with search, duplicate, delete and an **import** affordance (drop a
+  photo, get a draft), and a score view that renders through the *same* layout and engrave packages
+  the PDF does. It edits notes, rests and chords, transposes, sets structure from a bar's panel,
+  exports (a PDF | MusicXML toggle), undoes with ctrl-Z, **corrects an imported draft in a split view
+  beside the retained scan**, and repaints live when the chart changes elsewhere.
 
 ## Offline by design
 
@@ -134,6 +140,15 @@ The handwritten **jazz** face (Petaluma) is one control away from the engraved d
   <img src="screenshots/score-view-jazz.png" alt="The same chart rendered in the Petaluma handwritten Real Book face" width="720">
 </p>
 
+**Reading a chart (v0.3, in progress).** The bespoke OMR recogniser we're training reads the melody off
+a page — here its note/rest predictions (red = notes with pitch + rhythm, green = rests, blue =
+barlines) overlaid on a chart. It runs at ~0.3 s/page and ~176 MB of RAM, against the incumbent
+engine's ~13 min and ~7 GB ([`docs/omr-pipeline.md`](docs/omr-pipeline.md), [`docs/eval.md`](docs/eval.md)):
+
+<p align="center">
+  <img src="screenshots/bespoke-omr.png" alt="The bespoke OMR engine's note and rest predictions overlaid on an engraved lead sheet" width="860">
+</p>
+
 ## Repository
 
 This is a pnpm workspace. The map, the exact commands, and the invariants an agent (or a
@@ -144,7 +159,7 @@ planned before any code; those decisions of record are the planning corpus:
 | File | What it is |
 |---|---|
 | [`PLAN.md`](PLAN.md) | Scope, requirements R0–R9, mechanisms, testing approach, assumed defaults |
-| [`SLICES.md`](SLICES.md) | The 14 build slices in order, each with its own test plan |
+| [`SLICES.md`](SLICES.md) | The build slices in order (v0.1–v0.3), each with its own test plan |
 | [`CONTEXT.md`](CONTEXT.md) | Glossary and the decision register — these terms are used exactly |
 | [`docs/adr/`](docs/adr/) | The ADRs, the decisions themselves |
 | [`QUESTIONS.md`](QUESTIONS.md) | The question-and-answer audit trail behind them |
