@@ -93,8 +93,9 @@ title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `Sc
 flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
 module exists because a plan mentions it.
 
-**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15 and V16 have landed; the default stays
-`oemer` until V17 adds bespoke chords.** V16 built the **Stage-1 layout detector** and completed the
+**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15, V16 and V17a–V17c have landed; the default
+stays `oemer` until V17d–V17f wire the bespoke chords in and re-decide the swap.** V16 built the
+**Stage-1 layout detector** and completed the
 fully-staged bespoke engine. **V16a** (`packages/synth/src/page-boxes.ts`, `pnpm dump:v16a`) reads
 page-level object boxes — staff, barline, chordBand, title — straight off `layout()` (no detection), the
 load-bearing corpus shipped before any model. **V16b** trained a small CenterNet-style centre-point
@@ -127,11 +128,21 @@ decoded flat-semantic token (the notehead y is synthesised on the detected staff
 noteF1 (0.868 vs 0.120) at ~0.3 sec/page and ~176 MB peak RAM** (oemer: ~7 GB, ~13 min) — the ADR-0031
 footprint escape — and by eye tracks the melody on real photos (`worker/visualize_bespoke.py` →
 `out/v15c-real-preds/`). (This V15c note describes the interim staff-finder-borrowing engine; V16c replaced its Stage-1 with the
-trained detector.) Still deferred in v0.3: **bespoke chords (V17)** — the last gap before the default
-swap — plus a rendered clef/key head in the corpus (a real-photo OOD region), triplets/tuplets (excluded
-at the generator + vocab + schema, though the runtime `Score` model already has `Tuplet`), and oemer's
-widened-corpus note-baseline (KAN-1426, taken at V17). See the SLICES V15/V16 notes, `docs/eval.md` and
-`worker/README.md`.
+trained detector.) **V17 is the bespoke chord band and the swap.** **V17a** added domain randomisation to
+the corpus (music face, chord symbology via `ChordStyle` in `packages/engrave/src/text.ts`, and vendored
+typefaces). **V17b** made rich chromatic chords the default and built the chord-band corpus (`pnpm
+dump:v17b` → band crops + a **character-level** CTC vocab — id 0 blank, id 1 `<sep>`, ~38 glyph chars,
+complete-by-construction). **V17c** trained the **Stage-2b** chord-band recogniser (`worker/training/
+chord_train.py`, a small CRNN+CTC sized for the ~46:1 band strip — five height-pool blocks not six),
+**held-out chord accuracy 0.968** (char-acc 0.987, band-exact 0.909) on a RunPod A40; `chord.onnx` +
+`chord-vocab.json` (`pnpm export:v17c-vocab`) are baked + checksummed (`bespoke_weights.py`, ADR-0024),
+never committed — but the bespoke engine still emits an **empty band** until **V17d** wires Stage 2b into
+`engines/bespoke/chords.py` + `assemble.py`'s `bandTokens` (feeding the V5 corrector + V13 beat mapping
+unchanged). Still deferred in v0.3: **wiring the chords (V17d)**, **scoring the whole bespoke import on the
+harness (V17e)**, and **oemer's widened-corpus note-baseline (KAN-1426) + the default-engine swap
+(V17f)** — plus a rendered clef/key head in the corpus (a real-photo OOD region) and triplets/tuplets
+(excluded at the generator + vocab + schema, though the runtime `Score` model already has `Tuplet`). See
+the SLICES V15/V16/V17 notes, `docs/eval.md` and `worker/README.md`.
 
 ## Layout
 

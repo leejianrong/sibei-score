@@ -176,3 +176,41 @@ down (`pod list` empty after each). What was learned this time, for V17's traini
   decisively, but chordF1 is 0 until V17, so the default stays oemer (a swap would drop chords). The
   oemer widened-corpus note-baseline (KAN-1426) was deferred to V17's real swap — it doesn't change the
   V16 decision. Take it on a pod at V17 (`rp eval-relay`), oemer OOMs on the 8 GB host.
+
+## V17c addendum: the Stage-2b chord-band recogniser (2026-09-17)
+
+V17c trained the last recogniser stage — the bespoke chord-band OCR that unblocks the swap. One GPU
+cycle (A40, $0.49/hr, ~10 min incl. corpus ship + train + pull-back), pod torn down (`pod list` empty
+after). The `train-relay` transport carried it unchanged via `RP_DUMP_SCRIPT=dump:v17b
+RP_TRAIN_MODULE=training.chord_train RP_TRAIN_ARTIFACT=chord.onnx RP_TRAIN_OUT=out/v17c`. **Result: best
+held-out chord accuracy 0.968** (character accuracy 0.987, whole-band exact 0.909) on unseen charts,
+converging by epoch ~10 and holding flat — and by eye on fresh seeds (900+) it reads dense chromatic
+bands right, the few misses being one-character slips (`A♭dim7`→`A♭di7`) the V5 corrector repairs, so
+0.968 is a *raw-OCR floor*. What was worth carrying:
+
+- **Band geometry, not the note recipe, drove the model.** A band crop is ~1386×30 px (aspect ~46:1),
+  nothing like a 128px-tall system crop. Stage-2a's six height-pool blocks (/64) drive a ~32px input
+  below one row and break, so `ChordCRNN` uses **five** (/32) at a 32px fixed height that barely resizes
+  the native strip. If you reuse a CRNN across stages, re-derive the pooling from the *input* height
+  first.
+- **Rotation is label-safe on a square crop but destructive on a strip.** A 1.5° rotation lifts a 46:1
+  band's far end ~36px — off the top of the 30px strip. Dropped it from the band augmentation (kept
+  photometric jitter + random erasing); Stage-2a keeps rotation because a system crop is square-ish.
+- **The character vocab paid off exactly as designed.** Open-vocabulary chords (`Bb13#11`, `F#m7b5`,
+  `Ab/Eb`) read one glyph at a time (40 classes: blank, a `<sep>`, ~38 glyphs), so the model transcribes
+  what is drawn and the V5 corrector + V13 beat mapping ride on top unchanged — 40 classes is a far
+  gentler tail than Stage-2a's 512 flat-semantic note classes, which is why chord accuracy climbed fast.
+- **The V15b ONNX-export trap recurs on new local torch, not just the pod.** Torch 2.14 (the CPU smoke
+  box) defaults to the dynamo exporter and needs `onnxscript`; the fix is the V16 `dynamo=False` in a
+  try/except `TypeError` (torch 2.1 on the pod has no such kwarg). Bake this into every stage's exporter,
+  not just the detector's.
+- **Local onnx/ml_dtypes skew on Python 3.13.** The CPU smoke venv pulled an `onnx` newer than its
+  `ml_dtypes` (`AttributeError: module 'ml_dtypes' has no attribute 'float4_e2m1fn'`); `pip install -U
+  ml_dtypes` fixed it. Purely a smoke-box issue — the pod's Python 3.10 + pinned `numpy<2` is unaffected.
+- **Cosine LR decay gave a smooth pick.** Per the V16 note, added `CosineAnnealingLR`; chord accuracy
+  settled at ~0.967 across the last ten epochs rather than spiking, so best-on-chord-accuracy selection
+  grabbed a representative checkpoint, not a lucky one.
+
+Wiring Stage 2b into `engines/bespoke/chords.py` + `assemble.py`'s `bandTokens` is **V17d**; scoring the
+whole bespoke import (notes + chords) on the harness is **V17e**; the oemer widened baseline (KAN-1426)
++ the default swap is **V17f**.

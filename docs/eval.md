@@ -190,6 +190,29 @@ the engine decodes them at a lower score threshold (staff ~0.20 vs barline ~0.30
 reliable barlines for each system's geometry. The leading clef/key head is still out of distribution
 (the synthetic corpus renders none — a generator gap for a later slice).
 
+## The bespoke Stage-2b chord recogniser (V17c training)
+
+V17c trained the bespoke chord-band OCR (`training.chord_train` on the `pnpm dump:v17b` corpus, a
+character-level CRNN+CTC — `chord.onnx`). This is a **training-time held-out** number, not a harness
+row: the model reads a band strip in isolation, and its end-to-end harness `chordF1` (through the V5
+grammar corrector + stage-3 beat mapping, scored like V13's PaddleOCR baseline) is measured once the
+engine wires it in — **V17e**, after V17d.
+
+Held-out on unseen charts (val split by seed, 800-chart corpus, clean+light+medium):
+
+| metric | value |
+|---|--:|
+| chord accuracy (each chord scored atomically) | **0.968** |
+| character accuracy (direct CTC signal) | 0.987 |
+| whole-band exact match | 0.909 |
+
+Chord accuracy is the headline (it is what the downstream corrector consumes) and it is a **raw-OCR
+floor** — the V5 grammar corrector repairs one-character slips like `A♭dim7`→`A♭di7` that the metric
+counts as errors, so end-to-end chordF1 at V17e should sit at or above this. The model is tiny (~4.6 MB,
+40 classes) and CPU-first, keeping the ADR-0031 RAM/speed win intact when it joins Stages 1+2a. The
+default-engine swap is decided at **V17f**, when the whole bespoke import — notes *and* chords — is
+scored against oemer's widened-corpus baseline (KAN-1426).
+
 ## The human-time ship gate
 
 Accuracy is necessary but not sufficient: import ships when a person can **correct** a real chart
