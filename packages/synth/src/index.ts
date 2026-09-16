@@ -15,3 +15,4 @@ export * from './labels.js';
 export * from './metrics.js';
 export * from './vocab.js';
 export * from './systems.js';
+export * from './page-boxes.js';

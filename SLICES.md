@@ -1188,6 +1188,37 @@ unchanged from V11). Barline *type* is still not detected (ADR-0021), same as oe
   section whose length is not a multiple of four.
 - Coordinate sanity: every detected object lands inside the source image bounds.
 
+> **V16 note (in progress — decomposes into stacked PRs, the V12/V13/V15 pattern):**
+> - **V16a — page-level bbox labels from the render stack (pure, no model, no compute). LANDED.**
+>   `packages/synth/src/page-boxes.ts` (`extractPageBoxes`) reads four object classes straight off
+>   `layout()` — `staff` (the 5-line box at `staveY`, height = `staffHeight`; unit = height/4),
+>   `barline` (one thin box per bar's right edge — the drawn dividers; a *bar* is the derived span
+>   between two, never a box), `chordBand` (the full-width strip at `chordBaselineOffset` above the
+>   staff, present only when the system has chords), and `title` (the header block, page 1 only, its
+>   width estimated from glyph count since `measureText` is banned, ADR-0015). Boxes are in layout
+>   units; the imaging half (`@sibei/synth/imaging` `renderDetectPages`/`renderPageBoxOverlay`) scales
+>   them to a rendered page's pixels with the one `pxPerUnit` factor, exactly as V15a's crops did.
+>   `pnpm dump:v16a` writes `pages/*.png` + `labels.jsonl` + `classes.json`; `pnpm proof:v16a` overlays
+>   the boxes for eyeballing. This is the load-bearing piece and ships before any model, exactly as
+>   V15a did. **Degradation in the dump is photometric only** (perspective forced to 0) so the boxes
+>   stay pixel-aligned; the geometric half (perspective/rotation, which moves boxes) is on-the-fly,
+>   label-safe augmentation in V16b, transforming image + boxes jointly — the same split V15 used.
+> - **V16b — train the Stage-1 detector (RunPod GPU).** A small CPU/ONNX object detector (YOLO-nano
+>   class, ADR-0031; a staff/barline heatmap hybrid held in reserve if box regression is data-hungry)
+>   on the V16a corpus. Staff detection is the must-win; barline/band/title are easier. Keep it
+>   ONNX-exportable — no dynamic-output ops (the V15b AdaptiveAvgPool lesson).
+> - **V16c — `assemble.py`.** Stage-1 boxes → crop each system (the V15c full-system reconstruction) →
+>   the **unchanged** V15c Stage-2a model → notes/rests; the borrowed heuristic staff-finder is
+>   dropped. Chord band stays on oemer/PaddleOCR (bespoke chords are V17). Bars/phrases derived from
+>   barline x + system breaks. One `OmrDocument`, coordinates in the source-image grid.
+> - **V16d — score on the V12 harness** vs oemer, heuristic and the current (staff-finder-borrowing)
+>   bespoke: noteF1 + validBars + sec/page + **peak RAM**, over the synthetic corpus and the real
+>   samples; report whether Stage-1 kills the phantom-title-staff / missed-staff failures. `peakMB`
+>   becomes an `OmrDocument.source` field here (the deferred v2→v3 bump).
+> - **V16e — the swap decision.** Flip the default to `bespoke` **only if** it wins accuracy *and*
+>   peak RAM (ADR-0031); else oemer stays. Record the numbers on ADR-0031. Needs oemer's baseline
+>   re-run on the widened corpus (KAN-1426), on a pod since oemer OOMs on the 8 GB host.
+
 ---
 
 ## V17: Bespoke chords, and the swap
