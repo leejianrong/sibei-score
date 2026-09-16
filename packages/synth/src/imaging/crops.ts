@@ -9,7 +9,6 @@
  * `sharp`; the label maths it rests on stays pure in `systems.ts`.
  */
 
-import type { MusicFontName } from '@sibei/engrave';
 import type { PageSpecInput } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -17,12 +16,12 @@ import sharp from 'sharp';
 import type { ItemToken } from '../labels.js';
 import { extractSystemLabels } from '../systems.js';
 import type { Vocabulary } from '../vocab.js';
+import type { RenderStyleOptions } from './rasterize.js';
 import { renderScoreToPng } from './rasterize.js';
 
-export interface SystemCropOptions {
+export interface SystemCropOptions extends RenderStyleOptions {
   /** Render scale (default 2, matching the corpus). */
   zoom?: number;
-  font?: MusicFontName;
   pageSpec?: PageSpecInput;
   background?: string;
   /** When given, each crop also carries the vocabulary `tokenIds`. */
@@ -72,6 +71,8 @@ function renderPages(score: Score, options: SystemCropOptions): Buffer[] {
   return renderScoreToPng(score, {
     ...(options.zoom === undefined ? {} : { zoom: options.zoom }),
     ...(options.font === undefined ? {} : { font: options.font }),
+    ...(options.chordStyle === undefined ? {} : { chordStyle: options.chordStyle }),
+    ...(options.textFont === undefined ? {} : { textFont: options.textFont }),
     pageSpec: options.pageSpec ?? {},
     ...(options.background === undefined ? {} : { background: options.background }),
   });

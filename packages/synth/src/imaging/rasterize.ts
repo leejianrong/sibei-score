@@ -12,7 +12,7 @@
  */
 
 import { Resvg } from '@resvg/resvg-js';
-import type { MusicFontName } from '@sibei/engrave';
+import type { ChordStyle, EngraveOptions, MusicFontName } from '@sibei/engrave';
 import { engravePage } from '@sibei/engrave';
 import type { PageSpecInput } from '@sibei/layout';
 import { layout } from '@sibei/layout';
@@ -23,16 +23,35 @@ export interface RenderedPage {
   svg: string;
 }
 
+/** The subset of `EngraveOptions` a corpus randomises: the music face, chord symbology and text font. */
+export interface RenderStyleOptions {
+  font?: MusicFontName;
+  /** Chord symbology (V17a) — Δ vs `maj`, ø vs a spelled `m7♭5`, and so on. */
+  chordStyle?: ChordStyle;
+  /** Text font family for the title block and chord symbols (V17a). */
+  textFont?: string;
+}
+
+/** Build the `Partial<EngraveOptions>` for a style, omitting undefined (exactOptionalPropertyTypes). */
+function engraveOptions(style: RenderStyleOptions): Partial<EngraveOptions> {
+  return {
+    ...(style.font === undefined ? {} : { font: style.font }),
+    ...(style.chordStyle === undefined ? {} : { chordStyle: style.chordStyle }),
+    ...(style.textFont === undefined ? {} : { textFont: style.textFont }),
+  };
+}
+
 /** Score → one SVG string per page. Mirrors `@sibei/pdf`'s renderScoreToSvg (ADR-0014). */
 export function renderScoreToSvg(
   score: Score,
   pageSpec: PageSpecInput = {},
-  options: { font?: MusicFontName } = {},
+  options: RenderStyleOptions = {},
 ): RenderedPage[] {
   const result = layout(score, pageSpec);
+  const opts = engraveOptions(options);
   return result.pages.map((page) => ({
     index: page.index,
-    svg: engravePage(result, page.index, options).svg,
+    svg: engravePage(result, page.index, opts).svg,
   }));
 }
 
@@ -54,16 +73,12 @@ export function rasterizeSvg(svg: string, options: RasterizeOptions = {}): Buffe
   return Buffer.from(png);
 }
 
-export interface RenderPngOptions extends RasterizeOptions {
-  font?: MusicFontName;
+export interface RenderPngOptions extends RasterizeOptions, RenderStyleOptions {
   pageSpec?: PageSpecInput;
 }
 
 /** Score → one PNG buffer per page. A lead sheet is usually a single page. */
 export function renderScoreToPng(score: Score, options: RenderPngOptions = {}): Buffer[] {
   const pageSpec = options.pageSpec ?? {};
-  const renderOptions = options.font === undefined ? {} : { font: options.font };
-  return renderScoreToSvg(score, pageSpec, renderOptions).map((page) =>
-    rasterizeSvg(page.svg, options),
-  );
+  return renderScoreToSvg(score, pageSpec, options).map((page) => rasterizeSvg(page.svg, options));
 }

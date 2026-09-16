@@ -1,7 +1,39 @@
+import { CANONICAL_CHORD_STYLE } from '@sibei/engrave';
+import {
+  DEFAULT_KEY,
+  DEFAULT_TIME,
+  dur,
+  makeBar,
+  makeChord,
+  makeNote,
+  makeScore,
+} from '@sibei/model';
 import { generateScore } from '@sibei/synth';
 import { rasterizeSvg, renderScoreToPng, renderScoreToSvg } from '@sibei/synth/imaging';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
+
+/** A one-bar chart carrying a maj7 chord, so the symbology has an unambiguous glyph to vary. */
+function chordChart() {
+  return makeScore({
+    id: 'style-probe',
+    title: '',
+    composer: '',
+    key: DEFAULT_KEY,
+    time: DEFAULT_TIME,
+    bars: [
+      makeBar({
+        id: 'bar-1',
+        number: 1,
+        items: [
+          makeNote({ id: 'n1', onset: 0, duration: dur(1), pitch: { step: 'E', alter: 0, octave: 4 } }),
+        ],
+        chords: [makeChord({ id: 'c1', onset: 0, text: 'Ebmaj7' })],
+      }),
+    ],
+    sections: [],
+  });
+}
 
 /**
  * The rasteriser turns a generated score into the clean image the corpus degrades from. These are
@@ -39,5 +71,30 @@ describe('renderScoreToPng', () => {
     expect(meta.height).toBeGreaterThan(0);
     // An A4 page is taller than it is wide.
     expect(meta.height as number).toBeGreaterThan(meta.width as number);
+  });
+});
+
+describe('render-style randomisation reaches the pixels (V17a)', () => {
+  const score = chordChart();
+
+  it('draws a different image for the music face and the chord symbology', () => {
+    const canonical = renderScoreToSvg(score)[0]?.svg as string;
+    const jazzFace = renderScoreToSvg(score, {}, { font: 'jazz' })[0]?.svg as string;
+    // `Ebmaj7` drawn `EbΔ` canonically becomes `Ebmaj` — an unambiguously different chord run.
+    const spelled = renderScoreToSvg(score, {}, {
+      chordStyle: { ...CANONICAL_CHORD_STYLE, majorSeventh: 'maj' },
+    })[0]?.svg as string;
+
+    expect(jazzFace).not.toBe(canonical);
+    expect(canonical).toContain('EbΔ');
+    expect(spelled).toContain('Ebmaj');
+    expect(spelled).not.toBe(canonical);
+  });
+
+  it('is deterministic for a given style', () => {
+    const style = { ...CANONICAL_CHORD_STYLE, majorSeventh: 'maj' as const };
+    const a = renderScoreToPng(score, { chordStyle: style, font: 'jazz', zoom: 1 })[0] as Buffer;
+    const b = renderScoreToPng(score, { chordStyle: style, font: 'jazz', zoom: 1 })[0] as Buffer;
+    expect(a.equals(b)).toBe(true);
   });
 });
