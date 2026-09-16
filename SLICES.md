@@ -1220,13 +1220,19 @@ unchanged from V11). Barline *type* is still not detected (ADR-0021), same as oe
 >   heuristic staff-finder is dropped. Chord band stays empty (bespoke chords are V17). Bars/phrases
 >   derived from barline x + system breaks (in the mapper). End-to-end: a synthetic page → a schema-valid
 >   `OmrDocument` → `mapOmrToScore` → a draft with the correct bar count, at ~0.6 sec/page.
-> - **V16d — score on the V12 harness** vs oemer, heuristic and the current (staff-finder-borrowing)
->   bespoke: noteF1 + validBars + sec/page + **peak RAM**, over the synthetic corpus and the real
->   samples; report whether Stage-1 kills the phantom-title-staff / missed-staff failures. `peakMB`
->   becomes an `OmrDocument.source` field here (the deferred v2→v3 bump).
-> - **V16e — the swap decision.** Flip the default to `bespoke` **only if** it wins accuracy *and*
->   peak RAM (ADR-0031); else oemer stays. Record the numbers on ADR-0031. Needs oemer's baseline
->   re-run on the widened corpus (KAN-1426), on a pod since oemer OOMs on the 8 GB host.
+> - **V16d — scored on the V12 harness. LANDED.** bespoke-full noteF1 **~0.85 flat across
+>   clean/light/medium/heavy** (V15c's staff-finder-borrowing bespoke collapsed to 0.20–0.38 on degraded
+>   pages — the robustness the milestone is for), validBars 0.93–0.95, **~0.4 sec/page**, **~290 MB peak
+>   RSS** (vs oemer ~7 GB). Real-photo synth→real gap is visual (`worker/visualize_detect.py`): the
+>   detector finds staves page-wide, the phantom-title-staff failure is gone. `peakMB` as an
+>   `OmrDocument.source` field was **not** taken (a disproportionate v2→v3 blast radius across every OMR
+>   fixture for an engine-property number already decisive; measured directly instead — see `docs/eval.md`).
+> - **V16e — the swap decision. LANDED: the default stays `oemer`.** bespoke wins notes, bars, speed and
+>   RAM decisively, but reads **no chords** yet (V17), so it does not win the *whole* harness on accuracy;
+>   flipping now would drop chord recognition from every import. So V16 **earns** the notes/bars/RAM swap
+>   and **V17 completes it**. Recorded on ADR-0031 + `docs/eval.md`. oemer's widened-corpus note-baseline
+>   (KAN-1426) is deferred to V17's real swap — the V16 decision does not turn on it (chords block it
+>   regardless, and bespoke already leads on notes).
 
 ---
 
