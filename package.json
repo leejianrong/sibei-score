@@ -21,6 +21,7 @@
     "proof:v15a": "tsx scripts/v15a-crops-proof.ts",
     "dump:v15a": "tsx scripts/v15a-dump-corpus.ts",
     "dump:v16a": "tsx scripts/v16a-dump-detect-corpus.ts",
+    "dump:v17b": "tsx scripts/v17b-dump-band-corpus.ts",
     "proof:v16a": "tsx scripts/v16a-detect-proof.ts",
     "export:v15c-vocab": "tsx scripts/v15c-export-vocab.ts",
     "eval": "tsx scripts/eval.ts",
