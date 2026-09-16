@@ -65,7 +65,7 @@ describe('generateScore', () => {
     expect(has((n) => n.pitch.octave >= 6)).toBe(true); // ledger lines above the staff
   });
 
-  it('emits parseable diatonic chord symbols when chords are on', () => {
+  it('emits parseable chord symbols when chords are on (rich by default, V17b)', () => {
     const labels = extractLabels(generateScore({ seed: 3, bars: 8, chords: true }));
     const texts = labels.bars.flatMap((bar) => bar.chords.map((chord) => chord.text));
     expect(texts.length).toBeGreaterThan(0);
