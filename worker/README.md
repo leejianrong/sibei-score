@@ -63,11 +63,14 @@ engine-selection seam (SLICES V15, ADR-0031) pulled forward.
     proportions, so train and inference match), runs the CRNN, greedy-CTC-decodes, and emits
     noteheads/rests with **coordinates derived from the CTC column index** (ADR-0023/Q71 — stage-3
     chord beat-mapping rides on them).
-  It reads notes only; the bespoke chord band is V17, so `bandTokens` is empty. Three baked artifacts,
-  checksum-verified (`bespoke_weights.py`, ADR-0024): `detect.onnx`, `model.onnx` and the matched
-  `vocab.json` (regenerate with `pnpm export:v15c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR` (dev) or
-  `/opt/sibei/bespoke` (image). onnxruntime is already an oemer dependency, so no new runtime dep; torch
-  is training-only and never imported at inference.
+  It reads notes only for now: the Stage-2b chord model is **trained and checksum-pinned** (V17c,
+  `chord.onnx` — held-out chord accuracy 0.968), but the engine wires it into `bandTokens` in **V17d**,
+  so the bespoke band is still empty until then. Five baked artifacts, checksum-verified
+  (`bespoke_weights.py`, ADR-0024): `detect.onnx`, `model.onnx` + the matched `vocab.json` (regenerate
+  with `pnpm export:v15c-vocab`), and `chord.onnx` + the matched `chord-vocab.json` (regenerate with
+  `pnpm export:v17c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR` (dev) or `/opt/sibei/bespoke` (image).
+  onnxruntime is already an oemer dependency, so no new runtime dep; torch is training-only and never
+  imported at inference.
 
 Run the whole import stack against either non-default engine, no oemer container needed:
 

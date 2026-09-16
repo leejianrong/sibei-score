@@ -28,14 +28,18 @@ import hashlib
 import os
 import sys
 
-# filename -> (expected size in bytes, sha256). The vocab is deterministic (buildVocabulary, closed by
+# filename -> (expected size in bytes, sha256). The vocabularies are deterministic (built closed by
 # construction); the models are the training artifacts — Stage 2a (out/v15b/model.onnx, ~7.4 MB
-# CRNN+CTC, V15b) and Stage 1 (out/v16b/detect.onnx, ~1.8 MB centre-point detector, V16b). All three
-# are baked side by side in the bespoke model dir.
+# CRNN+CTC, V15b), Stage 1 (out/v16b/detect.onnx, ~1.8 MB centre-point detector, V16b) and Stage 2b
+# (out/v17c/chord.onnx, ~4.6 MB chord-band CRNN+CTC, V17c) with its matched character vocabulary
+# (chord-vocab.json, regenerate with `pnpm export:v17c-vocab`). All five are baked side by side in the
+# bespoke model dir.
 ARTIFACTS = {
     "model.onnx": (7406608, "ca0174d6010e9d21d2bd595fccc31037093aab5e73f5fdb7284783a5411165c7"),
     "vocab.json": (9359, "bf02a789c2634c0b037a61962a8ddc5a9f4d30631b5dbd04ddaa044e8d945dc6"),
     "detect.onnx": (1771920, "03f1766886fe479c37927a22e00cce09973467da77b9cd51869a439b65080183"),
+    "chord.onnx": (4560545, "eecdd59e78679b46922bfaed07dee0ebc2456d08f631b29a1cbc4f2b9d124fc4"),
+    "chord-vocab.json": (438, "5c28fb6be1cec5ef295ab10c49a2172a51899850a4fbaa90a4603714f74a2286"),
 }
 
 
