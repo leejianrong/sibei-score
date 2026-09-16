@@ -140,3 +140,39 @@ truth for free), not web-sourcing. The drop folder is `tests/fixtures/eval/real/
 - **oemer baseline re-run**: the variety expansion made the eval corpus materially harder, so the
   `docs/adr/0032` baseline predates it (noted there). Still open (KAN-1426) — it is the accuracy-vs-oemer
   half of "earn the swap", which is V16's gate, not V15c's.
+
+## V16 addendum: the Stage-1 layout detector (2026-09-16)
+
+V16 trained the Stage-1 detector and completed the fully-staged bespoke engine. The transport
+(`rp train-relay`, now parameterized for either stage via `RP_DUMP_SCRIPT`/`RP_TRAIN_MODULE`/
+`RP_TRAIN_ARTIFACT`) reused V15b's relay unchanged — two GPU cycles, ~$0.30 total, every pod torn
+down (`pod list` empty after each). What was learned this time, for V17's training:
+
+- **Heatmap detector over anchor YOLO.** A CenterNet-style centre-point head (per-class heatmap +
+  offset + size, `worker/training/detect_model.py`) was the right "YOLO-nano class" for this domain:
+  the ONNX graph is a plain conv stack (no NMS, no dynamic op — the V15b AdaptiveAvgPool trap does not
+  recur), and decoding is host-side numpy (`detect_decode.py`), reused verbatim by the worker.
+- **Grid stride is the staff-detection lever.** At `/16`, a staff and the chord band above it are only
+  ~2 grid rows apart and the detector confused them — staff recall plateaued at 0.66 even at IoU 0.3.
+  Dropping to `/8` (pool 3 of 4 blocks) doubled the vertical grid and lifted **staff recall 0.66 →
+  0.92**. If a short, vertically-adjacent class is being missed, look at the grid before the model.
+- **IoU-0.5 is brutal for short-but-wide boxes.** A staff/band box is ~40/16 units tall and full-width,
+  so a small vertical-centre error tanks IoU even when the object is correctly located. Read staff/band
+  quality at IoU 0.3 (localisation) as well as 0.5 (box precision); the centres were good long before
+  the boxes were tight.
+- **Barlines are the reliable backbone; derive geometry from them.** Barline F1 was 0.99 and robust on
+  real photos, and a barline box spans exactly the staff — so `layout.py` takes each system's *height*
+  from its barlines, not the imprecise staff-box height. Build the robust signal into assembly rather
+  than chasing the weak one in the model.
+- **Checkpoint selection on a noisy val metric grabs a spike.** Staff recall swung 0.08–0.93 epoch to
+  epoch (score-threshold sensitivity, no LR decay). Selecting best-on-staff-recall picked epoch 7's
+  spike; it *held* on fresh unseen seeds (0.92), but for V17 prefer a smoother selection (micro-F1) +
+  cosine LR decay for a less lucky pick.
+- **The synth→real gap is a confidence shift, not a localisation failure.** On real photos staves
+  score lower than on synthetic but land in the right place; the engine decodes staff at a low score
+  threshold (~0.20 vs barline ~0.30) and leans on barlines. Validate on the real samples with
+  `worker/visualize_detect.py` before trusting a threshold.
+- **The swap is chord-blocked, not accuracy-blocked.** bespoke-full beat oemer on notes/bars/RAM/speed
+  decisively, but chordF1 is 0 until V17, so the default stays oemer (a swap would drop chords). The
+  oemer widened-corpus note-baseline (KAN-1426) was deferred to V17's real swap — it doesn't change the
+  V16 decision. Take it on a pod at V17 (`rp eval-relay`), oemer OOMs on the 8 GB host.
