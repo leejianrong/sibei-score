@@ -139,9 +139,20 @@ function firstNoteFraction(score: Score): { pageIndex: number; cx: number; cy: n
   return null;
 }
 
+/**
+ * Files under `screenshots/` this script does NOT manage: the folder's own README, and screenshots
+ * generated outside the browser (the bespoke OMR overlay, produced by `worker/visualize_bespoke.py`
+ * — see `screenshots/README.md`). Regenerating clears only the browser PNGs, never these.
+ */
+const PRESERVE = new Set(['README.md', 'bespoke-omr.png']);
+
 async function main(): Promise<void> {
-  rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
+  // Clear only the browser shots we are about to regenerate, so README.md and externally-generated
+  // shots survive (the old whole-directory wipe deleted the committed README.md too).
+  for (const entry of readdirSync(OUT)) {
+    if (entry.endsWith('.png') && !PRESERVE.has(entry)) rmSync(join(OUT, entry), { force: true });
+  }
 
   const dataDir = join(REPO, 'out', 'screenshots-data');
   rmSync(dataDir, { recursive: true, force: true });

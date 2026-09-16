@@ -248,7 +248,7 @@ Fully planned before any code — decisions of record, not background reading.
 | File | Role |
 |---|---|
 | `PLAN.md` | Scope, requirements R0–R9, mechanisms P1–P21, testing approach, assumed defaults |
-| `SLICES.md` | The 14 planned slices in build order, each with its own test plan |
+| `SLICES.md` | The planned slices in build order (v0.1–v0.3, V1–V17), each with its own test plan |
 | `CONTEXT.md` | Glossary and the decision register. **Use these terms exactly.** |
 | `docs/adr/` | The ADRs — the decisions themselves |
 | `QUESTIONS.md` | The Q&A audit trail behind them |
@@ -268,6 +268,9 @@ Loaded when the task reaches them; the root file stays a table of contents.
 | `agent_docs/proofing.md` | Looking at engraving output (do this after any render change) |
 | `agent_docs/testing.md` | Writing tests, or deciding which suite layer a directory joins |
 | `agent_docs/history.md` | The per-slice build history and the "not built yet" roadmap |
+| `agent_docs/v15-training-notes.md` | The V15 bespoke-training retrospective: what worked, what broke, how (read before any v0.3 training/RunPod work) |
+| `docs/omr-pipeline.md` | The staged OMR pipeline drawn end to end — the map of stages 1/2a/2b/3, the engine seam, and what's built vs deferred (touching import, the worker, or the bespoke recogniser) |
+| `docs/eval.md` | The OMR evaluation harness: the metrics, the three-dimensional gate (accuracy + speed + RAM), and how to run it |
 | `docs/cli.md` | The user-facing `sbscore` CLI reference: running it (from source or the container), every verb with examples, addresses, export, concurrency, exit codes. `sbscore --help` is the live source of truth |
 | `docs/hosting.md` | Planning the hosted, multi-user future: the target architecture, the local→hosted seam map, and best practices (a direction doc, not a decision of record — the ADRs it cites are) |
 
