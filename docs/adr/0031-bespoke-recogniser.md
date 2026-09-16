@@ -1,6 +1,7 @@
 # ADR-0031: A bespoke, staged recogniser as an alternative engine
 
-- **Status:** Accepted — implementation gated on V15
+- **Status:** Accepted — V15/V16 implemented; the default-engine swap is **earned for notes/bars,
+  deferred to V17 for chords** (see "V16 result" below)
 - **Date:** 2026-09-14
 - **Deciders:** Jian, in design discussion
 - **Relates to:** [ADR-0005](0005-node-owns-api-python-omr-worker.md),
@@ -85,6 +86,30 @@ One invariant exception is granted here, not assumed: **`packages/synth` is a de
 exception to the `model`/`layout`/`music` "no Node APIs" rule.** It is a build-time data tool,
 not runtime, and must stay out of every product bundle — enforced by `tests/arch`, the way that
 suite already guards the framework-free packages.
+
+## V16 result — the swap is earned for notes/bars, and deferred for chords
+
+The bespoke engine is now fully staged (V16): its own Stage-1 layout detector (`detect.onnx`, a small
+CenterNet-style centre-point detector, ~1.8 MB) in place of the borrowed OpenCV staff-finder, plus the
+V15c Stage-2a CRNN. Scored on the V12 harness (`docs/eval.md`), thread-pinned CPU:
+
+- **Accuracy (notes).** noteF1 **~0.85 flat across clean/light/medium/heavy**, versus V15c's
+  staff-finder-borrowing bespoke that collapsed to 0.20–0.38 on degraded pages — the robustness the
+  milestone exists for. At or above oemer's ADR-0032 baseline on every level (0.851 vs 0.522 on
+  `medium`). The detector holds **staff recall ~0.92** on held-out synthetic and localises staves
+  page-wide on real photos where the borrowed finder invented a phantom title-staff.
+- **Peak RAM.** ~**290 MB** (whole server, both models) vs oemer's ~7 GB — a ~24× reduction, the
+  footprint escape this ADR exists to deliver.
+- **Speed.** ~0.4 sec/page vs oemer's ~13 min/page.
+
+**Decision: the default stays `oemer`.** By the swap rule below, the default flips only when bespoke
+wins the **whole** harness on accuracy *and* peak RAM. Bespoke wins RAM, speed, notes and bars
+decisively — but its `chordF1` is **0** (the bespoke chord band is V17) while oemer reads chords, so
+bespoke does not yet win the *accuracy* axis in full. Flipping now would silently drop chord
+recognition from every import. So V16 **earns** the notes/bars/RAM swap and **V17 completes it**, when
+the bespoke chord band closes the last gap. (The like-for-like oemer note-baseline on the widened
+corpus, KAN-1426, is taken at V17 — the V16 decision does not turn on it, since the chord gap blocks the
+swap regardless and bespoke already leads on notes.)
 
 ## Alternatives considered
 

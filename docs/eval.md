@@ -80,10 +80,14 @@ These columns join the accuracy table `make eval` prints and each `eval/history.
 change to the recogniser moves accuracy, speed and RAM together and a regression in any one is
 visible.
 
-> **peakMB is not yet a schema field.** Carrying peak RAM on `OmrDocument.source` is a schema bump
-> (`OMR_SCHEMA_VERSION` 2→3) that touches every engine and fixture, so it is deferred to the swap
-> decision (V16), when oemer's numbers are re-measured on a pod anyway. Until then peak RAM is measured
-> directly at the engine (`resource.getrusage`), as the V15c gate result below records.
+> **peakMB is still measured directly, not carried on the schema.** Putting peak RAM on
+> `OmrDocument.source` is an `OMR_SCHEMA_VERSION` 2→3 bump that touches every engine *and every committed
+> OMR fixture and the browser import tests* — a disproportionate blast radius when peak RAM is an engine
+> property that barely varies per page and is already decisive (bespoke ~290 MB vs oemer ~7 GB). So V16
+> keeps measuring it directly (`VmHWM` / `resource.getrusage`) and records the number here, exactly as
+> the V15c gate did; the schema field stays deferred until a run genuinely needs peak RAM *per document*
+> rather than *per engine*. This is a deliberate deviation from the "peakMB schema field at V16" plan
+> item, taken because the field earns none of its cost yet.
 
 ## The bespoke Stage-2a gate (V15c result, ADR-0031)
 
@@ -128,6 +132,63 @@ failure modes are (1) the borrowed staff-finder inventing a phantom staff from t
 low-contrast staff entirely (→ V16), and (2) the clef + key-signature block at each staff head being
 out of distribution, since the synthetic corpus renders no leading clef/key (a generator gap to close
 for v0.3). Accidentals read as naturals by design (import defaults to C major; the human corrects).
+
+## The bespoke full-pipeline gate (V16 result, ADR-0031)
+
+V16 replaced the borrowed OpenCV staff-finder with a trained **Stage-1 layout detector**
+(`worker/sibei_omr/engines/bespoke/layout.py`, `detect.onnx`), so the bespoke engine is now fully its
+own — Stage 1 (detector) + Stage 2a (CRNN). Scored on this harness (`--engine worker`, seeds 6, bars
+16, thread-pinned `OMP_NUM_THREADS=2`):
+
+| level | bespoke-full noteF1 (V16) | staff-finder-borrowing noteF1 (V15c) | oemer noteF1 (ADR-0032 baseline) |
+|---|--:|--:|--:|
+| clean | 0.856 | 0.868 | 0.812 |
+| light | **0.856** | 0.378 | 0.841 |
+| medium | **0.851** | 0.201 | 0.522 |
+| heavy | **0.850** | 0.369 | 0.829 |
+
+The headline is the **degraded** rows. V15c's borrowed OpenCV staff-finder collapsed under
+perspective/blur/noise (0.20–0.38), and that was the whole reason for a trained Stage 1. The V16
+detector holds noteF1 **~0.85 flat across every degradation level** — the robustness the milestone
+exists to deliver — at a small cost on clean (0.856 vs 0.868, the detector's staff recall is below 1.0
+where the OpenCV finder is near-perfect on crisp synthetic ink). `validBars` is 0.93–0.95.
+
+Three-dimensional gate (ADR-0031), bespoke-full, thread-pinned CPU:
+
+- **Accuracy (notes)** — noteF1 ~0.85 across all levels, at or above oemer's ADR-0032 baseline on
+  every level (decisively on `medium`: 0.851 vs 0.522). `chordF1` is **0**: the bespoke chord band is
+  V17, so a bespoke import carries no chords yet.
+- **Speed** — ~0.4 sec/page (steady, after a ~0.6 s first-call warmup). oemer is ~13 min/page
+  (thread-oversubscribed; ADR-0032).
+- **Peak RAM** — ~**290 MB** peak RSS for the whole server (both onnx models + onnxruntime + cv2 +
+  numpy), measured as `VmHWM`. oemer is ~7 GB (V9). A ~24× reduction — the footprint escape ADR-0031
+  exists to deliver.
+
+**The swap decision (V16e): the default stays `oemer`.** The bespoke engine wins **notes, bars, speed
+and RAM decisively**, but it reads **no chords** until V17, and oemer's chordF1 on this corpus is
+non-zero (0.33–0.70, ADR-0032). ADR-0031's rule flips the default only when bespoke wins the **whole**
+harness on accuracy — chords included — so the honest call is to *earn* the notes/bars/RAM swap here
+and complete it at V17, when the bespoke chord band closes the last gap. Flipping now would silently
+drop chord recognition from every import. Recorded on ADR-0031.
+
+> **KAN-1426 (the oemer widened-corpus baseline) is still open, and deferred to V17's actual swap.**
+> The oemer numbers above are the ADR-0032 baseline on the *pre-variety-expansion* corpus (`--seeds 1`),
+> not the widened one bespoke is scored on, so they are indicative, not like-for-like. Re-running oemer
+> is ~13 min/page on a pod (it OOMs on the 8 GB host), and the V16 decision does not turn on it — the
+> chord gap blocks the swap regardless, and bespoke already leads on notes — so the like-for-like oemer
+> note-baseline is taken at V17, where the swap is decided for real.
+
+### The V16 synthetic→real gap
+
+The real control set (`tests/fixtures/eval/real/`) ships without ground-truth `.json`, so there is no
+automated real row; the evidence is visual (`worker/visualize_detect.py` overlays the detector's boxes
+on a page). On the maintainer's real photos (georgia, fly-me-to-the-moon, little-jazz) the Stage-1
+detector **finds the staves page-wide** — the phantom-title-staff and missed-low-contrast-staff failures
+of the borrowed finder are gone — and the barlines are detected reliably. The one real-photo caveat is a
+**confidence shift, not a localisation failure**: staves score lower on real ink than on synthetic, so
+the engine decodes them at a lower score threshold (staff ~0.20 vs barline ~0.30) and leans on the
+reliable barlines for each system's geometry. The leading clef/key head is still out of distribution
+(the synthetic corpus renders none — a generator gap for a later slice).
 
 ## The human-time ship gate
 
