@@ -93,8 +93,9 @@ title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `Sc
 flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
 module exists because a plan mentions it.
 
-**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15, V16 and V17a–V17d have landed; the default
-stays `oemer` until V17e–V17f score the whole bespoke import and re-decide the swap.** V16 built the
+**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15, V16 and V17a–V17e have landed; the default
+stays `oemer` until V17f scores oemer's widened-corpus baseline and re-decides the swap — and V17e found
+that a Stage 2b crop-alignment gap needs closing first (below).** V16 built the
 **Stage-1 layout detector** and completed the
 fully-staged bespoke engine. **V16a** (`packages/synth/src/page-boxes.ts`, `pnpm dump:v16a`) reads
 page-level object boxes — staff, barline, chordBand, title — straight off `layout()` (no detection), the
@@ -145,11 +146,24 @@ columns its characters occupy (mirroring Stage 2a's column→x), split into dist
 vocabulary's separator class; `assemble.assemble` now returns a fifth value (the raw Stage-1 staves,
 carrying `chordBand` internally, never emitted on the wire) so `chords.py` can read it. A missing chord
 pair still degrades gracefully to an empty band (a Stage-1+2a-only model dir, every pre-V17d fixture,
-keeps recognising notes). Still deferred in v0.3: **scoring the whole bespoke import on the harness
-(V17e)** and **oemer's widened-corpus note-baseline (KAN-1426) + the default-engine swap (V17f)** — plus
-a rendered clef/key head in the corpus (a real-photo OOD region) and triplets/tuplets (excluded at the
-generator + vocab + schema, though the runtime `Score` model already has `Tuplet`). See
-the SLICES V15/V16/V17 notes, `docs/eval.md` and `worker/README.md`.
+keeps recognising notes). **V17e scored the whole bespoke import (notes + chords) on the V12 harness**
+and found two distinct problems, not one, behind an initial chordF1 of 0.011-0.080: (1) `_match_chordband`'s
+window (`_BAND_SPACES_ABOVE`) was calibrated too tight — the detector's own chordBand boxes centred
+6.5-7.4 staff-spaces above the staff, just outside the old 6.0-space window, so band recall was only
+0.42; widened to 8.0 (fixed in V17e, band recall 1.00, also bumped the mirrored `BAND_SPACES` fallback in
+`packages/model/src/omr-map.ts`), this alone moved chordF1 to 0.124-0.134. (2) **Still open:** even with
+every band matched, Stage 2b was trained on the corpus's *ground-truth* band boxes, not Stage-1-*detected*
+ones, and a chord band is tight and densely packed enough that a modest detector localisation error clips
+real characters — so end-to-end chordF1 (~0.13) remains far below `chord.onnx`'s own 0.968 held-out floor.
+noteF1/validBars/RAM/speed are otherwise consistent with V16 (noteF1 unchanged at ~0.85; peak RAM ~307 MB,
+~0.64 sec/page with Stage 2b's added onnxruntime calls) — this is a chord-band-specific gap, not a
+Stage-1 regression. **V17e's verdict: not yet ready to inform V17f's swap call** — retraining Stage 2b on
+detector-predicted (or jittered) boxes is the recommended next step before V17f re-runs the oemer baseline
+and decides the swap. See "The whole bespoke import scored end to end (V17e result)" in `docs/eval.md`.
+Still deferred in v0.3: **closing V17e's crop-alignment gap**, **oemer's widened-corpus note-baseline
+(KAN-1426) + the default-engine swap (V17f)** — plus a rendered clef/key head in the corpus (a real-photo
+OOD region) and triplets/tuplets (excluded at the generator + vocab + schema, though the runtime `Score`
+model already has `Tuplet`). See the SLICES V15/V16/V17 notes, `docs/eval.md` and `worker/README.md`.
 
 ## Layout
 

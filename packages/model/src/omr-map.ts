@@ -317,8 +317,12 @@ function bandTokensOfSystem(system: System, page: OmrDocument): RawToken[] {
   return out;
 }
 
-/** How many staff spaces above the staff top the chord band may reach, for the group-null fallback. */
-const BAND_SPACES = 6;
+/**
+ * How many staff spaces above the staff top the chord band may reach, for the group-null fallback.
+ * Kept mirrored with `worker/sibei_omr/engines/bespoke/layout.py`'s `_BAND_SPACES_ABOVE` — bumped to 8
+ * there at V17e when the tighter window was found to drop most of Stage 1's own detected bands.
+ */
+const BAND_SPACES = 8;
 
 function bandAttachesTo(system: System, token: OmrBandToken): boolean {
   if (token.group !== null && system.groupKey !== null) return token.group === system.groupKey;
