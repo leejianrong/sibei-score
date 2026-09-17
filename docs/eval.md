@@ -222,6 +222,91 @@ counts as errors, so end-to-end chordF1 at V17e should sit at or above this. The
 default-engine swap is decided at **V17f**, when the whole bespoke import — notes *and* chords — is
 scored against oemer's widened-corpus baseline (KAN-1426).
 
+## The whole bespoke import scored end to end (V17e result) — not yet swap-ready
+
+V17e ran the fully-wired bespoke engine (Stage 1 + 2a + 2b) through `pnpm eval --engine worker`, the
+same harness convention V16 used (seeds 6, bars 16, thread-pinned `OMP_NUM_THREADS=2`), to answer the
+question V17d's spot check couldn't: is end-to-end `chordF1` anywhere near `chord.onnx`'s 0.968 held-out
+floor? **The first run said no by two orders of magnitude (chordF1 0.011-0.080), and the reason turned
+out to be a wiring bug in this session's own scope, not a training-data or model-accuracy problem.**
+
+### Finding 1 (fixed): the chordBand match window dropped most detected bands
+
+Debugging the first run's numbers (`worker/sibei_omr/engines/bespoke/layout.py`'s `_match_chordband`,
+called by `assemble.py` and read by `chords.py`) found the detector *was* finding chord bands at
+reasonable scores (0.24-0.37) — they just weren't being attached to a staff. `_BAND_SPACES_ABOVE` (the
+window's upper reach, in staff-spaces) was `6.0`; on a 6-seed/16-bar spot-check the detector's own
+chordBand boxes centred **6.5-7.4 staff-spaces** above the staff top — just outside that window — so
+**band recall was 0.42** (10 of 24 staves in the spot-check got no band at all, one page lost all 4).
+Widening to `8.0` restored recall to **1.00** with no false-positive risk (systems in this corpus sit
+~17 staff-spaces apart). Fixed in this PR, alongside the mirrored TS-side `BAND_SPACES` fallback
+constant in `packages/model/src/omr-map.ts` and a regression test at the previously-missed offset. This
+alone moved chordF1 from **0.011-0.080** to **0.124-0.134** — still far short of the 0.968 floor, which
+is Finding 2.
+
+### Finding 2 (open, not fixed here): a train/inference crop-alignment gap
+
+Even with every band matched, **Stage 1's `chordBand` box regression is not tight enough for Stage 2b to
+read reliably.** Re-running the band-recall spot-check after the window fix found the *matched* boxes
+themselves imprecise: 6 of 24 extended past the image's left edge (a negative `x`, clamped to 0) and 8 of
+24 extended past the right edge — a third of matched crops lose or gain a sliver of the true band at one
+end. And even where a crop clips neither edge, several decode to plainly wrong text (`B7us4` for what is
+almost certainly `B7sus4`, `Bøm7`/`Bø7` where a real chord glyph was probably read one character short,
+`Bu/b#9`) — the character-level noise a CRNN produces when its input crop doesn't match training's
+geometry closely enough. The likely cause: **V17c trained Stage 2b on the corpus's *ground-truth* chord-
+band boxes** (`packages/synth/src/imaging/band-crops.ts`), not on Stage-1-*detected* ones — "train and
+inference crop alike" (the discipline V15c settled for Stage 2a's generous full-system crop) was only
+half-applied for Stage 2b: the crop *convention* (padding, aspect) matches, but the crop *source*
+doesn't, and a chord band is tight and densely packed enough (~30-80 px tall, several short glyphs
+side by side) that even a modest Stage-1 localisation error clips or shifts a real character — unlike
+Stage 2a's forgiving full-system margin, which absorbs the same class of Stage-1 error for notes without
+visible cost (noteF1 is flat at ~0.85 with or without Stage 2b, confirming this is a chord-band-specific
+gap, not a general Stage-1 regression). This is real training/data work — retraining Stage 2b on
+Stage-1-*predicted* boxes (or box-jitter augmentation to make it robust to detector error), or tightening
+Stage 1's chordBand regression loss — not a constant to tune, so it is **not fixed in this PR** and is
+filed as follow-up ahead of V17f.
+
+### The numbers (post-fix, thread-pinned CPU, `OMP_NUM_THREADS=2`)
+
+| level | noteF1 | chordF1 | validBars |
+|---|--:|--:|--:|
+| clean | 0.854 | 0.128 | 0.948 |
+| light | 0.855 | 0.124 | 0.958 |
+| medium | 0.852 | 0.134 | 0.947 |
+| heavy | 0.854 | 0.131 | 0.926 |
+
+Speed and RAM (measured directly against the running worker, not per-level — RAM/speed barely vary with
+degradation level, V16's own convention):
+
+| metric | value | V16 (Stage 1+2a only) | oemer |
+|---|--:|--:|--:|
+| sec/page | **~0.64** | ~0.4 | ~13 min |
+| peakMB | **~307** | ~290 | ~7000 |
+| weightsMB | **~14** (5 artifacts) | ~9.2 (3 artifacts) | ~104 |
+
+- **noteF1/validBars are unchanged from V16** (0.852-0.855 vs V16's 0.850-0.856) — Stage 2b's addition
+  costs nothing on notes, confirming Finding 2 is a chord-band-specific gap, not a Stage-1 regression.
+- **speed** rose from V16's ~0.4 sec/page (Stage 1+2a only) to **~0.64 sec/page** — the added cost of up
+  to four Stage-2b onnxruntime calls per page (one per detected band). Still ~1200× oemer's ~13 min/page.
+- **peak RAM** rose from V16's ~290 MB to **~307 MB** (`chord.onnx` + its onnxruntime session resident
+  alongside Stage 1+2a) — still a ~23× reduction against oemer's ~7 GB.
+- **chordF1 (0.124-0.134) is not at or above the V17c held-out floor (0.968).** It sits below even the
+  ADR-0032 oemer+PaddleOCR baseline range (0.33-0.70, an older pre-variety-expansion corpus, not
+  like-for-like — flagged the same way V16/V17c already flag it) and only modestly above the V13d
+  heuristic+PaddleOCR baseline (0.100) measured on the *current* corpus, the one apples-to-apples
+  comparison available. **oemer's own current-corpus chordF1 is still not measured (KAN-1426/V17f)**, so
+  this is not a claim that bespoke trails oemer on chords — only that bespoke's own chord signal is not
+  yet what `chord.onnx`'s training suggests it should be.
+
+**Verdict: this is not ready to inform V17f's swap call.** V17e's job was to quantify what V17d's smoke
+test hinted at, and it did — two distinct, evidenced problems, one fixed here (the match window) and one
+real gap still open (the crop-alignment mismatch). Feeding V17f a 0.13 chordF1 as "bespoke's chord
+number" would be measuring Finding 2's bug, not the chord recogniser's real capability. **Before V17f
+re-runs the oemer baseline and decides the swap, Stage 2b's train/inference crop mismatch should close**
+— retraining on detector-predicted (or jittered) boxes is the natural next step, and is the most direct
+way to find out whether bespoke's chord recognition can approach its own 0.968 held-out number once it
+is fed the boxes it will actually see in production.
+
 ## The human-time ship gate
 
 Accuracy is necessary but not sufficient: import ships when a person can **correct** a real chart

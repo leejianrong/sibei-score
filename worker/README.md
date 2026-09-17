@@ -67,12 +67,18 @@ engine-selection seam (SLICES V15, ADR-0031) pulled forward.
     noteheads/rests with **coordinates derived from the CTC column index** (ADR-0023/Q71 — stage-3
     chord beat-mapping rides on them).
   - **Stage 2b — the chord-band recogniser** (`chords.py`, `chord.onnx` + `chord-vocab.json`, V17c/d):
-    crops the **detected** `chordBand` box Stage 1 matched to each staff — the exact box V17b's corpus
-    trained on, not a staff-relative approximation — runs a character-level CRNN+CTC, and splits the
-    decode into distinct chords on the vocabulary's separator class, deriving each chord's pixel box
-    from the CTC columns its characters occupy (mirroring Stage 2a's column→x). A staff with no
-    detected band (no chords, or a miss) contributes no tokens; a missing chord *model* pair degrades
-    the same way (empty band), so a Stage-1+2a-only model dir still recognises notes.
+    crops the **detected** `chordBand` box Stage 1 matched to each staff (`layout.py`'s
+    `_match_chordband`, `_BAND_SPACES_ABOVE = 8.0` since V17e — see below), not a staff-relative
+    approximation — runs a character-level CRNN+CTC, and splits the decode into distinct chords on the
+    vocabulary's separator class, deriving each chord's pixel box from the CTC columns its characters
+    occupy (mirroring Stage 2a's column→x). A staff with no detected band (no chords, or a miss)
+    contributes no tokens; a missing chord *model* pair degrades the same way (empty band), so a
+    Stage-1+2a-only model dir still recognises notes. **V17e found this crop is not yet "the exact box
+    V17b's corpus trained on"** as first claimed at V17d: V17c trained on the corpus's *ground-truth*
+    band boxes, not Stage-1-*detected* ones, and a chord band is tight enough (~30-80 px, several glyphs
+    packed side by side) that a modest detector localisation error clips or shifts real characters —
+    see "The whole bespoke import scored end to end (V17e result)" in `docs/eval.md` for the numbers and
+    the open follow-up (retraining Stage 2b on detector-predicted or jittered boxes).
   Five baked artifacts, checksum-verified (`bespoke_weights.py`, ADR-0024): `detect.onnx`, `model.onnx`
   + the matched `vocab.json` (regenerate with `pnpm export:v15c-vocab`), and `chord.onnx` + the matched
   `chord-vocab.json` (regenerate with `pnpm export:v17c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR`
@@ -113,7 +119,10 @@ engine labels every head a quarter. Where V15c was bottlenecked on degraded/real
 OpenCV staff-finder, V16's trained Stage-1 detector now finds the staves page-wide (staff recall ~0.92
 on held-out synthetic, and it localises the staves on real photos where the heuristic finder invents a
 phantom title-staff). The full-pipeline accuracy-and-RAM comparison that decides the default swap is the
-V16 harness run (`docs/eval.md`, ADR-0031).
+V16 harness run for notes/bars/RAM (`docs/eval.md`, ADR-0031); **V17e** extended it to chords and found
+the chord path is not yet swap-quality (chordF1 ~0.13 against `chord.onnx`'s own 0.968 held-out floor —
+a Stage-1/Stage-2b crop-alignment gap, not a Stage-1 notes regression: noteF1 is unchanged). See "The
+whole bespoke import scored end to end (V17e result)" in `docs/eval.md`.
 
 ## The chord band: PaddleOCR (V13d)
 
