@@ -122,8 +122,17 @@ class MatchChordband(unittest.TestCase):
 
     def test_picks_a_band_within_the_window_above_the_staff(self) -> None:
         staff = self._staff()
-        # 4 staff-spaces above yUpper (within the 6-space window), overlapping x.
+        # 4 staff-spaces above yUpper (within the 8-space window), overlapping x.
         band = {"x": 150.0, "y": 155.0, "w": 400.0, "h": 20.0, "score": 0.5, "cls": bespoke_layout.CLS_CHORDBAND}
+        match = bespoke_layout._match_chordband(staff, [band])
+        self.assertIs(match, band)
+
+    def test_picks_a_band_near_the_edge_of_the_widened_window(self) -> None:
+        # V17e regression guard: on the V12 harness corpus, real detected bands centred 6.5-7.4
+        # staff-spaces above yUpper (a stacked-alteration chord needs more headroom than a plain one),
+        # which the old 6-space window dropped entirely (band recall 0.42). 7 spaces above must match.
+        staff = self._staff()
+        band = {"x": 150.0, "y": 130.0 - 10.0, "w": 400.0, "h": 20.0, "score": 0.3, "cls": bespoke_layout.CLS_CHORDBAND}
         match = bespoke_layout._match_chordband(staff, [band])
         self.assertIs(match, band)
 
@@ -135,8 +144,9 @@ class MatchChordband(unittest.TestCase):
 
     def test_ignores_a_detection_too_far_above(self) -> None:
         staff = self._staff()
-        # 10 staff-spaces above yUpper — outside the 6-space window (belongs to a different system).
-        far = {"x": 150.0, "y": 200.0 - 100.0, "w": 400.0, "h": 20.0, "score": 0.9, "cls": bespoke_layout.CLS_CHORDBAND}
+        # 12 staff-spaces above yUpper — outside the 8-space window (belongs to a different system;
+        # adjacent systems in the harness corpus are ~17 staff-spaces apart, so this margin is safe).
+        far = {"x": 150.0, "y": 200.0 - 120.0, "w": 400.0, "h": 20.0, "score": 0.9, "cls": bespoke_layout.CLS_CHORDBAND}
         self.assertIsNone(bespoke_layout._match_chordband(staff, [far]))
 
     def test_ignores_a_detection_with_no_x_overlap(self) -> None:

@@ -64,7 +64,15 @@ _CLUSTER_FRAC = 0.75
 # `packages/model/src/omr-map.ts`'s `bandAttachesTo` uses, mirrored here for the same reason: a band's
 # true position varies with how many alteration lines it stacks, so the window is generous upward and
 # tight downward (a half-space of slack lets a box that grazes the staff top still match).
-_BAND_SPACES_ABOVE = 6.0
+#
+# V17e finding: 6.0 was too tight. Measured on the V12 harness corpus (`pnpm eval --engine worker`),
+# the detector's own chordBand boxes were centred 6.5-7.4 staff-spaces above `yUpper` — just outside
+# the old window — so ~58% of detected bands went unmatched (band recall 0.42 on a 6-seed/16-bar
+# spot-check) even though Stage 1 had found them at a reasonable score (0.24-0.37). This alone, not
+# raw OCR quality, was the whole reason end-to-end chordF1 measured 0.01-0.08 against `chord.onnx`'s
+# 0.968 held-out floor. 8.0 restored band recall to 1.00 on the same spot-check with no false-positive
+# risk (adjacent systems are ~17 staff-spaces apart, far outside even this widened window).
+_BAND_SPACES_ABOVE = 8.0
 _BAND_SLACK_BELOW = 0.5
 
 
