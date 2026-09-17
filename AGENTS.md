@@ -93,8 +93,8 @@ title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `Sc
 flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
 module exists because a plan mentions it.
 
-**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15, V16 and V17a–V17c have landed; the default
-stays `oemer` until V17d–V17f wire the bespoke chords in and re-decide the swap.** V16 built the
+**v0.3 (the bespoke recogniser, ADR-0031) is under way — V15, V16 and V17a–V17d have landed; the default
+stays `oemer` until V17e–V17f score the whole bespoke import and re-decide the swap.** V16 built the
 **Stage-1 layout detector** and completed the
 fully-staged bespoke engine. **V16a** (`packages/synth/src/page-boxes.ts`, `pnpm dump:v16a`) reads
 page-level object boxes — staff, barline, chordBand, title — straight off `layout()` (no detection), the
@@ -136,12 +136,19 @@ complete-by-construction). **V17c** trained the **Stage-2b** chord-band recognis
 chord_train.py`, a small CRNN+CTC sized for the ~46:1 band strip — five height-pool blocks not six),
 **held-out chord accuracy 0.968** (char-acc 0.987, band-exact 0.909) on a RunPod A40; `chord.onnx` +
 `chord-vocab.json` (`pnpm export:v17c-vocab`) are baked + checksummed (`bespoke_weights.py`, ADR-0024),
-never committed — but the bespoke engine still emits an **empty band** until **V17d** wires Stage 2b into
-`engines/bespoke/chords.py` + `assemble.py`'s `bandTokens` (feeding the V5 corrector + V13 beat mapping
-unchanged). Still deferred in v0.3: **wiring the chords (V17d)**, **scoring the whole bespoke import on the
-harness (V17e)**, and **oemer's widened-corpus note-baseline (KAN-1426) + the default-engine swap
-(V17f)** — plus a rendered clef/key head in the corpus (a real-photo OOD region) and triplets/tuplets
-(excluded at the generator + vocab + schema, though the runtime `Score` model already has `Tuplet`). See
+never committed. **V17d wired Stage 2b in**: `engines/bespoke/chords.py` reads the **detected**
+`chordBand` box Stage 1 matches to each staff (`layout.py`'s new `_match_chordband`, over the same
+group-null attachment window `mapOmrToScore`'s `bandAttachesTo` uses) rather than a staff-relative
+geometric approximation — cropping the exact box V17b's corpus trained on, the same "train and
+inference crop alike" discipline Stage 2a settled at V15c. Each chord's pixel box comes from the CTC
+columns its characters occupy (mirroring Stage 2a's column→x), split into distinct chords on the
+vocabulary's separator class; `assemble.assemble` now returns a fifth value (the raw Stage-1 staves,
+carrying `chordBand` internally, never emitted on the wire) so `chords.py` can read it. A missing chord
+pair still degrades gracefully to an empty band (a Stage-1+2a-only model dir, every pre-V17d fixture,
+keeps recognising notes). Still deferred in v0.3: **scoring the whole bespoke import on the harness
+(V17e)** and **oemer's widened-corpus note-baseline (KAN-1426) + the default-engine swap (V17f)** — plus
+a rendered clef/key head in the corpus (a real-photo OOD region) and triplets/tuplets (excluded at the
+generator + vocab + schema, though the runtime `Score` model already has `Tuplet`). See
 the SLICES V15/V16/V17 notes, `docs/eval.md` and `worker/README.md`.
 
 ## Layout

@@ -190,13 +190,22 @@ the engine decodes them at a lower score threshold (staff ~0.20 vs barline ~0.30
 reliable barlines for each system's geometry. The leading clef/key head is still out of distribution
 (the synthetic corpus renders none — a generator gap for a later slice).
 
-## The bespoke Stage-2b chord recogniser (V17c training)
+## The bespoke Stage-2b chord recogniser (V17c training, V17d wired in)
 
 V17c trained the bespoke chord-band OCR (`training.chord_train` on the `pnpm dump:v17b` corpus, a
 character-level CRNN+CTC — `chord.onnx`). This is a **training-time held-out** number, not a harness
 row: the model reads a band strip in isolation, and its end-to-end harness `chordF1` (through the V5
 grammar corrector + stage-3 beat mapping, scored like V13's PaddleOCR baseline) is measured once the
-engine wires it in — **V17e**, after V17d.
+engine wires it in — **V17e**.
+
+V17d wired it into `engines/bespoke/chords.py`, cropping the **detected** `chordBand` box Stage 1
+matches to each staff (`layout.py`'s `_match_chordband`) rather than a staff-relative geometric
+approximation — the crop this decodes matches the geometry V17b's corpus trained on, the same "train
+and inference crop alike" discipline Stage 2a settled at V15c. A quick end-to-end eyeball on a
+synthetic page (default, non-domain-randomized style) decoded a plain chord perfectly (`G#7` exact) and
+struggled on stacked-alteration chords (`F11b5#11` → `E11b`) — plausibly a Stage-1 box-height
+undershoot on the taller two-line stacked case, not a Stage-2b decode failure; the harness (V17e) will
+quantify this, not a spot check.
 
 Held-out on unseen charts (val split by seed, 800-chart corpus, clean+light+medium):
 

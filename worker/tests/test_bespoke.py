@@ -1,16 +1,19 @@
-"""The bespoke engine's unit tests (V15c Stage-2a, V16c Stage-1; ADR-0031).
+"""The bespoke engine's unit tests (V15c Stage-2a, V16c Stage-1, V17d Stage-2b; ADR-0031).
 
-Two layers, mirroring the engine's two halves:
+Two layers, mirroring the engine's two halves (Stage 2b's own pure-logic + smoke tests live in
+`test_chords.py`, alongside `chords.py` and `layout._match_chordband`):
 
 - The **pure logic** — flat-semantic symbol parsing (the inverse of `packages/synth/src/vocab.ts`),
   crop reconstruction, and the CTC-column → pixel-x coordinate derivation — runs anywhere, no ML deps
   and no weights. This is the load-bearing, deterministic part a probe failure would hide in, so it is
   tested exactly.
 - A **guarded smoke** of the full `recognize()` runs only when onnxruntime + cv2 are importable *and* a
-  baked model pair is reachable (`$SIBEI_BESPOKE_MODEL_DIR`, dev: out/v15b + detect.onnx). It
-  asserts the document is
-  schema-shaped and every coordinate lands inside the image — recognition *accuracy* is the V12
-  harness's job (docs/eval.md), not a unit test's.
+  baked Stage-1+2a model pair is reachable (`$SIBEI_BESPOKE_MODEL_DIR`, dev: out/v15b + detect.onnx). It
+  asserts the document is schema-shaped and every coordinate (including any band token's) lands inside
+  the image — recognition *accuracy* is the V12 harness's job (docs/eval.md), not a unit test's. The
+  chord pair is not required for this smoke: a dir without `chord.onnx` still recognises notes and
+  simply carries no band (V17d's graceful-degrade contract), so `bandTokens` may be empty **or**
+  populated here depending on what the test environment's model dir happens to hold.
 """
 
 from __future__ import annotations
@@ -179,9 +182,12 @@ class RecognizeSmoke(unittest.TestCase):
         self.assertEqual(doc["source"]["engine"], "bespoke")
         self.assertEqual(doc["source"]["provider"], "cpu")
         self.assertGreaterEqual(doc["source"]["wallClockSeconds"], 0.0)
-        self.assertEqual(doc["bandTokens"], [])
+        # bandTokens may be [] (no chord pair baked, or none detected on this hand-drawn staff) or
+        # populated (a full model dir happened to detect *something*) — either is valid; only the shape
+        # and coordinate bounds are a contract here (see the module docstring).
+        self.assertIsInstance(doc["bandTokens"], list)
         w, h = doc["source"]["imageWidth"], doc["source"]["imageHeight"]
-        for obj in doc["noteheads"] + doc["rests"] + doc["barlines"]:
+        for obj in doc["noteheads"] + doc["rests"] + doc["barlines"] + doc["bandTokens"]:
             x1, y1, x2, y2 = obj["bbox"]
             self.assertTrue(0 <= x1 <= x2 <= w, f"x out of bounds: {obj['bbox']}")
             self.assertTrue(0 <= y1 <= y2 <= h, f"y out of bounds: {obj['bbox']}")
