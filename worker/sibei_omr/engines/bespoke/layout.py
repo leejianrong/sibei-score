@@ -20,6 +20,17 @@ So a *system* is a cluster of detections at one staff-centre y (staves + their b
 comes from the barlines (or the staff box as a fallback), its x-extent from the staff box (or the
 barline span). Bars are **not** built here — they are derived downstream from the barline x-positions
 + system breaks (ADR-0031).
+
+The detector's fourth class, ``chordBand``, is matched to each staff separately (``_match_chordband``,
+V17d) rather than folded into the staff/barline clustering above: a band sits several staff-heights
+*above* its staff, well outside the tight gap that clusters a staff with its own barlines, so it needs
+its own geometric window (the same one `packages/model/src/omr-map.ts`'s `bandAttachesTo` uses for its
+group-null fallback). The matched box is attached to the staff dict as ``"chordBand"`` — an internal
+Stage-1 artifact, not part of the emitted ``OmrStaff`` shape (``assemble.py`` strips it before the
+wire) — so Stage 2b (``chords.py``) crops the **exact box the detector found**, matching the geometry
+V17b's training corpus crops (`packages/synth/src/imaging/band-crops.ts`), rather than the generic
+staff-relative approximation `band_ocr.py` uses for oemer/heuristic (which have no band detector of
+their own).
 """
 
 from __future__ import annotations
@@ -36,17 +47,25 @@ CLS_BARLINE = 1
 CLS_CHORDBAND = 2
 CLS_TITLE = 3
 
-# Decode thresholds. Staff sits lower on real ink (V16b real-photo finding), so it is decoded more
-# permissively than the crisp barlines; the width filter + clustering below remove the extra boxes.
+# Decode thresholds. Staff (and the chord band, a similarly wide/short box) sits lower on real ink
+# (V16b real-photo finding), so both are decoded more permissively than the crisp barlines; the width
+# filter + clustering below remove the extra boxes.
 _STAFF_SCORE = 0.20
 _BARLINE_SCORE = 0.30
-_DECODE_SCORE = min(_STAFF_SCORE, _BARLINE_SCORE)
+_CHORDBAND_SCORE = 0.20
+_DECODE_SCORE = min(_STAFF_SCORE, _BARLINE_SCORE, _CHORDBAND_SCORE)
 
 # A real staff spans most of the printed width; a title/phantom box is narrower. Drop staff detections
 # under this fraction of the page width so a boxed title never becomes a system.
 _MIN_STAFF_WIDTH_FRAC = 0.35
 # Two detections belong to the same system if their centres are within this fraction of a staff height.
 _CLUSTER_FRAC = 0.75
+# How many staff-spaces above the staff top a chord band may sit — the group-null fallback window
+# `packages/model/src/omr-map.ts`'s `bandAttachesTo` uses, mirrored here for the same reason: a band's
+# true position varies with how many alteration lines it stacks, so the window is generous upward and
+# tight downward (a half-space of slack lets a box that grazes the staff top still match).
+_BAND_SPACES_ABOVE = 6.0
+_BAND_SLACK_BELOW = 0.5
 
 
 def detect_layout(image: Any, np: Any, session: Any) -> "tuple[list[dict], list[dict]]":
@@ -65,6 +84,7 @@ def detect_layout(image: Any, np: Any, session: Any) -> "tuple[list[dict], list[
 
     staff_dets = [d for d in dets if d["cls"] == CLS_STAFF and d["score"] >= _STAFF_SCORE and d["w"] >= _MIN_STAFF_WIDTH_FRAC * width]
     barline_dets = [d for d in dets if d["cls"] == CLS_BARLINE and d["score"] >= _BARLINE_SCORE]
+    chordband_dets = [d for d in dets if d["cls"] == CLS_CHORDBAND and d["score"] >= _CHORDBAND_SCORE]
 
     staff_h_est = _staff_height_estimate(staff_dets, barline_dets, height)
     clusters = _cluster_by_y(staff_dets, barline_dets, _CLUSTER_FRAC * staff_h_est)
@@ -73,12 +93,33 @@ def detect_layout(image: Any, np: Any, session: Any) -> "tuple[list[dict], list[
     barlines: list[dict] = []
     for group, cluster in enumerate(clusters):
         staff = _staff_from_cluster(cluster, width, staff_h_est)
+        staff["chordBand"] = _match_chordband(staff, chordband_dets)
         staves.append(staff)
         for b in cluster["barlines"]:
             # A barline box spans the staff; snap its top/bottom to the system's for a clean divider.
             barlines.append({"bbox": [int(b["x"]), int(staff["yUpper"]), int(b["x"] + b["w"]), int(staff["yLower"])], "group": group})
 
     return staves, barlines
+
+
+def _match_chordband(staff: dict, chordband_dets: list[dict]) -> "dict | None":
+    """The best ``chordBand`` detection above this staff, or ``None`` if it detected none.
+
+    A staff with no chords (or a missed detection) legitimately has no band — that staff simply
+    contributes no tokens (Stage 2b, ``chords.py``), the same as V11 before any chord recognition
+    existed. Multiple candidates in the window pick the highest-scoring one.
+    """
+    unit = staff["unit"] if staff["unit"] > 0 else 1.0
+    y_upper = staff["yUpper"]
+    x_left, x_right = staff["xLeft"], staff["xRight"]
+    candidates = [
+        d
+        for d in chordband_dets
+        if (y_upper - _BAND_SPACES_ABOVE * unit) <= (d["y"] + d["h"] / 2) <= (y_upper + _BAND_SLACK_BELOW * unit)
+        and d["x"] < x_right
+        and d["x"] + d["w"] > x_left
+    ]
+    return max(candidates, key=lambda d: d["score"]) if candidates else None
 
 
 def _resize(image: Any, np: Any, out_w: int, out_h: int) -> Any:

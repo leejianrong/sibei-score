@@ -3,8 +3,10 @@
 Stage 1 (``layout.detect_layout``) finds the staves + barlines; Stage 2a (``stage2a.recognize_staff``)
 reads each staff's melody. This module combines them into the ``OmrDocument`` object lists — staves,
 barlines, noteheads, rests — in the source image's own pixel grid. Bars are **not** built here: the
-mapper derives them from the barline x-positions + system breaks (ADR-0031). The chord band is left to
-V17, so ``bandTokens`` stays empty (a bespoke import carries no chords yet, exactly as V11 did).
+mapper derives them from the barline x-positions + system breaks (ADR-0031). Stage 2b (the chord band,
+V17c/d) reads its ``bandTokens`` from the RAW staves this function also returns (each carrying the
+Stage-1 ``chordBand`` detection `layout.py` matched to it), but does so alongside this module
+(``__init__.py``), not inside it — ``chords.py`` needs no notehead/barline geometry, just those boxes.
 """
 
 from __future__ import annotations
@@ -14,8 +16,14 @@ from typing import Any
 from . import layout, stage2a
 
 
-def assemble(image: Any, np: Any, layout_session: Any, stage2a_session: Any, stage2a_symbols: list[str]) -> "tuple[list[dict], list[dict], list[dict], list[dict]]":
-    """Run both stages and return ``(staves, barlines, noteheads, rests)`` for the document."""
+def assemble(image: Any, np: Any, layout_session: Any, stage2a_session: Any, stage2a_symbols: list[str]) -> "tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]":
+    """Run both stages and return ``(staff_dicts, barlines, noteheads, rests, staves)``.
+
+    ``staves`` is the RAW Stage-1 output, carrying the internal ``chordBand`` detection alongside the
+    geometry ``_staff_dict`` projects into the emitted, wire-schema ``OmrStaff`` shape (``staff_dicts``)
+    — an internal detection artifact should never cross into the emitted `OmrDocument`, so Stage 2b
+    (``chords.py``, V17d) reads the raw staves directly instead.
+    """
     staves, barlines = layout.detect_layout(image, np, layout_session)
 
     noteheads: list[dict] = []
@@ -24,7 +32,7 @@ def assemble(image: Any, np: Any, layout_session: Any, stage2a_session: Any, sta
         stage2a.recognize_staff(stage2a_session, stage2a_symbols, image, staff, group, np, noteheads, rests)
 
     staff_dicts = [_staff_dict(i, s) for i, s in enumerate(staves)]
-    return staff_dicts, barlines, noteheads, rests
+    return staff_dicts, barlines, noteheads, rests, staves
 
 
 def _staff_dict(index: int, s: dict) -> dict:

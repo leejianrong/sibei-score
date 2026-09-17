@@ -48,7 +48,7 @@ engine-selection seam (SLICES V15, ADR-0031) pulled forward.
   on the V12 harness (ADR-0020), never by fiat. It needs no new dependency (OpenCV + numpy are
   already the oemer pins) and no weights, so it is offline by construction.
 
-- **`bespoke`** — the trained, **staged** recogniser (V16, ADR-0031), a `bespoke/` package, read on
+- **`bespoke`** — the trained, **staged** recogniser (V16/V17, ADR-0031), a `bespoke/` package, read on
   CPU via onnxruntime and sized for low RAM — the challenger that has to beat oemer on the harness to
   earn the default (it does **not** get the default by fiat, same rule as the heuristic engine).
   - **Stage 1 — the layout detector** (`layout.py`, `detect.onnx`, V16b): a small centre-point
@@ -57,20 +57,27 @@ engine-selection seam (SLICES V15, ADR-0031) pulled forward.
     "staff" from the title, a missed low-contrast staff). A system is a cluster of detections at one
     staff-centre y; its height comes from the reliable barlines (a barline box spans the staff), its
     x-extent from the staff box. Bars are **not** detected — the mapper derives them from barline x +
-    system breaks (ADR-0031).
+    system breaks (ADR-0031). The detector's fourth class, `chordBand`, is matched to each staff
+    separately (`_match_chordband`, V17d — a band sits several staff-heights above its own staff, well
+    outside the staff/barline clustering gap, so it needs its own geometric window), and stashed as an
+    internal `staff["chordBand"]`, never emitted on the wire (`assemble.py` strips it).
   - **Stage 2a — the melody recogniser** (`stage2a.py`, `model.onnx` + `vocab.json`, V15b): crops each
     system the way training did (a full-system box: chord band + staff + descenders — measured
     proportions, so train and inference match), runs the CRNN, greedy-CTC-decodes, and emits
     noteheads/rests with **coordinates derived from the CTC column index** (ADR-0023/Q71 — stage-3
     chord beat-mapping rides on them).
-  It reads notes only for now: the Stage-2b chord model is **trained and checksum-pinned** (V17c,
-  `chord.onnx` — held-out chord accuracy 0.968), but the engine wires it into `bandTokens` in **V17d**,
-  so the bespoke band is still empty until then. Five baked artifacts, checksum-verified
-  (`bespoke_weights.py`, ADR-0024): `detect.onnx`, `model.onnx` + the matched `vocab.json` (regenerate
-  with `pnpm export:v15c-vocab`), and `chord.onnx` + the matched `chord-vocab.json` (regenerate with
-  `pnpm export:v17c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR` (dev) or `/opt/sibei/bespoke` (image).
-  onnxruntime is already an oemer dependency, so no new runtime dep; torch is training-only and never
-  imported at inference.
+  - **Stage 2b — the chord-band recogniser** (`chords.py`, `chord.onnx` + `chord-vocab.json`, V17c/d):
+    crops the **detected** `chordBand` box Stage 1 matched to each staff — the exact box V17b's corpus
+    trained on, not a staff-relative approximation — runs a character-level CRNN+CTC, and splits the
+    decode into distinct chords on the vocabulary's separator class, deriving each chord's pixel box
+    from the CTC columns its characters occupy (mirroring Stage 2a's column→x). A staff with no
+    detected band (no chords, or a miss) contributes no tokens; a missing chord *model* pair degrades
+    the same way (empty band), so a Stage-1+2a-only model dir still recognises notes.
+  Five baked artifacts, checksum-verified (`bespoke_weights.py`, ADR-0024): `detect.onnx`, `model.onnx`
+  + the matched `vocab.json` (regenerate with `pnpm export:v15c-vocab`), and `chord.onnx` + the matched
+  `chord-vocab.json` (regenerate with `pnpm export:v17c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR`
+  (dev) or `/opt/sibei/bespoke` (image). onnxruntime is already an oemer dependency, so no new runtime
+  dep; torch is training-only and never imported at inference.
 
 ### Getting the weights (ADR-0033)
 

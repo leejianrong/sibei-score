@@ -51,7 +51,7 @@ flowchart TD
 | **0 · Upload** | Validate the image by decoding it at the boundary; store it in the BlobStore; record a durable import **job** | bytes → a job + a retained scan | **done** (V10, ADR-0029/0018) |
 | **1 · Layout detection** | Find staff systems, barlines, the chord band, title/text blocks. Bars & four-bar phrases are *derived* from barlines + system breaks, not detected | page → object boxes | **done (V16, bespoke engine).** A small centre-point detector (`engines/bespoke/layout.py`, `detect.onnx`) trained on synthetic page-box labels; staff recall ~0.92 on held-out synthetic, robust on real photos where the OpenCV finder invents a phantom title-staff. oemer and the `heuristic` engine still do their own geometric staff-finding |
 | **2a · Staff recogniser** | One system crop → an ordered note/rest sequence with x-coordinates | crop → notes+rests (bbox, duration; pitch carried by the token) | **done (V15, bespoke engine).** A small CRNN+CTC trained on synthetic data; coordinates from the CTC column index. oemer does its own equivalent internally |
-| **2b · Chord band** | Read the chord-band strip into raw text tokens with boxes | band strip → `bandTokens` | **done on oemer/heuristic via PaddleOCR (V13d, ADR-0027).** The **bespoke** chord recogniser is **trained (V17c)** — a character-level CRNN+CTC, held-out chord accuracy 0.968, `chord.onnx` checksum-pinned — but the bespoke engine still emits an empty band until **V17d** wires it in |
+| **2b · Chord band** | Read the chord-band strip into raw text tokens with boxes | band strip → `bandTokens` | **done on every engine.** oemer/heuristic via PaddleOCR (V13d, ADR-0027); the **bespoke** engine via its own trained `chord.onnx` (V17c, held-out chord accuracy 0.968), wired in at **V17d** — it crops the *detected* `chordBand` box Stage 1 matched to each staff (not a staff-relative approximation), matching the geometry its training corpus used |
 | **Map · `mapOmrToScore`** | Turn recognised objects into a `Score`: bars from barlines, notes end-to-end by x, pitch from staff geometry (treble) | `OmrDocument` → `Score` | **done (V11)** |
 | **Grammar · corrector** | Snap band text to a legal chord (V5 grammar, ADR-0011), else keep as a flagged annotation (Q56) | token text → chord \| annotation | **done (V5/V13)**, injected into the mapper |
 | **3 · Beat mapping** | Align each chord box's x to the note/rest onset at or before it | chord x + note onsets → chord onset | **done (V13)** |
@@ -79,10 +79,11 @@ Stages 1+2a+2b are the *recogniser*, and there are three interchangeable ones be
 - **`heuristic`** — OpenCV only, no weights, low RAM (V13c). Dev/test scaffolding and the seed of the
   bespoke direction; also the source of the staff-finder the bespoke engine borrows until Stage 1
   exists.
-- **`bespoke`** — the trained pipeline (ADR-0031). Stage 1 (V16, `detect.onnx`) + Stage 2a (V15c,
-  `model.onnx`); the borrowed heuristic staff-finder is gone. Stage 2b (chords) is **trained (V17c,
-  `chord.onnx`)** and wired into the engine in V17d. It earns the **default** only by beating oemer on
-  the harness (accuracy *and* RAM), never by fiat — the V16 harness run, extended to chords in V17e.
+- **`bespoke`** — the fully-staged trained pipeline (ADR-0031). Stage 1 (V16, `detect.onnx`) + Stage 2a
+  (V15c, `model.onnx`) + Stage 2b (V17c/d, `chord.onnx`, reading the detected `chordBand` box); the
+  borrowed heuristic staff-finder is gone. It earns the **default** only by beating oemer on the whole
+  harness (accuracy *and* RAM, chords included) — the V16 harness run for notes/bars/RAM, extended to
+  chords in V17e.
 
 ## Data and training
 
