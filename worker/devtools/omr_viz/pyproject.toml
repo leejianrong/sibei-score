@@ -1,0 +1,28 @@
+[project]
+name = "omr-viz"
+version = "0.1.0-dev"
+description = "Dev-only qualitative viewer for the bespoke OMR engine's Python stages (Stage 1/2a/2b). Never a product runtime dependency (EPIC-228)."
+requires-python = ">=3.11,<3.12"
+
+# Kept deliberately separate from worker/pyproject.toml: this tool must never touch the
+# shipped worker image's dependency list (ADR-0024's offline guarantee is only as strong
+# as that list is short). It imports `sibei_omr.engines.bespoke` directly via sys.path,
+# not an editable install of the `sibei-omr` package, so it never pulls in oemer/PaddleOCR.
+#
+# `indah` is under active development (leejianrong/indah). Install it in editable mode
+# from the local sibling checkout, not from PyPI, so this tool runs against the current
+# dev code and any gap we hit is real (not already fixed upstream):
+#
+#   uv venv --python 3.11
+#   uv pip install -e /home/jianlee/projects/abang-ai/indah-python-ui
+#   uv pip install -e .
+#
+# The onnxruntime/opencv/numpy/pillow pins mirror worker/pyproject.toml's bespoke-relevant
+# subset (ADR-0023/0024 findings) so the two environments decode identically.
+dependencies = [
+  "indah",
+  "onnxruntime==1.16.3",
+  "numpy==1.26.4",
+  "opencv-python-headless<5",
+  "pillow",
+]
