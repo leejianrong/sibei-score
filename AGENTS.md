@@ -196,7 +196,9 @@ worker/      the OMR worker (Python, ADR-0005) — OUTSIDE the pnpm workspace, i
              eyeball Stage-1 with `visualize_detect.py`, Stage-2a with `visualize_bespoke.py`); and chord-band OCR
              (`sibei_omr/band_ocr.py`, PaddleOCR, ADR-0027) shared by the engines. A Dockerfile bakes
              weights; GPU is Dockerfile.gpu. Never touches the store; stateless; its own `unittest`s,
-             not in the Node CI
+             not in the Node CI. `devtools/omr_viz/` (EPIC-228, dev-only) is a qualitative viewer for
+             the bespoke engine's Python stages, built with `indah` (a reactive Python UI framework,
+             own venv/dependency group — see `worker/devtools/README.md`); never shipped, never in CI
 tools/runpod/ DEV/BUILD-TIME ONLY (ADR-0032): a guardrail shell wrapper (`rp`) that runs the
              EXISTING worker container on a rented RunPod pod to produce an artifact (an oemer eval
              number now, checkpoints later) and guarantees teardown. OUTSIDE the pnpm workspace, no
