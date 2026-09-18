@@ -53,8 +53,31 @@ OMR_VIZ_CORPUS_DIR=$PWD/../../../out/viz-corpus \
   python app.py
 ```
 
-Open the printed URL. Pick a corpus image or upload a real photo; the Stage 1 panel overlays
-detected `staff`/`barline`/`chordBand`/`title` boxes live as you drag the score threshold.
+Open the printed URL. Pick a corpus image or upload a real photo. Two views, toggled in the Input
+panel:
+
+- **final** (default) — the staves/barlines and matched chordBand `layout.detect_layout` actually
+  produces, after clustering + matching: the geometry the real pipeline uses.
+- **raw** — every individual detection before clustering, exactly as the model emits it (drag the
+  score threshold to explore). Noisier by design — this is the view that surfaced KAN-1510/KAN-1511
+  below.
+
+A legend of checkboxes above the image toggles each class on/off; a table below the image lists
+every visible detection's *true* pixel coordinates (a box drawn on the image is clamped to the page
+bounds first — indah's overlay has no clipping of its own, leejianrong/indah#78 — so nothing bleeds
+into the surrounding page, but the table still shows you the unclamped truth and flags which boxes
+were clamped).
+
+## Findings logged from using it (not fixed here — tracked on the board)
+
+- **KAN-1510 — Stage-1 box regression is imprecise for `staff`/`chordBand`.** On a 3-image
+  spot-check, raw detections went out of the page's pixel bounds 79% of the time for `staff` and 44%
+  for `chordBand` (`barline`: 0%). Downstream clustering already resolves this into the correct staff
+  count for the pipeline's own purposes, but the regression itself is worth fixing at the source.
+- **KAN-1511 — wide-object NMS doesn't fully collapse duplicate `staff`/`chordBand` detections.**
+  Visible directly in the "raw" view: two peaks along a wide object's heatmap ridge can have too
+  little box overlap for per-box IoU-NMS to merge them. Not currently breaking the pipeline (the
+  same downstream clustering absorbs it), but fragile.
 
 ## Milestones (EPIC-228 on the Pandan board)
 
@@ -78,6 +101,15 @@ Filed on [leejianrong/indah](https://github.com/leejianrong/indah/issues):
 - **No zoom/pan on `ImageOverlay`.** Our pages are ~1587×2245px and the region of interest (a
   30–80px chord band) is a small fraction of that; at any reasonable on-page display size it's too
   small to read. Confirmed absent from the current component set.
+- **Boxes always show a permanent inline label, and out-of-range boxes/labels bleed outside the
+  image** ([#78](https://github.com/leejianrong/indah/issues/78), found from real user feedback on
+  this tool). Three related things in the same code region: `boxes` have no hover-only label option
+  (`points` already get a native `title` attribute; `boxes` don't); `.ov-box`/`.ov-point` both have
+  `pointer-events: none`, which may make even that existing `title` a no-op; and `.overlay-wrap` has
+  no `overflow: hidden`, so an out-of-range box — or even an in-bounds box near the top edge, whose
+  label sits *above* it — can render past the image into the surrounding page. Worked around here by
+  clamping box geometry in Python before handing it to `ImageOverlay`, and by not passing `label` at
+  all (a separate table shows the detail instead).
 
 Not a gap (checked, then ruled out): payload cost of showing several full-resolution pages at once —
 the picker shows one image at a time reactively, so a page load is ~100–150 KB, not a problem.
