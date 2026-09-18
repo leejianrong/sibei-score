@@ -12,7 +12,11 @@ SHELL := bash
 COMPOSE := docker compose
 DC_CLI := $(COMPOSE) exec -T -e SBSCORE_URL=http://127.0.0.1:8080 sbscore pnpm -s sbscore
 
-.PHONY: help up down logs sample cli install check test test-fast typecheck proof render demo eval hooks clean
+.PHONY: help up down logs sample cli install check test test-fast typecheck proof render demo eval hooks clean omr-viz-setup omr-viz
+
+# Where the indah dev checkout lives (EPIC-228) — override if yours is elsewhere:
+#   make omr-viz INDAH_PATH=/path/to/indah-python-ui
+INDAH_PATH ?= /home/jianlee/projects/abang-ai/indah-python-ui
 
 help: ## List available commands
 	@echo "sibei-score — run 'make up', then open http://sibei-score.localhost/ (or http://127.0.0.1:8080)"
@@ -72,6 +76,27 @@ eval: install ## Score OMR accuracy (needs the worker; `make eval ARGS="--engine
 
 hooks: ## Install the git pre-push hook (once per clone)
 	pnpm hooks:install
+
+omr-viz-setup: install ## One-time setup for the OMR pipeline viewer: indah, bespoke weights, a sample corpus
+	@if [ ! -d worker/devtools/omr_viz/.venv ]; then \
+	  echo "setting up worker/devtools/omr_viz/.venv ..."; \
+	  cd worker/devtools/omr_viz && uv venv --python 3.11 && \
+	    uv pip install -e "$(INDAH_PATH)" && uv pip install -e .; \
+	fi
+	@if [ ! -f out/bespoke/detect.onnx ]; then \
+	  echo "fetching bespoke weights ..."; \
+	  python3 worker/fetch_bespoke.py --dir out/bespoke; \
+	fi
+	@if [ ! -d out/viz-corpus ] || [ -z "$$(ls -A out/viz-corpus 2>/dev/null)" ]; then \
+	  echo "generating a sample corpus ..."; \
+	  pnpm eval --dump-corpus out/viz-corpus --seeds 6 --bars 16; \
+	fi
+
+omr-viz: omr-viz-setup ## Qualitatively review the bespoke OMR pipeline (Stage 1 today; indah, dev-only, EPIC-228)
+	cd worker/devtools/omr_viz && \
+	  SIBEI_BESPOKE_MODEL_DIR=$(CURDIR)/out/bespoke \
+	  OMR_VIZ_CORPUS_DIR=$(CURDIR)/out/viz-corpus \
+	  .venv/bin/python app.py
 
 clean: ## Remove build and render output
 	rm -rf out dist

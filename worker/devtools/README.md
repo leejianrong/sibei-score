@@ -26,6 +26,19 @@ install of the `sibei-omr` package, so it never pulls in oemer or PaddleOCR.
 
 ## Running it
 
+From the repo root, one command does the one-time setup (venv, indah, bespoke weights, a sample
+corpus) and launches it:
+
+```sh
+make omr-viz
+```
+
+(`INDAH_PATH` defaults to the maintainer's local indah checkout; override with
+`make omr-viz INDAH_PATH=/path/to/indah-python-ui` if yours lives elsewhere. Re-run `make omr-viz`
+any time — setup is skipped once `.venv`/weights/corpus already exist.)
+
+Or by hand:
+
 ```sh
 cd worker/devtools/omr_viz
 uv venv --python 3.11
