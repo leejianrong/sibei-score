@@ -65,28 +65,39 @@ Open the printed URL. Pick a corpus image or upload a real photo, then pick a st
 
 A legend of checkboxes above the image toggles each class on/off; a table below the image lists
 every visible detection's *true* pixel coordinates (a box drawn on the image is clamped to the page
-bounds first — indah's overlay has no clipping of its own, leejianrong/indah#78 — so nothing bleeds
-into the surrounding page, but the table still shows you the unclamped truth and flags which boxes
-were clamped).
+bounds first — belt-and-braces; indah's overlay container itself now clips, see below — and the table
+still shows you the unclamped truth and flags which boxes were clamped).
 
-**Stage 2a — melody recogniser.** A "Staff #" stepper picks one detected staff at a time; four
+**Stage 2a — melody recogniser.** A "Staff #" stepper picks one detected staff at a time; three
 sub-stage tabs show exactly what that staff's crop went through — **Crop** (the exact full-system
-crop box `stage2a._crop_box` reconstructed), **Model input** (that crop resized to the model's fixed
-128px height — what the CRNN actually saw), **Raw columns** (the per-column CTC argmax stream,
-run-length encoded so blank gaps between symbols stay visible), and **Decoded** (the collapsed
-note/rest sequence, parsed to pitch/duration/x). All four reuse the exact internal functions
-`recognize_staff` calls in the real pipeline (`_crop_box`/`_model_input`/`_run_columns`/
-`_ctc_collapse`), refactored out of what used to be one opaque `_decode_crop` specifically so this
-viewer (and any future caller) can see each sub-stage independently, with zero behaviour change
-(covered by `tests/test_bespoke.py`).
+crop box `stage2a._crop_box` reconstructed), **Model input + predictions** (that crop resized to the
+model's fixed 128px height — what the CRNN actually saw — with the decoded notes/rests **overlaid
+directly on it**: one dot per token at its predicted position, 🔵 note / 🔴 rest, hover for
+pitch/duration; the same data as a table underneath for reading several at once), and **Raw columns**
+(the per-column CTC argmax stream, run-length encoded so blank gaps between symbols stay visible).
+All of it reuses the exact internal functions `recognize_staff` calls in the real pipeline
+(`_crop_box`/`_model_input`/`_run_columns`/`_ctc_collapse`/`_emit_objects`), refactored out of what
+used to be one opaque `_decode_crop` specifically so this viewer (and any future caller) can see each
+sub-stage independently, with zero behaviour change (covered by `tests/test_bespoke.py`).
 
 **Stage 2b — chord band recogniser.** The same ladder over a "Band #" stepper (only staves with a
 matched `chordBand` detection appear): **Band crop** (the padded, detected box `chords._band_bounds`
-computes — the post-V17e-fix window), **Model input** (resized to 32px height), **Raw characters**
-(the collapsed character stream, separator kept, each with its own confidence), and **Chords** (the
-same separator-split segmentation `chord_ocr_fn` performs). If this model dir has no baked chord pair
-(`chord.onnx`/`chord-vocab.json`), the tab says so plainly instead of erroring — the same
-graceful-degrade contract `chords.load_chords` documents for the real pipeline.
+computes — the post-V17e-fix window), **Model input + predictions** (resized to 32px height, with
+each segmented chord **overlaid as a box** — hover for its text + confidence, plus the same rows as a
+table underneath), and **Raw characters** (the collapsed character stream, separator kept, each with
+its own confidence). If this model dir has no baked chord pair (`chord.onnx`/`chord-vocab.json`), the
+tab says so plainly instead of erroring — the same graceful-degrade contract `chords.load_chords`
+documents for the real pipeline.
+
+Both overlays place their markers by **fraction of the crop**, not absolute pixels: a decoded token's
+position (Stage 2a) or a segmented chord's column span (Stage 2b) is already relative to the crop the
+model actually saw, and the model input is that same crop uniformly rescaled (aspect preserved) — so
+the fraction is identical whether you compute it against the original crop or the resized model input,
+no separate coordinate mapping needed. Stage 2a uses `points` (always hover-only in indah, so a dozen
+notes in a bar don't turn into overlapping permanent text); Stage 2b uses `boxes` with
+`label_mode="hover"` (indah's newer alternative to the always-on label `ov-label` span) for the same
+reason. Point/box fractions are still clamped to `[0, 1]` as a defensive belt-and-braces, though
+indah's overlay container itself now clips overflow (see the indah#78 update below).
 
 **Deliberately out of scope for Stage 2b (KAN-1506):** whether the V5 grammar corrector
 (`packages/music`) would accept a decoded chord as legal or flag it as an `Annotation`. That's
@@ -109,9 +120,9 @@ decoded — pixels to text, nothing more.
 
 - **A (KAN-1505): Stage 1.** Done.
 - **B (KAN-1506, this slice): Stage 2a + Stage 2b panels.** Done — a per-staff/per-band stepper,
-  each with four sub-stage tabs (crop, model input, raw CTC stream, decoded), reusing the exact
-  internal functions (not the HTTP wire format). Explicitly does not show whether the grammar
-  corrector would accept a decoded chord — that's Milestone D's call.
+  each with three sub-stage tabs (crop, model input **with predictions overlaid**, raw CTC stream),
+  reusing the exact internal functions (not the HTTP wire format). Explicitly does not show whether
+  the grammar corrector would accept a decoded chord — that's Milestone D's call.
 - **C (KAN-1507): ground-truth diffing** — extend `pnpm eval --dump-corpus` to also
   write a `<name>.truth.json` sidecar, and show predicted-vs-truth side by side.
 - **D (KAN-1508, deferred): the pipeline map + TypeScript-stage panels.**
@@ -131,13 +142,21 @@ Filed on [leejianrong/indah](https://github.com/leejianrong/indah/issues):
   small to read. Confirmed absent from the current component set.
 - **Boxes always show a permanent inline label, and out-of-range boxes/labels bleed outside the
   image** ([#78](https://github.com/leejianrong/indah/issues/78), found from real user feedback on
-  this tool). Three related things in the same code region: `boxes` have no hover-only label option
-  (`points` already get a native `title` attribute; `boxes` don't); `.ov-box`/`.ov-point` both have
-  `pointer-events: none`, which may make even that existing `title` a no-op; and `.overlay-wrap` has
-  no `overflow: hidden`, so an out-of-range box — or even an in-bounds box near the top edge, whose
-  label sits *above* it — can render past the image into the surrounding page. Worked around here by
-  clamping box geometry in Python before handing it to `ImageOverlay`, and by not passing `label` at
-  all (a separate table shows the detail instead).
+  this tool). Three related things in the same code region: `boxes` had no hover-only label option
+  (`points` already got a native `title` attribute; `boxes` didn't); `.ov-box`/`.ov-point` both had
+  `pointer-events: none`, which may have made even that existing `title` a no-op; and `.overlay-wrap`
+  had no `overflow: hidden`, so an out-of-range box — or even an in-bounds box near the top edge, whose
+  label sits *above* it — could render past the image into the surrounding page. Milestone A worked
+  around this by clamping box geometry in Python before handing it to `ImageOverlay`, and by not
+  passing `label` at all (a separate table showed the detail instead).
+
+  **Fixed upstream since Milestone A.** `ImageOverlay` now takes `label_mode: "always" | "hover"`
+  (`"hover"` shows a box's label/score as a native `title` tooltip instead of the always-on `.ov-label`
+  span), `.overlay-wrap` now sets `overflow: hidden`, and `.ov-box--hover`/`.ov-point` re-enable
+  `pointer-events` so the tooltip is actually reachable. Milestone B (KAN-1506) is the first thing here
+  to rely on the fix directly: Stage 2a's note/rest points and Stage 2b's chord boxes both use hover
+  labels instead of Milestone A's clamp-and-omit workaround (the fractions are still clamped to
+  `[0, 1]` too, belt-and-braces, but the container's own clipping is now the real fix).
 
 Not a gap (checked, then ruled out): payload cost of showing several full-resolution pages at once —
 the picker shows one image at a time reactively, so a page load is ~100–150 KB, not a problem.

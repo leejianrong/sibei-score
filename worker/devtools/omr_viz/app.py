@@ -12,10 +12,12 @@ Three top-level tabs, one per pipeline stage:
   - Stage 1 (layout detection, KAN-1505): "final" (what `layout.detect_layout` actually
     clusters + matches) vs "raw" (every detection before clustering).
   - Stage 2a (melody, KAN-1506): pick a staff, then step through ITS sub-stages — the exact
-    crop, the resized model input, the raw per-column CTC stream (run-length, blanks kept), and
-    the decoded note/rest sequence.
-  - Stage 2b (chords, KAN-1506): pick a detected chord band, then the same sub-stage ladder —
-    band crop, model input, raw collapsed characters (separator kept), and the segmented chords.
+    crop, the model input WITH the decoded notes/rests overlaid on it (a point per token, hover for
+    pitch/duration) plus the same data as a table, and the raw per-column CTC stream (run-length,
+    blanks kept).
+  - Stage 2b (chords, KAN-1506): pick a detected chord band, the same ladder — band crop, model
+    input WITH the segmented chords overlaid as boxes (hover for text/confidence) plus a table, and
+    the raw collapsed character stream (separator kept).
 
 Stage 2a/2b reuse the exact internal functions the V17e debugging session called directly (not
 the HTTP wire format), so what's on screen is what the model actually saw. Out of scope for this
@@ -23,10 +25,13 @@ milestone (KAN-1506): whether the V5 grammar corrector would accept a decoded ch
 flag it as an annotation — that's TypeScript-side logic (`packages/music`), and bridging to Node
 is its own deferred decision (KAN-1508), same as every other TS-side stage.
 
-Box fractions in the Stage 1 overlay are clamped to the image bounds before being handed to
-`ImageOverlay`, since indah's overlay has no `overflow: hidden` (leejianrong/indah#78) — an
-out-of-range box would otherwise bleed onto the surrounding page. The *true*, unclamped pixel box
-is still shown in the detail table below, so nothing is lost, just contained.
+Box/point fractions are clamped to [0, 1] before being handed to `ImageOverlay` — a defensive
+belt-and-braces even though indah's overlay container now clips (`overflow: hidden` landed upstream
+after Milestone A's leejianrong/indah#78 report). Stage 1's boxes stay label-free (a detail table
+below carries the true, unclamped coordinates instead); Stage 2a/2b's overlays use indah's newer
+`label_mode="hover"` (points always were hover-only) so a busy crop with a dozen notes shows dots/
+boxes, not permanent overlapping text — hover one to read it, or read the table underneath for all
+of them at once.
 """
 
 from __future__ import annotations
@@ -161,6 +166,10 @@ def _pitch_str(pitch: "tuple[str, int, int] | None") -> str:
         return ""
     step, alter, octave = pitch
     return f"{step}{_ACCIDENTAL.get(alter, '')}{octave}"
+
+
+def _clamp01(v: float) -> float:
+    return max(0.0, min(1.0, v))
 
 
 def build_session() -> indah.Session:
@@ -316,9 +325,10 @@ def build_session() -> indah.Session:
 
     def stage2a_data() -> "dict | None":
         """Everything Stage 2a needs for the currently selected staff, computed once: the exact
-        crop box, the resized model input, the raw per-column CTC stream, and its collapse — the
-        same functions (`_crop_box`/`_model_input`/`_run_columns`/`_ctc_collapse`) `recognize_staff`
-        calls in the real pipeline, so what's on screen is what the model actually saw."""
+        crop box, the resized model input, the raw per-column CTC stream, its collapse, and the
+        emitted note/rest objects — the same functions (`_crop_box`/`_model_input`/`_run_columns`/
+        `_ctc_collapse`/`_emit_objects`) `recognize_staff` calls in the real pipeline, so what's on
+        screen (and overlaid on the model input) is what the model actually saw and produced."""
         arr = current_array()
         staves, _ = layout_computed.value
         if arr is None or not staves:
@@ -331,6 +341,9 @@ def build_session() -> indah.Session:
         model_input = stage2a_mod._model_input(arr, box, np)
         raw_classes = stage2a_mod._run_columns(stage2a_session, model_input, np)
         seq = stage2a_mod._ctc_collapse(raw_classes, stage2a_symbols, stage2a_mod._BLANK)
+        noteheads: list[dict] = []
+        rests: list[dict] = []
+        stage2a_mod._emit_objects((seq, len(raw_classes)), staff, idx, box, noteheads, rests)
         return {
             "index": idx,
             "count": len(staves),
@@ -340,6 +353,8 @@ def build_session() -> indah.Session:
             "raw_classes": raw_classes,
             "seq": seq,
             "total_columns": len(raw_classes),
+            "noteheads": noteheads,
+            "rests": rests,
         }
 
     stage2a_computed = indah.computed(stage2a_data)
@@ -365,6 +380,41 @@ def build_session() -> indah.Session:
     def stage2a_model_input_src() -> str:
         d = stage2a_computed.value
         return _png_data_uri(d["model_input"]) if d else ""
+
+    def stage2a_overlay_points() -> list[dict]:
+        """One point per decoded note/rest, positioned on the model input image — fractions are
+        size-independent (the model input is the crop uniformly rescaled, same aspect), so a
+        column's fraction-of-crop-width IS its fraction-of-model-input-width, no separate mapping
+        needed. Pitch/duration ride as a hover label (indah's `points` are hover-only by design)."""
+        d = stage2a_computed.value
+        if not d or not d["box"].width or not d["box"].height:
+            return []
+        box = d["box"]
+        note_iter = iter(d["noteheads"])
+        rest_iter = iter(d["rests"])
+        points: list[dict] = []
+        for _column, symbol in d["seq"]:
+            parsed = stage2a_mod._parse_symbol(symbol)
+            if parsed is None:
+                continue
+            kind, value, dots, pitch = parsed
+            obj = next(note_iter, None) if kind == "note" else next(rest_iter, None)
+            if obj is None:
+                continue
+            cx = (obj["bbox"][0] + obj["bbox"][2]) / 2
+            cy = (obj["bbox"][1] + obj["bbox"][3]) / 2
+            duration = stage2a_mod._VALUE_TO_LABEL.get(value, str(value))
+            dot = "." if dots else ""
+            label = f"{_pitch_str(pitch)} {duration}{dot}" if kind == "note" else f"rest {duration}{dot}"
+            points.append(
+                {
+                    "x": _clamp01((cx - box.left) / box.width),
+                    "y": _clamp01((cy - box.top) / box.height),
+                    "label": label,
+                    "color": "#2f6fe0" if kind == "note" else "#e0533a",
+                }
+            )
+        return points
 
     def stage2a_raw_table() -> dict:
         d = stage2a_computed.value
@@ -463,22 +513,54 @@ def build_session() -> indah.Session:
                 rows.append([column, char, round(prob, 3)])
         return {"columns": ["column", "char", "confidence"], "rows": rows}
 
-    def stage2b_chords_table() -> dict:
+    def stage2b_lines() -> list:
+        """The segmented chords — text, box (crop pixel space), confidence — split on the
+        separator exactly as `chord_ocr_fn` does. Shared by the table and the overlay, computed once."""
         d = stage2b_computed.value
-        rows: list[list[Any]] = []
-        if d:
-            lines: list = []
-            current: list = []
-            for column, cls, prob in d["kept"]:
-                if cls == d["sep"]:
-                    chords_mod._flush(current, d["symbols"], d["crop_w"], d["crop_h"], d["total_columns"], lines)
-                    current = []
-                else:
-                    current.append((column, cls, prob))
-            chords_mod._flush(current, d["symbols"], d["crop_w"], d["crop_h"], d["total_columns"], lines)
-            for text, (x1, _y1, x2, _y2), confidence in lines:
-                rows.append([text, round(confidence, 3), round(x1), round(x2)])
+        if not d:
+            return []
+        lines: list = []
+        current: list = []
+        for column, cls, prob in d["kept"]:
+            if cls == d["sep"]:
+                chords_mod._flush(current, d["symbols"], d["crop_w"], d["crop_h"], d["total_columns"], lines)
+                current = []
+            else:
+                current.append((column, cls, prob))
+        chords_mod._flush(current, d["symbols"], d["crop_w"], d["crop_h"], d["total_columns"], lines)
+        return lines
+
+    stage2b_lines_computed = indah.computed(stage2b_lines)
+
+    def stage2b_chords_table() -> dict:
+        rows = [
+            [text, round(confidence, 3), round(x1), round(x2)]
+            for text, (x1, _y1, x2, _y2), confidence in stage2b_lines_computed.value
+        ]
         return {"columns": ["text", "confidence", "x1", "x2"], "rows": rows}
+
+    def stage2b_overlay_boxes() -> list[dict]:
+        """One box per segmented chord, positioned on the model input image — same size-independent
+        fraction argument as Stage 2a's points (`_flush`'s box is already in the crop's own pixel
+        space, and the model input is that crop uniformly rescaled). `label_mode="hover"` shows the
+        chord text + confidence on hover rather than as permanent overlapping text."""
+        d = stage2b_computed.value
+        if not d or not d["crop_w"] or not d["crop_h"]:
+            return []
+        boxes: list[dict] = []
+        for text, (x1, y1, x2, y2), confidence in stage2b_lines_computed.value:
+            boxes.append(
+                {
+                    "x": _clamp01(x1 / d["crop_w"]),
+                    "y": _clamp01(y1 / d["crop_h"]),
+                    "w": _clamp01((x2 - x1) / d["crop_w"]),
+                    "h": _clamp01((y2 - y1) / d["crop_h"]),
+                    "label": text,
+                    "score": confidence,
+                    "color": "#12a150",
+                }
+            )
+        return boxes
 
     # ---- Layout ---------------------------------------------------------------------------------
 
@@ -528,13 +610,22 @@ def build_session() -> indah.Session:
             Number(stage2a_idx, min=0, max=63, step=1, label="Staff #"),
             Text(stage2a_caption, markdown=True),
             Tabs(
-                labels=["Crop", "Model input", "Raw columns", "Decoded"],
+                labels=["Crop", "Model input + predictions", "Raw columns"],
                 active=stage2a_substage,
                 children=[
                     Image(stage2a_crop_src, alt="Stage-2a full-system crop"),
-                    Image(stage2a_model_input_src, alt="Stage-2a model input (resized)"),
+                    Column(
+                        children=[
+                            ImageOverlay(
+                                stage2a_model_input_src,
+                                points=stage2a_overlay_points,
+                                alt="Stage-2a model input with decoded notes/rests overlaid",
+                            ),
+                            Text("Hover a point for its pitch/duration — 🔵 note, 🔴 rest.", markdown=True),
+                            DataFrame(stage2a_decoded_table, label="Decoded notes/rests"),
+                        ]
+                    ),
                     DataFrame(stage2a_raw_table, label="Raw CTC columns (run-length, blanks kept)"),
-                    DataFrame(stage2a_decoded_table, label="Decoded notes/rests"),
                 ],
             ),
         ],
@@ -546,13 +637,23 @@ def build_session() -> indah.Session:
             Number(stage2b_idx, min=0, max=63, step=1, label="Band #"),
             Text(stage2b_caption, markdown=True),
             Tabs(
-                labels=["Band crop", "Model input", "Raw characters", "Chords"],
+                labels=["Band crop", "Model input + predictions", "Raw characters"],
                 active=stage2b_substage,
                 children=[
                     Image(stage2b_crop_src, alt="Stage-2b band crop"),
-                    Image(stage2b_model_input_src, alt="Stage-2b model input (resized)"),
+                    Column(
+                        children=[
+                            ImageOverlay(
+                                stage2b_model_input_src,
+                                boxes=stage2b_overlay_boxes,
+                                label_mode="hover",
+                                alt="Stage-2b model input with segmented chords overlaid",
+                            ),
+                            Text("Hover a box for its chord text + confidence.", markdown=True),
+                            DataFrame(stage2b_chords_table, label="Segmented chords"),
+                        ]
+                    ),
                     DataFrame(stage2b_raw_table, label="Raw CTC characters (collapsed, separator kept)"),
-                    DataFrame(stage2b_chords_table, label="Segmented chords"),
                 ],
             ),
         ],
