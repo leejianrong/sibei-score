@@ -82,26 +82,45 @@ def _crop_box(staff: dict, img_w: int, img_h: int) -> _CropBox:
     return _CropBox(l, t, w, h)
 
 
-def _decode_crop(session: Any, symbols: list[str], image: Any, box: _CropBox, np: Any) -> "tuple[list[tuple[int, str]], int]":
+def _model_input(image: Any, box: _CropBox, np: Any) -> Any:
+    """The crop resized to the model's fixed input height, keeping aspect (grayscale, unnormalised —
+    display-worthy on its own, unlike the tensor `_run_columns` builds from it). Also the seam the
+    devtools viewer (EPIC-228) uses to show exactly what Stage 2a saw, one crop at a time."""
     from PIL import Image
 
     crop = image[box.top : box.top + box.height, box.left : box.left + box.width]
     pil = Image.fromarray(crop).convert("L")
     new_w = max(1, round(pil.width * _MODEL_HEIGHT / pil.height))
-    pil = pil.resize((new_w, _MODEL_HEIGHT), Image.BILINEAR)
+    return pil.resize((new_w, _MODEL_HEIGHT), Image.BILINEAR)
+
+
+def _run_columns(session: Any, pil: Any, np: Any) -> list[int]:
+    """Run the CRNN+CTC on an already-prepared crop, returning each column's raw argmax class id
+    (before CTC collapse) — the per-timestep stream `_ctc_collapse` turns into a symbol sequence."""
     arr = np.asarray(pil, dtype=np.float32) / 255.0
     arr = (arr - 0.5) / 0.5
     x = arr[np.newaxis, np.newaxis, :, :]
-
     logits = session.run(None, {session.get_inputs()[0].name: x})[0]  # [1, T, C]
-    best = logits[0].argmax(axis=1)
+    return logits[0].argmax(axis=1).tolist()
+
+
+def _ctc_collapse(classes: list[int], symbols: list[str], blank: int) -> list[tuple[int, str]]:
+    """Greedy CTC collapse: merge repeated classes, drop blank, resolve each survivor to its symbol
+    name. Shared by the real decode path (`_decode_crop`) and the devtools viewer's raw-column display,
+    so both see the exact same collapse the model's own decode uses."""
     out: list[tuple[int, str]] = []
     prev = -1
-    for t, cls in enumerate(best.tolist()):
-        if cls != prev and cls != _BLANK:
+    for t, cls in enumerate(classes):
+        if cls != prev and cls != blank:
             out.append((t, symbols[cls]))
         prev = cls
-    return out, int(best.shape[0])
+    return out
+
+
+def _decode_crop(session: Any, symbols: list[str], image: Any, box: _CropBox, np: Any) -> "tuple[list[tuple[int, str]], int]":
+    pil = _model_input(image, box, np)
+    classes = _run_columns(session, pil, np)
+    return _ctc_collapse(classes, symbols, _BLANK), len(classes)
 
 
 def _emit_objects(decoded: "tuple[list[tuple[int, str]], int]", staff: dict, group: int, box: _CropBox, noteheads: list[dict], rests: list[dict]) -> None:

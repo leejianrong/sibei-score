@@ -74,6 +74,25 @@ class SymbolParsing(unittest.TestCase):
         self.assertIsNone(stage2a._parse_symbol("note_Z4_4"))
 
 
+class CtcCollapse(unittest.TestCase):
+    """`_ctc_collapse` is the greedy CTC decode shared by `_decode_crop` and the devtools viewer's
+    raw-column display (EPIC-228) — get the merge-repeats/drop-blank rule wrong here and both disagree
+    with the real pipeline."""
+
+    SYMBOLS = ["<blank>", "note_C4_4", "note_D4_4", "rest_4"]
+
+    def test_merges_repeats_and_drops_blank(self) -> None:
+        classes = [0, 0, 1, 1, 1, 0, 3, 0]
+        self.assertEqual(stage2a._ctc_collapse(classes, self.SYMBOLS, blank=0), [(2, "note_C4_4"), (6, "rest_4")])
+
+    def test_adjacent_different_symbols_both_kept(self) -> None:
+        # No blank separates them, but they differ, so both survive at their own column.
+        self.assertEqual(stage2a._ctc_collapse([1, 2], self.SYMBOLS, blank=0), [(0, "note_C4_4"), (1, "note_D4_4")])
+
+    def test_empty_input_is_empty(self) -> None:
+        self.assertEqual(stage2a._ctc_collapse([], self.SYMBOLS, blank=0), [])
+
+
 class CropReconstruction(unittest.TestCase):
     """The crop box must extend the detected staff to the full-system proportions training used."""
 

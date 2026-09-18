@@ -69,6 +69,44 @@ def load_chords(model_dir: str) -> "tuple[Any, list[str], int, int] | None":
     return session, symbols, blank, sep
 
 
+def _model_input(crop: Any) -> Any:
+    """A band crop resized to the model's fixed input height, keeping aspect (grayscale, unnormalised
+    — display-worthy on its own). Also the seam the devtools viewer (EPIC-228) uses to show exactly
+    what Stage 2b saw."""
+    from PIL import Image
+
+    pil = Image.fromarray(crop).convert("L")
+    new_w = max(1, round(pil.width * _MODEL_HEIGHT / pil.height))
+    return pil.resize((new_w, _MODEL_HEIGHT), Image.BILINEAR)
+
+
+def _run_columns(session: Any, pil: Any, np: Any) -> "tuple[Any, Any]":
+    """Run the CRNN+CTC on an already-prepared band crop, returning ``(best, probs)``: each column's
+    argmax class id and the full per-column class-probability matrix (`_collapse_columns` needs both —
+    the id to decide keep/drop, the probability to report a chord's confidence)."""
+    arr = np.asarray(pil, dtype=np.float32) / 255.0
+    arr = (arr - 0.5) / 0.5
+    x = arr[np.newaxis, np.newaxis, :, :]
+    logits = session.run(None, {session.get_inputs()[0].name: x})[0][0]  # [T, C]
+    probs = _softmax(logits, np)
+    return probs.argmax(axis=1), probs
+
+
+def _collapse_columns(best: Any, probs: Any, blank: int) -> list[tuple[int, int, float]]:
+    """Greedy CTC collapse (merge repeats, drop blank), keeping each surviving character's column,
+    class id and class-probability — shared by the real decode path and the devtools viewer's raw
+    character-stream display (both separator and glyph characters survive here; splitting on the
+    separator happens afterward, in `chord_ocr_fn`)."""
+    kept: list[tuple[int, int, float]] = []
+    prev = -1
+    for t, cls in enumerate(best.tolist()):
+        cls = int(cls)
+        if cls != prev and cls != blank:
+            kept.append((t, cls, float(probs[t, cls])))
+        prev = cls
+    return kept
+
+
 def chord_ocr_fn(session: Any, symbols: list[str], blank: int, sep: int) -> "Any":
     """Build an ``OcrFn``-compatible callable (`band_ocr.OcrFn`): a band crop in, `list[BandLine]` out.
 
@@ -79,30 +117,12 @@ def chord_ocr_fn(session: Any, symbols: list[str], blank: int, sep: int) -> "Any
 
     def run(crop: Any) -> "list[BandLine]":
         import numpy as np
-        from PIL import Image
 
         crop_h, crop_w = crop.shape[0], crop.shape[1]
-        pil = Image.fromarray(crop).convert("L")
-        new_w = max(1, round(pil.width * _MODEL_HEIGHT / pil.height))
-        pil = pil.resize((new_w, _MODEL_HEIGHT), Image.BILINEAR)
-        arr = np.asarray(pil, dtype=np.float32) / 255.0
-        arr = (arr - 0.5) / 0.5
-        x = arr[np.newaxis, np.newaxis, :, :]
-
-        logits = session.run(None, {session.get_inputs()[0].name: x})[0][0]  # [T, C]
-        probs = _softmax(logits, np)
-        best = probs.argmax(axis=1)
+        pil = _model_input(crop)
+        best, probs = _run_columns(session, pil, np)
         total_columns = int(best.shape[0])
-
-        # CTC greedy collapse (merge repeats, drop blank), keeping each surviving character's column
-        # and class-probability — the column is what lets a chord's box be recovered afterward.
-        kept: list[tuple[int, int, float]] = []
-        prev = -1
-        for t, cls in enumerate(best.tolist()):
-            cls = int(cls)
-            if cls != prev and cls != blank:
-                kept.append((t, cls, float(probs[t, cls])))
-            prev = cls
+        kept = _collapse_columns(best, probs, blank)
 
         # Split the character run into chords on the separator; each run becomes one BandLine, its box
         # spanning the columns its own characters occupied (Stage 2a's column -> x, extended to a range).
@@ -147,6 +167,16 @@ def _softmax(logits: Any, np: Any) -> Any:
     return exp / exp.sum(axis=-1, keepdims=True)
 
 
+def _band_bounds(box: dict, pad: int, img_w: int, img_h: int) -> "tuple[int, int, int, int]":
+    """The padded, clamped ``(left, top, right, bottom)`` pixel crop for one detected chordBand box —
+    shared by `read_band_tokens` and the devtools viewer, so both crop the same rectangle."""
+    left = max(int(box["x"]) - pad, 0)
+    top = max(int(box["y"]) - pad, 0)
+    right = min(int(box["x"] + box["w"]) + pad, img_w)
+    bottom = min(int(box["y"] + box["h"]) + pad, img_h)
+    return left, top, right, bottom
+
+
 def read_band_tokens(image: Any, staves: list[dict], ocr: Any, pad: int = _BAND_PAD) -> list[dict[str, Any]]:
     """Crop each staff's detected ``chordBand`` box and OCR it, returning tokens in full-image space.
 
@@ -162,10 +192,7 @@ def read_band_tokens(image: Any, staves: list[dict], ocr: Any, pad: int = _BAND_
         box = staff.get("chordBand")
         if box is None:
             continue
-        left = max(int(box["x"]) - pad, 0)
-        top = max(int(box["y"]) - pad, 0)
-        right = min(int(box["x"] + box["w"]) + pad, width)
-        bottom = min(int(box["y"] + box["h"]) + pad, height)
+        left, top, right, bottom = _band_bounds(box, pad, width, height)
         if bottom - top < 4 or right - left < 4:
             continue
         crop = image[top:bottom, left:right]

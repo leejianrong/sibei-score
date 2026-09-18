@@ -53,8 +53,9 @@ OMR_VIZ_CORPUS_DIR=$PWD/../../../out/viz-corpus \
   python app.py
 ```
 
-Open the printed URL. Pick a corpus image or upload a real photo. Two views, toggled in the Input
-panel:
+Open the printed URL. Pick a corpus image or upload a real photo, then pick a stage tab:
+
+**Stage 1 — layout detection.** Two views, toggled in the Input panel:
 
 - **final** (default) — the staves/barlines and matched chordBand `layout.detect_layout` actually
   produces, after clustering + matching: the geometry the real pipeline uses.
@@ -67,6 +68,31 @@ every visible detection's *true* pixel coordinates (a box drawn on the image is 
 bounds first — indah's overlay has no clipping of its own, leejianrong/indah#78 — so nothing bleeds
 into the surrounding page, but the table still shows you the unclamped truth and flags which boxes
 were clamped).
+
+**Stage 2a — melody recogniser.** A "Staff #" stepper picks one detected staff at a time; four
+sub-stage tabs show exactly what that staff's crop went through — **Crop** (the exact full-system
+crop box `stage2a._crop_box` reconstructed), **Model input** (that crop resized to the model's fixed
+128px height — what the CRNN actually saw), **Raw columns** (the per-column CTC argmax stream,
+run-length encoded so blank gaps between symbols stay visible), and **Decoded** (the collapsed
+note/rest sequence, parsed to pitch/duration/x). All four reuse the exact internal functions
+`recognize_staff` calls in the real pipeline (`_crop_box`/`_model_input`/`_run_columns`/
+`_ctc_collapse`), refactored out of what used to be one opaque `_decode_crop` specifically so this
+viewer (and any future caller) can see each sub-stage independently, with zero behaviour change
+(covered by `tests/test_bespoke.py`).
+
+**Stage 2b — chord band recogniser.** The same ladder over a "Band #" stepper (only staves with a
+matched `chordBand` detection appear): **Band crop** (the padded, detected box `chords._band_bounds`
+computes — the post-V17e-fix window), **Model input** (resized to 32px height), **Raw characters**
+(the collapsed character stream, separator kept, each with its own confidence), and **Chords** (the
+same separator-split segmentation `chord_ocr_fn` performs). If this model dir has no baked chord pair
+(`chord.onnx`/`chord-vocab.json`), the tab says so plainly instead of erroring — the same
+graceful-degrade contract `chords.load_chords` documents for the real pipeline.
+
+**Deliberately out of scope for Stage 2b (KAN-1506):** whether the V5 grammar corrector
+(`packages/music`) would accept a decoded chord as legal or flag it as an `Annotation`. That's
+TypeScript-side logic; bridging Python devtools to Node is its own decision, deferred to Milestone D
+(KAN-1508) along with every other TS-side stage, so this viewer only ever shows what Stage 2b itself
+decoded — pixels to text, nothing more.
 
 ## Findings logged from using it (not fixed here — tracked on the board)
 
@@ -81,9 +107,11 @@ were clamped).
 
 ## Milestones (EPIC-228 on the Pandan board)
 
-- **A (KAN-1505, this slice): Stage 1.** Done.
-- **B (KAN-1506): Stage 2a + Stage 2b panels** — per-crop images beside decoded
-  notes/chords, reusing the exact internal functions (not the HTTP wire format).
+- **A (KAN-1505): Stage 1.** Done.
+- **B (KAN-1506, this slice): Stage 2a + Stage 2b panels.** Done — a per-staff/per-band stepper,
+  each with four sub-stage tabs (crop, model input, raw CTC stream, decoded), reusing the exact
+  internal functions (not the HTTP wire format). Explicitly does not show whether the grammar
+  corrector would accept a decoded chord — that's Milestone D's call.
 - **C (KAN-1507): ground-truth diffing** — extend `pnpm eval --dump-corpus` to also
   write a `<name>.truth.json` sidecar, and show predicted-vs-truth side by side.
 - **D (KAN-1508, deferred): the pipeline map + TypeScript-stage panels.**
