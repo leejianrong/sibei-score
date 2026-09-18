@@ -76,6 +76,44 @@ class FlushColumnToBox(unittest.TestCase):
         self.assertEqual(lines, [])
 
 
+class CollapseColumns(unittest.TestCase):
+    """`_collapse_columns` is the greedy CTC decode shared by `chord_ocr_fn` and the devtools viewer's
+    raw character-stream display (EPIC-228) — the separator survives here; splitting on it happens
+    afterward in `chord_ocr_fn`."""
+
+    @unittest.skipUnless(HAVE_NUMPY, "needs numpy")
+    def test_merges_repeats_and_drops_blank(self) -> None:
+        best = np.array([0, 0, 2, 2, 0, 1, 3])
+        probs = np.zeros((7, 4))
+        probs[2, 2] = 0.9
+        probs[5, 1] = 0.7
+        probs[6, 3] = 0.5
+        kept = chords._collapse_columns(best, probs, blank=0)
+        self.assertEqual(kept, [(2, 2, 0.9), (5, 1, 0.7), (6, 3, 0.5)])
+
+    @unittest.skipUnless(HAVE_NUMPY, "needs numpy")
+    def test_empty_input_is_empty(self) -> None:
+        best = np.array([], dtype=np.int64)
+        probs = np.zeros((0, 4))
+        self.assertEqual(chords._collapse_columns(best, probs, blank=0), [])
+
+
+class BandBounds(unittest.TestCase):
+    """`_band_bounds` is the padded, clamped crop rectangle shared by `read_band_tokens` and the
+    devtools viewer — both must crop the exact same pixels the model saw."""
+
+    def test_pads_symmetrically(self) -> None:
+        box = {"x": 10.0, "y": 5.0, "w": 100.0, "h": 20.0}
+        self.assertEqual(chords._band_bounds(box, pad=2, img_w=1000, img_h=1000), (8, 3, 112, 27))
+
+    def test_clamps_to_image_edges(self) -> None:
+        box = {"x": 0.0, "y": 0.0, "w": 5.0, "h": 5.0}
+        left, top, right, bottom = chords._band_bounds(box, pad=10, img_w=50, img_h=50)
+        self.assertEqual((left, top), (0, 0))
+        self.assertLessEqual(right, 50)
+        self.assertLessEqual(bottom, 50)
+
+
 class ReadBandTokens(unittest.TestCase):
     """`read_band_tokens` crops the detected box per staff and offsets the OCR's local boxes back into
     full-image coordinates — the same contract `band_ocr.read_band_tokens` gives oemer/heuristic."""
