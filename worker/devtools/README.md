@@ -105,6 +105,34 @@ TypeScript-side logic; bridging Python devtools to Node is its own decision, def
 (KAN-1508) along with every other TS-side stage, so this viewer only ever shows what Stage 2b itself
 decoded — pixels to text, nothing more.
 
+**Ground-truth diffing (KAN-1507).** `pnpm eval --dump-corpus` now writes a `<name>.truth.json`
+sidecar next to every dumped image — the `Score` it was rendered from, plus Stage-1 page boxes and
+per-system note/chord labels, all read straight off `layout()` the same way `scripts/eval.ts`
+already does for training corpora (`extractPageBoxes`/`extractSystemLabels`/`extractSystemChords`
+in `packages/synth`; see that file's `TruthSidecar` doc comment for the exact shape). When the
+picked input is a corpus sample with a sidecar present, every stage shows predicted vs. truth:
+
+- **Stage 1** gets a "🎯 Show ground truth" toggle that overlays the truth boxes on the same image,
+  always in a single dark colour (`TRUTH_COLOR`) regardless of class — "colour = predicted, black =
+  truth" reads at a glance without a second legend — hover a truth box for its class, same
+  `label_mode="hover"` convention as Stage 2a/2b. The counts line below the image also gets a
+  ground-truth row. **The truth boxes are read off the *undistorted* render** (same technique V16a's
+  own detector-training corpus uses, and for the same reason: geometric degradation — perspective,
+  not photometric — moves pixels, so a box computed before it drifts from the final image). The
+  sidecar's `geometryExact` flag says whether that drift applies (`false` for light/medium/heavy,
+  `true` for clean); the counts line surfaces a caveat when it does. Sequence-level truth (notes,
+  chords) is unaffected either way — only pixel positions drift under perspective.
+- **Stage 2a/2b** each get a fourth sub-stage tab, "Predicted vs. truth": the predicted sequence
+  (note/rest tokens, or chord text) aligned against the matching truth system's tokens/chords with
+  `difflib.SequenceMatcher` — a positional diff, not the V5 grammar corrector (out of scope, same as
+  Milestone B) — so a match, a substitution, and a one-sided extra/missing entry are each their own
+  row, plus a one-line summary count above the table.
+
+An uploaded real photo, or a corpus image dumped before this milestone, simply has no sidecar —
+every truth-dependent view degrades to Milestone B's predictions-only view (checked directly: no
+crash, an explicit "no ground truth" message on Stage 2a/2b, the Stage 1 toggle and ground-truth
+count line just don't appear).
+
 ## Findings logged from using it (not fixed here — tracked on the board)
 
 - **KAN-1510 — Stage-1 box regression is imprecise for `staff`/`chordBand`.** On a 3-image
@@ -119,12 +147,14 @@ decoded — pixels to text, nothing more.
 ## Milestones (EPIC-228 on the Pandan board)
 
 - **A (KAN-1505): Stage 1.** Done.
-- **B (KAN-1506, this slice): Stage 2a + Stage 2b panels.** Done — a per-staff/per-band stepper,
+- **B (KAN-1506): Stage 2a + Stage 2b panels.** Done — a per-staff/per-band stepper,
   each with three sub-stage tabs (crop, model input **with predictions overlaid**, raw CTC stream),
   reusing the exact internal functions (not the HTTP wire format). Explicitly does not show whether
   the grammar corrector would accept a decoded chord — that's Milestone D's call.
-- **C (KAN-1507): ground-truth diffing** — extend `pnpm eval --dump-corpus` to also
-  write a `<name>.truth.json` sidecar, and show predicted-vs-truth side by side.
+- **C (KAN-1507, this slice): ground-truth diffing.** Done — `pnpm eval --dump-corpus` writes a
+  `<name>.truth.json` sidecar per image, and every stage shows predicted vs. truth side by side when
+  one is present (a Stage-1 box overlay toggle; a fourth "Predicted vs. truth" sub-stage tab on
+  Stage 2a/2b). See "Ground-truth diffing" above.
 - **D (KAN-1508, deferred): the pipeline map + TypeScript-stage panels.**
 
 ## indah gaps found while building Milestone A

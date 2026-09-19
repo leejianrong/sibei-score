@@ -40,10 +40,10 @@ import { createHttpWorkerClient } from '@sibei/api';
 import type { Score } from '@sibei/model';
 import { makeScore, mapOmrToScore, parseOmrDocument } from '@sibei/model';
 import { correctChord } from '@sibei/music';
-import type { AggregateMetrics, OmrMetrics } from '@sibei/synth';
-import { aggregate, scoreOmr } from '@sibei/synth';
-import type { CorpusSpec, DegradeLevel, EvalReport, Predict } from '@sibei/synth/imaging';
-import { buildEntry, runEval } from '@sibei/synth/imaging';
+import type { AggregateMetrics, ItemToken, OmrMetrics } from '@sibei/synth';
+import { aggregate, extractSystemChords, extractSystemLabels, scoreOmr } from '@sibei/synth';
+import type { CorpusSpec, DegradeLevel, EvalReport, Predict, PxBox } from '@sibei/synth/imaging';
+import { buildEntry, degradationPreset, renderDetectPages, runEval } from '@sibei/synth/imaging';
 
 const REPO = resolve(import.meta.dirname, '..');
 const ALL_LEVELS: DegradeLevel[] = ['clean', 'light', 'medium', 'heavy'];
@@ -187,10 +187,49 @@ async function assertWorkerUp(url: string): Promise<void> {
 }
 
 /**
+ * `<name>.truth.json`, written alongside every dumped image (KAN-1507): the ground-truth `Score`
+ * the image was rendered from, plus the same Stage-1 page boxes the V16a detector corpus uses
+ * (`extractPageBoxes`/`renderDetectPages`) — dev tooling (the omr-viz pipeline viewer) reuses this
+ * to show predicted-vs-truth side by side without re-deriving layout in Python.
+ *
+ * The boxes are read off the *undistorted* render, same as V16a's own corpus — which is why V16a
+ * disables perspective for every level it dumps: geometric degradation (perspective/tilt) moves
+ * pixels, so a box computed before it no longer lines up with the final image. `--dump-corpus`
+ * here degrades with perspective on for light/medium/heavy (matching the real scoring corpus), so
+ * `geometryExact` says whether `boxes` is still trustworthy pixel-for-pixel (`clean` only) or only
+ * a rough guide (a consumer should not overlay it as ground truth on a perspective-warped sample).
+ * Sequence-level truth (`score`'s notes/chords) is unaffected either way — only pixel positions
+ * drift under perspective.
+ *
+ * `systems` carries the same per-system note/rest and chord-text ground truth V15a/V17b already
+ * derive off `layout()` for training (`extractSystemLabels`/`extractSystemChords`) — a consumer
+ * comparing Stage 2a/2b output against truth needs the tokens grouped by system (Stage 2a/2b run
+ * one detected staff/band at a time), not the whole score's bars, and re-deriving that grouping
+ * from box positions would just reimplement what these two functions already do correctly.
+ */
+interface TruthSidecar {
+  spec: CorpusSpec;
+  score: Score;
+  page: {
+    widthPx: number;
+    heightPx: number;
+    geometryExact: boolean;
+    boxes: PxBox[];
+  };
+  systems: Array<{
+    index: number;
+    tokens: ItemToken[];
+    chords: string[];
+  }>;
+}
+
+/**
  * `--dump-corpus DIR`: write each spec's degraded image to `DIR/<name>.<ext>` plus a `manifest.json`,
  * and run no recogniser (ADR-0032, KAN-1379). This is the "up" half of the on-pod split — the images
  * `rp` copies to the pod for `python -m sibei_omr.batch` to recognise. The images are deterministic in
- * the spec, so `--engine dump` regenerates the matching ground truth without transferring it.
+ * the spec, so `--engine dump` regenerates the matching ground truth without transferring it. Each
+ * image also gets a `<name>.truth.json` sidecar (KAN-1507) — additive, read by nothing in the scoring
+ * path (`--engine dump` still regenerates its own ground truth from the spec, unchanged).
  */
 async function dumpCorpus(args: Args): Promise<number> {
   const dir = resolve(args.dumpCorpus as string);
@@ -198,10 +237,30 @@ async function dumpCorpus(args: Args): Promise<number> {
   const specs = planCorpus(args);
   const manifest: { name: string; file: string; spec: CorpusSpec }[] = [];
   for (const spec of specs) {
-    const { image, format } = await buildEntry(spec, { zoom: args.zoom });
+    const { truth, image, format } = await buildEntry(spec, { zoom: args.zoom });
     const file = `${specName(spec)}.${format === 'png' ? 'png' : 'jpg'}`;
     await writeFile(join(dir, file), image);
     manifest.push({ name: specName(spec), file, spec });
+
+    const [detected] = await renderDetectPages(truth, { zoom: args.zoom });
+    const labels = extractSystemLabels(truth);
+    const chords = extractSystemChords(truth);
+    const sidecar: TruthSidecar = {
+      spec,
+      score: truth,
+      page: {
+        widthPx: detected?.widthPx ?? 0,
+        heightPx: detected?.heightPx ?? 0,
+        geometryExact: degradationPreset(spec.level).perspective === 0,
+        boxes: detected?.boxes ?? [],
+      },
+      systems: labels.map((label) => ({
+        index: label.index,
+        tokens: label.tokens,
+        chords: chords.find((c) => c.index === label.index)?.chords ?? [],
+      })),
+    };
+    await writeFile(join(dir, `${specName(spec)}.truth.json`), `${JSON.stringify(sidecar, null, 2)}\n`);
   }
   await writeFile(join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(
