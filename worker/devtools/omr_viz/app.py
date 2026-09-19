@@ -25,6 +25,16 @@ milestone (KAN-1506): whether the V5 grammar corrector would accept a decoded ch
 flag it as an annotation — that's TypeScript-side logic (`packages/music`), and bridging to Node
 is its own deferred decision (KAN-1508), same as every other TS-side stage.
 
+Milestone C (KAN-1507) adds ground-truth diffing for a synthetic corpus sample: `pnpm eval
+--dump-corpus` now writes a `<name>.truth.json` sidecar next to each image (the `Score` it was
+rendered from, plus per-system note/chord labels and Stage-1 page boxes, all read straight off
+`layout()` — see `scripts/eval.ts`). When the picked input has one, each stage panel shows
+predicted vs. truth side by side: Stage 1 overlays truth boxes (black outline, hover-labelled) on
+the same image; Stage 2a/2b add a predicted-vs-truth diff table (`difflib.SequenceMatcher` over
+the same formatted token/chord strings the panel already displays). A real uploaded photo, or a
+corpus image dumped before this milestone, simply has no sidecar — every truth-dependent view
+degrades to the predictions-only view Milestone B shipped.
+
 Box/point fractions are clamped to [0, 1] before being handed to `ImageOverlay` — a defensive
 belt-and-braces even though indah's overlay container now clips (`overflow: hidden` landed upstream
 after Milestone A's leejianrong/indah#78 report). Stage 1's boxes stay label-free (a detail table
@@ -37,7 +47,9 @@ of them at once.
 from __future__ import annotations
 
 import base64
+import difflib
 import io
+import json
 import os
 import sys
 from pathlib import Path
@@ -81,6 +93,9 @@ from sibei_omr.engines.bespoke.detect_decode import decode  # noqa: E402
 CLASSES = ["staff", "barline", "chordBand", "title"]
 SWATCH = {"staff": "🟦", "barline": "🟥", "chordBand": "🟩", "title": "🟪"}
 COLORS = {"staff": "#2f6fe0", "barline": "#e0533a", "chordBand": "#12a150", "title": "#a12fd0"}
+# Ground truth (KAN-1507) always draws in this one colour, regardless of class — "colour =
+# predicted, black = truth" reads at a glance without doubling the legend.
+TRUTH_COLOR = "#111111"
 
 MODEL_DIR = os.environ.get("SIBEI_BESPOKE_MODEL_DIR", str(REPO_ROOT / "out" / "bespoke"))
 CORPUS_DIR = Path(os.environ.get("OMR_VIZ_CORPUS_DIR", str(REPO_ROOT / "out" / "viz-corpus")))
@@ -172,6 +187,64 @@ def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
 
+def _symbol_label(symbol: str) -> "str | None":
+    """Format a decoded Stage-2a symbol the same way `stage2a_overlay_points`/`stage2a_decoded_table`
+    already do (`kind pitch duration.`), factored out so the truth-diff table (KAN-1507) uses the
+    exact same alphabet as what's already on screen. `None` for a symbol `_parse_symbol` rejects."""
+    parsed = stage2a_mod._parse_symbol(symbol)
+    if parsed is None:
+        return None
+    kind, value, dots, pitch = parsed
+    duration = stage2a_mod._VALUE_TO_LABEL.get(value, str(value))
+    dot = "." if dots else ""
+    return f"{_pitch_str(pitch)} {duration}{dot}" if kind == "note" else f"rest {duration}{dot}"
+
+
+def _token_label(token: "dict[str, Any]") -> str:
+    """The same `kind pitch duration.` string as `_symbol_label`, for a ground-truth `ItemToken`
+    (`{kind, step, alter, octave, value, dots}` or `{kind: "rest", value, dots}` — see
+    `packages/synth/src/labels.ts`) — so predicted and truth sequences compare on identical text."""
+    duration = stage2a_mod._VALUE_TO_LABEL.get(token["value"], str(token["value"]))
+    dot = "." if token["dots"] else ""
+    if token["kind"] == "rest":
+        return f"rest {duration}{dot}"
+    pitch = _pitch_str((token["step"], token["alter"], token["octave"]))
+    return f"{pitch} {duration}{dot}"
+
+
+def _diff_rows(predicted: list[str], truth: list[str]) -> list[list[str]]:
+    """Align two label sequences with `difflib` (positional LCS, no domain knowledge — that's the
+    V5 grammar corrector's job, out of scope here per KAN-1506) into rows a human can scan: a
+    matched pair, a substituted pair, or a one-sided extra/missing entry. Used for both Stage 2a's
+    note/rest sequence and Stage 2b's chord text (KAN-1507) — same shape, different alphabet."""
+    matcher = difflib.SequenceMatcher(a=predicted, b=truth, autojunk=False)
+    rows: list[list[str]] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for i, j in zip(range(i1, i2), range(j1, j2)):
+                rows.append([predicted[i], truth[j], "match"])
+        elif tag == "replace":
+            for k in range(max(i2 - i1, j2 - j1)):
+                p = predicted[i1 + k] if i1 + k < i2 else ""
+                t = truth[j1 + k] if j1 + k < j2 else ""
+                rows.append([p, t, "≠"])
+        elif tag == "delete":
+            for i in range(i1, i2):
+                rows.append([predicted[i], "", "extra (predicted only)"])
+        elif tag == "insert":
+            for j in range(j1, j2):
+                rows.append(["", truth[j], "missing (truth only)"])
+    return rows
+
+
+def _diff_summary(rows: list[list[str]]) -> str:
+    n_match = sum(1 for r in rows if r[2] == "match")
+    n_sub = sum(1 for r in rows if r[2] == "≠")
+    n_extra = sum(1 for r in rows if r[2].startswith("extra"))
+    n_missing = sum(1 for r in rows if r[2].startswith("missing"))
+    return f"**{n_match}** match, **{n_sub}** differ, **{n_extra}** extra (predicted only), **{n_missing}** missing (truth only)"
+
+
 def build_session() -> indah.Session:
     detect_session = _load_detect_session()
     stage2a_session, stage2a_symbols = _load_stage2a_session()
@@ -191,6 +264,7 @@ def build_session() -> indah.Session:
     stage2a_substage: Signal[int] = Signal(0)
     stage2b_idx: Signal[float] = Signal(0)
     stage2b_substage: Signal[int] = Signal(0)
+    show_truth: Signal[bool] = Signal(True)
 
     async def on_upload(file: UploadedFile) -> None:
         uploaded_bytes.set(file.data)
@@ -205,6 +279,25 @@ def build_session() -> indah.Session:
             if path.is_file():
                 return PILImage.open(path).convert("L")
         return None
+
+    def current_truth() -> "dict[str, Any] | None":
+        """The `<name>.truth.json` sidecar for the picked corpus sample (KAN-1507), or `None` for
+        an uploaded photo or a corpus image dumped before this milestone — every truth-dependent
+        view below degrades to Milestone B's predictions-only view in that case."""
+        if active_source.value != "corpus" or not picked_file.value:
+            return None
+        path = CORPUS_DIR / f"{Path(picked_file.value).stem}.truth.json"
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text())
+
+    truth_computed = indah.computed(current_truth)
+
+    def truth_system(index: int) -> "dict[str, Any] | None":
+        truth = truth_computed.value
+        if not truth:
+            return None
+        return next((s for s in truth["systems"] if s["index"] == index), None)
 
     def current_array() -> Any:
         img = current_pil_image()
@@ -291,8 +384,31 @@ def build_session() -> indah.Session:
 
     rows_computed = indah.computed(rows)
 
+    def truth_boxes() -> list[dict]:
+        """Ground-truth Stage-1 boxes for the current corpus sample (KAN-1507) — the same
+        fraction-of-image shape as a predicted box, but always drawn in `TRUTH_COLOR` regardless of
+        class, so "colour = predicted, black = truth" reads at a glance without a second legend.
+        Empty for an uploaded photo or a corpus image dumped before this milestone."""
+        truth = truth_computed.value
+        img = current_pil_image()
+        if not truth or img is None or not show_truth.value:
+            return []
+        w, h = img.width, img.height
+        boxes: list[dict] = []
+        for b in truth["page"]["boxes"]:
+            cls = b["cls"]
+            if cls not in visible or not visible[cls].value:
+                continue
+            cx, cy, cw, ch, _clamped = _clamp_box(b["x"], b["y"], b["width"], b["height"], w, h)
+            if cw <= 0 or ch <= 0:
+                continue
+            boxes.append({"x": cx / w, "y": cy / h, "w": cw / w, "h": ch / h, "color": TRUTH_COLOR, "label": f"truth: {cls}"})
+        return boxes
+
+    truth_boxes_computed = indah.computed(truth_boxes)
+
     def overlay_boxes() -> list[dict]:
-        return rows_computed.value[0]
+        return rows_computed.value[0] + truth_boxes_computed.value
 
     def table_data() -> dict:
         table = [r for r in rows_computed.value[1] if visible[r["class"]].value]
@@ -311,7 +427,23 @@ def build_session() -> indah.Session:
                 clamped_n += 1
         parts = ", ".join(f"{SWATCH[c]} **{c}**: {n}" for c, n in by_class.items())
         clamp_note = f" — **{clamped_n}** box(es) extended past the page edge (clamped to fit; see the table for true coordinates)" if clamped_n else ""
-        return f"{img.width}×{img.height}px — {parts}{clamp_note}"
+        base = f"{img.width}×{img.height}px — {parts}{clamp_note}"
+        truth = truth_computed.value
+        if not truth:
+            return base
+        truth_counts: dict[str, int] = {c: 0 for c in CLASSES}
+        for b in truth["page"]["boxes"]:
+            truth_counts[b["cls"]] = truth_counts.get(b["cls"], 0) + 1
+        truth_parts = ", ".join(f"{SWATCH[c]} **{c}**: {n}" for c, n in truth_counts.items())
+        geom_note = (
+            ""
+            if truth["page"].get("geometryExact", True)
+            else (
+                " — ⚠️ this sample includes perspective distortion; the ground-truth boxes are read "
+                "off the undistorted render and are only approximate here (see `devtools/README.md`)"
+            )
+        )
+        return f"{base}\n\n**Ground truth** (⚫ boxes above): {truth_parts}{geom_note}"
 
     def corpus_hint() -> str:
         if corpus_files:
@@ -436,6 +568,32 @@ def build_session() -> indah.Session:
                 duration = stage2a_mod._VALUE_TO_LABEL.get(value, str(value))
                 rows.append([order, kind, _pitch_str(pitch), duration, "yes" if dots else "", round(x)])
         return {"columns": ["order", "kind", "pitch", "duration", "dotted", "x"], "rows": rows}
+
+    def stage2a_truth() -> "dict[str, Any] | None":
+        d = stage2a_computed.value
+        return truth_system(d["index"]) if d else None
+
+    def stage2a_diff_rows() -> "list[list[str]] | None":
+        """Predicted vs. truth note/rest sequence for the current staff (KAN-1507), positionally
+        aligned with `difflib` — `None` when there is no ground truth to diff against (an uploaded
+        photo, or a corpus sample dumped before this milestone)."""
+        system = stage2a_truth()
+        if system is None:
+            return None
+        d = stage2a_computed.value
+        predicted = [label for label in (_symbol_label(symbol) for _column, symbol in d["seq"]) if label is not None] if d else []
+        truth = [_token_label(tok) for tok in system["tokens"]]
+        return _diff_rows(predicted, truth)
+
+    def stage2a_diff_caption() -> str:
+        rows = stage2a_diff_rows()
+        if rows is None:
+            return "_No ground truth for this input — pick a corpus sample dumped with `pnpm eval --dump-corpus` (KAN-1507)._"
+        return _diff_summary(rows)
+
+    def stage2a_diff_table() -> dict:
+        rows = stage2a_diff_rows() or []
+        return {"columns": ["predicted", "truth", "status"], "rows": rows}
 
     # ---- Stage 2b: chord band recogniser -------------------------------------------------------
 
@@ -562,6 +720,29 @@ def build_session() -> indah.Session:
             )
         return boxes
 
+    def stage2b_diff_rows() -> "list[list[str]] | None":
+        """Predicted vs. truth chord text for the current band (KAN-1507), positionally aligned
+        with `difflib`. `None` when there is no ground truth — an uploaded photo, a corpus sample
+        dumped before this milestone, or (same as the rest of Stage 2b) no chord model baked in."""
+        d = stage2b_computed.value
+        if d is None:
+            return None
+        system = truth_system(d["staff_index"])
+        if system is None:
+            return None
+        predicted = [text for text, _box, _confidence in stage2b_lines_computed.value]
+        return _diff_rows(predicted, system["chords"])
+
+    def stage2b_diff_caption() -> str:
+        rows = stage2b_diff_rows()
+        if rows is None:
+            return "_No ground truth for this input — pick a corpus sample dumped with `pnpm eval --dump-corpus` (KAN-1507)._"
+        return _diff_summary(rows)
+
+    def stage2b_diff_table() -> dict:
+        rows = stage2b_diff_rows() or []
+        return {"columns": ["predicted", "truth", "status"], "rows": rows}
+
     # ---- Layout ---------------------------------------------------------------------------------
 
     legend = Row(
@@ -587,6 +768,7 @@ def build_session() -> indah.Session:
                 children=[
                     Slider(threshold, min=0.05, max=0.9, step=0.01, label="Stage-1 score threshold (raw view only)"),
                     Radio(view_mode, options=["final", "raw"], label="View"),
+                    Checkbox(show_truth, label="🎯 Show ground truth (corpus samples only, KAN-1507)"),
                 ]
             ),
             Text(
@@ -598,7 +780,7 @@ def build_session() -> indah.Session:
                 markdown=True,
             ),
             legend,
-            ImageOverlay(image_src, boxes=overlay_boxes, alt="page with Stage-1 detections"),
+            ImageOverlay(image_src, boxes=overlay_boxes, alt="page with Stage-1 detections", label_mode="hover"),
             Text(counts_text, markdown=True),
             DataFrame(table_data, label="Detections (true, unclamped coordinates)"),
         ],
@@ -610,7 +792,7 @@ def build_session() -> indah.Session:
             Number(stage2a_idx, min=0, max=63, step=1, label="Staff #"),
             Text(stage2a_caption, markdown=True),
             Tabs(
-                labels=["Crop", "Model input + predictions", "Raw columns"],
+                labels=["Crop", "Model input + predictions", "Raw columns", "Predicted vs. truth"],
                 active=stage2a_substage,
                 children=[
                     Image(stage2a_crop_src, alt="Stage-2a full-system crop"),
@@ -626,6 +808,12 @@ def build_session() -> indah.Session:
                         ]
                     ),
                     DataFrame(stage2a_raw_table, label="Raw CTC columns (run-length, blanks kept)"),
+                    Column(
+                        children=[
+                            Text(stage2a_diff_caption, markdown=True),
+                            DataFrame(stage2a_diff_table, label="Predicted vs. ground truth (KAN-1507)"),
+                        ]
+                    ),
                 ],
             ),
         ],
@@ -637,7 +825,7 @@ def build_session() -> indah.Session:
             Number(stage2b_idx, min=0, max=63, step=1, label="Band #"),
             Text(stage2b_caption, markdown=True),
             Tabs(
-                labels=["Band crop", "Model input + predictions", "Raw characters"],
+                labels=["Band crop", "Model input + predictions", "Raw characters", "Predicted vs. truth"],
                 active=stage2b_substage,
                 children=[
                     Image(stage2b_crop_src, alt="Stage-2b band crop"),
@@ -654,6 +842,12 @@ def build_session() -> indah.Session:
                         ]
                     ),
                     DataFrame(stage2b_raw_table, label="Raw CTC characters (collapsed, separator kept)"),
+                    Column(
+                        children=[
+                            Text(stage2b_diff_caption, markdown=True),
+                            DataFrame(stage2b_diff_table, label="Predicted vs. ground truth (KAN-1507)"),
+                        ]
+                    ),
                 ],
             ),
         ],
