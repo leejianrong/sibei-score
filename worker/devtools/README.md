@@ -171,15 +171,17 @@ failure paths.
   Visible directly in the "raw" view: two peaks along a wide object's heatmap ridge can have too
   little box overlap for per-box IoU-NMS to merge them. Not currently breaking the pipeline (the
   same downstream clustering absorbs it), but fragile.
-- **KAN-1520 — an image switch can transiently surface a Stage 1/2a `ValueError` toast.** Uploading a
-  real photo shortly after another selection occasionally raises `ValueError: operands could not be
-  broadcast together with shapes (...)` from `bespoke_layout.detect_layout`/`stage2a.recognize_staff`
-  — reproduced on the plain Stage 1 tab alone (Milestone D's Map tab is not involved). Not
-  deterministic per image: the same photo that errored on one upload succeeded cleanly, with
-  genuinely different recognised content, on a later attempt with the reactive state given time to
-  settle — the signature of a race between the image signal updating and a dependent computation
-  reading a stale array size, not a fixed per-photo defect. Retrying (or reloading) works around it;
-  not chased further here since it is pre-existing Stage 1/2a code Milestone D does not touch.
+- **KAN-1520 — an indah bug: `Computed`'s dirty-check chokes on a numpy-array-shaped value.**
+  Switching between two images (or two staves/bands) whose pixel crop is a different shape can
+  surface `ValueError: operands could not be broadcast together with shapes (...)` as a generic
+  toast. Root cause (confirmed from a real traceback, not this app's code):
+  `Computed._recompute` (`indah/reactive.py`) dirty-checks with a plain `new != self._value`, which
+  assumes `!=` always returns a `bool` — false for a numpy array, or a `dict`/`tuple` embedding one
+  (Stage 2a/2b's `computed()`s return a dict with a numpy-array-valued `"crop"` key). Deterministic
+  on "did the crop shape change", not on which photo — filed upstream as
+  [leejianrong/indah#84](https://github.com/leejianrong/indah/issues/84) with a minimal repro and a
+  suggested fix. Not worked around here: the right fix is in indah's `Computed` (every indah app
+  benefits), and a local workaround would mean touching most of Stage 2a/2b's existing call sites.
 
 ## Milestones (EPIC-228 on the Pandan board)
 
