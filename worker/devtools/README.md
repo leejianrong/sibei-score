@@ -133,6 +133,34 @@ every truth-dependent view degrades to Milestone B's predictions-only view (chec
 crash, an explicit "no ground truth" message on Stage 2a/2b, the Stage 1 toggle and ground-truth
 count line just don't appear).
 
+**Map — TypeScript-side stages (KAN-1508).** A fourth top-level tab shows `mapOmrToScore`, the V5
+grammar corrector, and Stage-3 beat mapping running for real — `indah` is Python-only and these are
+real TypeScript (`packages/model`/`packages/music`) this viewer must show running for real, never a
+Python reimplementation that could drift from the actual mapper. The bridge is
+`scripts/omr-viz-bridge.ts` (a `pnpm omr-viz-bridge <OmrDocument.json>` CLI, dev-only, not part of
+the product runtime), run as a subprocess: for the current image,
+`sibei_omr.engines.bespoke.recognize` — the exact function the real worker calls for `--engine
+bespoke` — produces a real `OmrDocument` (re-running Stage 1+2a over every staff, not just the one a
+Stage 2a/2b tab happens to have picked, plus Stage 2b; ~1-2s, memoized per image like everything else
+here), which is written to a scratch file and handed to the bridge. The bridge runs `mapOmrToScore`
+twice (with and without the corrector) plus every raw chord-band token through `correctChord`
+directly, and prints the result as JSON. Three sub-stage tabs:
+
+- **Bar/onset assignment** — `mapOmrToScore` with no corrector (the V11 result): every bar's
+  notes/rests with their assigned onset and pitch, before the grammar corrector or Stage 3 ever run.
+- **Grammar corrector** — every raw band token's text next to what `correctChord` (ADR-0011) made of
+  it: the canonical chord spelling, or "kept as annotation" when the text is not a legal chord. Token
+  level, independent of which bar (or whether any bar) it ends up attached to.
+- **Stage 3 + final chords** — `mapOmrToScore` with the corrector injected: the real import result,
+  each chord/annotation at the onset Stage 3 beat-mapped it to (Q71), flagged where low-confidence.
+
+A reactive one-line text strip above the tabs mirrors `docs/omr-pipeline.md`'s mermaid diagram, the
+active top-level tab's stage(s) bolded — "current stage highlighted" without a second visual
+component, since indah's `Card` has no per-instance highlight prop to drive from the active tab
+index. A subprocess failure (the bridge's own stderr, or `OmrMappingError`'s text on a no-staff
+image) surfaces as a plain note in the panel, not a crash — verified by forcing both the success and
+failure paths.
+
 ## Findings logged from using it (not fixed here — tracked on the board)
 
 - **KAN-1510 — Stage-1 box regression is imprecise for `staff`/`chordBand`.** On a 3-image
@@ -143,6 +171,15 @@ count line just don't appear).
   Visible directly in the "raw" view: two peaks along a wide object's heatmap ridge can have too
   little box overlap for per-box IoU-NMS to merge them. Not currently breaking the pipeline (the
   same downstream clustering absorbs it), but fragile.
+- **KAN-1520 — an image switch can transiently surface a Stage 1/2a `ValueError` toast.** Uploading a
+  real photo shortly after another selection occasionally raises `ValueError: operands could not be
+  broadcast together with shapes (...)` from `bespoke_layout.detect_layout`/`stage2a.recognize_staff`
+  — reproduced on the plain Stage 1 tab alone (Milestone D's Map tab is not involved). Not
+  deterministic per image: the same photo that errored on one upload succeeded cleanly, with
+  genuinely different recognised content, on a later attempt with the reactive state given time to
+  settle — the signature of a race between the image signal updating and a dependent computation
+  reading a stale array size, not a fixed per-photo defect. Retrying (or reloading) works around it;
+  not chased further here since it is pre-existing Stage 1/2a code Milestone D does not touch.
 
 ## Milestones (EPIC-228 on the Pandan board)
 
@@ -155,7 +192,10 @@ count line just don't appear).
   `<name>.truth.json` sidecar per image, and every stage shows predicted vs. truth side by side when
   one is present (a Stage-1 box overlay toggle; a fourth "Predicted vs. truth" sub-stage tab on
   Stage 2a/2b). See "Ground-truth diffing" above.
-- **D (KAN-1508, deferred): the pipeline map + TypeScript-stage panels.**
+- **D (KAN-1508, this slice): the pipeline map + TypeScript-stage panels.** Done — a fourth "Map —
+  TS-side stages" tab (`mapOmrToScore`, the grammar corrector, Stage-3 beat mapping) via a small
+  `scripts/omr-viz-bridge.ts` subprocess bridge, and a reactive pipeline-map text strip mirroring
+  `docs/omr-pipeline.md`'s diagram. See "Map — TypeScript-side stages" above.
 
 ## indah gaps found while building Milestone A
 

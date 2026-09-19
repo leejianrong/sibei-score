@@ -35,6 +35,19 @@ the same formatted token/chord strings the panel already displays). A real uploa
 corpus image dumped before this milestone, simply has no sidecar — every truth-dependent view
 degrades to the predictions-only view Milestone B shipped.
 
+Milestone D (KAN-1508) adds the TypeScript-side stages: `mapOmrToScore`, the V5 grammar corrector,
+and Stage-3 beat mapping (`packages/model`/`packages/music`). `indah` is Python-only and these are
+real TypeScript this viewer must show running for real, not a Python reimplementation that could
+drift from the mapper — so the bridge is `scripts/omr-viz-bridge.ts`, run as a subprocess (KAN-1508's
+own suggested shape: "a small tsx script that dumps intermediate JSON"). For the current image,
+`sibei_omr.engines.bespoke.recognize` — the exact function the real worker calls for `--engine
+bespoke` — produces a real `OmrDocument`; that is written to a scratch file and handed to the
+bridge, which runs `mapOmrToScore` twice (with and without the corrector) plus every raw chord-band
+token through `correctChord` directly, and prints the result as JSON. A fourth top-level tab, "Map —
+TS-side stages", shows bar/onset assignment, the grammar corrector's before/after, and the final
+beat-mapped chords/annotations. A reactive text strip above the tabs mirrors
+`docs/omr-pipeline.md`'s stage diagram with the active tab's stage(s) bolded.
+
 Box/point fractions are clamped to [0, 1] before being handed to `ImageOverlay` — a defensive
 belt-and-braces even though indah's overlay container now clips (`overflow: hidden` landed upstream
 after Milestone A's leejianrong/indah#78 report). Stage 1's boxes stay label-free (a detail table
@@ -51,7 +64,9 @@ import difflib
 import io
 import json
 import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +99,7 @@ import numpy as np  # noqa: E402
 import onnxruntime as ort  # noqa: E402
 from PIL import Image as PILImage  # noqa: E402
 
+from sibei_omr.engines import bespoke as bespoke_engine  # noqa: E402
 from sibei_omr.engines.bespoke import chords as chords_mod  # noqa: E402
 from sibei_omr.engines.bespoke import layout as bespoke_layout  # noqa: E402
 from sibei_omr.engines.bespoke import stage2a as stage2a_mod  # noqa: E402
@@ -265,6 +281,7 @@ def build_session() -> indah.Session:
     stage2b_idx: Signal[float] = Signal(0)
     stage2b_substage: Signal[int] = Signal(0)
     show_truth: Signal[bool] = Signal(True)
+    map_substage: Signal[int] = Signal(0)
 
     async def on_upload(file: UploadedFile) -> None:
         uploaded_bytes.set(file.data)
@@ -279,6 +296,22 @@ def build_session() -> indah.Session:
             if path.is_file():
                 return PILImage.open(path).convert("L")
         return None
+
+    def current_image_path() -> "Path | None":
+        """A real file `sibei_omr.engines.bespoke.recognize` (KAN-1508) can `cv2.imread` — a corpus
+        sample already has one; an uploaded photo does not, so its bytes are normalised to a scratch
+        PNG once per upload (memoized below, not re-written on every reactive recompute)."""
+        if active_source.value == "corpus" and picked_file.value:
+            path = CORPUS_DIR / picked_file.value
+            return path if path.is_file() else None
+        if active_source.value == "upload" and uploaded_bytes.value is not None:
+            img = PILImage.open(io.BytesIO(uploaded_bytes.value)).convert("L")
+            tmp = Path(tempfile.gettempdir()) / "omr-viz-upload.png"
+            img.save(tmp)
+            return tmp
+        return None
+
+    current_image_path_computed = indah.computed(current_image_path)
 
     def current_truth() -> "dict[str, Any] | None":
         """The `<name>.truth.json` sidecar for the picked corpus sample (KAN-1507), or `None` for
@@ -743,6 +776,102 @@ def build_session() -> indah.Session:
         rows = stage2b_diff_rows() or []
         return {"columns": ["predicted", "truth", "status"], "rows": rows}
 
+    # ---- Map: the TypeScript-side stages (KAN-1508) ---------------------------------------------
+
+    def call_ts_bridge(doc: "dict[str, Any]") -> "dict[str, Any]":
+        """Run `scripts/omr-viz-bridge.ts` (KAN-1508) over `doc` — the one place this Python devtool
+        crosses into Node, because `mapOmrToScore`/`correctChord`/Stage-3 beat mapping are real
+        TypeScript (ADR-0005) this viewer must show running for real, never a Python
+        reimplementation that could drift from the actual mapper. Raises with a clean message
+        (the bridge's own stderr, or `OmrMappingError`'s text on a no-staff image) rather than a
+        raw subprocess/JSON traceback, so the caller can show it as a panel note."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(doc, f)
+            doc_path = f.name
+        try:
+            result = subprocess.run(
+                ["pnpm", "omr-viz-bridge", doc_path],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        finally:
+            os.unlink(doc_path)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "the TS bridge exited non-zero with no stderr")
+        return json.loads(result.stdout)
+
+    def map_stages() -> "dict[str, Any] | None":
+        """The real `OmrDocument` for the current image (the same function the worker calls for
+        `--engine bespoke`, not a partial rebuild from this app's already-computed per-tab data —
+        re-running Stage 1+2a over every staff, not just the picked one, plus Stage 2b), then the TS
+        bridge over it. Both steps share one try/except: a worker-side exception (a real recognition
+        edge case, not a bridge problem) must surface as the same friendly note the bridge's own
+        failures do, not indah's generic error toast over stale data from the previous image."""
+        path = current_image_path_computed.value
+        if path is None:
+            return None
+        try:
+            doc = bespoke_engine.recognize(str(path), path.name)
+            return call_ts_bridge(doc)
+        except Exception as exc:  # recognise/subprocess/parse failure -> a visible note, never a crash
+            return {"error": str(exc)}
+
+    map_stages_computed = indah.computed(map_stages)
+
+    def map_caption() -> str:
+        if current_image_path_computed.value is None:
+            return "_No image selected — pick a corpus sample or upload a photo._"
+        stages = map_stages_computed.value
+        if stages is not None and "error" in stages:
+            return f"_Could not run the TypeScript bridge (`pnpm omr-viz-bridge`):_ `{stages['error']}`"
+        return "Ran `sibei_omr.engines.bespoke.recognize` for this image, then `scripts/omr-viz-bridge.ts` over its output."
+
+    def _format_item(item: "dict[str, Any]") -> "tuple[str, str]":
+        duration = stage2a_mod._VALUE_TO_LABEL.get(item["duration"]["value"], str(item["duration"]["value"]))
+        dot = "." if item["duration"]["dots"] else ""
+        if item["kind"] == "rest":
+            return "rest", f"{duration}{dot}"
+        p = item["pitch"]
+        return _pitch_str((p["step"], p["alter"], p["octave"])), f"{duration}{dot}"
+
+    def map_bars_table() -> dict:
+        """`mapOmrToScore` with **no** corrector — the Map stage alone (V11): bars, onsets and pitch
+        from staff geometry, before the grammar corrector or Stage-3 beat mapping ever run."""
+        stages = map_stages_computed.value
+        rows: list[list[Any]] = []
+        if stages and "error" not in stages:
+            for bar in stages["mapOnly"]["bars"]:
+                for item in bar["items"]:
+                    pitch, duration = _format_item(item)
+                    rows.append([bar["number"], item["onset"], item["kind"], pitch, duration])
+        return {"columns": ["bar", "onset", "kind", "pitch", "duration"], "rows": rows}
+
+    def map_corrections_table() -> dict:
+        """Every raw chord-band token through `correctChord` directly (`@sibei/music`, ADR-0011) —
+        the grammar stage in isolation, independent of which bar a token lands in."""
+        stages = map_stages_computed.value
+        rows: list[list[Any]] = []
+        if stages and "error" not in stages:
+            for c in stages["corrections"]:
+                rows.append([c["text"], c["corrected"] if c["corrected"] is not None else "— kept as annotation"])
+        return {"columns": ["raw band text", "corrected chord"], "rows": rows}
+
+    def map_final_table() -> dict:
+        """`mapOmrToScore` with the corrector injected — Map + Grammar + Stage-3 beat mapping
+        together, the real import result: each chord/annotation at the onset it was beat-mapped to."""
+        stages = map_stages_computed.value
+        rows: list[list[Any]] = []
+        if stages and "error" not in stages:
+            for bar in stages["final"]["bars"]:
+                for chord in bar["chords"]:
+                    rows.append([bar["number"], chord["onset"], "chord", chord["text"], "yes" if chord["review"]["flagged"] else ""])
+                for ann in bar["annotations"]:
+                    rows.append([bar["number"], ann["onset"], "annotation", ann["text"], "yes" if ann["review"]["flagged"] else ""])
+            rows.sort(key=lambda r: (r[0], r[1]))
+        return {"columns": ["bar", "onset", "kind", "text", "flagged"], "rows": rows}
+
     # ---- Layout ---------------------------------------------------------------------------------
 
     legend = Row(
@@ -853,6 +982,40 @@ def build_session() -> indah.Session:
         ],
     )
 
+    map_panel = Card(
+        title="Map — TypeScript-side stages",
+        children=[
+            Text(map_caption, markdown=True),
+            Tabs(
+                labels=["Bar/onset assignment", "Grammar corrector", "Stage 3 + final chords"],
+                active=map_substage,
+                children=[
+                    DataFrame(map_bars_table, label="mapOmrToScore, no corrector (V11) — bars, onsets, pitch"),
+                    DataFrame(map_corrections_table, label="Every raw band token through correctChord (ADR-0011)"),
+                    DataFrame(map_final_table, label="Final chords/annotations after Stage-3 beat mapping (V13)"),
+                ],
+            ),
+        ],
+    )
+
+    # A reactive one-line echo of docs/omr-pipeline.md's mermaid diagram, the current top-level tab's
+    # stage(s) bolded — "current stage highlighted" (KAN-1508) without a second visual component,
+    # since `Card` has no per-instance highlight prop to drive from `active_tab`. Tab 1 (Stage 2a)
+    # and tab 2 (Stage 2b) both highlight the same "Stage 2a/2b" segment — they run in parallel off
+    # Stage 1's output, exactly as the mermaid diagram draws them.
+    def pipeline_map_text() -> str:
+        idx = int(active_tab.value)
+
+        def seg(tabs: "list[int]", label: str) -> str:
+            return f"**{label}**" if idx in tabs else label
+
+        parts = [
+            seg([0], "Stage 1 (layout)"),
+            seg([1, 2], "Stage 2a (melody) / Stage 2b (chords)"),
+            seg([3], "Map → Grammar corrector → Stage 3 (beat mapping)"),
+        ]
+        return "photo → " + " → ".join(parts) + " → a flagged draft `Score`"
+
     page = Column(
         children=[
             Text(
@@ -862,10 +1025,11 @@ def build_session() -> indah.Session:
                 markdown=True,
             ),
             inputs,
+            Text(pipeline_map_text, markdown=True),
             Tabs(
-                labels=["Stage 1 — layout", "Stage 2a — melody", "Stage 2b — chords"],
+                labels=["Stage 1 — layout", "Stage 2a — melody", "Stage 2b — chords", "Map — TS-side stages"],
                 active=active_tab,
-                children=[stage1_panel, stage2a_panel, stage2b_panel],
+                children=[stage1_panel, stage2a_panel, stage2b_panel, map_panel],
             ),
         ]
     )

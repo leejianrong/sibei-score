@@ -26,6 +26,7 @@
     "export:v15c-vocab": "tsx scripts/v15c-export-vocab.ts",
     "export:v17c-vocab": "tsx scripts/v17c-export-chord-vocab.ts",
     "eval": "tsx scripts/eval.ts",
+    "omr-viz-bridge": "tsx scripts/omr-viz-bridge.ts",
     "vendor:fonts": "tsx scripts/vendor-music-fonts.ts",
     "hooks:install": "git config core.hooksPath .githooks && echo \"git hooks -> .githooks\"",
     "sbscore": "tsx packages/cli/src/bin.ts",
