@@ -22,6 +22,20 @@ pnpm serve                       # the API on http://127.0.0.1:4321 — leave it
 pnpm sbscore list                # in another terminal
 ```
 
+**Against Postgres** instead of the local SQLite file (V19; the hosted deployment's store):
+
+```sh
+sbscore serve --database-url postgres://sibei_app:…@host:5432/sibei     # or SBSCORE_DATABASE_URL
+```
+
+Connect as an ordinary role that owns its tables — the server refuses a superuser (or `BYPASSRLS`) role,
+because row-level security would not apply to it (`--allow-rls-bypass` opts out, for local development
+only). `--data` cannot be combined with it. The URL is never printed: the startup line shows only scheme,
+host, port and database. Only `SBSCORE_DATABASE_URL` is read, never the generic `DATABASE_URL`, so an
+unrelated environment cannot switch your library. `--blobs DIR` (or `SBSCORE_BLOBS`) places the scans and
+export cache; by default they sit beside where the SQLite file would be. `pnpm test:postgres` runs the
+adapter's tests against a throwaway Postgres.
+
 **Against the container** ([Quick start](../README.md#the-container--just-run-the-app) has the
 `docker compose up`); point the CLI at its port:
 

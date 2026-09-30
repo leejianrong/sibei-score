@@ -449,3 +449,30 @@ owner was `local`. Opening a v4 library rebuilds both tables inside one transact
 primary key), copying every row, keeping each operation's `seq` and `batch`, taking its owner from its score,
 and checking foreign keys before it commits; a score's `version` is untouched, since a migration is not an
 edit. `tests/store/tenancy-keys.test.ts` holds it.
+
+**The Postgres adapter (V19, ADR-0034).** `@sibei/api/postgres` — four files that may know Postgres exists
+(`postgres-schema.ts`, `-session.ts`, `-store.ts`, `-jobs.ts`; `tests/arch/store-seam.test.ts` is per driver) —
+implements the same `ScoreStore` and `JobStore` as SQLite and is held to it by one conformance suite. It is
+selected by `sbscore serve --database-url` / `SBSCORE_DATABASE_URL` and is never re-exported from the
+barrel. What is Postgres's own:
+
+- **Every call is a transaction that first names the owner** (`set_config('app.owner', …, true)`, the
+  `SET LOCAL` form, so it cannot leak through a pooled connection). RLS is `ENABLE`d and `FORCE`d on all
+  three tables; an unset owner reads as NULL and shows no row (default deny). `import_jobs` alone has an
+  `app.system = 'on'` branch, set only by `claim`/`complete`/`fail`/`recover`, which are not owner-scoped.
+- **The adapter refuses to run as a superuser or `BYPASSRLS` role**, which RLS does not bind. Opt out with
+  `--allow-rls-bypass` (local development only).
+- **A stale write is decided by the row lock**: `commit`'s `UPDATE … WHERE version = $expected` blocks behind
+  a concurrent writer, re-checks, and matches nothing; the log's next `seq` is read under that lock.
+  `create` uses `ON CONFLICT DO NOTHING` (an error would abort the transaction). Job `claim` is
+  `FOR UPDATE SKIP LOCKED`.
+- **JSON columns are `text`, not `jsonb`**, with a validity `CHECK`: byte-for-byte round-trips, as in SQLite.
+  Listings order ids with `COLLATE "C"` so both adapters sort alike.
+- **The pool has an `error` listener** (`onError`): `pg` emits `error` when the server drops an idle
+  connection, and an unlistened one kills the process.
+- **Migration** is one transaction under an advisory lock (replicas booting together serialise), recorded in
+  `schema_meta`; a newer table version is refused. Its version lineage (starting at 1) is independent of
+  SQLite's.
+- **Landing an import is idempotent**: the score id is `import-<jobId>`, unique per owner, so a
+  `conflict-exists` on it is this job's own earlier landing (a crash between `Applier.import` and
+  `jobs.complete`) and the runner completes the job against it instead of failing forever.

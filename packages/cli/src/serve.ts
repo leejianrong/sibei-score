@@ -3,7 +3,9 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createApi, createHttpWorkerClient, openDirectoryBlobStore } from '@sibei/api';
 import type { AssetSource, WorkerClient } from '@sibei/api';
+import { openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
+import type { JobStore, ScoreStore } from '@sibei/api';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
 import { CliError } from './client.js';
@@ -218,19 +220,120 @@ export function resolveUiDirectory(flags: Flags): string | undefined {
   return directory;
 }
 
+/**
+ * The Postgres database to serve from, or `undefined` for the local SQLite library (V19, ADR-0034).
+ * `--database-url` or `SBSCORE_DATABASE_URL` names it.
+ *
+ * **Deliberately not the generic `DATABASE_URL`.** That variable is set in plenty of unrelated
+ * environments (another project's shell, a PaaS, a CI runner), and reading it here would let an ambient
+ * value silently move a local user's library to a database they never chose. Opting in to a different
+ * store has to be something this program was told to do by name. (ADR-0034 said `DATABASE_URL` in
+ * passing; this is the deliberate refinement of it.)
+ */
+export function resolveDatabaseUrl(flags: Flags): string | undefined {
+  const chosen = flags.options.get('database-url') ?? process.env.SBSCORE_DATABASE_URL;
+  return chosen === undefined || chosen === '' ? undefined : chosen;
+}
+
+/**
+ * A database URL fit to print: scheme, host, port and database name — never the user or the password.
+ * `serve` tells the operator where their charts are, and that line ends up in terminals, container logs
+ * and screenshots, none of which may carry a credential (ADR-0029).
+ */
+export function describeDatabase(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return 'postgres (the URL could not be parsed, so it is not shown)';
+  }
+}
+
+/** Where the exported-PDF cache and the uploaded scans live: `--blobs`/`SBSCORE_BLOBS`, else beside the library. */
+function resolveBlobDirectory(flags: Flags, libraryFile: string): string {
+  const chosen = flags.options.get('blobs') ?? process.env.SBSCORE_BLOBS;
+  return chosen === undefined || chosen === '' ? defaultBlobPath(libraryFile) : resolve(chosen);
+}
+
+/** The two stores, and how to release them, whichever database they sit on. */
+interface OpenedStores {
+  store: ScoreStore;
+  jobStore: JobStore;
+}
+
+/**
+ * Open the score store and the job store on the chosen database. SQLite shares one file between two
+ * connections (ADR-0006); Postgres gives each its own pool, and both refuse to run as a role that row-level
+ * security does not bind unless told to (`--allow-rls-bypass`, for local development only).
+ */
+async function openStores(databaseUrl: string | undefined, filename: string, flags: Flags): Promise<OpenedStores> {
+  if (databaseUrl === undefined) {
+    return { store: openSqliteStore({ filename }), jobStore: openSqliteJobStore({ filename }) };
+  }
+  const allowRlsBypass = flags.switches.has('allow-rls-bypass') || process.env.SBSCORE_ALLOW_RLS_BYPASS === '1';
+  try {
+    const store = await openPostgresStore({ connectionString: databaseUrl, allowRlsBypass });
+    const jobStore = await openPostgresJobStore({ connectionString: databaseUrl, allowRlsBypass });
+    return { store, jobStore };
+  } catch (error) {
+    // Never echo the error's own text wholesale: a connection failure can carry the URL, and with it the
+    // password. The operator gets the cause in words and where it was aimed, redacted.
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new CliError(
+      EXIT.usage,
+      'database-unavailable',
+      `could not open the Postgres database at ${describeDatabase(databaseUrl)}: ${redactCredentials(reason, databaseUrl)}`,
+    );
+  }
+}
+
+/**
+ * Remove the URL's credentials from a message before it is shown. Belt and braces: `pg` errors do not
+ * normally quote the connection string, but a proxy, a wrapper or a future driver might, and a password in
+ * a terminal or a container log is not recoverable.
+ */
+export function redactCredentials(message: string, url: string): string {
+  let out = message.split(url).join(describeDatabase(url));
+  try {
+    // The password only. A username is not a secret and is often the whole diagnostic ("role "postgres"
+    // is a superuser"), so masking it would make the message worse without making anything safer.
+    const password = decodeURIComponent(new URL(url).password);
+    if (password !== '') out = out.split(password).join('***');
+  } catch {
+    /* an unparseable URL has nothing to pick out */
+  }
+  return out;
+}
+
 export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCode> {
   const port = optionalPort(flags, 'port') ?? DEFAULT_PORT;
+
+  const databaseUrl = resolveDatabaseUrl(flags);
+  if (databaseUrl !== undefined && flags.options.get('data') !== undefined) {
+    // An explicit --data names a SQLite file. Combined with a Postgres URL there is no sensible reading,
+    // so refuse rather than guess which the operator meant. (The *environment* variable SBSCORE_DATA is
+    // different: the container image sets it by default, so under a database URL it is ignored as a store
+    // path and only supplies the default blob directory below.)
+    throw new CliError(
+      EXIT.usage,
+      'conflicting-stores',
+      '--data names a SQLite file and cannot be combined with --database-url (or SBSCORE_DATABASE_URL), ' +
+        'which selects Postgres. Pass one or the other.',
+    );
+  }
 
   // Only the *default* location may be adopted. `--data` and `SBSCORE_DATA` name a path on purpose,
   // and a program that went moving directories around because of a path it was handed would be
   // doing something nobody asked for — including every test in the suite, which passes one.
   const chosen = flags.options.get('data') ?? process.env.SBSCORE_DATA;
   const adoption: DataDirectoryAdoption =
-    chosen === undefined ? adoptLegacyDataDirectory() : { kind: 'nothing-to-do' };
+    chosen === undefined && databaseUrl === undefined ? adoptLegacyDataDirectory() : { kind: 'nothing-to-do' };
 
   const filename = resolve(chosen ?? defaultDataPath());
-  mkdirSync(dirname(filename), { recursive: true });
-  const blobDirectory = defaultBlobPath(filename);
+  const blobDirectory = resolveBlobDirectory(flags, filename);
+  // A SQLite library needs its directory to exist before it can be opened; a Postgres one lives elsewhere
+  // and only the blobs need a home.
+  mkdirSync(databaseUrl === undefined ? dirname(filename) : blobDirectory, { recursive: true });
 
   // Resolved before opening the store, so a bad --ui fails fast rather than after binding a port.
   const uiDirectory = resolveUiDirectory(flags);
@@ -250,8 +353,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const worker: WorkerClient | undefined =
     workerUrl === undefined ? undefined : createHttpWorkerClient({ url: workerUrl });
 
-  const store = openSqliteStore({ filename });
-  const jobStore = openSqliteJobStore({ filename });
+  const { store, jobStore } = await openStores(databaseUrl, filename, flags);
   const api = createApi({
     store,
     jobs: jobStore,
@@ -272,14 +374,16 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     json
       ? JSON.stringify({
           listening: `http://${shownHost}:${bound.port}`,
-          data: filename,
+          ...(databaseUrl === undefined ? { data: filename } : { database: describeDatabase(databaseUrl) }),
           blobs: blobDirectory,
           ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
           ...(workerUrl === undefined ? {} : { worker: workerUrl }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
-          `sbscore listening on http://${shownHost}:${bound.port}\n  charts in ${filename}\n` +
+          `sbscore listening on http://${shownHost}:${bound.port}\n  charts in ${
+            databaseUrl === undefined ? filename : describeDatabase(databaseUrl)
+          }\n` +
           `  cached exports in ${blobDirectory}\n` +
           (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
           (workerUrl === undefined

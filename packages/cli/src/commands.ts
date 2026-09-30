@@ -54,7 +54,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
 
   sbscore serve [--port N] [--data PATH] [--ui DIR] [--host ADDR] [--worker URL]   run the local API
               (--ui serves the built browser; --host defaults to 127.0.0.1, the container sets 0.0.0.0;
-               --worker is the OMR worker's URL — without one, import is unavailable and all else works)
+               --worker is the OMR worker's URL — without one, import is unavailable and all else works;
+               --database-url URL serves from Postgres instead of the local SQLite file, and --blobs DIR
+               places the scans and export cache; see docs/hosting.md)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
   sbscore list

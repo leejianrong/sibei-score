@@ -78,6 +78,44 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run test:infra
 
+  # V19's Postgres tests (`tests/postgres/`): the adapter held to the shared store contract, plus
+  # row-level security, the row-lock race, SKIP LOCKED and a real `sbscore serve --database-url`. A job of
+  # its own, on a service container, because it needs a database the other jobs neither have nor want.
+  #
+  # **Deliberately not one of the six required checks yet** (see AGENTS.md: check names are matched by
+  # name, so adding or renaming a *required* one is a two-part change with branch protection). It reports
+  # on every PR; making it required is a one-line branch-protection change once it has proven stable.
+  # `postgres:16` (Debian) rather than the alpine image `pnpm test:postgres` uses locally: same major,
+  # and it keeps CI on the image most hosts actually run.
+  test-postgres:
+    name: test (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      # A superuser, on purpose: the tests only use it to create databases and the ordinary `sibei_app`
+      # role, then connect as that role (see tests/postgres/support.ts).
+      SBSCORE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --project postgres
+
   # V2's demo, run the way a person would run it: start the server, author a chart from the CLI,
   # then check the stale-version case exits 4. The suite covers this too, but a demo that only
   # works inside vitest is not a demo.

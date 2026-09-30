@@ -124,6 +124,7 @@ describe('the fast layer loads no native binding (KAN-514)', () => {
     // trap would cost a red test rather than silently re-opening the door.
     const barrel = (await import('@sibei/api')) as Record<string, unknown>;
     expect(barrel).not.toHaveProperty('openSqliteStore');
-    expect(Object.keys(barrel).filter((name) => /sqlite/i.test(name))).toEqual([]);
+    expect(barrel).not.toHaveProperty('openPostgresStore');
+    expect(Object.keys(barrel).filter((name) => /sqlite|postgres/i.test(name))).toEqual([]);
   });
 });

@@ -74,7 +74,7 @@ existing interface; "New" = a genuinely new subsystem.
 |---|---|---|---|
 | **Auth seam** (`resolveLocalPrincipal`) | Every request resolves to owner `local` | Resolve a real principal from a session/OIDC token; `owner` = user (or org) id | Swap |
 | **Owner on every row** (`Owner` field) | Always `'local'`, but present since day one | The tenancy key — every query filtered by it. **Ownership had to become part of the primary keys too (table schema v5, ADR-0034 V19a):** `id` alone was the key, so two tenants could not share a chart id and a collision leaked another tenant's ids | Migration, then swap |
-| **Store repository** (`ScoreStore`) | SQLite adapter (`@sibei/api/sqlite`) | Postgres adapter behind the same interface; row-level security by owner. **The port is synchronous today, so it must go async first (ADR-0034, V18)** | Refactor, then swap |
+| **Store repository** (`ScoreStore`) | SQLite adapter (`@sibei/api/sqlite`) | Postgres adapter behind the same interface; row-level security by owner. Built: the port went async first (V18) and `@sibei/api/postgres` now exists (V19), held to the same contract as SQLite by one shared suite | Done |
 | **Blob store** (`BlobStore`) | Directory on disk | S3-compatible object storage; presigned URLs so bytes never proxy through the API | Swap |
 | **Stateless API** (no in-memory score cache) | One process, all state in the store | N replicas behind a load balancer; scale horizontally, no sticky sessions | Swap |
 | **Boundary guards** (Origin/Host/no-CORS) | Loopback allow-list, same-origin UI | Allow-list the real domain(s); real CORS only if the API is a separate origin; add rate limits | Swap |

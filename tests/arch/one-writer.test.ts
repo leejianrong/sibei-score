@@ -23,8 +23,13 @@ const MAY_NAME_THE_WRITER = [
   'packages/api/src/ops/applier.ts',
 ];
 
-/** Implements the capability, so it holds the statements themselves. */
+/** Implements the capability, so it holds the statements themselves. One per database (V19). */
 const THE_IMPLEMENTATION = 'packages/api/src/store/sqlite-store.ts';
+const THE_POSTGRES_IMPLEMENTATION = 'packages/api/src/store/postgres-store.ts';
+const IMPLEMENTATIONS = [THE_IMPLEMENTATION, THE_POSTGRES_IMPLEMENTATION];
+
+/** The read-back of a logged operation, shared by both adapters (V19): where ADR-0028's rule now lives. */
+const SHARED_READBACK = 'packages/api/src/store/store-shared.ts';
 
 function sourceFiles(directory: string): string[] {
   if (!exists(directory)) return [];
@@ -63,7 +68,7 @@ function productFiles(): string[] {
 describe('the op applier is the only writer (ADR-0003)', () => {
   it('has the files it claims to have', () => {
     // Guards the guard: a rename would turn every assertion below into a tautology.
-    for (const file of [...MAY_NAME_THE_WRITER, THE_IMPLEMENTATION]) {
+    for (const file of [...MAY_NAME_THE_WRITER, ...IMPLEMENTATIONS, SHARED_READBACK]) {
       expect(exists(join(REPO, file))).toBe(true);
     }
   });
@@ -89,16 +94,16 @@ describe('the op applier is the only writer (ADR-0003)', () => {
     const offenders = productFiles().filter(
       (file) =>
         file !== 'packages/api/src/ops/applier.ts' &&
-        file !== THE_IMPLEMENTATION &&
+        !IMPLEMENTATIONS.includes(file) &&
         /\.commit\s*\(/.test(codeOf(join(REPO, file))),
     );
     expect(offenders).toEqual([]);
   });
 
   it('routes every document write through a statement that also appends to the log', () => {
-    // The two INSERT/UPDATE statements against `scores` live in one file, and each is reached only
-    // from a transaction that appends operations. Asserted as a shape here; asserted as behaviour
-    // by the store refusing an empty operation list.
+    // The two INSERT/UPDATE statements against `scores` live in one file per database, and each is
+    // reached only from a transaction that appends operations. Asserted as a shape here; asserted as
+    // behaviour by the store refusing an empty operation list (the conformance suite).
     const implementation = codeOf(join(REPO, THE_IMPLEMENTATION));
     expect(implementation).toMatch(/refuseEmpty\(operations\)/);
     // Both writers are transactions, so a document and its operations land together or not at all.
@@ -110,20 +115,42 @@ describe('the op applier is the only writer (ADR-0003)', () => {
     expect(implementation).toMatch(/async commit\([^)]*\)\s*\{\s*return commitTx\(/);
   });
 
+  it('does the same in Postgres: both writers refuse an empty log and append inside their transaction', () => {
+    const implementation = codeOf(join(REPO, THE_POSTGRES_IMPLEMENTATION));
+    // The refusal comes first in each writer, before any connection is borrowed...
+    expect(implementation.match(/assertCarriesOperations\(operations\)/g)).toHaveLength(2);
+    // ...and the append happens on the *same client* as the document write, inside `asOwner`'s
+    // transaction, so a document is never written without the operations that caused it.
+    for (const writer of ['create', 'commit']) {
+      const body = new RegExp(`async ${writer}\\([^)]*\\)[^{]*\\{[\\s\\S]*?\\n    \\},`).exec(implementation)?.[0] ?? '';
+      expect(body).toMatch(/asOwner\(pool, owner, async \(client\) =>/);
+      expect(body).toMatch(/appendOperations\(client, owner,/);
+    }
+  });
+
   it('never updates or deletes a row in the log, because undo replays it', () => {
     // Rewriting history would make undo produce a document that never existed. Rows go only by
-    // cascade when their score does.
-    const implementation = codeOf(join(REPO, THE_IMPLEMENTATION));
-    expect(implementation).not.toMatch(/UPDATE\s+operations/i);
-    expect(implementation).not.toMatch(/DELETE\s+FROM\s+operations/i);
+    // cascade when their score does. True of every adapter, so asserted of each.
+    for (const file of IMPLEMENTATIONS) {
+      const implementation = codeOf(join(REPO, file));
+      expect(implementation).not.toMatch(/UPDATE\s+operations/i);
+      expect(implementation).not.toMatch(/DELETE\s+FROM\s+operations/i);
+    }
   });
 
   it('does not migrate an operation payload on the way out (ADR-0028)', () => {
     // Old operation shapes must stay interpretable forever. Migrating one would rewrite history
-    // just as surely as an UPDATE would.
-    const implementation = codeOf(join(REPO, THE_IMPLEMENTATION));
-    const readback = /function toStoredOperation[\s\S]*?\n\}/.exec(implementation)?.[0] ?? '';
+    // just as surely as an UPDATE would. The read-back lives in one shared function (V19) so both
+    // adapters return exactly what was written; guard that function, and that neither adapter grows a
+    // read-back of its own.
+    const shared = codeOf(join(REPO, SHARED_READBACK));
+    const readback = /function toStoredOperation[\s\S]*?\n\}/.exec(shared)?.[0] ?? '';
     expect(readback).toBeTruthy();
     expect(readback).not.toMatch(/migrate/);
+    for (const file of IMPLEMENTATIONS) {
+      const implementation = codeOf(join(REPO, file));
+      expect(implementation).toMatch(/toStoredOperation/);
+      expect(implementation).not.toMatch(/function toStoredOperation/);
+    }
   });
 });
