@@ -41,7 +41,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
 });
 
 /** One command. Returns the exit code and whatever it printed. */
@@ -538,7 +538,7 @@ describe('there is no second write path (ADR-0002)', () => {
     }
 
     // The store still holds exactly what it held.
-    expect(store.get('local', 'soul')?.version).toBe(1);
+    expect((await store.get('local', 'soul'))?.version).toBe(1);
   });
 });
 
@@ -636,7 +636,7 @@ describe('the import verb (V11)', () => {
 
   afterEach(async () => {
     await importApi.close();
-    importStore.close();
+    await importStore.close();
   });
 
   const runImport = async (...argv: string[]): Promise<{ code: number; out: string; err: string }> => {

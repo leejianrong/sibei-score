@@ -29,19 +29,19 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
   const stamp = (): string => `${now().toISOString().slice(0, 19)}Z`;
 
   return {
-    list(owner: Owner) {
+    async list(owner: Owner) {
       return [...jobs.values()]
         .filter((job) => job.owner === owner)
         .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
         .map(toSummary);
     },
 
-    get(owner: Owner, id: JobId) {
+    async get(owner: Owner, id: JobId) {
       const job = jobs.get(id);
       return job !== undefined && job.owner === owner ? copy(job) : null;
     },
 
-    getByScoreId(owner: Owner, scoreId: Id) {
+    async getByScoreId(owner: Owner, scoreId: Id) {
       // At most one job references a score (V14), so the first match is the answer.
       for (const job of jobs.values()) {
         if (job.owner === owner && job.scoreId === scoreId) return copy(job);
@@ -49,7 +49,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return null;
     },
 
-    create(owner: Owner, imageKeys: BlobKey[], engine: string | null = null) {
+    async create(owner: Owner, imageKeys: BlobKey[], engine: string | null = null) {
       if (imageKeys.length === 0) throw new Error('an import job must carry at least one image');
       const when = stamp();
       const job: ImportJob = {
@@ -70,7 +70,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return copy(job);
     },
 
-    claim() {
+    async claim() {
       const next = [...jobs.values()]
         .filter((job) => job.status === 'queued')
         .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))[0];
@@ -82,7 +82,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return copy(next);
     },
 
-    complete(id: JobId, result: OmrDocument[], scoreId) {
+    async complete(id: JobId, result: OmrDocument[], scoreId) {
       const job = jobs.get(id);
       if (job === undefined || job.status !== 'running') return null;
       job.status = 'succeeded';
@@ -94,7 +94,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return copy(job);
     },
 
-    fail(id: JobId, diagnostic: string) {
+    async fail(id: JobId, diagnostic: string) {
       const job = jobs.get(id);
       if (job === undefined || job.status !== 'running') return null;
       job.status = 'failed';
@@ -104,7 +104,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return copy(job);
     },
 
-    retry(owner: Owner, id: JobId) {
+    async retry(owner: Owner, id: JobId) {
       const job = jobs.get(id);
       if (job === undefined || job.owner !== owner || job.status !== 'failed') return null;
       job.status = 'queued';
@@ -114,7 +114,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return copy(job);
     },
 
-    recover(diagnostic: string) {
+    async recover(diagnostic: string) {
       let recovered = 0;
       for (const job of jobs.values()) {
         if (job.status !== 'running') continue;
@@ -127,7 +127,7 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return recovered;
     },
 
-    close() {
+    async close() {
       jobs.clear();
     },
   };

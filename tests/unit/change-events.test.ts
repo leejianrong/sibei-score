@@ -131,76 +131,76 @@ describe('the change bus', () => {
 });
 
 describe('the mutating paths announce what they did', () => {
-  it('publishes the version the applier returned, after it returned it', () => {
+  it('publishes the version the applier returned, after it returned it', async () => {
     const bus = createChangeBus();
     const heard: ChangeEvent[] = [];
     bus.subscribe('local', 'score-1', (event) => heard.push(event));
 
-    const applier: Applier = { apply: () => resultOf('score-1', 7), ...NO_MOVES };
-    const result = publishingApplier(applier, bus).apply('local', 'score-1', ANY_BATCH);
+    const applier: Applier = { apply: () => Promise.resolve(resultOf('score-1', 7)), ...NO_MOVES };
+    const result = await publishingApplier(applier, bus).apply('local', 'score-1', ANY_BATCH);
 
     expect(result.version).toBe(7);
     expect(heard).toEqual([{ kind: 'changed', scoreId: 'score-1', version: 7 }]);
   });
 
-  it('publishes the new version after an undo that moved the document (V8a)', () => {
+  it('publishes the new version after an undo that moved the document (V8a)', async () => {
     const bus = createChangeBus();
     const heard: ChangeEvent[] = [];
     bus.subscribe('local', 'score-1', (event) => heard.push(event));
 
     const applier: Applier = {
-      apply: () => resultOf('score-1', 1),
+      apply: () => Promise.resolve(resultOf('score-1', 1)),
       ...NO_MOVES,
-      undo: () => moveResultOf('score-1', 9, true),
+      undo: () => Promise.resolve(moveResultOf('score-1', 9, true)),
     };
-    const result = publishingApplier(applier, bus).undo('local', 'score-1', 8);
+    const result = await publishingApplier(applier, bus).undo('local', 'score-1', 8);
 
     expect(result.version).toBe(9);
     expect(heard).toEqual([{ kind: 'changed', scoreId: 'score-1', version: 9 }]);
   });
 
-  it('publishes nothing when an undo did nothing — the floor is not an event (V8a)', () => {
+  it('publishes nothing when an undo did nothing — the floor is not an event (V8a)', async () => {
     const bus = createChangeBus();
     const heard: ChangeEvent[] = [];
     bus.subscribe('local', 'score-1', (event) => heard.push(event));
 
     const applier: Applier = {
-      apply: () => resultOf('score-1', 3),
+      apply: () => Promise.resolve(resultOf('score-1', 3)),
       ...NO_MOVES,
-      redo: () => moveResultOf('score-1', 3, false),
+      redo: () => Promise.resolve(moveResultOf('score-1', 3, false)),
     };
-    const result = publishingApplier(applier, bus).redo('local', 'score-1', 3);
+    const result = await publishingApplier(applier, bus).redo('local', 'score-1', 3);
 
     expect(result.moved).toBe(false);
     expect(heard).toEqual([]);
   });
 
-  it('publishes nothing when the apply threw, because nothing landed (ADR-0008)', () => {
+  it('publishes nothing when the apply threw, because nothing landed (ADR-0008)', async () => {
     const bus = createChangeBus();
     const heard: ChangeEvent[] = [];
     bus.subscribe('local', 'score-1', (event) => heard.push(event));
 
     const applier: Applier = {
-      apply: () => {
+      apply: async () => {
         throw new Error('refused');
       },
       ...NO_MOVES,
     };
-    expect(() => publishingApplier(applier, bus).apply('local', 'score-1', ANY_BATCH)).toThrow();
+    await expect(publishingApplier(applier, bus).apply('local', 'score-1', ANY_BATCH)).rejects.toThrow();
     expect(heard).toEqual([]);
   });
 
-  it('publishes a deletion, but only a real one', () => {
+  it('publishes a deletion, but only a real one', async () => {
     const bus = createChangeBus();
     const heard: ChangeEvent[] = [];
     bus.subscribe('local', 'score-1', (event) => heard.push(event));
 
-    const library: ScoreLibrary = { delete: (_owner, id) => id === 'score-1' };
+    const library: ScoreLibrary = { delete: (_owner, id) => Promise.resolve(id === 'score-1') };
     const publishing = publishingLibrary(library, bus);
 
-    expect(publishing.delete('local', 'score-1')).toBe(true);
+    expect(await publishing.delete('local', 'score-1')).toBe(true);
     // A 404 is not an event.
-    expect(publishing.delete('local', 'score-1-that-is-not-there')).toBe(false);
+    expect(await publishing.delete('local', 'score-1-that-is-not-there')).toBe(false);
 
     expect(heard).toEqual([{ kind: 'deleted', scoreId: 'score-1' }]);
   });

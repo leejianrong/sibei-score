@@ -16,7 +16,7 @@ import type { WorkerClient } from './worker-client.js';
  * applier's `import`.
  */
 export interface ScoreImporter {
-  import(owner: Owner, document: Score): { scoreId: Id };
+  import(owner: Owner, document: Score): Promise<{ scoreId: Id }>;
 }
 
 /**
@@ -45,7 +45,7 @@ export interface JobRunner {
    * process is not) into a retryable `failed`, then drains whatever is queued. Called when the API
    * starts serving.
    */
-  start(): void;
+  start(): Promise<void>;
   /** Nudge the runner that a job may be waiting. Called after a submit; cheap and idempotent. */
   wake(): void;
   /**
@@ -77,29 +77,44 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
   let draining = false;
   let stopped = false;
+  /** A `wake()` that arrived while a drain was already running; the drain must look again. */
+  let wakeRequested = false;
 
   function wake(): void {
-    if (draining || stopped) return;
+    if (stopped) return;
+    if (draining) {
+      // Do not drop it. The running drain may already have asked the store for work and been told
+      // "none" before the job that prompted this wake committed; recording the request makes the
+      // drain look once more before it stands down (see `drain`).
+      wakeRequested = true;
+      return;
+    }
     draining = true;
     // Not awaited: submitting a job returns immediately (ADR-0001). The loop runs to the end of the
     // queue on its own, and any failure inside it is caught per-job — this `.catch` is only for a
     // failure of the loop machinery itself (e.g. the job store is unreadable), which must be logged
     // rather than left an unhandled rejection.
-    void drain()
-      .catch((error: unknown) => onError('the import job runner loop failed', error))
-      .finally(() => {
-        draining = false;
-      });
+    void drain().catch((error: unknown) => onError('the import job runner loop failed', error));
   }
 
   async function drain(): Promise<void> {
-    // The path from `claim() === null` to the loop returning is synchronous — no `await` between —
-    // so a submit's `wake()` cannot slip in after the last claim and be lost: it either finds the
-    // loop still draining (and the loop will claim its job) or runs after `draining` is cleared.
-    while (!stopped) {
-      const job = jobs.claim();
-      if (job === null) return;
-      await process(job);
+    // The store is asynchronous (V18, ADR-0034), so `claim()` yields and a submit can commit a job
+    // and call `wake()` *between* the claim that found nothing and this loop standing down. That was
+    // impossible while the store was synchronous, and it is why `wakeRequested` exists: the check
+    // below and the `draining = false` in `finally` run with no `await` between them, so a wake either
+    // sets the flag before the check (and the loop goes round again) or arrives after `draining` is
+    // cleared (and starts a fresh drain). A wake is never lost.
+    try {
+      do {
+        wakeRequested = false;
+        while (!stopped) {
+          const job = await jobs.claim();
+          if (job === null) break;
+          await process(job);
+        }
+      } while (wakeRequested && !stopped);
+    } finally {
+      draining = false;
     }
   }
 
@@ -131,21 +146,24 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       }
 
       // Map the recognised pages onto a Score and land it through the applier's server-only import
-      // path (V11). Mapping and landing are synchronous and adjacent — no `await` between them — so
-      // the job is completed in the same tick the score is created; there is never a succeeded job
-      // with no score, nor a score with no succeeded job. A `mapOmrToScore` throw (no staff detected,
+      // path (V11), then complete the job. These are two store writes with an `await` between them
+      // (V18: the store is asynchronous), as they were two statements before it, so a process killed
+      // between them leaves a score and a job that never succeeded — startup `recover` then fails the
+      // job, and a retry would hit `already-exists` on the deterministic `import-<jobId>` id. That
+      // window is unchanged in kind; V19 should close it (one transaction, or an idempotent import).
+      // A `mapOmrToScore` throw (no staff detected,
       // ADR-0018/Q28) or a store conflict fails the job, committing nothing (Q80), exactly like a
       // worker error — a failed import leaves no half-written score to undo (ADR-0003).
       // Inject the V5 grammar corrector so band OCR becomes chords and annotations (V13, ADR-0011);
       // `model` cannot import `music`, so the seam is passed in here.
       const document = mapOmrToScore(results, { id: `import-${job.id}` }, correctChord);
-      const { scoreId } = importer.import(job.owner, document);
+      const { scoreId } = await importer.import(job.owner, document);
 
-      const done = jobs.complete(job.id, results, scoreId);
+      const done = await jobs.complete(job.id, results, scoreId);
       if (done !== null) publisher.publish(done.owner, { jobId: done.id, status: 'succeeded' });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const failed = jobs.fail(job.id, message);
+      const failed = await jobs.fail(job.id, message);
       if (failed !== null) publisher.publish(failed.owner, { jobId: failed.id, status: 'failed' });
       // Worker failure (Q80) and "no staff detected" (ADR-0018/Q28) are both expected outcomes,
       // recorded as a diagnostic, not surfaced as an API bug. Anything else is unexpected.
@@ -156,12 +174,12 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   }
 
   return {
-    start() {
+    async start() {
       stopped = false;
       // Orphaned running jobs first, before draining — otherwise the loop could claim a genuinely
       // queued job while a leftover running one sits mislabelled. Each is now a `failed` job with the
       // interrupted diagnostic, which is its own record; nothing is listening at boot to announce to.
-      jobs.recover(INTERRUPTED_DIAGNOSTIC);
+      await jobs.recover(INTERRUPTED_DIAGNOSTIC);
       wake();
     },
     wake,

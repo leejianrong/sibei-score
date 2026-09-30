@@ -18,7 +18,7 @@ let api: Api;
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
 });
 
 function serve(): Api {

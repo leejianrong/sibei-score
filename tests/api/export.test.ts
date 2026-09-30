@@ -52,7 +52,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
 });
 
 const CREATE: Operation = {
@@ -302,7 +302,7 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
   it('keeps the log to the operations that were applied, and no export among them', async () => {
     await aChart();
     await download('/v1/scores/score-1/export');
-    const operations = store.operations('local', 'score-1');
+    const operations = await store.operations('local', 'score-1');
     expect(operations.map((entry) => entry.operation.type)).toEqual(['score.create', 'note.add']);
   });
 });
@@ -339,7 +339,7 @@ describe('instrument parts are a render-time view (V6, ADR-0016)', () => {
     expect(after.version).toBe(before.version);
     expect(after.score).toEqual(before.score);
     // And the log carries no part among its operations.
-    expect(store.operations('local', 'score-1').map((entry) => entry.operation.type)).toEqual([
+    expect((await store.operations('local', 'score-1')).map((entry) => entry.operation.type)).toEqual([
       'score.create',
       'note.add',
     ]);
@@ -432,7 +432,7 @@ describe('the boundary guards apply to an export too (ADR-0029)', () => {
       store,
       blobs,
       logger: silentLogger,
-      authenticate: () => ({ owner: 'someone-else' }),
+      authenticate: () => Promise.resolve({ owner: 'someone-else' }),
     });
     const { port } = await other.listen(0);
     try {

@@ -141,8 +141,8 @@ export function createChangeBus(options: ChangeBusOptions = {}): ChangeBus {
  */
 export function publishingApplier(applier: Applier, publisher: ChangePublisher): Applier {
   return {
-    apply(owner, scoreId, batch) {
-      const result = applier.apply(owner, scoreId, batch);
+    async apply(owner, scoreId, batch) {
+      const result = await applier.apply(owner, scoreId, batch);
       publisher.publish(owner, {
         kind: 'changed',
         scoreId: result.scoreId,
@@ -154,24 +154,24 @@ export function publishingApplier(applier: Applier, publisher: ChangePublisher):
     // Undo and redo move the document, so an open view must repaint the same way an edit makes it
     // (V8a). A move that did nothing — the undo floor or the redo head — bumps no version and
     // announces nothing, the same way a 404 delete is not an event.
-    undo(owner, scoreId, expectedVersion) {
-      return publishMove(applier.undo(owner, scoreId, expectedVersion), owner, publisher);
+    async undo(owner, scoreId, expectedVersion) {
+      return publishMove(await applier.undo(owner, scoreId, expectedVersion), owner, publisher);
     },
-    redo(owner, scoreId, expectedVersion) {
-      return publishMove(applier.redo(owner, scoreId, expectedVersion), owner, publisher);
+    async redo(owner, scoreId, expectedVersion) {
+      return publishMove(await applier.redo(owner, scoreId, expectedVersion), owner, publisher);
     },
 
     // Duplicate creates a *new* score, and the change bus is per-score (subscribers key on an id
     // they already hold open), so a brand-new id has no one to tell — the library that asked
     // re-reads its own list. A pass-through, published to nobody, is the honest wiring.
-    duplicate(owner, scoreId, newId) {
+    async duplicate(owner, scoreId, newId) {
       return applier.duplicate(owner, scoreId, newId);
     },
 
     // Import creates a *new* score, so like duplicate it has no open subscriber to tell — the job
     // stream is what tells the client its import finished, and the client then opens the new id. A
     // pass-through, published to nobody, is the honest wiring (V11).
-    import(owner, document) {
+    async import(owner, document) {
       return applier.import(owner, document);
     },
   };
@@ -191,8 +191,8 @@ function publishMove<T extends { moved: boolean; scoreId: Id; version: number }>
 /** The same, for the one mutation that is not an operation (ADR-0003). */
 export function publishingLibrary(library: ScoreLibrary, publisher: ChangePublisher): ScoreLibrary {
   return {
-    delete(owner, id) {
-      const deleted = library.delete(owner, id);
+    async delete(owner, id) {
+      const deleted = await library.delete(owner, id);
       // Only on a real deletion. A 404 is not an event.
       if (deleted) publisher.publish(owner, { kind: 'deleted', scoreId: id });
       return deleted;

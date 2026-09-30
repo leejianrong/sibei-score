@@ -27,7 +27,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
 });
 
 interface Reply {
@@ -652,7 +652,7 @@ describe('the auth seam', () => {
     const other = createApi({
       store,
       logger: silentLogger,
-      authenticate: () => ({ owner: 'someone-else' }),
+      authenticate: () => Promise.resolve({ owner: 'someone-else' }),
     });
     const { port } = await other.listen(0);
     try {
@@ -665,7 +665,7 @@ describe('the auth seam', () => {
   });
 
   it('401s when it resolves nobody', async () => {
-    const closed = createApi({ store, logger: silentLogger, authenticate: () => null });
+    const closed = createApi({ store, logger: silentLogger, authenticate: () => Promise.resolve(null) });
     const { port } = await closed.listen(0);
     try {
       expect((await fetch(`http://127.0.0.1:${port}/v1/health`)).status).toBe(401);

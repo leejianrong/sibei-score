@@ -171,12 +171,12 @@ export function createApi(options: ApiOptions): Api {
         await blobs.put(key, image);
         keys.push(key);
       }
-      const job = jobs.create(owner, keys);
+      const job = await jobs.create(owner, keys);
       runner?.wake();
       return job;
     },
-    retry(owner: Owner, id) {
-      const job = jobs.retry(owner, id);
+    async retry(owner: Owner, id) {
+      const job = await jobs.retry(owner, id);
       if (job !== null) runner?.wake();
       return job;
     },
@@ -191,9 +191,9 @@ export function createApi(options: ApiOptions): Api {
       // import behind it (hand-authored, duplicated) has no source to re-run, and that is `null` here —
       // the route turns it into a clean 4xx, never a 500. The chosen engine (V14e) rides on the new job
       // so the runner can thread it to the worker; `null` leaves the worker its default.
-      const source = jobs.getByScoreId(owner, scoreId);
+      const source = await jobs.getByScoreId(owner, scoreId);
       if (source === null) return null;
-      const job = jobs.create(owner, source.imageKeys, options.engine ?? null);
+      const job = await jobs.create(owner, source.imageKeys, options.engine ?? null);
       runner?.wake();
       return job;
     },
@@ -202,7 +202,7 @@ export function createApi(options: ApiOptions): Api {
       // named (ADR-0019 keeps them). Owner scoping is the job store's (`get` returns null for another
       // owner's job), so an out-of-range index and a foreign job both fall to the same null the route
       // turns into a 404. The content-type comes from the bytes, never a stored declaration (ADR-0029).
-      const job = jobs.get(owner, id);
+      const job = await jobs.get(owner, id);
       if (job === null || index < 0 || index >= job.imageKeys.length) return null;
       const bytes = await blobs.get(job.imageKeys[index]!);
       if (bytes === null) return null;
@@ -211,12 +211,12 @@ export function createApi(options: ApiOptions): Api {
         format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'application/octet-stream';
       return { bytes, contentType };
     },
-    source(owner: Owner, scoreId) {
+    async source(owner: Owner, scoreId) {
       // The reverse of `submit`, for the split-pane review (V14b): find the job that produced this
       // score (`getByScoreId`, owner-scoped) and report just its id and page count — no blob read, so
       // no round-trip. A score with no import behind it returns null, which the route turns into the
       // empty provenance rather than a 404 (a scan-less chart is the common case, not an error).
-      const job = jobs.getByScoreId(owner, scoreId);
+      const job = await jobs.getByScoreId(owner, scoreId);
       return job === null ? null : { jobId: job.id, imageCount: job.imageKeys.length };
     },
     reader: jobs,
@@ -250,7 +250,7 @@ export function createApi(options: ApiOptions): Api {
     const origin = checkOrigin(request);
     if (!origin.ok) return send(response, problem(403, 'foreign-origin', origin.reason));
 
-    const principal = authenticate(request);
+    const principal = await authenticate(request);
     if (principal === null) {
       return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
     }
@@ -290,8 +290,13 @@ export function createApi(options: ApiOptions): Api {
           // Serving is the point at which processing durable jobs is correct: `start` recovers any
           // job left running by a previous process and drains whatever is queued (ADR-0001 #7).
           // Constructing the API does not touch the queue; binding a port does.
-          runner?.start();
-          resolve({ port: address.port });
+          // Awaited before resolving: recovery must have finished by the time `listen` returns, as it
+          // had when `start` was synchronous (V18), so a caller never observes a half-recovered queue.
+          if (runner === undefined) {
+            resolve({ port: address.port });
+            return;
+          }
+          runner.start().then(() => resolve({ port: address.port }), reject);
         });
       });
     },

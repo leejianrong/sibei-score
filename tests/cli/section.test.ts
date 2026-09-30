@@ -31,7 +31,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
 });
 
 async function sbscore(...argv: string[]): Promise<{ code: number; out: string; err: string }> {

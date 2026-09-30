@@ -97,8 +97,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   await api.close();
-  jobs.close();
-  store.close();
+  await jobs.close();
+  await store.close();
 });
 
 interface Reply {
@@ -359,7 +359,8 @@ describe('GET /v1/imports/:id/images/:index (V14a: retained source images, ADR-0
       jobs: scopedJobs,
       worker,
       logger: silentLogger,
-      authenticate: (request) => ({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
+      authenticate: (request) =>
+        Promise.resolve({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
     });
     const { port } = await scopedApi.listen(0);
     const url = `http://127.0.0.1:${port}`;
@@ -375,8 +376,8 @@ describe('GET /v1/imports/:id/images/:index (V14a: retained source images, ADR-0
       expect((await fetch(`${url}/v1/imports/${id}/images/0`)).status).toBe(200);
     } finally {
       await scopedApi.close();
-      scopedJobs.close();
-      scopedStore.close();
+      await scopedJobs.close();
+      await scopedStore.close();
     }
   });
 });
@@ -430,7 +431,8 @@ describe('GET /v1/scores/:id/source (V14b: a score → its retained scans, ADR-0
       jobs: scopedJobs,
       worker,
       logger: silentLogger,
-      authenticate: (request) => ({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
+      authenticate: (request) =>
+        Promise.resolve({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
     });
     const { port } = await scopedApi.listen(0);
     const url = `http://127.0.0.1:${port}`;
@@ -457,8 +459,8 @@ describe('GET /v1/scores/:id/source (V14b: a score → its retained scans, ADR-0
       expect(b).toEqual({ jobId: null, imageCount: 0 });
     } finally {
       await scopedApi.close();
-      scopedJobs.close();
-      scopedStore.close();
+      await scopedJobs.close();
+      await scopedStore.close();
     }
   });
 });

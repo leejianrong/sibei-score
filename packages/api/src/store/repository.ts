@@ -6,6 +6,12 @@ import type { StoredOperation } from '../ops/operations.js';
  * asserted by `tests/arch`, not left to discipline, because "swappable" is the entire reason
  * the interface is here. The hosted future replaces the implementation and nothing else
  * (R8, ADR-0001).
+ *
+ * **Every method returns a promise (V18, ADR-0034).** The port was first drawn around SQLite's
+ * in-process, synchronous driver; every Postgres driver is promise-based (a query is a network
+ * round-trip), so the hosted adapter could not honour a synchronous port. The methods are still the
+ * unit of work — `create` and `commit` are each one transaction — so what changed is the return
+ * type, not the shape. SQLite resolves immediately; behaviour is unchanged.
  */
 
 /**
@@ -47,19 +53,19 @@ export interface ScoreListing {
  * Reads. Anything may hold one of these.
  */
 export interface ScoreReader {
-  list(owner: Owner): ScoreListing[];
+  list(owner: Owner): Promise<ScoreListing[]>;
   /**
    * The document at the current schema version, migrating on read if it is behind
    * (ADR-0028). Throws `DocumentMigrationError` for a document this build cannot read;
    * returns null when there is no such score for this owner.
    */
-  get(owner: Owner, id: Id): ScoreRecord | null;
-  exists(owner: Owner, id: Id): boolean;
+  get(owner: Owner, id: Id): Promise<ScoreRecord | null>;
+  exists(owner: Owner, id: Id): Promise<boolean>;
   /**
    * The score's whole operation log in sequence order (ADR-0003). Reading is safe for anyone —
    * it is the audit trail, the input to replay, and what undo walks backwards.
    */
-  operations(owner: Owner, id: Id): StoredOperation[];
+  operations(owner: Owner, id: Id): Promise<StoredOperation[]>;
 }
 
 /** The outcome of a write that carried an expected version (ADR-0003). */
@@ -90,7 +96,7 @@ export interface ScoreWriter {
    * true as a property rather than an aspiration (ADR-0003) — so it comes through here like
    * every other write, not beside it.
    */
-  create(owner: Owner, score: Score, operations: readonly StoredOperation[]): WriteOutcome;
+  create(owner: Owner, score: Score, operations: readonly StoredOperation[]): Promise<WriteOutcome>;
   /**
    * Replace the document and append its operations if and only if the stored version is
    * `expectedVersion`, bumping it on success. One transaction, and the version check is part of
@@ -107,7 +113,7 @@ export interface ScoreWriter {
     expectedVersion: number,
     score: Score,
     operations: readonly StoredOperation[],
-  ): WriteOutcome;
+  ): Promise<WriteOutcome>;
 }
 
 /**
@@ -119,11 +125,11 @@ export interface ScoreWriter {
  * ADR-0003's "every mutation is an operation" is about mutations *of a score*.
  */
 export interface ScoreLibrary {
-  delete(owner: Owner, id: Id): boolean;
+  delete(owner: Owner, id: Id): Promise<boolean>;
 }
 
 /** The whole store. Composed, then handed out as the narrower halves it is made of. */
 export interface ScoreStore extends ScoreReader, ScoreWriter, ScoreLibrary {
   /** Release the underlying resources. Tests and process shutdown; nothing else. */
-  close(): void;
+  close(): Promise<void>;
 }

@@ -22,8 +22,8 @@ interface Fixture {
   applier: Applier;
 }
 
-afterEach(() => {
-  while (stores.length > 0) stores.pop()?.close();
+afterEach(async () => {
+  while (stores.length > 0) await stores.pop()?.close();
 });
 
 function fresh(): Fixture {
@@ -40,10 +40,10 @@ function fresh(): Fixture {
  * hardcoding a number keeps each test asserting its own subject instead of counting the applies
  * above it — the tests below that are about the version itself pass one explicitly.
  */
-function edit({ store, applier }: Fixture, ...operations: Operation[]): ApplyResult {
+async function edit({ store, applier }: Fixture, ...operations: Operation[]): Promise<ApplyResult> {
   return applier.apply(LOCAL_OWNER, 'score-1', {
     operations,
-    expectedVersion: store.get(LOCAL_OWNER, 'score-1')!.version,
+    expectedVersion: (await store.get(LOCAL_OWNER, 'score-1'))!.version,
   });
 }
 
@@ -58,19 +58,21 @@ const note = (target: string, pitch: string): Operation => ({
   payload: { pitch, duration: dur(4) },
 });
 
-function authorAChart(): Fixture {
+async function authorAChart(): Promise<Fixture> {
   const context = fresh();
-  context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-  edit(context, note('bar1.beat1', 'Eb5'));
-  edit(context, note('bar1.beat2', 'F5'));
-  edit(context, note('bar1.beat3', 'G5'));
+  await context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+  await edit(context, note('bar1.beat1', 'Eb5'));
+  await edit(context, note('bar1.beat2', 'F5'));
+  await edit(context, note('bar1.beat3', 'G5'));
   return context;
 }
 
 describe('applying', () => {
-  it('creates a score and returns its version and what changed', () => {
+  it('creates a score and returns its version and what changed', async () => {
     const { store, applier } = fresh();
-    const result = applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const result = await applier.apply(LOCAL_OWNER, null, {
+      operations: [CREATE],
+    });
 
     expect(result).toEqual({
       scoreId: 'score-1',
@@ -93,61 +95,61 @@ describe('applying', () => {
         },
       ],
     });
-    expect(store.get(LOCAL_OWNER, 'score-1')?.score.meta.title).toBe('Body and Soul');
+    expect((await store.get(LOCAL_OWNER, 'score-1'))?.score.meta.title).toBe('Body and Soul');
   });
 
-  it('bumps the version once per apply, whatever the batch length', () => {
+  it('bumps the version once per apply, whatever the batch length', async () => {
     const context = fresh();
-    context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    const result = edit(
+    await context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const result = await edit(
       context,
       note('bar1.beat1', 'Eb5'),
       note('bar1.beat2', 'F5'),
       note('bar1.beat3', 'G5'),
     );
     expect(result.version).toBe(2);
-    expect(context.store.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
+    expect((await context.store.get(LOCAL_OWNER, 'score-1'))?.version).toBe(2);
   });
 
-  it('reports every id a batch touched', () => {
+  it('reports every id a batch touched', async () => {
     const context = fresh();
-    context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    const result = edit(context, note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'));
+    await context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const result = await edit(context, note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'));
     expect(result.changed).toEqual(['note-1', 'note-2']);
   });
 
-  it('refuses an empty batch', () => {
+  it('refuses an empty batch', async () => {
     const { applier } = fresh();
-    expect(() => applier.apply(LOCAL_OWNER, null, { operations: [] })).toThrow(
+    await expect(applier.apply(LOCAL_OWNER, null, { operations: [] })).rejects.toThrow(
       /at least one operation/,
     );
   });
 
-  it('refuses a mutation of a score that is not there', () => {
+  it('refuses a mutation of a score that is not there', async () => {
     // With a version, because a batch that names none is refused before the store is consulted at
     // all — and the point of this test is the 404, not that refusal.
     const { applier } = fresh();
-    expect(() =>
+    await expect(
       applier.apply(LOCAL_OWNER, 'score-404', {
         operations: [note('bar1.beat1', 'Eb5')],
         expectedVersion: 1,
       }),
-    ).toThrow('there is no score with the id "score-404"');
+    ).rejects.toThrow('there is no score with the id "score-404"');
   });
 
-  it('refuses a second create of the same id', () => {
+  it('refuses a second create of the same id', async () => {
     const { applier } = fresh();
-    applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    expect(() => applier.apply(LOCAL_OWNER, null, { operations: [CREATE] })).toThrow(
+    await applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    await expect(applier.apply(LOCAL_OWNER, null, { operations: [CREATE] })).rejects.toThrow(
       /already exists/,
     );
   });
 });
 
 describe('the op log', () => {
-  it('records every operation in sequence, gaplessly', () => {
-    const { store } = authorAChart();
-    const log = store.operations(LOCAL_OWNER, 'score-1');
+  it('records every operation in sequence, gaplessly', async () => {
+    const { store } = await authorAChart();
+    const log = await store.operations(LOCAL_OWNER, 'score-1');
     expect(log.map((entry) => entry.seq)).toEqual([1, 2, 3, 4]);
     expect(log.map((entry) => entry.operation.type)).toEqual([
       'score.create',
@@ -157,10 +159,10 @@ describe('the op log', () => {
     ]);
   });
 
-  it('records the normalised operation, not the one that came in', () => {
+  it('records the normalised operation, not the one that came in', async () => {
     // The submitted op carried no id. The logged one does, which is what replay leans on.
-    const { store } = authorAChart();
-    const second = store.operations(LOCAL_OWNER, 'score-1')[1]!;
+    const { store } = await authorAChart();
+    const second = (await store.operations(LOCAL_OWNER, 'score-1'))[1]!;
     expect(second.operation).toEqual({
       type: 'note.add',
       target: 'bar1.beat1',
@@ -168,91 +170,100 @@ describe('the op log', () => {
     });
   });
 
-  it('groups a batch into one undoable unit, and a lone operation into a unit of one', () => {
+  it('groups a batch into one undoable unit, and a lone operation into a unit of one', async () => {
     const context = fresh();
-    context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    edit(context, note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'));
-    edit(context, note('bar1.beat3', 'G5'));
+    await context.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    await edit(context, note('bar1.beat1', 'Eb5'), note('bar1.beat2', 'F5'));
+    await edit(context, note('bar1.beat3', 'G5'));
 
     // Three applies, four operations, three batches — the second batch holding two of them.
-    expect(context.store.operations(LOCAL_OWNER, 'score-1').map((entry) => entry.batch)).toEqual([
-      1, 2, 2, 3,
-    ]);
+    expect(
+      (await context.store.operations(LOCAL_OWNER, 'score-1')).map((entry) => entry.batch),
+    ).toEqual([1, 2, 2, 3]);
   });
 
-  it('stamps each operation with the operation shape version, not the document’s', () => {
-    const { store } = authorAChart();
-    expect(store.operations(LOCAL_OWNER, 'score-1').every((entry) => entry.version === 1)).toBe(true);
+  it('stamps each operation with the operation shape version, not the document’s', async () => {
+    const { store } = await authorAChart();
+    expect(
+      (await store.operations(LOCAL_OWNER, 'score-1')).every((entry) => entry.version === 1),
+    ).toBe(true);
   });
 
-  it('is scoped by owner like everything else', () => {
-    const { store } = authorAChart();
-    expect(store.operations('someone-else', 'score-1')).toEqual([]);
+  it('is scoped by owner like everything else', async () => {
+    const { store } = await authorAChart();
+    expect(await store.operations('someone-else', 'score-1')).toEqual([]);
   });
 
-  it('goes when the score goes, which is why deleting cannot be an operation', () => {
-    const { store } = authorAChart();
-    expect(store.operations(LOCAL_OWNER, 'score-1')).not.toHaveLength(0);
-    store.delete(LOCAL_OWNER, 'score-1');
-    expect(store.operations(LOCAL_OWNER, 'score-1')).toEqual([]);
+  it('goes when the score goes, which is why deleting cannot be an operation', async () => {
+    const { store } = await authorAChart();
+    expect(await store.operations(LOCAL_OWNER, 'score-1')).not.toHaveLength(0);
+    await store.delete(LOCAL_OWNER, 'score-1');
+    expect(await store.operations(LOCAL_OWNER, 'score-1')).toEqual([]);
   });
 });
 
 describe('replaying the log from empty reproduces the document exactly', () => {
-  it('holds for a chart authored one operation at a time', () => {
+  it('holds for a chart authored one operation at a time', async () => {
     // The property PLAN.md names by name, against a real log out of a real store.
-    const { store } = authorAChart();
-    const stored = store.get(LOCAL_OWNER, 'score-1')!.score;
+    const { store } = await authorAChart();
+    const stored = (await store.get(LOCAL_OWNER, 'score-1'))!.score;
 
     // `replayLog` over the whole stored log — control markers and all — is the property in its true
     // form (V8a); it reduces to `replay` on a log with no undo/redo, which this one is.
-    expect(replayLog(store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
+    expect(replayLog(await store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
   });
 
-  it('holds after edits and removals, not just additions', () => {
-    const context = authorAChart();
-    edit(
+  it('holds after edits and removals, not just additions', async () => {
+    const context = await authorAChart();
+    await edit(
       context,
-      { type: 'note.set', target: 'bar1.n2', payload: { pitch: 'Gb5', duration: dur(8) } },
+      {
+        type: 'note.set',
+        target: 'bar1.n2',
+        payload: { pitch: 'Gb5', duration: dur(8) },
+      },
       { type: 'note.rm', target: 'bar1.n1' },
       { type: 'rest.add', target: 'bar1.beat1', payload: { duration: dur(4) } },
-      { type: 'meta.set', payload: { composer: 'Johnny Green', style: 'Ballad' } },
+      {
+        type: 'meta.set',
+        payload: { composer: 'Johnny Green', style: 'Ballad' },
+      },
     );
 
-    const stored = context.store.get(LOCAL_OWNER, 'score-1')!.score;
+    const stored = (await context.store.get(LOCAL_OWNER, 'score-1'))!.score;
     // Replay walks the *operations*, which never carried a version: the batch's expectedVersion is
     // not part of an operation's shape, so nothing about this check reaches the log (ADR-0028).
-    expect(replayLog(context.store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
+    expect(replayLog(await context.store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
   });
 
-  it('holds through a rejected write, because a rejected write logs nothing', () => {
-    const context = authorAChart();
-    expect(() => edit(context, note('bar1.beat1', 'C5'))).toThrow(/already has a note/);
+  it('holds through a rejected write, because a rejected write logs nothing', async () => {
+    const context = await authorAChart();
+    await expect(edit(context, note('bar1.beat1', 'C5'))).rejects.toThrow(/already has a note/);
 
     const { store } = context;
-    const stored = store.get(LOCAL_OWNER, 'score-1')!.score;
-    const log = store.operations(LOCAL_OWNER, 'score-1');
+    const stored = (await store.get(LOCAL_OWNER, 'score-1'))!.score;
+    const log = await store.operations(LOCAL_OWNER, 'score-1');
     expect(log).toHaveLength(4);
     expect(replayLog(log)).toEqual(stored);
   });
 });
 
 describe('the expected-version check (ADR-0003)', () => {
-  it('accepts a write that names the current version', () => {
-    const { applier } = authorAChart();
-    const result = applier.apply(LOCAL_OWNER, 'score-1', {
+  it('accepts a write that names the current version', async () => {
+    const { applier } = await authorAChart();
+    const result = await applier.apply(LOCAL_OWNER, 'score-1', {
       operations: [note('bar1.beat4', 'Ab5')],
       expectedVersion: 4,
     });
     expect(result.version).toBe(5);
   });
 
-  it('rejects a stale write, names the current version, and changes nothing', () => {
-    const { store, applier } = authorAChart();
-    const before = store.get(LOCAL_OWNER, 'score-1')!;
+  it('rejects a stale write, names the current version, and changes nothing', async () => {
+    const { store, applier } = await authorAChart();
+    const before = (await store.get(LOCAL_OWNER, 'score-1'))!;
 
     try {
-      applier.apply(LOCAL_OWNER, 'score-1', {
+      await applier.apply(LOCAL_OWNER, 'score-1', {
         operations: [note('bar1.beat4', 'Ab5')],
         expectedVersion: 2,
       });
@@ -267,32 +278,32 @@ describe('the expected-version check (ADR-0003)', () => {
       expect((error as OperationError).message).toMatch(/Re-read it and retry/);
     }
 
-    const after = store.get(LOCAL_OWNER, 'score-1')!;
+    const after = (await store.get(LOCAL_OWNER, 'score-1'))!;
     expect(after.version).toBe(before.version);
     expect(after.score).toEqual(before.score);
-    expect(store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
+    expect(await store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
   });
 
-  it('models the demo: the same edit twice, the second with a stale version', () => {
-    const { store, applier } = authorAChart();
-    const at = store.get(LOCAL_OWNER, 'score-1')!.version;
+  it('models the demo: the same edit twice, the second with a stale version', async () => {
+    const { store, applier } = await authorAChart();
+    const at = (await store.get(LOCAL_OWNER, 'score-1'))!.version;
 
-    const first = applier.apply(LOCAL_OWNER, 'score-1', {
+    const first = await applier.apply(LOCAL_OWNER, 'score-1', {
       operations: [{ type: 'note.set', target: 'bar1.n1', payload: { pitch: 'Db5' } }],
       expectedVersion: at,
     });
     expect(first.version).toBe(at + 1);
 
     // A second client that read at the same time and is now behind by one.
-    expect(() =>
+    await expect(
       applier.apply(LOCAL_OWNER, 'score-1', {
         operations: [{ type: 'note.set', target: 'bar1.n1', payload: { pitch: 'C5' } }],
         expectedVersion: at,
       }),
-    ).toThrow(/the score is at version 5, not 4/);
+    ).rejects.toThrow(/the score is at version 5, not 4/);
 
     // The first client's edit survived, which is the whole point.
-    const notes = notesOf(store.get(LOCAL_OWNER, 'score-1')!.score.bars[0]!);
+    const notes = notesOf((await store.get(LOCAL_OWNER, 'score-1'))!.score.bars[0]!);
     expect(notes[0]?.pitch).toMatchObject({ step: 'D', alter: -1 });
   });
 
@@ -303,41 +314,47 @@ describe('the expected-version check (ADR-0003)', () => {
    * omitting a field rather than by asking for it — so the applier's default was the one thing the
    * ADR says must never happen. The tests below are what replaced it (KAN-607).
    */
-  it('refuses a write that names no version, rather than applying it against the current one', () => {
-    const context = authorAChart();
-    const before = context.store.get(LOCAL_OWNER, 'score-1')!;
+  it('refuses a write that names no version, rather than applying it against the current one', async () => {
+    const context = await authorAChart();
+    const before = (await context.store.get(LOCAL_OWNER, 'score-1'))!;
 
     try {
-      context.applier.apply(LOCAL_OWNER, 'score-1', { operations: [note('bar1.beat4', 'Ab5')] });
+      await context.applier.apply(LOCAL_OWNER, 'score-1', {
+        operations: [note('bar1.beat4', 'Ab5')],
+      });
       expect.unreachable('a write that names no version must not be applied');
     } catch (error) {
-      expect((error as OperationError).failure).toEqual({ kind: 'missing-expected-version' });
+      expect((error as OperationError).failure).toEqual({
+        kind: 'missing-expected-version',
+      });
       expect((error as OperationError).message).toMatch(/must name the version it expects/);
     }
 
-    const after = context.store.get(LOCAL_OWNER, 'score-1')!;
+    const after = (await context.store.get(LOCAL_OWNER, 'score-1'))!;
     expect(after.version).toBe(before.version);
     expect(after.score).toEqual(before.score);
-    expect(context.store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
+    expect(await context.store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
   });
 
-  it('refuses it before reading the score, so the refusal cannot depend on the store', () => {
+  it('refuses it before reading the score, so the refusal cannot depend on the store', async () => {
     const { applier } = fresh();
-    expect(() =>
-      applier.apply(LOCAL_OWNER, 'score-404', { operations: [note('bar1.beat1', 'Eb5')] }),
-    ).toThrow(/must name the version it expects/);
+    await expect(
+      applier.apply(LOCAL_OWNER, 'score-404', {
+        operations: [note('bar1.beat1', 'Eb5')],
+      }),
+    ).rejects.toThrow(/must name the version it expects/);
   });
 
-  it('needs none for a create, which has nothing to be stale against', () => {
+  it('needs none for a create, which has nothing to be stale against', async () => {
     // The exemption is the batch's *contents*, not the caller: `isCreateBatch` decides both this and
     // which path the applier takes, so the exempt batch is exactly the one with no current version.
     const { applier } = fresh();
-    expect(applier.apply(LOCAL_OWNER, null, { operations: [CREATE] }).version).toBe(1);
+    expect((await applier.apply(LOCAL_OWNER, null, { operations: [CREATE] })).version).toBe(1);
   });
 
-  it('needs none for a create that goes on to edit what it just created', () => {
+  it('needs none for a create that goes on to edit what it just created', async () => {
     const { applier } = fresh();
-    const result = applier.apply(LOCAL_OWNER, null, {
+    const result = await applier.apply(LOCAL_OWNER, null, {
       operations: [CREATE, note('bar1.beat1', 'Eb5')],
     });
     expect(result.version).toBe(1);
@@ -346,12 +363,12 @@ describe('the expected-version check (ADR-0003)', () => {
 });
 
 describe('a batch is transactional (ADR-0008)', () => {
-  it('applies none of its operations when one is invalid', () => {
-    const context = authorAChart();
+  it('applies none of its operations when one is invalid', async () => {
+    const context = await authorAChart();
     const { store } = context;
-    const before = store.get(LOCAL_OWNER, 'score-1')!;
+    const before = (await store.get(LOCAL_OWNER, 'score-1'))!;
 
-    expect(() =>
+    await expect(
       edit(
         context,
         note('bar1.beat4', 'Ab5'), // fine
@@ -359,19 +376,19 @@ describe('a batch is transactional (ADR-0008)', () => {
         note('bar1.beat1', 'C5'), // occupied — the batch dies here
         note('bar2.beat2', 'C6'), // never reached
       ),
-    ).toThrow(/already has a note/);
+    ).rejects.toThrow(/already has a note/);
 
-    const after = store.get(LOCAL_OWNER, 'score-1')!;
+    const after = (await store.get(LOCAL_OWNER, 'score-1'))!;
     expect(after.version).toBe(before.version);
     expect(after.score).toEqual(before.score);
     // And nothing reached the log either. Half a batch in the log would break replay forever.
-    expect(store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
+    expect(await store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
   });
 
-  it('says which operation in the batch failed', () => {
-    const context = authorAChart();
+  it('says which operation in the batch failed', async () => {
+    const context = await authorAChart();
     try {
-      edit(context, note('bar1.beat4', 'Ab5'), note('bar1.beat1', 'C5'));
+      await edit(context, note('bar1.beat4', 'Ab5'), note('bar1.beat1', 'C5'));
       expect.unreachable();
     } catch (error) {
       // 1-based in the message, 0-based in the structure. An agent needs to know which one.
@@ -380,51 +397,55 @@ describe('a batch is transactional (ADR-0008)', () => {
     }
   });
 
-  it('does not number the operation when the batch is a single one', () => {
-    const context = authorAChart();
-    expect(() => edit(context, note('bar1.beat1', 'C5'))).not.toThrow(/^operation 1:/);
+  it('does not number the operation when the batch is a single one', async () => {
+    const context = await authorAChart();
+    // Was `expect(() => edit(...)).not.toThrow(/^operation 1:/)`, which also passed when the call threw
+    // an error that did not match — and this one does throw (occupied beat), so keep that meaning.
+    try {
+      await edit(context, note('bar1.beat1', 'C5'));
+    } catch (error) {
+      expect((error as OperationError).message).not.toMatch(/^operation 1:/);
+    }
   });
 
-  it('applies all of them when all of them are valid, as one version bump', () => {
-    const context = authorAChart();
-    const result = edit(
-      context,
-      note('bar1.beat4', 'Ab5'),
-      note('bar2.beat1', 'Bb5'),
-      { type: 'meta.set', payload: { style: 'Medium swing' } },
-    );
+  it('applies all of them when all of them are valid, as one version bump', async () => {
+    const context = await authorAChart();
+    const result = await edit(context, note('bar1.beat4', 'Ab5'), note('bar2.beat1', 'Bb5'), {
+      type: 'meta.set',
+      payload: { style: 'Medium swing' },
+    });
     expect(result.version).toBe(5);
-    const score = context.store.get(LOCAL_OWNER, 'score-1')!.score;
+    const score = (await context.store.get(LOCAL_OWNER, 'score-1'))!.score;
     expect(score.bars[0]!.items).toHaveLength(4);
     expect(score.meta.style).toBe('Medium swing');
   });
 
-  it('lets an operation later in the batch build on one earlier in it', () => {
+  it('lets an operation later in the batch build on one earlier in it', async () => {
     // Within a batch the fold is sequential, so adding a note and then editing it works.
-    const context = authorAChart();
-    edit(context, note('bar2.beat1', 'Bb5'), {
+    const context = await authorAChart();
+    await edit(context, note('bar2.beat1', 'Bb5'), {
       type: 'note.set',
       target: 'bar2.beat1',
       payload: { duration: dur(2) },
     });
-    const bar = context.store.get(LOCAL_OWNER, 'score-1')!.score.bars[1]!;
+    const bar = (await context.store.get(LOCAL_OWNER, 'score-1'))!.score.bars[1]!;
     expect(notesOf(bar)[0]!.duration).toEqual(dur(2));
   });
 
-  it('rolls back a stale batch without logging any of it', () => {
-    const { store, applier } = authorAChart();
-    expect(() =>
+  it('rolls back a stale batch without logging any of it', async () => {
+    const { store, applier } = await authorAChart();
+    await expect(
       applier.apply(LOCAL_OWNER, 'score-1', {
         operations: [note('bar1.beat4', 'Ab5'), note('bar2.beat1', 'Bb5')],
         expectedVersion: 1,
       }),
-    ).toThrow(/version 4, not 1/);
-    expect(store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
+    ).rejects.toThrow(/version 4, not 1/);
+    expect(await store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
   });
 });
 
 describe('a commit is one transaction', () => {
-  it('rolls back the document when appending an operation fails partway through', () => {
+  it('rolls back the document when appending an operation fails partway through', async () => {
     // The failure this guards against is the nastiest one available: a document written with only
     // half its operations logged. Replay would then reproduce a *different* score, silently and
     // forever, and no test that only checks the happy path would ever notice.
@@ -432,14 +453,14 @@ describe('a commit is one transaction', () => {
     // Provoked without a fault-injection seam: the second operation carries a field the applier
     // tolerates (it copies only the fields it knows) but JSON cannot serialise, so the first
     // append succeeds and the second throws mid-transaction.
-    const context = authorAChart();
+    const context = await authorAChart();
     const { store } = context;
-    const before = store.get(LOCAL_OWNER, 'score-1')!;
+    const before = (await store.get(LOCAL_OWNER, 'score-1'))!;
 
     const circular: { self?: unknown } = {};
     circular.self = circular;
 
-    expect(() =>
+    await expect(
       edit(
         context,
         { type: 'note.set', target: 'bar1.n1', payload: { duration: dur(2) } },
@@ -452,62 +473,71 @@ describe('a commit is one transaction', () => {
     )
       // Named rather than a bare `toThrow()`. A bare one passed for the wrong reason the moment a
       // write without a version started throwing, and the batch never reached the store at all.
-      .toThrow(/circular|convert/i);
+      .rejects.toThrow(/circular|convert/i);
 
-    const after = store.get(LOCAL_OWNER, 'score-1')!;
+    const after = (await store.get(LOCAL_OWNER, 'score-1'))!;
     expect(after.version).toBe(before.version);
     expect(after.score).toEqual(before.score);
-    expect(store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
+    expect(await store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(4);
   });
 });
 
 describe('the store refuses a write with no operation behind it', () => {
-  it('because a document write without a logged operation is what ADR-0003 forbids', () => {
+  it('because a document write without a logged operation is what ADR-0003 forbids', async () => {
     // Structural, not a convention: the writer's signature requires the operations, and the store
     // refuses an empty list rather than trusting every future caller to remember.
     const { store } = fresh();
-    const score = { schemaVersion: 1, id: 's', meta: {}, bars: [], sections: [] } as never;
-    expect(() => store.create(LOCAL_OWNER, score, [])).toThrow(/must carry the operations/);
-    expect(() => store.commit(LOCAL_OWNER, 's', 1, score, [])).toThrow(/must carry the operations/);
+    const score = {
+      schemaVersion: 1,
+      id: 's',
+      meta: {},
+      bars: [],
+      sections: [],
+    } as never;
+    await expect(store.create(LOCAL_OWNER, score, [])).rejects.toThrow(/must carry the operations/);
+    await expect(store.commit(LOCAL_OWNER, 's', 1, score, [])).rejects.toThrow(
+      /must carry the operations/,
+    );
   });
 });
 
 describe('undo and redo, by replay of the op log (V8a, ADR-0003)', () => {
-  const pitchesOf = (fixture: Fixture): string[] =>
-    fixture.store
-      .get(LOCAL_OWNER, 'score-1')!
-      .score.bars.flatMap((bar) => notesOf(bar).map((n) => `${n.pitch.step}${n.pitch.octave}`));
+  const pitchesOf = async (fixture: Fixture): Promise<string[]> =>
+    (await fixture.store.get(LOCAL_OWNER, 'score-1'))!.score.bars.flatMap((bar) =>
+      notesOf(bar).map((n) => `${n.pitch.step}${n.pitch.octave}`),
+    );
 
-  const versionOf = (fixture: Fixture): number => fixture.store.get(LOCAL_OWNER, 'score-1')!.version;
+  const versionOf = async (fixture: Fixture): Promise<number> =>
+    (await fixture.store.get(LOCAL_OWNER, 'score-1'))!.version;
 
-  it('undo reverts the last edit and redo brings it back', () => {
-    const ctx = authorAChart();
-    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+  it('undo reverts the last edit and redo brings it back', async () => {
+    const ctx = await authorAChart();
+    expect(await pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
 
-    const undone = ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    const undone = await ctx.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
     expect(undone.moved).toBe(true);
-    expect(pitchesOf(ctx)).toEqual(['E5', 'F5']);
+    expect(await pitchesOf(ctx)).toEqual(['E5', 'F5']);
 
-    const redone = ctx.applier.redo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    const redone = await ctx.applier.redo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
     expect(redone.moved).toBe(true);
-    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+    expect(await pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
   });
 
-  it('keeps the replay-from-empty property after an undo — the log still reproduces the document', () => {
-    const ctx = authorAChart();
-    ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
-    const stored = ctx.store.get(LOCAL_OWNER, 'score-1')!.score;
+  it('keeps the replay-from-empty property after an undo — the log still reproduces the document', async () => {
+    const ctx = await authorAChart();
+    await ctx.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
+    const stored = (await ctx.store.get(LOCAL_OWNER, 'score-1'))!.score;
     // The append-only log now carries an `undo` marker; replaying the whole of it still lands on the
     // stored document. This is the ADR-0003 property holding through undo, the thing that would
     // break if undo had overwritten the document without recording anything.
-    expect(replayLog(ctx.store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
+    expect(replayLog(await ctx.store.operations(LOCAL_OWNER, 'score-1'))).toEqual(stored);
   });
 
-  it('undo appends a control row rather than deleting history (append-only log)', () => {
-    const ctx = authorAChart();
-    const before = ctx.store.operations(LOCAL_OWNER, 'score-1');
-    ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
-    const after = ctx.store.operations(LOCAL_OWNER, 'score-1');
+  it('undo appends a control row rather than deleting history (append-only log)', async () => {
+    const ctx = await authorAChart();
+    const before = await ctx.store.operations(LOCAL_OWNER, 'score-1');
+    await ctx.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
+    const after = await ctx.store.operations(LOCAL_OWNER, 'score-1');
 
     expect(after).toHaveLength(before.length + 1);
     // Every original row is untouched; the only new one is the undo marker, its own batch.
@@ -516,196 +546,230 @@ describe('undo and redo, by replay of the op log (V8a, ADR-0003)', () => {
     expect(after[after.length - 1]!.batch).toBe(before[before.length - 1]!.batch + 1);
   });
 
-  it('undoes an agent batch of eight as one unit; eight singles undo one at a time', () => {
+  it('undoes an agent batch of eight as one unit; eight singles undo one at a time', async () => {
     const batched = fresh();
-    batched.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    const eight = Array.from({ length: 8 }, (_, i) => note(`bar${i < 4 ? 1 : 2}.beat${(i % 4) + 1}`, 'C5'));
-    batched.applier.apply(LOCAL_OWNER, 'score-1', {
+    await batched.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const eight = Array.from({ length: 8 }, (_, i) =>
+      note(`bar${i < 4 ? 1 : 2}.beat${(i % 4) + 1}`, 'C5'),
+    );
+    await batched.applier.apply(LOCAL_OWNER, 'score-1', {
       operations: eight,
-      expectedVersion: versionOf(batched),
+      expectedVersion: await versionOf(batched),
     });
-    expect(pitchesOf(batched)).toHaveLength(8);
-    batched.applier.undo(LOCAL_OWNER, 'score-1', versionOf(batched));
-    expect(pitchesOf(batched)).toHaveLength(0);
+    expect(await pitchesOf(batched)).toHaveLength(8);
+    await batched.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(batched));
+    expect(await pitchesOf(batched)).toHaveLength(0);
 
     const singles = fresh();
-    singles.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    await singles.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
     for (const op of eight) {
-      singles.applier.apply(LOCAL_OWNER, 'score-1', { operations: [op], expectedVersion: versionOf(singles) });
+      await singles.applier.apply(LOCAL_OWNER, 'score-1', {
+        operations: [op],
+        expectedVersion: await versionOf(singles),
+      });
     }
-    expect(pitchesOf(singles)).toHaveLength(8);
-    singles.applier.undo(LOCAL_OWNER, 'score-1', versionOf(singles));
-    expect(pitchesOf(singles)).toHaveLength(7);
+    expect(await pitchesOf(singles)).toHaveLength(8);
+    await singles.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(singles));
+    expect(await pitchesOf(singles)).toHaveLength(7);
   });
 
-  it('undo then redo returns the identical document', () => {
-    const ctx = authorAChart();
-    const before = ctx.store.get(LOCAL_OWNER, 'score-1')!.score;
-    ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
-    ctx.applier.redo(LOCAL_OWNER, 'score-1', versionOf(ctx));
-    expect(ctx.store.get(LOCAL_OWNER, 'score-1')!.score).toEqual(before);
+  it('undo then redo returns the identical document', async () => {
+    const ctx = await authorAChart();
+    const before = (await ctx.store.get(LOCAL_OWNER, 'score-1'))!.score;
+    await ctx.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
+    await ctx.applier.redo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
+    expect((await ctx.store.get(LOCAL_OWNER, 'score-1'))!.score).toEqual(before);
   });
 
-  it('undo at the first operation is a clean no-op, not an error (the floor is score.create)', () => {
+  it('undo at the first operation is a clean no-op, not an error (the floor is score.create)', async () => {
     const ctx = fresh();
-    ctx.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
-    const rows = ctx.store.operations(LOCAL_OWNER, 'score-1').length;
+    await ctx.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const rows = (await ctx.store.operations(LOCAL_OWNER, 'score-1')).length;
 
-    const result = ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+    const result = await ctx.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
     expect(result.moved).toBe(false);
     expect(result.canUndo).toBe(false);
     expect(result.version).toBe(1); // unchanged
     // Nothing appended: a no-op does not grow the log or bump the version.
-    expect(ctx.store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(rows);
-    expect(ctx.store.get(LOCAL_OWNER, 'score-1')!.score).not.toBeNull();
+    expect(await ctx.store.operations(LOCAL_OWNER, 'score-1')).toHaveLength(rows);
+    expect((await ctx.store.get(LOCAL_OWNER, 'score-1'))!.score).not.toBeNull();
   });
 
-  it('redo past the head is a clean no-op, not an error', () => {
-    const ctx = authorAChart();
-    const result = ctx.applier.redo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+  it('redo past the head is a clean no-op, not an error', async () => {
+    const ctx = await authorAChart();
+    const result = await ctx.applier.redo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
     expect(result.moved).toBe(false);
     expect(result.canRedo).toBe(false);
-    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+    expect(await pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
   });
 
-  it('reports what is available before and after a move', () => {
-    const ctx = authorAChart();
-    const undone = ctx.applier.undo(LOCAL_OWNER, 'score-1', versionOf(ctx));
+  it('reports what is available before and after a move', async () => {
+    const ctx = await authorAChart();
+    const undone = await ctx.applier.undo(LOCAL_OWNER, 'score-1', await versionOf(ctx));
     expect(undone).toMatchObject({ moved: true, canUndo: true, canRedo: true });
   });
 
-  it('refuses a stale expected version, and the document is unchanged', () => {
-    const ctx = authorAChart();
-    const current = versionOf(ctx);
-    expect(() => ctx.applier.undo(LOCAL_OWNER, 'score-1', current - 1)).toThrow(OperationError);
-    expect(versionOf(ctx)).toBe(current);
-    expect(pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
+  it('refuses a stale expected version, and the document is unchanged', async () => {
+    const ctx = await authorAChart();
+    const current = await versionOf(ctx);
+    await expect(ctx.applier.undo(LOCAL_OWNER, 'score-1', current - 1)).rejects.toThrow(
+      OperationError,
+    );
+    expect(await versionOf(ctx)).toBe(current);
+    expect(await pitchesOf(ctx)).toEqual(['E5', 'F5', 'G5']);
   });
 
-  it('refuses an undo that names no version at all (KAN-607)', () => {
-    const ctx = authorAChart();
-    expect(() => ctx.applier.undo(LOCAL_OWNER, 'score-1', undefined)).toThrow(/expectedVersion|version it expects/);
+  it('refuses an undo that names no version at all (KAN-607)', async () => {
+    const ctx = await authorAChart();
+    await expect(ctx.applier.undo(LOCAL_OWNER, 'score-1', undefined)).rejects.toThrow(
+      /expectedVersion|version it expects/,
+    );
   });
 
-  it('refuses an undo on a score that does not exist', () => {
+  it('refuses an undo on a score that does not exist', async () => {
     const ctx = fresh();
-    expect(() => ctx.applier.undo(LOCAL_OWNER, 'nope', 1)).toThrow(/no score/);
+    await expect(ctx.applier.undo(LOCAL_OWNER, 'nope', 1)).rejects.toThrow(/no score/);
   });
 });
 
 describe('duplicate: a copy with a fresh history (V8c, ADR-0003)', () => {
-  const docOf = (ctx: Fixture, id: string) => ctx.store.get(LOCAL_OWNER, id)!.score;
+  const docOf = async (ctx: Fixture, id: string) => (await ctx.store.get(LOCAL_OWNER, id))!.score;
 
-  it('copies the document under a new id, at version 1', () => {
-    const ctx = authorAChart();
-    const result = ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined);
-    expect(result).toEqual({ scoreId: 'score-1-copy', version: 1, sourceId: 'score-1' });
+  it('copies the document under a new id, at version 1', async () => {
+    const ctx = await authorAChart();
+    const result = await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined);
+    expect(result).toEqual({
+      scoreId: 'score-1-copy',
+      version: 1,
+      sourceId: 'score-1',
+    });
 
-    const copy = docOf(ctx, 'score-1-copy');
-    const source = docOf(ctx, 'score-1');
+    const copy = await docOf(ctx, 'score-1-copy');
+    const source = await docOf(ctx, 'score-1');
     expect(copy).toEqual({ ...source, id: 'score-1-copy' });
     // The source is untouched.
     expect(source.id).toBe('score-1');
   });
 
-  it("gives the copy a single-operation log that replays to it — the property duplicate rests on", () => {
-    const ctx = authorAChart();
-    ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
-    const log = ctx.store.operations(LOCAL_OWNER, 'copy');
+  it('gives the copy a single-operation log that replays to it — the property duplicate rests on', async () => {
+    const ctx = await authorAChart();
+    await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
+    const log = await ctx.store.operations(LOCAL_OWNER, 'copy');
     expect(log).toHaveLength(1);
     expect(log[0]!.operation.type).toBe('score.import');
-    expect(replayLog(log)).toEqual(docOf(ctx, 'copy'));
+    expect(replayLog(log)).toEqual(await docOf(ctx, 'copy'));
   });
 
-  it('leaves the copy with nothing to undo — the fresh history a duplicate is expected to have', () => {
-    const ctx = authorAChart();
-    ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
-    const version = ctx.store.get(LOCAL_OWNER, 'copy')!.version;
-    const undone = ctx.applier.undo(LOCAL_OWNER, 'copy', version);
+  it('leaves the copy with nothing to undo — the fresh history a duplicate is expected to have', async () => {
+    const ctx = await authorAChart();
+    await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
+    const version = (await ctx.store.get(LOCAL_OWNER, 'copy'))!.version;
+    const undone = await ctx.applier.undo(LOCAL_OWNER, 'copy', version);
     expect(undone.moved).toBe(false);
   });
 
-  it('mints a distinct id for each duplicate of the same source', () => {
-    const ctx = authorAChart();
-    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined).scoreId).toBe('score-1-copy');
-    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined).scoreId).toBe('score-1-copy-2');
-    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined).scoreId).toBe('score-1-copy-3');
+  it('mints a distinct id for each duplicate of the same source', async () => {
+    const ctx = await authorAChart();
+    expect((await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined)).scoreId).toBe(
+      'score-1-copy',
+    );
+    expect((await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined)).scoreId).toBe(
+      'score-1-copy-2',
+    );
+    expect((await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', undefined)).scoreId).toBe(
+      'score-1-copy-3',
+    );
   });
 
-  it('honours an explicit id, and refuses one already taken', () => {
-    const ctx = authorAChart();
-    expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'ballad').scoreId).toBe('ballad');
-    expect(() => ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'ballad')).toThrow(/already exists/);
+  it('honours an explicit id, and refuses one already taken', async () => {
+    const ctx = await authorAChart();
+    expect((await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'ballad')).scoreId).toBe('ballad');
+    await expect(ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'ballad')).rejects.toThrow(
+      /already exists/,
+    );
   });
 
-  it('refuses to duplicate a score that does not exist', () => {
+  it('refuses to duplicate a score that does not exist', async () => {
     const ctx = fresh();
-    expect(() => ctx.applier.duplicate(LOCAL_OWNER, 'nope', undefined)).toThrow(/no score/);
+    await expect(ctx.applier.duplicate(LOCAL_OWNER, 'nope', undefined)).rejects.toThrow(/no score/);
   });
 
-  it('editing the copy does not touch the source (independent documents)', () => {
-    const ctx = authorAChart();
-    ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
-    const copyVersion = ctx.store.get(LOCAL_OWNER, 'copy')!.version;
-    ctx.applier.apply(LOCAL_OWNER, 'copy', {
+  it('editing the copy does not touch the source (independent documents)', async () => {
+    const ctx = await authorAChart();
+    await ctx.applier.duplicate(LOCAL_OWNER, 'score-1', 'copy');
+    const copyVersion = (await ctx.store.get(LOCAL_OWNER, 'copy'))!.version;
+    await ctx.applier.apply(LOCAL_OWNER, 'copy', {
       operations: [note('bar1.beat4', 'B5')],
       expectedVersion: copyVersion,
     });
     // The copy grew a note; the source has the three it always had.
-    expect(notesOf(docOf(ctx, 'copy').bars[0]!)).toHaveLength(4);
-    expect(notesOf(docOf(ctx, 'score-1').bars[0]!)).toHaveLength(3);
+    expect(notesOf((await docOf(ctx, 'copy')).bars[0]!)).toHaveLength(4);
+    expect(notesOf((await docOf(ctx, 'score-1')).bars[0]!)).toHaveLength(3);
   });
 
-  it('refuses score.import on the client ops route (ADR-0008)', () => {
+  it('refuses score.import on the client ops route (ADR-0008)', async () => {
     // A whole document from a client is the document-patch anti-pattern; only duplicate may write one.
-    const ctx = authorAChart();
-    const version = ctx.store.get(LOCAL_OWNER, 'score-1')!.version;
-    expect(() =>
+    const ctx = await authorAChart();
+    const version = (await ctx.store.get(LOCAL_OWNER, 'score-1'))!.version;
+    await expect(
       ctx.applier.apply(LOCAL_OWNER, 'score-1', {
-        operations: [{ type: 'score.import', payload: { document: docOf(ctx, 'score-1') } } as never],
+        operations: [
+          {
+            type: 'score.import',
+            payload: { document: await docOf(ctx, 'score-1') },
+          } as never,
+        ],
         expectedVersion: version,
       }),
-    ).toThrow(/score\.import|no such operation/);
+    ).rejects.toThrow(/score\.import|no such operation/);
   });
 });
 
 describe('import: landing a whole document as a new score (V11, ADR-0003)', () => {
-  const docOf = (ctx: Fixture, id: string) => ctx.store.get(LOCAL_OWNER, id)!.score;
+  const docOf = async (ctx: Fixture, id: string) => (await ctx.store.get(LOCAL_OWNER, id))!.score;
 
   // A tiny document the OMR mapper could have produced: it arrives with its id already set.
   const imported = (id: string): Score =>
-    makeScore({ id, title: 'From a photo', bars: [makeBar({ id: 'bar-1', number: 1 })] });
+    makeScore({
+      id,
+      title: 'From a photo',
+      bars: [makeBar({ id: 'bar-1', number: 1 })],
+    });
 
-  it('creates the score from the document, at version 1', () => {
+  it('creates the score from the document, at version 1', async () => {
     const ctx = fresh();
-    const result = ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    const result = await ctx.applier.import(LOCAL_OWNER, imported('import-1'));
     expect(result).toEqual({ scoreId: 'import-1', version: 1 });
-    expect(docOf(ctx, 'import-1').meta.title).toBe('From a photo');
+    expect((await docOf(ctx, 'import-1')).meta.title).toBe('From a photo');
   });
 
-  it('gives it a single score.import log that replays to it exactly', () => {
+  it('gives it a single score.import log that replays to it exactly', async () => {
     const ctx = fresh();
-    ctx.applier.import(LOCAL_OWNER, imported('import-1'));
-    const log = ctx.store.operations(LOCAL_OWNER, 'import-1');
+    await ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    const log = await ctx.store.operations(LOCAL_OWNER, 'import-1');
     expect(log).toHaveLength(1);
     expect(log[0]!.operation.type).toBe('score.import');
-    expect(replayLog(log)).toEqual(docOf(ctx, 'import-1'));
+    expect(replayLog(log)).toEqual(await docOf(ctx, 'import-1'));
   });
 
-  it('undoing an import leaves an empty score and the log still replays exactly (V11 test plan)', () => {
+  it('undoing an import leaves an empty score and the log still replays exactly (V11 test plan)', async () => {
     const ctx = fresh();
-    ctx.applier.import(LOCAL_OWNER, imported('import-1'));
-    const version = ctx.store.get(LOCAL_OWNER, 'import-1')!.version;
+    await ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    const version = (await ctx.store.get(LOCAL_OWNER, 'import-1'))!.version;
     // The import is a single undoable unit; undoing it is the floor (a score.import at the base is
     // like a score.create — undo stops there rather than deleting the score), so it does not move.
-    const undone = ctx.applier.undo(LOCAL_OWNER, 'import-1', version);
+    const undone = await ctx.applier.undo(LOCAL_OWNER, 'import-1', version);
     expect(undone.moved).toBe(false);
-    expect(replayLog(ctx.store.operations(LOCAL_OWNER, 'import-1'))).toEqual(docOf(ctx, 'import-1'));
+    expect(replayLog(await ctx.store.operations(LOCAL_OWNER, 'import-1'))).toEqual(
+      await docOf(ctx, 'import-1'),
+    );
   });
 
-  it('refuses an id already taken, rather than overwriting', () => {
+  it('refuses an id already taken, rather than overwriting', async () => {
     const ctx = fresh();
-    ctx.applier.import(LOCAL_OWNER, imported('import-1'));
-    expect(() => ctx.applier.import(LOCAL_OWNER, imported('import-1'))).toThrow(/already exists/);
+    await ctx.applier.import(LOCAL_OWNER, imported('import-1'));
+    await expect(ctx.applier.import(LOCAL_OWNER, imported('import-1'))).rejects.toThrow(
+      /already exists/,
+    );
   });
 });

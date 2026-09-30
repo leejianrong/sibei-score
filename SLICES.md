@@ -1292,9 +1292,16 @@ so each slice targets the *shape* of a hosted product, not scale. Nothing here i
 
 ### V18: Async ports (no behaviour change)
 **Delivers:** the precondition for everything below. `ScoreStore`, `JobStore` and `Authenticator`
-become promise-returning; the applier's transaction becomes an async unit of work. SQLite only.
+become promise-returning, and the applier, the routes, the runner and the change-bus wrappers await
+them. SQLite only. (The store's `create`/`commit` were already the units of work, so there is no
+applier-level transaction to convert.)
 **Demo:** `pnpm check` green with no test changed in meaning; `pnpm demo` unchanged.
-**Tests:** the existing suite is the test. Add an arch check that no port method is sync.
+**Tests:** the existing suite is the test. `tests/arch/async-ports.test.ts` fails if any port method
+is sync; `tests/store/async-adapters.test.ts` checks the SQLite adapters really return promises.
+**Found on the way:** the runner's drain loop had a lost-wakeup window that only exists with an async
+store (fixed, with a regression test), and its import-then-complete pair is no longer tick-atomic
+(documented; V19 should close it).
+**Status: built.**
 
 ### V19: Postgres adapter + conformance suite
 **Delivers:** `@sibei/api/postgres` behind the same port, chosen by `DATABASE_URL`; RLS by owner set

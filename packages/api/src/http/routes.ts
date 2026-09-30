@@ -80,7 +80,7 @@ export interface ImportService {
    */
   submit(owner: Owner, images: Buffer[]): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
-  retry(owner: Owner, id: JobId): ImportJob | null;
+  retry(owner: Owner, id: JobId): Promise<ImportJob | null>;
   /**
    * Re-run OMR on a score's retained source images (V14e), producing a **new** draft job over the same
    * blob keys — no re-upload — that the runner maps and lands through `Applier.import` exactly as a
@@ -108,10 +108,10 @@ export interface ImportService {
    * has — and the browser then GETs `sourceImage` for each index. `null` when the score has no import
    * behind it: a hand-authored, duplicated, or unknown score simply has no source, which is not an
    * error (the score view asks this of *every* chart, so it must answer emptily rather than fail).
-   * Owner-scoped like every other import read, and a plain read — no blob round-trip, so unlike
-   * `sourceImage` it need not be async.
+   * Owner-scoped like every other import read, and a plain read — no blob round-trip, only a job
+   * lookup (asynchronous, like every store read since V18).
    */
-  source(owner: Owner, scoreId: Id): SourceProvenance | null;
+  source(owner: Owner, scoreId: Id): Promise<SourceProvenance | null>;
   /** Reads over the job store: list (summaries) and get (full, with the recognised objects). */
   reader: JobReader;
   /** The SSE progress streams. Subscribe-only from here, like the score event streams. */
@@ -170,13 +170,13 @@ export async function route(
   }
 
   if (path === SCORES) {
-    if (method === 'GET') return sendJson(response, 200, { scores: context.reader.list(context.owner) });
+    if (method === 'GET') return sendJson(response, 200, { scores: await context.reader.list(context.owner) });
     if (method === 'POST') {
       const body = await readJsonBody(request, response);
       if (body === MALFORMED) return 400;
       // A create is a batch whose first operation is score.create, so it goes down the one write
       // path like everything else rather than beside it (ADR-0003).
-      const result = context.applier.apply(context.owner, null, batchFrom(body));
+      const result = await context.applier.apply(context.owner, null, batchFrom(body));
       response.setHeader('location', `${SCORES}/${encodeURIComponent(result.scoreId)}`);
       return sendJson(response, 201, result);
     }
@@ -186,7 +186,7 @@ export async function route(
   const scoreId = match(path, /^\/v1\/scores\/([^/]+)$/);
   if (scoreId !== null) {
     if (method === 'GET') {
-      const record = context.reader.get(context.owner, scoreId);
+      const record = await context.reader.get(context.owner, scoreId);
       if (record === null) return send(response, noSuchScore(scoreId));
       return sendJson(response, 200, {
         score: record.score,
@@ -196,7 +196,7 @@ export async function route(
     }
     if (method === 'DELETE') {
       // Not an operation, and cannot be: it destroys the log an entry would live in (ADR-0003).
-      if (!context.library.delete(context.owner, scoreId)) return send(response, noSuchScore(scoreId));
+      if (!(await context.library.delete(context.owner, scoreId))) return send(response, noSuchScore(scoreId));
       response.writeHead(204).end();
       return 204;
     }
@@ -215,13 +215,13 @@ export async function route(
   const sourceFor = match(path, /^\/v1\/scores\/([^/]+)\/source$/);
   if (sourceFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
-    return sourceOfScore(response, context, sourceFor);
+    return await sourceOfScore(response, context, sourceFor);
   }
 
   const eventsFor = match(path, /^\/v1\/scores\/([^/]+)\/events$/);
   if (eventsFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
-    return openEventStream(request, response, context, eventsFor);
+    return await openEventStream(request, response, context, eventsFor);
   }
 
   const opsFor = match(path, /^\/v1\/scores\/([^/]+)\/ops$/);
@@ -229,7 +229,7 @@ export async function route(
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
     const body = await readJsonBody(request, response);
     if (body === MALFORMED) return 400;
-    return sendJson(response, 200, context.applier.apply(context.owner, opsFor, batchFrom(body)));
+    return sendJson(response, 200, await context.applier.apply(context.owner, opsFor, batchFrom(body)));
   }
 
   // Undo and redo (V8a, ADR-0003). Their own routes rather than operations in an `/ops` batch,
@@ -242,7 +242,7 @@ export async function route(
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
     const body = await readJsonBody(request, response);
     if (body === MALFORMED) return 400;
-    return sendJson(response, 200, context.applier.undo(context.owner, undoFor, expectedVersionFrom(body)));
+    return sendJson(response, 200, await context.applier.undo(context.owner, undoFor, expectedVersionFrom(body)));
   }
 
   const redoFor = match(path, /^\/v1\/scores\/([^/]+)\/redo$/);
@@ -250,7 +250,7 @@ export async function route(
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
     const body = await readJsonBody(request, response);
     if (body === MALFORMED) return 400;
-    return sendJson(response, 200, context.applier.redo(context.owner, redoFor, expectedVersionFrom(body)));
+    return sendJson(response, 200, await context.applier.redo(context.owner, redoFor, expectedVersionFrom(body)));
   }
 
   // Duplicate (V8c). A library-lifecycle call that *creates* a score, so it goes through the applier
@@ -261,7 +261,7 @@ export async function route(
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
     const body = await readJsonBody(request, response);
     if (body === MALFORMED) return 400;
-    const result = context.applier.duplicate(context.owner, duplicateFor, newIdFrom(body));
+    const result = await context.applier.duplicate(context.owner, duplicateFor, newIdFrom(body));
     response.setHeader('location', `${SCORES}/${encodeURIComponent(result.scoreId)}`);
     return sendJson(response, 201, result);
   }
@@ -283,7 +283,7 @@ export async function route(
   if (path === IMPORTS) {
     if (method === 'GET') {
       if (context.imports === undefined) return send(response, noImportPipeline());
-      return sendJson(response, 200, { jobs: context.imports.reader.list(context.owner) });
+      return sendJson(response, 200, { jobs: await context.imports.reader.list(context.owner) });
     }
     if (method === 'POST') return await submitImport(request, response, context);
     return methodNotAllowed(response, ['GET', 'POST']);
@@ -292,13 +292,13 @@ export async function route(
   const importEventsFor = match(path, /^\/v1\/imports\/([^/]+)\/events$/);
   if (importEventsFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
-    return openImportStream(request, response, context, importEventsFor);
+    return await openImportStream(request, response, context, importEventsFor);
   }
 
   const importRetryFor = match(path, /^\/v1\/imports\/([^/]+)\/retry$/);
   if (importRetryFor !== null) {
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);
-    return retryImport(response, context, importRetryFor);
+    return await retryImport(response, context, importRetryFor);
   }
 
   // The retained source images of an import (V14a). Two captures — the job id and the page index — so
@@ -314,7 +314,7 @@ export async function route(
   if (importFor !== null) {
     if (method !== 'GET') return methodNotAllowed(response, ['GET']);
     if (context.imports === undefined) return send(response, noImportPipeline());
-    const job = context.imports.reader.get(context.owner, importFor);
+    const job = await context.imports.reader.get(context.owner, importFor);
     if (job === null) return send(response, noSuchImport(importFor));
     return sendJson(response, 200, { job });
   }
@@ -342,8 +342,8 @@ export async function route(
  * every other import read; a server built without an OMR pipeline has no imports at all, so it too
  * answers the empty shape rather than a 503 — nothing it holds could carry a source.
  */
-function sourceOfScore(response: ServerResponse, context: RouteContext, scoreId: Id): number {
-  const provenance = context.imports?.source(context.owner, scoreId) ?? null;
+async function sourceOfScore(response: ServerResponse, context: RouteContext, scoreId: Id): Promise<number> {
+  const provenance = (await context.imports?.source(context.owner, scoreId)) ?? null;
   return sendJson(
     response,
     200,
@@ -371,17 +371,17 @@ function sourceOfScore(response: ServerResponse, context: RouteContext, scoreId:
  * A read, and one that cannot become anything else — this handler is on the same `ScoreReader` as
  * every other read, and the only thing it can do with the bus is subscribe.
  */
-function openEventStream(
+async function openEventStream(
   request: IncomingMessage,
   response: ServerResponse,
   context: RouteContext,
   scoreId: Id,
-): number {
+): Promise<number> {
   // The read serves two purposes and both are wanted: it 404s a score that is not there, rather
   // than opening a stream that could never carry anything, and it supplies the version the stream's
   // first frame announces. It also throws for a document this build cannot read (ADR-0028), which
   // is the right answer — a stream over a document we would refuse to serve is worth nothing.
-  const record = context.reader.get(context.owner, scoreId);
+  const record = await context.reader.get(context.owner, scoreId);
   if (record === null) return send(response, noSuchScore(scoreId));
   return context.events.open(request, response, context.owner, scoreId, record.version);
 }
@@ -513,11 +513,11 @@ function engineFrom(body: unknown): string | undefined | typeof UNKNOWN_ENGINE {
  * carrying its current status, the same "branch on data, not prose" shape an address miss has
  * (ADR-0008), so a client is told *why* rather than left to guess.
  */
-function retryImport(response: ServerResponse, context: RouteContext, id: JobId): number {
+async function retryImport(response: ServerResponse, context: RouteContext, id: JobId): Promise<number> {
   if (context.imports === undefined || !context.imports.available) {
     return send(response, noImportPipeline());
   }
-  const existing = context.imports.reader.get(context.owner, id);
+  const existing = await context.imports.reader.get(context.owner, id);
   if (existing === null) return send(response, noSuchImport(id));
   if (existing.status !== 'failed') {
     return send(
@@ -527,7 +527,7 @@ function retryImport(response: ServerResponse, context: RouteContext, id: JobId)
       }),
     );
   }
-  const job = context.imports.retry(context.owner, id);
+  const job = await context.imports.retry(context.owner, id);
   // The read above passed, so a null here is a lost race (someone else moved it); re-report as a miss.
   if (job === null) return send(response, noSuchImport(id));
   return sendJson(response, 200, { job });
@@ -539,14 +539,14 @@ function retryImport(response: ServerResponse, context: RouteContext, id: JobId)
  * that could never carry anything, and the job's current status seeds the first frame so opening the
  * connection is itself the catch-up.
  */
-function openImportStream(
+async function openImportStream(
   request: IncomingMessage,
   response: ServerResponse,
   context: RouteContext,
   id: JobId,
-): number {
+): Promise<number> {
   if (context.imports === undefined) return send(response, noImportPipeline());
-  const job = context.imports.reader.get(context.owner, id);
+  const job = await context.imports.reader.get(context.owner, id);
   if (job === null) return send(response, noSuchImport(id));
   return context.imports.streams.open(request, response, context.owner, id, job.status);
 }

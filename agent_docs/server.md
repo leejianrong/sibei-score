@@ -147,10 +147,14 @@ offering somewhere to write some. `tests/arch/blob-seam.test.ts` holds filesyste
 `packages/api` on purpose: SQLite may be named nowhere in the tree, but a path is a legitimate
 CLI argument and `scripts/` is not product surface.
 
-**The port is async where the store is sync**, and that asymmetry is deliberate. `ScoreReader`
-is sync because SQLite is, and that debt is already booked; the blob backend worth swapping to
-is across a network, so a port that could not express waiting would be rewritten the day it was
-used for its purpose.
+**Every persistence port is async (V18, ADR-0034).** The store, job and auth ports were first drawn
+sync around SQLite's in-process driver, and that debt was booked from the start; V18 paid it before
+the Postgres adapter (V19), because every Postgres driver is promise-based and a port that could not
+express waiting would have been rewritten the day it was used for its purpose. The methods are still
+the unit of work — `create` and `commit` are each one transaction — so only the return type changed:
+the SQLite adapters keep their synchronous transactions inside and expose them through `async`
+methods. A sync throw (a refused write, a `DocumentMigrationError`) is now a *rejection*.
+`tests/arch/async-ports.test.ts` fails if any port method returns a plain value again.
 
 **The cache key, and why it is longer than Q81 says.** Q81 fixes it at
 `(score version, format, instrument)`. It is now:
@@ -331,8 +335,11 @@ a documented ADR-0021 deviation — see `SLICES.md` V11 and `agent_docs/history.
 op and calls `store.create`, so the import is a single, replay-exact, undoable-at-the-floor unit. The
 runner is handed the applier narrowed to `ScoreImporter` (just `import`), so it still cannot reach the
 edit surface. The sequence is recognise → `mapOmrToScore` → `Applier.import` → `jobs.complete(id,
-results, scoreId)`, all synchronous and adjacent, so there is never a succeeded job without a score
-nor a committed score without a succeeded job. A `mapOmrToScore` throw ("no staff detected",
+results, scoreId)`, in that order and adjacent. They are two store writes with an `await` between them
+(as they were two statements before V18), so a process killed between them leaves a score and a job that
+never succeeded: startup `recover` fails the job and a retry then hits `already-exists` on the
+deterministic `import-<jobId>` id. That window is unchanged in kind and V19 should close it (one
+transaction, or an idempotent import). A `mapOmrToScore` throw ("no staff detected",
 ADR-0018/Q28) fails the job like a worker error — committing nothing (Q80).
 
 **Undoing an import is a no-op at the floor, not an emptying.** Because import creates a *new* score
@@ -348,7 +355,7 @@ not a mutation of a score, and folding a mutable `status` column into the append
 the line ADR-0003's single writer exists to hold. So the job store is a *separate* SQLite connection
 to the same database file (`sqlite-jobs.ts`, the third and argued-for file in the store seam,
 `tests/arch/store-seam.test.ts`), never a method on the score store. The two connections never
-contend — better-sqlite3 is synchronous, so one Node process serialises every statement.
+contend — better-sqlite3 is synchronous underneath, so one Node process serialises every statement.
 
 **The state machine is small and guarded in the store.** `queued → running → succeeded | failed`,
 with `failed → queued` for a retry (Q80). `claim()` is one conditional `UPDATE … RETURNING` that
@@ -425,3 +432,11 @@ capability here gets. It holds no `ScoreWriter`, so nothing an import route can 
 and then fails cleanly (Q80), and a server started with no worker at all answers `POST /v1/imports`
 with a 503 while every non-import route is untouched — the milestone split (Q76) made that more than
 theoretical.
+
+**The runner never loses a wake (V18).** With an async store, `claim()` yields, so a submit can commit
+a job and call `wake()` after a drain's claim found nothing but before the drain stood down. `wake()`
+during a drain therefore records `wakeRequested` and the drain looks once more before it stops; the
+check and `draining = false` run with no `await` between them. `tests/unit/import-runner-wake.test.ts`
+reproduces the window with a store whose `claim` answers first and yields after — and fails if the flag
+is removed. `JobRunner.start()` is async (it awaits `recover`), and `Api.listen` awaits it, so recovery
+has finished by the time `listen` resolves.

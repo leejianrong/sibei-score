@@ -147,7 +147,7 @@ function documentDigest(score: Score): string {
 export function createExporter(reader: ScoreReader, blobs: BlobStore): Exporter {
   return {
     async export(owner, id, request) {
-      const record = reader.get(owner, id);
+      const record = await reader.get(owner, id);
       if (record === null) return { ok: false, reason: 'no-such-score' };
 
       const key = exportBlobKey(id, record, request);

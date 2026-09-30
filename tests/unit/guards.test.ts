@@ -118,8 +118,8 @@ describe('the Origin check', () => {
 });
 
 describe('the auth seam', () => {
-  it('resolves every request to local', () => {
-    expect(resolveLocalPrincipal(request({}))).toEqual({ owner: 'local' });
+  it('resolves every request to local', async () => {
+    expect(await resolveLocalPrincipal(request({}))).toEqual({ owner: 'local' });
   });
 
   it('is a function, so filling it in later is one change rather than every route', () => {
