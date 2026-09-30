@@ -1,10 +1,12 @@
 import SqliteDatabase from 'better-sqlite3';
 import type { Database } from 'better-sqlite3';
-import { formatKeySignature, migrateDocument } from '@sibei/model';
+import { migrateDocument } from '@sibei/model';
 import type { Id, MigrationResult, Score } from '@sibei/model';
 import { migrateTables } from './sqlite-schema.js';
 import type { StoredOperation } from '../ops/operations.js';
-import type { Owner, ScoreListing, ScoreRecord, ScoreStore } from './repository.js';
+import type { Owner, ScoreRecord, ScoreStore } from './repository.js';
+import { assertCarriesOperations, listingColumns, timestamp, toListing, toStoredOperation } from './store-shared.js';
+import type { ListingRow, OperationRow } from './store-shared.js';
 
 /**
  * The SQLite implementation of the store port (ADR-0006).
@@ -44,16 +46,6 @@ interface ScoreRow {
   updated_at: string;
   version: number;
   doc: string;
-}
-
-type ListingRow = Omit<ScoreRow, 'doc' | 'owner'>;
-
-interface OperationRow {
-  seq: number;
-  batch: number;
-  op_version: number;
-  payload: string;
-  created_at: string;
 }
 
 export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
@@ -137,11 +129,7 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
   }
 
   function refuseEmpty(operations: readonly StoredOperation[]): void {
-    // A document write with no operation behind it is the thing ADR-0003 forbids, so the store
-    // refuses it rather than trusting every future caller to remember.
-    if (operations.length === 0) {
-      throw new Error('a write must carry the operations that caused it (ADR-0003)');
-    }
+    assertCarriesOperations(operations);
   }
 
   function get(owner: Owner, id: Id): ScoreRecord | null {
@@ -256,44 +244,6 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
   };
 }
 
-/**
- * The columns ADR-0006 extracts from the document for the library view. Derived on every
- * write, so they cannot drift from `doc` — which is the truth.
- */
-function listingColumns(score: Score): { title: string; composer: string; key: string } {
-  return {
-    title: score.meta.title,
-    composer: score.meta.composer,
-    key: formatKeySignature(score.meta.key),
-  };
-}
-
-/**
- * The log row, back as an operation. The payload is *not* migrated on the way out: an old
- * operation shape must stay interpretable forever, because undo replays it (ADR-0028), so
- * whatever was written is what comes back.
- */
-function toStoredOperation(row: OperationRow): StoredOperation {
-  return {
-    seq: row.seq,
-    batch: row.batch,
-    version: row.op_version,
-    operation: JSON.parse(row.payload) as StoredOperation['operation'],
-    createdAt: row.created_at,
-  };
-}
-
-function toListing(row: ListingRow): ScoreListing {
-  return {
-    id: row.id,
-    title: row.title,
-    composer: row.composer,
-    key: row.key,
-    version: row.version,
-    updatedAt: row.updated_at,
-  };
-}
-
 function isUniqueViolation(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -301,9 +251,4 @@ function isUniqueViolation(error: unknown): boolean {
     typeof error.code === 'string' &&
     error.code.startsWith('SQLITE_CONSTRAINT')
   );
-}
-
-/** ISO-8601 to the second. Sortable as text, which is what the listing index relies on. */
-function timestamp(now: () => Date): string {
-  return `${now().toISOString().slice(0, 19)}Z`;
 }

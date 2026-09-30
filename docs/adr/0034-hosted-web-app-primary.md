@@ -1,7 +1,7 @@
 # ADR-0034: The hosted web app becomes the primary surface
 
-- **Status:** Proposed — 2026-09-30, revised the same day after design discussion. Nothing here is
-  built; SLICES v0.4 (V18–V26) is the plan.
+- **Status:** Proposed — 2026-09-30, revised the same day after design discussion. V18 (async ports),
+  V19a (tenancy keys) and V19 (the Postgres adapter) are built; the rest of SLICES v0.4 (V20–V26) is the plan.
 - **Date:** 2026-09-30
 - **Deciders:** Jian, in design discussion
 - **Relates to:** [ADR-0001](0001-local-first-hosting-shaped.md) (which this cashes in),
@@ -36,12 +36,19 @@ slice is therefore a no-behaviour-change refactor of the ports, not an adapter.
    `Authenticator` return promises, and the applier awaits them (the store's `create` and `commit` are
    already the units of work, so there is no applier-level transaction to convert). Every existing test
    must pass unchanged in meaning. Paying this before Postgres keeps the two risks apart.
-2. **Postgres is a second adapter behind the same port (V19)**, selected by config (`DATABASE_URL` →
-   Postgres, otherwise SQLite). One shared **conformance suite** runs against both adapters. Tenancy is
+2. **Postgres is a second adapter behind the same port (V19, built)**, selected by config
+   (`SBSCORE_DATABASE_URL` / `--database-url` → Postgres, otherwise SQLite — the *named* variable, not the
+   generic `DATABASE_URL`, so an ambient value in an unrelated environment cannot silently move a local
+   library). One shared **conformance suite** runs against both adapters. Tenancy is
    the existing `owner` column, backed by **row-level security** with the owner set per transaction
    (`SET LOCAL`). Schema versioning stays forward-on-read (ADR-0028). In production Postgres runs **in
-   the Compose stack on the VM**; because it is just a `DATABASE_URL`, a managed Postgres (Neon, etc.)
-   is a config change, not a redesign.
+   the Compose stack on the VM**; because it is just a database URL, a managed Postgres (Neon, etc.)
+   is a config change, not a redesign. As built: documents and log payloads are stored as `text`, not
+   `jsonb`, so they round-trip byte-for-byte as SQLite's do (the export cache key digests the serialised
+   document); RLS is `ENABLE`d and `FORCE`d on every table with default-deny policies keyed on
+   `app.owner`, plus an `app.system` branch on `import_jobs` only, for the runner; and **the adapter
+   refuses to run as a superuser or `BYPASSRLS` role** (the official image's default user is one, and
+   running as it would silently switch the backstop off) unless told to with `--allow-rls-bypass`.
 3. **Identity is ours, GitHub is the login provider (V20).** The API implements the GitHub OAuth code
    flow directly, stores `users` (keyed by an internal id, not the GitHub login) and hashed `sessions`,
    and the browser gets an `HttpOnly`, `Secure`, `SameSite=Lax` session cookie. No passwords are ever

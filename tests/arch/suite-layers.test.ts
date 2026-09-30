@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import vitestConfig from '../../vitest.config.js';
 
 /**
- * The suite is two layers from V2 on (`vitest.config.ts`), and the failure mode of a
+ * The suite is layered from V2 on (three since V19) (`vitest.config.ts`), and the failure mode of a
  * layered suite is a test directory that belongs to neither: `pnpm test` reports green,
  * nothing in that directory has run, and there is no red anywhere to notice.
  *
@@ -40,8 +40,9 @@ function directoriesOf(project: { include: string[] }): string[] {
 }
 
 describe('the suite layers', () => {
-  it('are the two the config declares', () => {
-    expect(configuredProjects().map((project) => project.name)).toEqual(['fast', 'infra']);
+  it('are the three the config declares', () => {
+    // `postgres` (V19) is declared always but matches no file without `SBSCORE_TEST_DATABASE_URL`.
+    expect(configuredProjects().map((project) => project.name)).toEqual(['fast', 'infra', 'postgres']);
   });
 
   it('cover every test directory, so none can go silently unrun', () => {

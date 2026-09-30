@@ -3,7 +3,7 @@
 Follow the test plan in `SLICES.md` for the slice you are on; it is written per slice and it
 is specific.
 
-- **The suite is two layers** (`vitest.config.ts`), split by what a test needs in order to run
+- **The suite is three layers** (the third, `postgres`, is V19's and opt-in — see below) (`vitest.config.ts`), split by what a test needs in order to run
   rather than by what it is about. `fast` is `unit`, `integration`, `e2e` and `arch`; `infra` is
   `store`, `api`, `cli`, `browser`, `imaging` and `eval`, and needs better-sqlite3's native binding, a
   listening socket, a real subprocess, and — for `browser` (V4d) — a real Chromium that Playwright
@@ -48,3 +48,26 @@ is specific.
   Most behavioural tests belong there from V2 on.
 - Snapshots catch unintended change. They do not judge whether the engraving looks *good* —
   only a person does that. See `proofing.md`.
+
+## The `postgres` layer (V19)
+
+`tests/postgres/` holds the Postgres adapter's tests. It is a third vitest project that runs **only when
+`SBSCORE_TEST_DATABASE_URL` names a server**; without it the project matches no file, so a plain `pnpm test`
+on a machine with no Postgres is unchanged. Reaching the tests without a database any other way is an error
+in `tests/postgres/support.ts`, never a silent skip — a suite that quietly runs nothing reports green and
+protects nothing.
+
+- `pnpm test:postgres` starts a throwaway Postgres with Docker Compose (`compose.test.yaml`), runs the layer
+  and removes it (`KEEP_POSTGRES=1` leaves it). Point `SBSCORE_TEST_DATABASE_URL` at your own server (as a
+  superuser) to skip Docker. CI runs it as `test (postgres)` on a service container.
+- **Each test gets a database of its own**, owned by an ordinary `sibei_app` role that is `NOSUPERUSER
+  NOBYPASSRLS` — row-level security does not bind a superuser, so a test run as one would prove nothing about
+  the backstop. The adapters themselves refuse a superuser. The databases default to an ICU `en-US`
+  collation on purpose: in a `C` locale the byte-order test could never fail.
+- **The store contract is asserted once** (`tests/store/conformance.ts`) and run against SQLite
+  (`tests/store/conformance.test.ts`) and Postgres (`tests/postgres/conformance.test.ts`). Anything a caller
+  can observe belongs there; mechanism (RLS, locks, `SKIP LOCKED`, the migration) belongs in
+  `tests/postgres/postgres.test.ts`. A new adapter joins by adding one file.
+- Mutation-check a new guard: break the thing it guards and watch it go red. Twice in V19 a test that
+  passed first time was vacuous (a byte-order check in a `C` locale; a wrong-password test on a `trust`
+  cluster).

@@ -9,7 +9,7 @@ stale — fix it, in the same PR that made it stale.
 ## Status
 
 **V1–V8 are done and v0.1 is complete; v0.2 (import) is now complete — V9, V10, V11, V12, V13 and V14 have all landed.** V8 was undo/redo, the MusicXML codec, library delete + duplicate, export wiring + toggle, the migration fixture, serving the built UI, the container and the v0.1 docs (V8a–V8i). **V9 is the oemer coordinate spike (ADR-0023) and it passed its gate: oemer's note/barline pixel coordinates are reachable in-process, so v0.2 proceeds without vendoring a fork.** The spike is Python in a new top-level `worker/` (outside the pnpm workspace, ADR-0005), standalone and not in CI; its output schema is model-owned (`packages/model/src/omr.ts`) and the V9 tests validate a committed real dump. **V10 is the worker, offline and in a job:** the V9 spike is promoted into a real recogniser (`worker/sibei_omr/recognize.py`) behind an HTTP worker (`worker/sibei_omr/server.py`), and the API side records an import as a durable **job** (ADR-0001) — an upload validated by decoding at the boundary (ADR-0029), stored in the BlobStore, enqueued, and run by a background runner that calls the worker across a `WorkerClient` port (ADR-0005) and stores the raw `OmrDocument`. A failed import records a diagnostic, is retryable, and commits nothing (Q80); the API is fully functional with the worker stopped. The worker is a second compose container with weights baked + checksummed at build time (ADR-0024, offline) and CPU-only as the floor with an opt-in GPU image (ADR-0025). **Mapping the recognised objects onto a `Score` via `score.import` is V11, not V10** — a succeeded V10 job carries the raw objects and creates no score. **V12 is the evaluation harness (R6, ADR-0020):** a new dev-only `packages/synth` (a deliberate ADR-0031 exception to the no-Node rule — a build-time tool, guarded out of every shipped bundle by `tests/arch`) generates plausible lead sheets, renders + degrades them into photos behind the `@sibei/synth/imaging` subpath (native `@resvg/resvg-js` + `sharp`, kept off the fast layer), and scores a recogniser against the ground truth by LCS/Levenshtein alignment; `make eval` / `pnpm eval` print the table and append `eval/history.jsonl`, with the recogniser an injected `Predict` seam so the same harness scores oemer now and v0.3's bespoke engine later. `packages/synth` is built a slice ahead of SLICES V15 on purpose, so v0.3 extends it. See `docs/eval.md` and the SLICES V12 note. **V13 reads chords from the photo (R5, completes the import pipeline):** the worker schema gains `bandTokens` (`OMR_SCHEMA_VERSION` 1→2) — raw chord-band OCR text with pixel boxes; a pure-TS step in `mapOmrToScore` snaps each token to a legal chord with the **V5 grammar corrector** (injected, since `model` can't import `music`, ADR-0011), **beat-maps** it to the note/onset at or before its box (stage 3, Q71), or keeps it as a flagged `Annotation` (Q56), carrying OCR confidence and flags into the model (ADR-0019); the worker crops the band and runs **PaddleOCR** (`worker/sibei_omr/band_ocr.py`, ADR-0027). V13 also pulls v0.3's **engine-selection seam forward** (`worker/sibei_omr/engines/{oemer,heuristic}`, chosen by `--engine`/`$SIBEI_OMR_ENGINE`, oemer the default): the **heuristic engine** is OpenCV-only, low-RAM **dev/test scaffolding** — NOT the trained V15/V16 bespoke model, and it earns no default swap (decided on the V12 harness, ADR-0020/0031) — so the whole flow and `make eval` run on a small host where oemer OOMs; it lifted chordF1 from 0 to 0.100 there. Rehearsal letters and sections are still **not detected** (ADR-0021); the oemer chord baseline (the ADR-0011 stage-2 target) and the PaddleOCR+oemer image build are deferred to a bigger host. Confidence shows in `sbscore show` as `Cmaj7!62` on flagged import chords (ADR-0009 stays lossy otherwise). See the SLICES V13 note and `worker/README.md`. See the ADR-0023 status update, `worker/README.md`, and `agent_docs/server.md` (the import job section).
-**v0.4 (the hosted web app, ADR-0034) is under way — V18 (async ports) and V19a (tenancy keys) have landed, the rest is planned:** GitHub login, Postgres and Redis, API tokens via `sbscore auth login`, a remote MCP endpoint, deployed as Docker Compose on a single VM behind Caddy; SLICES V18–V26. V18 made the store/job/auth ports async (every method returns a promise; `tests/arch/async-ports.test.ts` holds it) and fixed a lost-wakeup race in the job runner that only an async store exposes; V19a then put ownership in the primary keys (table schema v5 — before it two tenants could not share a chart id), and V19 (the Postgres adapter) is next.
+**v0.4 (the hosted web app, ADR-0034) is under way — V18 (async ports), V19a (tenancy keys) and V19 (the Postgres adapter) have landed, the rest is planned:** GitHub login, Postgres and Redis, API tokens via `sbscore auth login`, a remote MCP endpoint, deployed as Docker Compose on a single VM behind Caddy; SLICES V18–V26. V18 made the store/job/auth ports async (every method returns a promise; `tests/arch/async-ports.test.ts` holds it) and fixed a lost-wakeup race in the job runner that only an async store exposes; V19a then put ownership in the primary keys (table schema v5 — before it two tenants could not share a chart id). **V19 is the Postgres adapter** (`@sibei/api/postgres`, `sbscore serve --database-url`): RLS by owner, forced and default-deny; a refusal to run as a superuser; one store contract run against both SQLite and Postgres; idempotent import landing; `pnpm test:postgres` runs it on a throwaway Postgres via Docker Compose, and CI runs it as `test (postgres)` (not yet a required check). V20 (GitHub login) is next.
 `SLICES.md` is the plan of record and
 carries per-slice history; `agent_docs/history.md` records how each slice was actually cut. What
 exists: the score model, the layout engine, our own engraver, the server-side PDF path, the store,
@@ -177,7 +177,7 @@ packages/
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM
   api        the server side: store, op log + applier, /v1/ routes, export, the change bus.
-             `@sibei/api` is the port; `@sibei/api/sqlite` is the adapter
+             `@sibei/api` is the port; `@sibei/api/sqlite` and `@sibei/api/postgres` are the adapters
   cli        the `sbscore` binary — an HTTP client of the API, never a second write path
   ui         the browser: Svelte 5 + Vite. Renders through layout + engrave, never @sibei/pdf
   fixtures   hand-authored scores: nasty-chart, every-glyph, long-form (spills to page 2), untitled,
@@ -211,6 +211,7 @@ tests/
   unit/  integration/  e2e/  arch/     no infra: the `fast` layer
   store/  api/  cli/  browser/         need a real store, socket or browser: the `infra` layer
   imaging/  eval/                       V12: native resvg+sharp / the eval harness — also `infra`
+  postgres/                            V19: needs a Postgres (opt-in: runs only with SBSCORE_TEST_DATABASE_URL)
   snapshots/                           committed .svg files
   fixtures/                            committed inputs: a v1 score for migration, omr/ spike dumps, eval/real/
 scripts/     development entry points, not product surface
@@ -225,6 +226,7 @@ pnpm typecheck             # each package under its own strict config. `ui` goes
 pnpm test                  # vitest, both layers
 pnpm test:fast             # the no-infra layer — what the pre-push hook runs
 pnpm test:infra            # the layer that needs a real store (and, for browser/, a real Chromium)
+pnpm test:postgres         # V19: the Postgres adapter, on a throwaway Postgres (Docker Compose) — needs Docker or SBSCORE_TEST_DATABASE_URL
 pnpm serve                 # run the local API on 127.0.0.1:4321
 pnpm sbscore <verb>        # the CLI. `pnpm sbscore --help` lists every verb
 pnpm ui                    # the browser, on Vite. strictPort — it refuses rather than sliding
@@ -248,8 +250,11 @@ Breaking one of these breaks a decision of record. Ask before deviating from any
   product-runtime package (`pdf`/`api`/`cli`/`ui`) from importing it — it must never enter a bundle.
 - **The op applier is the only thing that writes to the store** (ADR-0003). `ScoreWriter` is a
   separate interface only the applier may name; `tests/arch` fails if anything else does.
-- **Nothing outside `packages/api/src/store/sqlite-*.ts` may know SQLite exists** (ADR-0006).
-  `@sibei/api` exports the port only; the adapter is an opt-in subpath, `@sibei/api/sqlite`.
+- **Nothing outside `packages/api/src/store/sqlite-*.ts` may know SQLite exists, and nothing outside
+  `postgres-*.ts` may know Postgres exists** (ADR-0006, ADR-0034) — per driver, so neither adapter depends on
+  the other's. `@sibei/api` exports the port only; the adapters are opt-in subpaths, `@sibei/api/sqlite` and
+  `@sibei/api/postgres`. Every persistence port is async (V18), and both adapters answer to one contract
+  (`tests/store/conformance.ts`).
 - **One render path, reached differently per surface.** `layout` + `engrave` is the only thing
   that turns a score into glyphs. The server goes through `@sibei/pdf`; the browser composes
   `layout()` + `engravePage()` itself and **may never import `@sibei/pdf`** (pdfkit + `Buffer` in

@@ -3,6 +3,7 @@ import type { Id, OmrDocument, Score } from '@sibei/model';
 import { correctChord } from '@sibei/music';
 import type { BlobStore } from '../blob/blob-store.js';
 import type { JobPublisher } from '../events/job-bus.js';
+import { OperationError } from '../ops/errors.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
 import type { Owner } from '../store/repository.js';
 import { imageFormatOf } from './upload.js';
@@ -118,6 +119,27 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     }
   }
 
+  /**
+   * Land the mapped document as a new score, treating "already there" as success.
+   *
+   * The id is `import-<jobId>`, minted from this job alone and unique per owner, so a `conflict-exists`
+   * on it can only mean an earlier attempt *of this same job* already landed the score and the process
+   * died before `complete` recorded it (V19 closes the window V18 documented: a crash between the two
+   * writes used to leave a retry that failed forever on `already-exists`). The earlier score stands — it
+   * may already have been opened and edited, and overwriting the user's corrections with a fresh parse
+   * would be the worse outcome. Any *other* failure is real and propagates to fail the job.
+   */
+  async function land(job: ImportJob, document: Score): Promise<Id> {
+    try {
+      return (await importer.import(job.owner, document)).scoreId;
+    } catch (error) {
+      if (error instanceof OperationError && error.failure.kind === 'conflict-exists' && error.failure.id === document.id) {
+        return document.id;
+      }
+      throw error;
+    }
+  }
+
   async function process(job: ImportJob): Promise<void> {
     // `claim` already moved it to `running`; tell any subscriber who was watching it queue up.
     publisher.publish(job.owner, { jobId: job.id, status: 'running' });
@@ -146,18 +168,17 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       }
 
       // Map the recognised pages onto a Score and land it through the applier's server-only import
-      // path (V11), then complete the job. These are two store writes with an `await` between them
-      // (V18: the store is asynchronous), as they were two statements before it, so a process killed
-      // between them leaves a score and a job that never succeeded — startup `recover` then fails the
-      // job, and a retry would hit `already-exists` on the deterministic `import-<jobId>` id. That
-      // window is unchanged in kind; V19 should close it (one transaction, or an idempotent import).
-      // A `mapOmrToScore` throw (no staff detected,
-      // ADR-0018/Q28) or a store conflict fails the job, committing nothing (Q80), exactly like a
+      // path (V11), then complete the job. Landing is **idempotent** (V19, see `land`): the two are
+      // separate store writes with an `await` between them, so a process killed between them leaves a
+      // score and a job that never succeeded; startup `recover` fails that job and a retry mints the very
+      // same score id — which `land` recognises as this job's own earlier landing rather than a clash, so
+      // the retry completes instead of failing forever. A `mapOmrToScore` throw (no staff detected,
+      // ADR-0018/Q28) or a genuine store failure fails the job, committing nothing (Q80), exactly like a
       // worker error — a failed import leaves no half-written score to undo (ADR-0003).
       // Inject the V5 grammar corrector so band OCR becomes chords and annotations (V13, ADR-0011);
       // `model` cannot import `music`, so the seam is passed in here.
       const document = mapOmrToScore(results, { id: `import-${job.id}` }, correctChord);
-      const { scoreId } = await importer.import(job.owner, document);
+      const scoreId = await land(job, document);
 
       const done = await jobs.complete(job.id, results, scoreId);
       if (done !== null) publisher.publish(done.owner, { jobId: done.id, status: 'succeeded' });

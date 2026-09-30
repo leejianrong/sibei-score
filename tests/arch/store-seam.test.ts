@@ -15,10 +15,14 @@ import { describe, expect, it } from 'vitest';
 const REPO = resolve(import.meta.dirname, '../..');
 
 /**
- * The only files permitted to know. Exactly two, and the list being short is the point — a
- * third one has to show up in a diff and be argued for.
+ * The only files permitted to know, per driver. Short lists, and the length is the point — another file
+ * has to show up in a diff and be argued for.
+ *
+ * Two drivers since V19 (ADR-0034). The seam is *per driver*: a Postgres file may not import SQLite's
+ * driver and vice versa, so neither adapter can quietly grow a dependency on the other's world, and a
+ * third database would add a third list rather than widen these.
  */
-const THE_IMPLEMENTATION = [
+const SQLITE_IMPLEMENTATION = [
   'packages/api/src/store/sqlite-store.ts',
   'packages/api/src/store/sqlite-schema.ts',
   // The third, argued for (V10): the import-job queue is durable state (ADR-0001 #7), so it needs a
@@ -28,7 +32,24 @@ const THE_IMPLEMENTATION = [
   'packages/api/src/store/sqlite-jobs.ts',
 ];
 
-const DRIVER = 'better-sqlite3';
+/**
+ * The Postgres adapter (V19): the schema and migration, the transaction/session helper that names the
+ * owner for row-level security, the score store and the job store. Four files, each argued in its header;
+ * `postgres-session.ts` is the fourth because both stores must run every statement the same way.
+ */
+const POSTGRES_IMPLEMENTATION = [
+  'packages/api/src/store/postgres-schema.ts',
+  'packages/api/src/store/postgres-session.ts',
+  'packages/api/src/store/postgres-store.ts',
+  'packages/api/src/store/postgres-jobs.ts',
+];
+
+const THE_IMPLEMENTATION = [...SQLITE_IMPLEMENTATION, ...POSTGRES_IMPLEMENTATION];
+
+const DRIVERS = [
+  { name: 'better-sqlite3', may: SQLITE_IMPLEMENTATION },
+  { name: 'pg', may: POSTGRES_IMPLEMENTATION },
+];
 
 function sourceFiles(directory: string): string[] {
   if (!exists(directory)) return [];
@@ -75,13 +96,26 @@ describe('the store seam (ADR-0006)', () => {
     for (const file of THE_IMPLEMENTATION) expect(exists(join(REPO, file))).toBe(true);
   });
 
-  it('lets nothing outside the implementation import the driver', () => {
-    const offenders = productFiles().filter(
-      (file) =>
-        !THE_IMPLEMENTATION.includes(file) &&
-        new RegExp(`['"]${DRIVER}(/[^'"]*)?['"]`).test(codeOf(join(REPO, file))),
-    );
-    expect(offenders).toEqual([]);
+  it('lets nothing outside a driver\'s own files import that driver', () => {
+    for (const driver of DRIVERS) {
+      const offenders = productFiles().filter(
+        (file) =>
+          !driver.may.includes(file) &&
+          new RegExp(`['"]${driver.name}(/[^'"]*)?['"]`).test(codeOf(join(REPO, file))),
+      );
+      expect({ driver: driver.name, offenders }).toEqual({ driver: driver.name, offenders: [] });
+    }
+  });
+
+  it('keeps the two adapters out of each other\'s worlds', () => {
+    // A Postgres file naming SQLite's driver (or the reverse) would mean one adapter had started to
+    // depend on the other, which is exactly the coupling the port exists to prevent.
+    for (const file of POSTGRES_IMPLEMENTATION) {
+      expect(codeOf(join(REPO, file))).not.toMatch(/['"]better-sqlite3['"]/);
+    }
+    for (const file of SQLITE_IMPLEMENTATION) {
+      expect(codeOf(join(REPO, file))).not.toMatch(/from ['"]pg['"]/);
+    }
   });
 
   it('lets nothing outside the implementation write SQL', () => {
@@ -94,19 +128,19 @@ describe('the store seam (ADR-0006)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('is the only package that declares the driver', () => {
-    const declaring = readdirSync(join(REPO, 'packages')).filter((name) => {
-      const manifest = join(REPO, 'packages', name, 'package.json');
-      if (!exists(manifest)) return false;
-      const { dependencies, devDependencies } = JSON.parse(readFileSync(manifest, 'utf8')) as {
-        dependencies?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-      };
-      return Object.keys({ ...dependencies, ...devDependencies }).some((dep) =>
-        dep.includes('sqlite'),
-      );
-    });
-    expect(declaring).toEqual(['api']);
+  it('is the only package that declares either driver', () => {
+    for (const isDriver of [(dep: string) => dep.includes('sqlite'), (dep: string) => dep === 'pg' || dep === '@types/pg']) {
+      const declaring = readdirSync(join(REPO, 'packages')).filter((name) => {
+        const manifest = join(REPO, 'packages', name, 'package.json');
+        if (!exists(manifest)) return false;
+        const { dependencies, devDependencies } = JSON.parse(readFileSync(manifest, 'utf8')) as {
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+        };
+        return Object.keys({ ...dependencies, ...devDependencies }).some(isDriver);
+      });
+      expect(declaring).toEqual(['api']);
+    }
   });
 
   it('keeps the driver out of the root manifest, so no test can reach past the port', () => {
@@ -117,6 +151,6 @@ describe('the store seam (ADR-0006)', () => {
       readFileSync(join(REPO, 'package.json'), 'utf8'),
     ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
     const declared = Object.keys({ ...dependencies, ...devDependencies });
-    expect(declared.filter((dep) => dep.includes('sqlite'))).toEqual([]);
+    expect(declared.filter((dep) => dep.includes('sqlite') || dep === 'pg' || dep === '@types/pg')).toEqual([]);
   });
 });

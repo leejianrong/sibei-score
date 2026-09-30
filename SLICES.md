@@ -1315,13 +1315,27 @@ and log intact and in order; a newer table version is still refused.
 **Status: built.**
 
 ### V19: Postgres adapter + conformance suite
-**Delivers:** `@sibei/api/postgres` behind the same port, chosen by `DATABASE_URL`; RLS by owner set
-with `SET LOCAL` per transaction; forward-only migrations (ADR-0028).
-**Demo:** run the API against a local Postgres; the V2 demo passes.
-**Tests:** one conformance suite runs against SQLite and Postgres; a cross-owner read and write is
-refused *by RLS* even when the app-level filter is removed; concurrent writers get `409`.
-**CI:** a Postgres service job, named separately and not required until stable (job names are
-load-bearing).
+**Delivers:** `@sibei/api/postgres` (`openPostgresStore`, `openPostgresJobStore`) behind the same ports,
+chosen by `--database-url` / `SBSCORE_DATABASE_URL` (deliberately *not* the generic `DATABASE_URL`, which
+an unrelated environment may have set); RLS by owner set with `SET LOCAL` semantics per transaction and
+`FORCE`d so it binds the table owner; forward-only migration under an advisory lock; `sbscore serve`
+wired to it. **Also closes V18's documented window:** landing an import is now idempotent, so a crash
+between `Applier.import` and `jobs.complete` no longer leaves a retry that fails forever.
+**Demo:** `pnpm test:postgres` starts a throwaway Postgres with Docker Compose, runs the suite, tears it
+down; `sbscore serve --database-url …` serves charts out of Postgres and keeps them across a restart.
+**Tests:** `tests/store/conformance.ts` is one contract run against SQLite and Postgres (byte-identical
+document round-trip, byte-order listing, tenancy, migration-on-read, atomicity, the job state machine);
+`tests/postgres/` adds RLS as a real backstop (default deny, no-WHERE queries, forged owner, system actor
+limited to `import_jobs`), the refusal to run as a superuser, replicas migrating at once, exactly-one
+winner among ten concurrent writers, `SKIP LOCKED` across two runners, and a server-killed connection
+not taking the process down.
+**Found on the way:** a missing `pool.on('error')` would have crashed the API on any dropped connection;
+`pool.end()` resolves before the sockets close (test teardown race); a `C`-locale test database makes a
+byte-order test unfalsifiable (databases are now created with an ICU `en-US` default collation); the
+official image's default user is a superuser, which RLS does not bind.
+**CI:** `test (postgres)` on a service container, reporting on every PR and **not yet required** (job
+names are load-bearing; making it required is a branch-protection change once it has proven stable).
+**Status: built.**
 
 ### V20: Identity — GitHub login
 **Delivers:** `users`, `identities(provider, subject)`, hashed `sessions`; GitHub OAuth code flow;

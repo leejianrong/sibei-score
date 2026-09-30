@@ -6,7 +6,8 @@
   "description": "The server side: the store, the op log, and the HTTP API. Node-bound by design.",
   "exports": {
     ".": "./src/index.ts",
-    "./sqlite": "./src/sqlite.ts"
+    "./sqlite": "./src/sqlite.ts",
+    "./postgres": "./src/postgres.ts"
   },
   "types": "./src/index.ts",
   "sideEffects": false,
@@ -17,9 +18,11 @@
     "@sibei/model": "workspace:*",
     "@sibei/music": "workspace:*",
     "@sibei/pdf": "workspace:*",
-    "better-sqlite3": "13.0.2"
+    "better-sqlite3": "13.0.2",
+    "pg": "8.23.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "7.6.13"
+    "@types/better-sqlite3": "7.6.13",
+    "@types/pg": "8.23.1"
   }
 }

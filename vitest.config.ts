@@ -51,6 +51,17 @@ const INFRA = [
   'tests/eval/**/*.test.ts',
 ];
 
+/**
+ * V19's Postgres tests. A third layer, and unlike the other two it is **opt-in by configuration**: it runs
+ * only when `SBSCORE_TEST_DATABASE_URL` names a server (`pnpm test:postgres` provides one with Docker
+ * Compose; CI provides one from a service container). Without it the project matches no file, so a plain
+ * `pnpm test` on a machine with no Postgres is unchanged. Reaching the tests without a database by some
+ * other route is an error in `tests/postgres/support.ts`, never a silent skip, because a suite that
+ * quietly runs nothing reports green and protects nothing.
+ */
+const POSTGRES = ['tests/postgres/**/*.test.ts'];
+const POSTGRES_DATABASE = process.env.SBSCORE_TEST_DATABASE_URL === '' ? undefined : process.env.SBSCORE_TEST_DATABASE_URL;
+
 /** Runs before every fast-layer test file, and refuses to let one load a compiled module. */
 const FAST_SETUP = ['tests/no-native-bindings.ts'];
 
@@ -70,6 +81,18 @@ export default defineConfig({
         },
       },
       { test: { name: 'infra', include: INFRA, environment: 'node', testTimeout: TIMEOUT } },
+      {
+        test: {
+          name: 'postgres',
+          include: POSTGRES,
+          // Declared always, so the layer list is honest (`tests/arch/suite-layers.test.ts` reads it), but
+          // it matches no file unless a database was named — a plain `pnpm test` on a machine with no
+          // Postgres must not go red. See the note above `POSTGRES`.
+          exclude: POSTGRES_DATABASE === undefined ? ['**/*'] : [],
+          environment: 'node',
+          testTimeout: TIMEOUT,
+        },
+      },
     ],
   },
 });

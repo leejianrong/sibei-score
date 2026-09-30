@@ -1,0 +1,30 @@
+# A throwaway Postgres for the V19 integration tests — `pnpm test:postgres` starts it, runs
+# `tests/postgres/`, and removes it. Not the hosted deployment (that is V24's profile) and not something
+# the app itself depends on: the app runs against SQLite unless it is given a database URL.
+#
+#     pnpm test:postgres            # start, test, tear down
+#     KEEP_POSTGRES=1 pnpm test:postgres     # leave it running to poke at (docker compose -f compose.test.yaml down -v)
+#
+# The official image's default user is a SUPERUSER, which is exactly what the adapters refuse to run as
+# (row-level security does not bind a superuser). That is fine here: the tests use this login only to
+# create databases and the ordinary `sibei_app` role, then connect as that role. Password authentication
+# is on (the image's default for TCP), unlike a bare `trust` cluster, so credentials are really checked.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    # A different port from the usual 5432 so it never collides with a Postgres you already run, and
+    # published to loopback only (ADR-0029): nothing about a test database should be reachable from the LAN.
+    ports:
+      - "127.0.0.1:54330:5432"
+    # Data on tmpfs: fast, and gone when the container is. Nothing here is worth keeping.
+    tmpfs:
+      - /var/lib/postgresql/data
+    # `fsync` off is a test-speed setting; it would be reckless anywhere real data lives.
+    command: ["postgres", "-c", "fsync=off", "-c", "max_connections=200"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
