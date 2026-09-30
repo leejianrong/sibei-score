@@ -1,5 +1,9 @@
 # Hosting sibei-score
 
+> **Update 2026-09-30:** the hosted direction is now decided — see [ADR-0034](adr/0034-hosted-web-app-primary.md)
+> and SLICES v0.4 (V18–V26). Where this document and that ADR disagree (phase order, Redis vs
+> Postgres `LISTEN/NOTIFY`, the async-port refactor), the ADR wins.
+
 A forward-looking plan for what the local, single-user app becomes when it is hosted for many users on
 the internet. This is a **direction document, not a decision of record** — the decisions themselves are the
 ADRs it cites (chiefly ADR-0001, which made hosting a goal from the first commit). Nothing here is built
@@ -70,7 +74,7 @@ existing interface; "New" = a genuinely new subsystem.
 |---|---|---|---|
 | **Auth seam** (`resolveLocalPrincipal`) | Every request resolves to owner `local` | Resolve a real principal from a session/OIDC token; `owner` = user (or org) id | Swap |
 | **Owner on every row** (`Owner` field) | Always `'local'`, but present since day one | The tenancy key — every query filtered by it; no schema migration for tenancy | Swap |
-| **Store repository** (`ScoreStore`) | SQLite adapter (`@sibei/api/sqlite`) | Postgres adapter behind the same interface; row-level security by owner | Swap |
+| **Store repository** (`ScoreStore`) | SQLite adapter (`@sibei/api/sqlite`) | Postgres adapter behind the same interface; row-level security by owner. **The port is synchronous today, so it must go async first (ADR-0034, V18)** | Refactor, then swap |
 | **Blob store** (`BlobStore`) | Directory on disk | S3-compatible object storage; presigned URLs so bytes never proxy through the API | Swap |
 | **Stateless API** (no in-memory score cache) | One process, all state in the store | N replicas behind a load balancer; scale horizontally, no sticky sessions | Swap |
 | **Boundary guards** (Origin/Host/no-CORS) | Loopback allow-list, same-origin UI | Allow-list the real domain(s); real CORS only if the API is a separate origin; add rate limits | Swap |
