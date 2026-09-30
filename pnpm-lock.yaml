@@ -171,8 +171,8 @@ importers:
         specifier: workspace:*
         version: link:../model
       pdfkit:
-        specifier: 0.19.1
-        version: 0.19.1
+        specifier: 0.20.2
+        version: 0.20.2
       svg-to-pdfkit:
         specifier: 0.1.8
         version: 0.1.8
@@ -936,9 +936,6 @@ packages:
   brotli@1.3.3:
     resolution: {integrity: sha512-oTKjJdShmDuGW94SyyaoQvAjf30dZaHnjJ8uAF+u2/vGJkJbJPJAT1gDiOJP5v1Zb6f9KEyW/1HpuaWIXtGHPg==}
 
-  browserify-zlib@0.2.0:
-    resolution: {integrity: sha512-Z942RysHXmJrhqk88FmKBVq/v5tqmSkDz7p54G/MGyjMnCFFnC79XWNbg+Vta8W6Wb2qtSZTSxIGkJrRpCFEiA==}
-
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
@@ -1031,6 +1028,9 @@ packages:
       picomatch:
         optional: true
 
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   fontkit@2.0.4:
     resolution: {integrity: sha512-syetQadaUEDNdxdugga9CpEYVaQIxOwk7GlwZWWZ19//qW4zE5bknOKeMBDYAASwnpaSHKJITRLMF9m1fp3s6g==}
 
@@ -1065,9 +1065,6 @@ packages:
 
   is-reference@3.0.3:
     resolution: {integrity: sha512-ixkJoqQvAP88E6wLydLGGqCJsrFUnqoH6HnaczB8XmDH1oaWU+xxdptvikTgaEhtZ53Ky6YXiBuUI2WXLMCwjw==}
-
-  js-md5@0.8.3:
-    resolution: {integrity: sha512-qR0HB5uP6wCuRMrWPTrkMaev7MJZwJuuw4fnwAzRgP4J4/F8RwtodOKpGp4XpqsLBFzzgqIO42efFAyz2Et6KQ==}
 
   jsdom@26.1.0:
     resolution: {integrity: sha512-Cvc9WUhxSMEo4McES3P7oK3QaXldCfNWp7pl2NNeiIFlCoLr3kfq9kb1fxftiwk1FLV7CvpvDfonxtzUDeSOPg==}
@@ -1123,14 +1120,11 @@ packages:
   pako@0.2.9:
     resolution: {integrity: sha512-NUcwaKxUxWrZLpDG+z/xZaCgQITkA/Dv4V/T6bw7VON6l1Xz/VnrBqrYjZQ12TamKHzITTfOEIYUj48y2KXImA==}
 
-  pako@1.0.11:
-    resolution: {integrity: sha512-4hLB8Py4zZce5s4yd9XzopqwVv/yGNhV1Bl8NTmCq1763HeK2+EwVTv+leGeL13Dnh2wfbqowVPXCIO0z4taYw==}
-
   parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
 
-  pdfkit@0.19.1:
-    resolution: {integrity: sha512-6Gzk+wDwTs4VSxsR5rCMTnIl5nlmkye1oWB0l2hDB1EX6ZNSIBroKQEv+2+fPPn+stVjyqzmsqRJVDfB9fo5DA==}
+  pdfkit@0.20.2:
+    resolution: {integrity: sha512-Q/w03ICAQyXfHNfTsg1udp0ADerdBN0s7a6XSPL7J7Ro6ABnafoBOCDBstIO9U02mvzHEV8HrvFIw5iV5ejIRA==}
 
   pg-cloudflare@1.4.0:
     resolution: {integrity: sha512-Vo7z/6rrQYxpNRylp4Tlob2elzbh+N/MOQbxFVWCxS7oEx6jF53GTJFxK2WWpKuBRkmiin4Mt+xofFDjx09R0A==}
@@ -1183,8 +1177,8 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  png-js@1.1.0:
-    resolution: {integrity: sha512-PM/uYGzGdNSzqeOgly68+6wKQDL1SY0a/N+OEa/+br6LnHWOAJB0Npiamnodfq3jd2LS/i2fMeOKSAILjA+m5Q==}
+  png-js@2.0.0:
+    resolution: {integrity: sha512-GdzJuUMc6ZSpxFJWVxtOH1bzYHym+TOnveqUjb+VJIbZWbZzyiRGFiKhbiielfpYbgMlhHVhsJ0FTazfuRFkMA==}
 
   postcss@8.5.25:
     resolution: {integrity: sha512-DTPx3RWSSnWyzLxQnlH0rJP+EW5ekl16ZU4/psbIhA0e53kJfdgaN5vKM+xP7yJtXVu+nfdVFmlgFDEKAe4Pyw==}
@@ -1943,10 +1937,6 @@ snapshots:
     dependencies:
       base64-js: 1.5.1
 
-  browserify-zlib@0.2.0:
-    dependencies:
-      pako: 1.0.11
-
   chai@6.2.2: {}
 
   chokidar@4.0.3:
@@ -2032,6 +2022,8 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
+  fflate@0.8.3: {}
+
   fontkit@2.0.4:
     dependencies:
       '@swc/helpers': 0.5.23
@@ -2077,8 +2069,6 @@ snapshots:
   is-reference@3.0.3:
     dependencies:
       '@types/estree': 1.0.9
-
-  js-md5@0.8.3: {}
 
   jsdom@26.1.0:
     dependencies:
@@ -2140,20 +2130,18 @@ snapshots:
 
   pako@0.2.9: {}
 
-  pako@1.0.11: {}
-
   parse5@7.3.0:
     dependencies:
       entities: 6.0.1
 
-  pdfkit@0.19.1:
+  pdfkit@0.20.2:
     dependencies:
       '@noble/ciphers': 1.3.0
       '@noble/hashes': 1.8.0
+      fflate: 0.8.3
       fontkit: 2.0.4
-      js-md5: 0.8.3
       linebreak: 1.1.0
-      png-js: 1.1.0
+      png-js: 2.0.0
 
   pg-cloudflare@1.4.0:
     optional: true
@@ -2202,9 +2190,9 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.2
 
-  png-js@1.1.0:
+  png-js@2.0.0:
     dependencies:
-      browserify-zlib: 0.2.0
+      fflate: 0.8.3
 
   postcss@8.5.25:
     dependencies:
@@ -2352,7 +2340,7 @@ snapshots:
 
   svg-to-pdfkit@0.1.8:
     dependencies:
-      pdfkit: 0.19.1
+      pdfkit: 0.20.2
 
   symbol-tree@3.2.4: {}
 
