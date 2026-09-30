@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 4;
+export const TABLE_SCHEMA_VERSION = 5;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -30,14 +30,20 @@ export const TABLE_SCHEMA_VERSION = 4;
  */
 const DDL = `
 CREATE TABLE IF NOT EXISTS scores (
-  id          TEXT    NOT NULL PRIMARY KEY,
+  id          TEXT    NOT NULL,
   owner       TEXT    NOT NULL,
   title       TEXT    NOT NULL,
   composer    TEXT    NOT NULL,
   key         TEXT    NOT NULL,
   updated_at  TEXT    NOT NULL,
   version     INTEGER NOT NULL,
-  doc         TEXT    NOT NULL CHECK (json_valid(doc))
+  doc         TEXT    NOT NULL CHECK (json_valid(doc)),
+  -- Ownership is part of the key (table schema version 5, V19a). Until then \`id\` alone was the primary
+  -- key, which is invisible with one owner and wrong with two: two users could not both have a chart
+  -- called "soul", and creating an id another owner already held answered \`already-exists\` — telling
+  -- one tenant that another tenant's id exists. A chart id is unique *per owner*, and a collision is
+  -- only ever reported against your own library.
+  PRIMARY KEY (owner, id)
 );
 
 -- Every read filters on owner (ADR-0001), so every index leads with it.
@@ -54,14 +60,16 @@ CREATE INDEX IF NOT EXISTS scores_owner_updated ON scores (owner, updated_at DES
 -- ON DELETE CASCADE is the delete semantics: removing a chart removes its log, which is exactly
 -- why deleting a score cannot itself be an operation — there would be no log left to put it in.
 CREATE TABLE IF NOT EXISTS operations (
-  score_id    TEXT    NOT NULL REFERENCES scores (id) ON DELETE CASCADE,
+  owner       TEXT    NOT NULL,
+  score_id    TEXT    NOT NULL,
   seq         INTEGER NOT NULL,
   batch       INTEGER NOT NULL,
   op_version  INTEGER NOT NULL,
   type        TEXT    NOT NULL,
   payload     TEXT    NOT NULL CHECK (json_valid(payload)),
   created_at  TEXT    NOT NULL,
-  PRIMARY KEY (score_id, seq)
+  PRIMARY KEY (owner, score_id, seq),
+  FOREIGN KEY (owner, score_id) REFERENCES scores (owner, id) ON DELETE CASCADE
 );
 
 -- The import-job queue (V10, ADR-0001: "OMR is a job, not a request"). All job state lives here so
@@ -127,6 +135,10 @@ export function migrateTables(db: Database): void {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
+  // The v5 rebuild has to run *before* the DDL: `CREATE TABLE IF NOT EXISTS` would leave a v4 table as
+  // it is, and the index it creates over the new shape would then not match the old one.
+  if (needsTenancyKeys(db)) rebuildWithTenancyKeys(db);
+
   db.exec(DDL);
 
   // Incremental migrations for a database that pre-dates a column. `CREATE TABLE IF NOT EXISTS` above
@@ -139,6 +151,70 @@ export function migrateTables(db: Database): void {
   ensureColumn(db, 'import_jobs', 'engine', 'TEXT');
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
+}
+
+/**
+ * Whether this database still has the pre-v5 shape: a `scores` table whose primary key is `id` alone,
+ * with an `operations` table that does not carry an owner. A fresh database has neither table yet and
+ * needs no rebuild.
+ */
+function needsTenancyKeys(db: Database): boolean {
+  const has = (table: string): boolean =>
+    db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table) !== undefined;
+  if (!has('scores') || !has('operations')) return false;
+  const columns = db.pragma('table_info(operations)') as { name: string }[];
+  return !columns.some((column) => column.name === 'owner');
+}
+
+/**
+ * v4 → v5 (V19a): make ownership part of both keys. SQLite cannot alter a primary key, so this is the
+ * documented table rebuild — create the new tables, copy every row across, drop the old, rename — inside
+ * one transaction, with foreign keys off for its duration (the rebuild would otherwise trip its own
+ * references) and checked before it commits.
+ *
+ * Nothing is lost or reordered: every score row is copied as it is, and each operation takes its owner
+ * from the score it belongs to, keeping its `seq` and `batch`, so undo-by-replay reads the same log it
+ * did before. A score's version is untouched — a migration is not an edit (ADR-0028). Every existing row
+ * has owner `local`, since nothing else could have written one.
+ */
+function rebuildWithTenancyKeys(db: Database): void {
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE scores_v5 (
+          id TEXT NOT NULL, owner TEXT NOT NULL, title TEXT NOT NULL, composer TEXT NOT NULL,
+          key TEXT NOT NULL, updated_at TEXT NOT NULL, version INTEGER NOT NULL,
+          doc TEXT NOT NULL CHECK (json_valid(doc)),
+          PRIMARY KEY (owner, id)
+        );
+        INSERT INTO scores_v5 (id, owner, title, composer, key, updated_at, version, doc)
+          SELECT id, owner, title, composer, key, updated_at, version, doc FROM scores;
+
+        CREATE TABLE operations_v5 (
+          owner TEXT NOT NULL, score_id TEXT NOT NULL, seq INTEGER NOT NULL, batch INTEGER NOT NULL,
+          op_version INTEGER NOT NULL, type TEXT NOT NULL,
+          payload TEXT NOT NULL CHECK (json_valid(payload)), created_at TEXT NOT NULL,
+          PRIMARY KEY (owner, score_id, seq),
+          FOREIGN KEY (owner, score_id) REFERENCES scores (owner, id) ON DELETE CASCADE
+        );
+        INSERT INTO operations_v5 (owner, score_id, seq, batch, op_version, type, payload, created_at)
+          SELECT s.owner, o.score_id, o.seq, o.batch, o.op_version, o.type, o.payload, o.created_at
+            FROM operations o JOIN scores s ON s.id = o.score_id;
+
+        DROP TABLE operations;
+        DROP TABLE scores;
+        ALTER TABLE scores_v5 RENAME TO scores;
+        ALTER TABLE operations_v5 RENAME TO operations;
+      `);
+      const broken = db.pragma('foreign_key_check') as unknown[];
+      if (broken.length > 0) {
+        throw new Error(`the v5 table rebuild left ${broken.length} dangling reference(s); rolled back`);
+      }
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
 }
 
 /** Add `column` to `table` if it is not already there. Idempotent, so it is safe on a fresh database

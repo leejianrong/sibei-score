@@ -1303,6 +1303,17 @@ store (fixed, with a regression test), and its import-then-complete pair is no l
 (documented; V19 should close it).
 **Status: built.**
 
+### V19a: Ownership in the keys (prerequisite of V19)
+**Delivers:** table schema v5 — `scores` keyed `(owner, id)` and `operations` carrying an owner with a
+composite foreign key — with a data-preserving forward migration of an existing local library. Found
+while starting V19: `id` alone was the primary key, so two owners could not share a chart id and a
+collision reported another owner's id as `already-exists`. ADR-0001 and `hosting.md` had both said
+tenancy needed no schema migration; it needed this one.
+**Tests:** two owners each hold `soul`; logs number independently; delete and edit never cross owners;
+the composite foreign key refuses a cross-owner log row; a v4 database migrates with every chart, version
+and log intact and in order; a newer table version is still refused.
+**Status: built.**
+
 ### V19: Postgres adapter + conformance suite
 **Delivers:** `@sibei/api/postgres` behind the same port, chosen by `DATABASE_URL`; RLS by owner set
 with `SET LOCAL` per transaction; forward-only migrations (ADR-0028).
