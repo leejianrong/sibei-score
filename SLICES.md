@@ -1283,6 +1283,87 @@ beat mapping still needs coordinates, which the bespoke engine supplies.
 
 ---
 
+## v0.4 — the hosted web app (ADR-0034)
+
+The web app becomes the primary surface; the local app stays supported. Users sign in with GitHub, and
+the CLI and a remote MCP endpoint act as that user. Docker Compose on one VM (Hetzner or DigitalOcean)
+behind Caddy; Postgres and Redis in the stack. The only users for now are the maintainer and the agent,
+so each slice targets the *shape* of a hosted product, not scale. Nothing here is built.
+
+### V18: Async ports (no behaviour change)
+**Delivers:** the precondition for everything below. `ScoreStore`, `JobStore` and `Authenticator`
+become promise-returning; the applier's transaction becomes an async unit of work. SQLite only.
+**Demo:** `pnpm check` green with no test changed in meaning; `pnpm demo` unchanged.
+**Tests:** the existing suite is the test. Add an arch check that no port method is sync.
+
+### V19: Postgres adapter + conformance suite
+**Delivers:** `@sibei/api/postgres` behind the same port, chosen by `DATABASE_URL`; RLS by owner set
+with `SET LOCAL` per transaction; forward-only migrations (ADR-0028).
+**Demo:** run the API against a local Postgres; the V2 demo passes.
+**Tests:** one conformance suite runs against SQLite and Postgres; a cross-owner read and write is
+refused *by RLS* even when the app-level filter is removed; concurrent writers get `409`.
+**CI:** a Postgres service job, named separately and not required until stable (job names are
+load-bearing).
+
+### V20: Identity — GitHub login
+**Delivers:** `users`, `identities(provider, subject)`, hashed `sessions`; GitHub OAuth code flow;
+cookie session; an async `Authenticator`; `GET /v1/me`; sign-in, sign-out and account UI; hosted mode
+switched by config, local mode untouched.
+**Tests:** OAuth flow against a fake GitHub; `state` and PKCE checked; a session for user A cannot see
+user B's score, job, blob or SSE stream; a missing or expired session is `401`.
+
+### V21: API tokens and `sbscore auth`
+**Delivers:** the device authorisation flow, hashed scoped revocable tokens, a token list/revoke page,
+`sbscore auth login|logout|status|token`, `--url`/profile selection, `auth login --token` fallback.
+`auth` has a UI control (the token page), per Q79.
+**Tests:** device code expiry and single use; token shown once; revoked token is `401` immediately;
+credentials file is `0600`; CLI verbs work unchanged against a hosted server.
+
+### V22: Remote MCP endpoint
+**Delivers:** V22a a Streamable HTTP MCP endpoint at `/mcp` as an OAuth 2.1 resource (PKCE, dynamic
+client registration, authorisation-server and protected-resource metadata, tokens from V21 with an
+audience and scopes); tools for read (text projection), write (`batch` + addresses), export and render.
+V22b `sbscore mcp` (stdio), a thin wrapper over the same client and stored credentials.
+**Demo:** an MCP client connects to the URL, completes the OAuth consent in the browser, and an agent
+creates and edits a chart end to end.
+**Tests:** every tool result is the API's structured response or error; a stale write surfaces
+`currentVersion`; a token without the scope, or for another audience, is refused; a tool cannot
+address another owner's score; the endpoint goes through the applier (arch check).
+
+### V23: Redis, guards, limits
+**Delivers:** a Redis adapter for the change bus (in-process stays the local default) and for
+rate-limit counters; a configurable Host/Origin allow-list; per-user and per-IP rate limits; per-user
+quotas; an amendment to ADR-0029.
+**Tests:** an edit through one API process repaints an SSE client on another; quota and rate-limit
+responses are structured problems; the guards still reject a foreign Origin.
+
+### V24: Hosted Compose on a VM
+**Delivers:** a hosted Compose profile (`caddy`, `api`, `worker`, `postgres`, `redis`; only Caddy
+publishes ports), CI that builds and pushes images, a documented VM bootstrap, an env-file for
+secrets, migrations on start, health checks, and a nightly `pg_dump` shipped off the box.
+**Demo:** sign in with GitHub on the live URL, create and export a chart, then do the same from the CLI
+after `sbscore auth login`, and from an MCP client.
+**Tests:** the profile brings up a working stack in CI (smoke); the api is unreachable except through
+Caddy; restoring a dump into a fresh stack works.
+
+### V25: Web-first pass and deletion
+**Delivers:** a signed-out landing view, a first-run empty state, README/docs repositioned (hosted
+first, local second), account deletion that hard-deletes scores, logs, jobs, tokens and blobs, the
+beta notice, and an orphan-blob sweep.
+**Tests:** after deleting an account nothing addressed by its id remains in the store or blob volume.
+
+### V26: Import beta on hosted
+**Delivers:** the hosted deployment runs the worker with `SIBEI_OMR_ENGINE=bespoke`, a feature flag,
+quotas on import pages, and an in-UI notice that chord recognition is unreliable. The local default
+stays `oemer`.
+**Rests on:** V25's deletion; V17f only if the default engine has changed by then.
+
+### Deferred
+Google and other providers, organisations/sharing, MusicXML import, an S3-compatible blob adapter, a
+second API replica (Redis already makes it a config change), Kubernetes.
+
+---
+
 ## Sequencing notes
 
 - **V1, V1b and V9 are gates, not features.** Each has an explicit decision as its exit
