@@ -1,8 +1,8 @@
 # Hosting sibei-score
 
 > **Update 2026-09-30:** the hosted direction is now decided — see [ADR-0034](adr/0034-hosted-web-app-primary.md)
-> and SLICES v0.4 (V18–V26). Where this document and that ADR disagree (phase order, Redis vs
-> Postgres `LISTEN/NOTIFY`, the async-port refactor), the ADR wins.
+> and SLICES v0.4 (V18–V26). Where this document and that ADR disagree (phase order, the async-port
+> refactor, Redis from day 1, Compose on a VM rather than a managed platform), the ADR wins.
 
 A forward-looking plan for what the local, single-user app becomes when it is hosted for many users on
 the internet. This is a **direction document, not a decision of record** — the decisions themselves are the
