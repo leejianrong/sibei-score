@@ -10,4 +10,6 @@ export { openPostgresStore } from './store/postgres-store.js';
 export type { PostgresStoreOptions } from './store/postgres-store.js';
 export { openPostgresJobStore } from './store/postgres-jobs.js';
 export type { PostgresJobStoreOptions } from './store/postgres-jobs.js';
+export { openPostgresAccountStore } from './store/postgres-accounts.js';
+export type { PostgresAccountStoreOptions } from './store/postgres-accounts.js';
 export { POSTGRES_TABLE_SCHEMA_VERSION } from './store/postgres-schema.js';

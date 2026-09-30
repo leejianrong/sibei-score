@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
-import type { JobStore, ScoreStore } from '@sibei/api';
+import {
+  POSTGRES_TABLE_SCHEMA_VERSION,
+  openPostgresAccountStore,
+  openPostgresJobStore,
+  openPostgresStore,
+} from '@sibei/api/postgres';
+import type { AccountStore, JobStore, ScoreStore } from '@sibei/api';
 import { aScore, anEdit, insert } from '../store/helpers.js';
 import { pg, provisionDatabase, quiet } from './support.js';
 import type { PgPool, TestDatabase } from './support.js';
@@ -36,6 +41,12 @@ async function openJobs(): Promise<JobStore> {
   const jobs = await openPostgresJobStore({ connectionString: database.url, onError: quiet });
   closers.push(() => jobs.close());
   return jobs;
+}
+
+async function openAccounts(): Promise<AccountStore> {
+  const accounts = await openPostgresAccountStore({ connectionString: database.url, onError: quiet });
+  closers.push(() => accounts.close());
+  return accounts;
 }
 
 /** A raw pool as the application role: the same privileges the adapter has, and nothing it adds. */
@@ -183,10 +194,93 @@ describe('row-level security is a real backstop, not just a second WHERE', () =>
   });
 });
 
+describe('identity tables are behind row-level security too (V20)', () => {
+  /** Two users signed in, each with a session — the fixture every check below reads through raw SQL. */
+  async function twoUsers() {
+    const accounts = await openAccounts();
+    const alice = await accounts.signIn({ provider: 'github', subject: '1', displayName: 'Alice', avatarUrl: null });
+    const bob = await accounts.signIn({ provider: 'github', subject: '2', displayName: 'Bob', avatarUrl: null });
+    await accounts.createSession(alice.id, 'alice-hash', { ttlMs: 3_600_000, idleMs: 600_000 });
+    await accounts.createSession(bob.id, 'bob-hash', { ttlMs: 3_600_000, idleMs: 600_000 });
+    return { accounts, alice, bob };
+  }
+
+  it('lets an owner-scoped query see its own user row and no one else\'s, even with no WHERE', async () => {
+    const { alice } = await twoUsers();
+    const pool = await rawAppPool();
+    const seen = await asRaw(pool, { owner: alice.id }, (query) => query(`SELECT id FROM users`));
+    expect(seen.rows).toEqual([{ id: alice.id }]);
+    const none = await pool.query(`SELECT count(*)::int AS n FROM users`);
+    expect(none.rows[0]).toEqual({ n: 0 });
+  });
+
+  it('shows an owner-scoped query no session and no identity — not even its own', async () => {
+    const { alice } = await twoUsers();
+    const pool = await rawAppPool();
+    for (const table of ['sessions', 'identities']) {
+      const seen = await asRaw(pool, { owner: alice.id }, (query) => query(`SELECT count(*)::int AS n FROM ${table}`));
+      expect(seen.rows[0], table).toEqual({ n: 0 });
+    }
+    // Reading is not the only door: an owner cannot mint a session for itself, or for anyone.
+    await expect(
+      asRaw(pool, { owner: alice.id }, (query) =>
+        query(
+          `INSERT INTO sessions (token_hash, user_id, created_at, expires_at, idle_until, idle_ms)
+           VALUES ('forged', $1, 'x', 'x', 'x', 1)`,
+          [alice.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+  });
+
+  it('cannot rewrite another user\'s profile or delete their row from an owner-scoped session', async () => {
+    const { accounts, alice, bob } = await twoUsers();
+    const pool = await rawAppPool();
+    const changed = await asRaw(pool, { owner: alice.id }, (query) =>
+      query(`UPDATE users SET display_name = 'pwned' WHERE id = $1`, [bob.id]),
+    );
+    expect(changed.rowCount).toBe(0);
+    const deleted = await asRaw(pool, { owner: alice.id }, (query) => query(`DELETE FROM users WHERE id = $1`, [bob.id]));
+    expect(deleted.rowCount).toBe(0);
+    expect((await accounts.getUser(bob.id))?.displayName).toBe('Bob');
+  });
+
+  it('lets the system actor reach the identity tables, but never a score or its log', async () => {
+    const { alice } = await twoUsers();
+    const store = await openStore();
+    await insert(store, alice.id, aScore('soul'));
+    const pool = await rawAppPool();
+    const sessions = await asRaw(pool, { system: true }, (query) => query(`SELECT count(*)::int AS n FROM sessions`));
+    expect(sessions.rows[0]).toEqual({ n: 2 });
+    const scores = await asRaw(pool, { system: true }, (query) => query(`SELECT count(*)::int AS n FROM scores`));
+    expect(scores.rows[0]).toEqual({ n: 0 });
+  });
+
+  it('resolves a session to its own user only, and getUser is the only owner-scoped door', async () => {
+    const { accounts, alice, bob } = await twoUsers();
+    expect((await accounts.resolveSession('alice-hash'))?.id).toBe(alice.id);
+    expect((await accounts.resolveSession('bob-hash'))?.id).toBe(bob.id);
+    // A user id is not a credential: the store has no way to ask for a session by user.
+    expect(await accounts.resolveSession(alice.id)).toBeNull();
+  });
+
+  it('stores only the hash it was given, and nothing that looks like a raw token', async () => {
+    const accounts = await openAccounts();
+    const user = await accounts.signIn({ provider: 'github', subject: '9', displayName: 'Eve', avatarUrl: null });
+    await accounts.createSession(user.id, 'a-hash', { ttlMs: 60_000, idleMs: 60_000 });
+    const pool = await rawAppPool();
+    const rows = await asRaw(pool, { system: true }, (query) => query(`SELECT * FROM sessions`));
+    expect(Object.keys(rows.rows[0]!).sort()).toEqual(
+      ['created_at', 'expires_at', 'idle_ms', 'idle_until', 'token_hash', 'user_id'],
+    );
+  });
+});
+
 describe('the adapter refuses to run where row-level security would not apply', () => {
   it('refuses a superuser, naming why and what to do', async () => {
     await expect(openPostgresStore({ connectionString: database.superuserUrl })).rejects.toThrow(/superuser or has BYPASSRLS/);
     await expect(openPostgresJobStore({ connectionString: database.superuserUrl })).rejects.toThrow(/NOSUPERUSER NOBYPASSRLS/);
+    await expect(openPostgresAccountStore({ connectionString: database.superuserUrl })).rejects.toThrow(/superuser or has BYPASSRLS/);
   });
 
   it('lets a developer opt out knowingly, and nothing else', async () => {
@@ -216,7 +310,7 @@ describe('the migration', () => {
     expect(await insert(opened[0]!, 'alice', aScore('soul'))).toMatchObject({ ok: true });
     expect((await opened[5]!.get('alice', 'soul'))?.version).toBe(1);
     const pool = await rawAppPool();
-    expect((await pool.query(`SELECT value FROM schema_meta WHERE key = 'table_version'`)).rows).toEqual([{ value: 1 }]);
+    expect((await pool.query(`SELECT value FROM schema_meta WHERE key = 'table_version'`)).rows).toEqual([{ value: POSTGRES_TABLE_SCHEMA_VERSION }]);
   });
 
   it('is idempotent: reopening keeps every row', async () => {
@@ -247,13 +341,16 @@ describe('the migration', () => {
     const pool = await rawAppPool();
     const flags = await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class
-        WHERE relname IN ('scores', 'operations', 'import_jobs') ORDER BY relname`,
+        WHERE relname IN ('scores', 'operations', 'import_jobs', 'users', 'identities', 'sessions')
+        ORDER BY relname`,
     );
-    expect(flags.rows).toEqual([
-      { relname: 'import_jobs', relrowsecurity: true, relforcerowsecurity: true },
-      { relname: 'operations', relrowsecurity: true, relforcerowsecurity: true },
-      { relname: 'scores', relrowsecurity: true, relforcerowsecurity: true },
-    ]);
+    expect(flags.rows).toEqual(
+      ['identities', 'import_jobs', 'operations', 'scores', 'sessions', 'users'].map((relname) => ({
+        relname,
+        relrowsecurity: true,
+        relforcerowsecurity: true,
+      })),
+    );
   });
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { JobStore, ScoreStore } from '@sibei/api';
+import type { AccountStore, JobStore, ProviderProfile, ScoreStore } from '@sibei/api';
 import type { MigrationResult, Score } from '@sibei/model';
 import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
 
@@ -369,6 +369,184 @@ export function jobStoreConformance(label: string, open: OpenHarness): void {
       await jobs.complete(job.id, [], 'score-1');
       expect((await jobs.getByScoreId('alice', 'score-1'))?.id).toBe(job.id);
       expect(await jobs.getByScoreId('bob', 'score-1')).toBeNull();
+    });
+  });
+}
+
+export interface AccountHarness {
+  accounts: AccountStore;
+  close(): Promise<void>;
+}
+export type OpenAccountHarness = (options: { now: () => Date }) => Promise<AccountHarness>;
+
+/** A clock the test moves by hand, so an expiry is asserted at an exact instant rather than tolerated. */
+function handClock(startIso = '2026-08-01T00:00:00Z'): { now: () => Date; advance(ms: number): void } {
+  let at = Date.parse(startIso);
+  return { now: () => new Date(at), advance: (ms) => void (at += ms) };
+}
+
+const MINUTE = 60_000;
+
+/** The account contract (V20): identity resolution and session lifetime, asserted for every adapter. */
+export function accountStoreConformance(label: string, open: OpenAccountHarness): void {
+  const open_: AccountHarness[] = [];
+  afterEach(async () => {
+    while (open_.length > 0) await open_.pop()?.close();
+  });
+  async function fresh(): Promise<{ accounts: AccountStore; clock: ReturnType<typeof handClock> }> {
+    const clock = handClock();
+    const harness = await open({ now: clock.now });
+    open_.push(harness);
+    return { accounts: harness.accounts, clock };
+  }
+  const github = (subject: string, displayName = 'Ada'): ProviderProfile => ({
+    provider: 'github',
+    subject,
+    displayName,
+    avatarUrl: `https://avatars.example/${subject}`,
+  });
+  const policy = { ttlMs: 60 * MINUTE, idleMs: 10 * MINUTE };
+
+  describe(`${label}: accounts`, () => {
+    it('makes a user for a first sign-in, keyed by an internal id and not by the provider subject', async () => {
+      const { accounts } = await fresh();
+      const user = await accounts.signIn(github('583231'));
+      expect(user).toMatchObject({ displayName: 'Ada', avatarUrl: 'https://avatars.example/583231' });
+      expect(user.id).not.toContain('583231');
+      expect(user.id).not.toBe('local');
+      expect(await accounts.getUser(user.id)).toEqual(user);
+    });
+
+    it('resolves the same provider identity to the same user, refreshing the profile', async () => {
+      const { accounts } = await fresh();
+      const first = await accounts.signIn(github('1', 'Ada'));
+      const again = await accounts.signIn({ ...github('1', 'Ada L.'), avatarUrl: null });
+      expect(again.id).toBe(first.id);
+      expect(again).toMatchObject({ displayName: 'Ada L.', avatarUrl: null, createdAt: first.createdAt });
+      expect(await accounts.getUser(first.id)).toEqual(again);
+    });
+
+    it('keeps different people, and the same subject under a different provider, apart', async () => {
+      const { accounts } = await fresh();
+      const a = await accounts.signIn(github('1'));
+      const b = await accounts.signIn(github('2'));
+      const c = await accounts.signIn({ ...github('1'), provider: 'google' });
+      expect(new Set([a.id, b.id, c.id]).size).toBe(3);
+    });
+
+    it('yields exactly one user when the same person signs in for the first time many times at once', async () => {
+      const { accounts } = await fresh();
+      const users = await Promise.all(Array.from({ length: 10 }, () => accounts.signIn(github('42'))));
+      expect(new Set(users.map((u) => u.id)).size).toBe(1);
+      expect(await accounts.getUser(users[0]!.id)).not.toBeNull();
+    });
+
+    it('knows no user it has not made', async () => {
+      const { accounts } = await fresh();
+      expect(await accounts.getUser('nobody')).toBeNull();
+    });
+  });
+
+  describe(`${label}: sessions`, () => {
+    it('resolves a session to its user, and an unknown hash to nobody', async () => {
+      const { accounts } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'hash-a', policy);
+      expect(await accounts.resolveSession('hash-a')).toEqual(user);
+      expect(await accounts.resolveSession('hash-b')).toBeNull();
+    });
+
+    it('refuses a session for a user that does not exist', async () => {
+      const { accounts } = await fresh();
+      await expect(accounts.createSession('ghost', 'hash-a', policy)).rejects.toThrow();
+      expect(await accounts.resolveSession('hash-a')).toBeNull();
+    });
+
+    it('rejects a policy with no lifetime rather than minting a session that is born dead', async () => {
+      const { accounts } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await expect(accounts.createSession(user.id, 'h', { ttlMs: 0, idleMs: MINUTE })).rejects.toThrow(/positive/);
+      await expect(accounts.createSession(user.id, 'h', { ttlMs: MINUTE, idleMs: 0 })).rejects.toThrow(/positive/);
+    });
+
+    it('ends a session at its absolute expiry, however recently it was used', async () => {
+      const { accounts, clock } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'h', { ttlMs: 30 * MINUTE, idleMs: 10 * MINUTE });
+      // Used every eight minutes, so it is never idle — and still dies at thirty.
+      for (let i = 0; i < 3; i += 1) {
+        clock.advance(8 * MINUTE);
+        expect(await accounts.resolveSession('h')).not.toBeNull();
+      }
+      clock.advance(6 * MINUTE + 1000); // 30m01s
+      expect(await accounts.resolveSession('h')).toBeNull();
+    });
+
+    it('lapses an unused session after its idle window, and only then', async () => {
+      const { accounts, clock } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'h', policy);
+      clock.advance(10 * MINUTE - 1000);
+      expect(await accounts.resolveSession('h')).not.toBeNull();
+      // That use slid the deadline, so a second window from *now* is what remains.
+      clock.advance(10 * MINUTE - 1000);
+      expect(await accounts.resolveSession('h')).not.toBeNull();
+      clock.advance(10 * MINUTE);
+      expect(await accounts.resolveSession('h')).toBeNull();
+    });
+
+    it('never slides the idle deadline past the absolute expiry', async () => {
+      const { accounts, clock } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'h', { ttlMs: 15 * MINUTE, idleMs: 10 * MINUTE });
+      clock.advance(6 * MINUTE);
+      expect(await accounts.resolveSession('h')).not.toBeNull(); // would slide to 16m; capped at 15m
+      clock.advance(8 * MINUTE + 59_000); // 14m59s
+      expect(await accounts.resolveSession('h')).not.toBeNull();
+      clock.advance(1000); // 15m00s
+      expect(await accounts.resolveSession('h')).toBeNull();
+    });
+
+    it('does not resurrect a lapsed session', async () => {
+      const { accounts, clock } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'h', policy);
+      clock.advance(11 * MINUTE);
+      expect(await accounts.resolveSession('h')).toBeNull();
+      clock.advance(-5 * MINUTE); // even if the clock steps back
+      expect(await accounts.resolveSession('h')).toBeNull();
+    });
+
+    it('signs out one session and leaves the same user\'s others alone', async () => {
+      const { accounts } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'laptop', policy);
+      await accounts.createSession(user.id, 'phone', policy);
+      await accounts.deleteSession('laptop');
+      expect(await accounts.resolveSession('laptop')).toBeNull();
+      expect(await accounts.resolveSession('phone')).toEqual(user);
+      await expect(accounts.deleteSession('never-existed')).resolves.toBeUndefined();
+    });
+
+    it('purges exactly the lapsed sessions', async () => {
+      const { accounts, clock } = await fresh();
+      const user = await accounts.signIn(github('1'));
+      await accounts.createSession(user.id, 'short', { ttlMs: 5 * MINUTE, idleMs: 5 * MINUTE });
+      await accounts.createSession(user.id, 'long', policy);
+      clock.advance(6 * MINUTE);
+      expect(await accounts.purgeExpiredSessions()).toBe(1);
+      expect(await accounts.purgeExpiredSessions()).toBe(0);
+      expect(await accounts.resolveSession('long')).toEqual(user);
+    });
+
+    it('gives each user their own session: a hash resolves to one person only', async () => {
+      const { accounts } = await fresh();
+      const alice = await accounts.signIn(github('1', 'Alice'));
+      const bob = await accounts.signIn(github('2', 'Bob'));
+      await accounts.createSession(alice.id, 'alice-hash', policy);
+      await accounts.createSession(bob.id, 'bob-hash', policy);
+      expect((await accounts.resolveSession('alice-hash'))?.id).toBe(alice.id);
+      expect((await accounts.resolveSession('bob-hash'))?.id).toBe(bob.id);
     });
   });
 }

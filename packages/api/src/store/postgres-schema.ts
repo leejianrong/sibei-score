@@ -3,8 +3,8 @@ import type { Pool, PoolClient } from 'pg';
 /**
  * The Postgres schema, its version, and the migration that brings a database up to it (V19, ADR-0034).
  *
- * **This is one of only four files that may know Postgres exists** (with `postgres-session.ts`,
- * `postgres-store.ts` and `postgres-jobs.ts`); `tests/arch/store-seam.test.ts` holds it, the sibling of the SQLite seam.
+ * **This is one of only five files that may know Postgres exists** (with `postgres-session.ts`,
+ * `postgres-store.ts`, `postgres-jobs.ts` and `postgres-accounts.ts`); `tests/arch/store-seam.test.ts` holds it, the sibling of the SQLite seam.
  *
  * The shape is the SQLite adapter's table schema v5 (`sqlite-schema.ts`): the same columns, and
  * ownership in the keys — `scores` is keyed `(owner, id)` and `operations` carries the owner with a
@@ -25,7 +25,7 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 1;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 2;
 
 /**
  * Row-level security is the backstop for a missed `WHERE owner = …` (ADR-0034 decision 2, hosting.md).
@@ -46,6 +46,18 @@ export const POSTGRES_TABLE_SCHEMA_VERSION = 1;
  */
 const OWNER_POLICY = `owner = current_setting('app.owner', true)`;
 const JOB_POLICY = `owner = current_setting('app.owner', true) OR current_setting('app.system', true) = 'on'`;
+// Identity (V20). Three tables, and three different answers to "who may see a row":
+//   - `users`: its own row (`id` is the owner id a request runs as), plus the system actor — sign-in
+//     creates a user before any owner exists to scope the insert to.
+//   - `identities` and `sessions`: the system actor only. A session lookup happens *before* the caller is
+//     known (the token is what says who they are), so an owner-scoped policy could never express it; and
+//     no request path has any business reading another user's identity or session, so no owner branch is
+//     the point. The adapter sets `app.system` for exactly the account methods and nothing on a request's
+//     own path, so a missed filter in a route still cannot list sessions. The safeguard against one
+//     user reading another's session is that lookup returns a user id and everything after it runs as
+//     `asOwner` — proven through RLS in `tests/postgres/`.
+const USER_POLICY = `id = current_setting('app.owner', true) OR current_setting('app.system', true) = 'on'`;
+const SYSTEM_ONLY_POLICY = `current_setting('app.system', true) = 'on'`;
 
 const TABLES = `
 CREATE TABLE IF NOT EXISTS scores (
@@ -95,6 +107,32 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, created_at DESC);
 CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
 
+-- Identity (table schema version 2, V20). See sqlite-schema.ts for the shape's reasoning.
+CREATE TABLE IF NOT EXISTS users (
+  id            text NOT NULL PRIMARY KEY,
+  display_name  text NOT NULL,
+  avatar_url    text,
+  created_at    text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS identities (
+  provider  text NOT NULL,
+  subject   text NOT NULL,
+  user_id   text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  PRIMARY KEY (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS identities_user ON identities (user_id);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  text    NOT NULL PRIMARY KEY,
+  user_id     text    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  text    NOT NULL,
+  expires_at  text    NOT NULL,
+  idle_until  text    NOT NULL,
+  idle_ms     integer NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key    text    NOT NULL PRIMARY KEY,
   value  integer NOT NULL
@@ -108,6 +146,12 @@ ALTER TABLE operations  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operations  FORCE  ROW LEVEL SECURITY;
 ALTER TABLE import_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_jobs FORCE  ROW LEVEL SECURITY;
+ALTER TABLE users       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users       FORCE  ROW LEVEL SECURITY;
+ALTER TABLE identities  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE identities  FORCE  ROW LEVEL SECURITY;
+ALTER TABLE sessions    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions    FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS owner_isolation ON scores;
 CREATE POLICY owner_isolation ON scores
@@ -118,6 +162,15 @@ CREATE POLICY owner_isolation ON operations
 DROP POLICY IF EXISTS owner_isolation ON import_jobs;
 CREATE POLICY owner_isolation ON import_jobs
   USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
+DROP POLICY IF EXISTS owner_isolation ON users;
+CREATE POLICY owner_isolation ON users
+  USING (${USER_POLICY}) WITH CHECK (${USER_POLICY});
+DROP POLICY IF EXISTS system_only ON identities;
+CREATE POLICY system_only ON identities
+  USING (${SYSTEM_ONLY_POLICY}) WITH CHECK (${SYSTEM_ONLY_POLICY});
+DROP POLICY IF EXISTS system_only ON sessions;
+CREATE POLICY system_only ON sessions
+  USING (${SYSTEM_ONLY_POLICY}) WITH CHECK (${SYSTEM_ONLY_POLICY});
 `;
 
 /** Any fixed number: it only has to be the same in every process that migrates this database. */

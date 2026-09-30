@@ -18,6 +18,15 @@ export type {
   JobStore,
   JobWriter,
 } from './store/jobs.js';
+export type {
+  AccountStore,
+  ProviderProfile,
+  SessionPolicy,
+  User,
+  UserId,
+} from './store/accounts.js';
+export { memoryAccountStore } from './store/memory-account-store.js';
+export type { MemoryAccountStoreOptions } from './store/memory-account-store.js';
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 

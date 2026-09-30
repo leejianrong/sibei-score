@@ -1,5 +1,5 @@
-import { openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
-import { jobStoreConformance, storeConformance } from '../store/conformance.js';
+import { openPostgresAccountStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
+import { accountStoreConformance, jobStoreConformance, storeConformance } from '../store/conformance.js';
 import type { OpenHarness } from '../store/conformance.js';
 import { provisionDatabase, quiet } from './support.js';
 
@@ -32,3 +32,15 @@ const open: OpenHarness = async (options = {}) => {
 
 storeConformance('postgres', open);
 jobStoreConformance('postgres', open);
+
+accountStoreConformance('postgres', async ({ now }) => {
+  const database = await provisionDatabase();
+  const accounts = await openPostgresAccountStore({ connectionString: database.url, onError: quiet, now });
+  return {
+    accounts,
+    async close() {
+      await accounts.close();
+      await database.drop();
+    },
+  };
+});

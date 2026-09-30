@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 5;
+export const TABLE_SCHEMA_VERSION = 6;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -112,6 +112,37 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, created_at DESC);
 -- The runner claims the oldest queued job across all owners; this index is that claim's scan.
 CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
+
+-- Identity (table schema version 6, V20, ADR-0034 decision 3). A user is keyed by an internal id and
+-- never by the provider's login; \`identities\` maps a provider's stable subject to it, so a second
+-- provider adds rows rather than columns. \`sessions\` holds only the SHA-256 of the token the browser
+-- carries, so a copied database is not a set of logins. Deleting a user takes their identities and
+-- sessions with them (V25's hard delete). Nothing here references \`scores.owner\`: in local mode the owner
+-- is the literal \`local\` and there is no user row for it.
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT NOT NULL PRIMARY KEY,
+  display_name  TEXT NOT NULL,
+  avatar_url    TEXT,
+  created_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS identities (
+  provider  TEXT NOT NULL,
+  subject   TEXT NOT NULL,
+  user_id   TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  PRIMARY KEY (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS identities_user ON identities (user_id);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  TEXT    NOT NULL PRIMARY KEY,
+  user_id     TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  TEXT    NOT NULL,
+  expires_at  TEXT    NOT NULL,
+  idle_until  TEXT    NOT NULL,
+  idle_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
 `;
 
 /**
