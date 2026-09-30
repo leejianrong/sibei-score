@@ -1343,6 +1343,21 @@ cookie session; an async `Authenticator`; `GET /v1/me`; sign-in, sign-out and ac
 switched by config, local mode untouched.
 **Tests:** OAuth flow against a fake GitHub; `state` and PKCE checked; a session for user A cannot see
 user B's score, job, blob or SSE stream; a missing or expired session is `401`.
+**Split:** V20a schema + both adapters + conformance (built); V20b the OAuth flow, session
+`Authenticator`, public-route carve-out and configurable Host/Origin allow-list; V20c the browser
+sign-in UI; V20d the two-user end-to-end through RLS and the docs. Built against a **fake GitHub**
+(a `GitHubClient` port) — a real OAuth App is needed only for a final manual smoke test.
+**Surfaces (Q79):** V20 ships sign-in/out/account on the *browser* only. The CLI has no credential for a
+hosted server until V21's device flow — a knowing, temporary exception, like `score.create`'s.
+**V20a status: built.** `AccountStore` (`store/accounts.ts`) is its own port, not more `ScoreStore`;
+SQLite table schema v5→v6 and Postgres v1→v2 add `users`, `identities`, `sessions` (only the SHA-256 of
+a token is stored). RLS: `users` is owner-scoped (plus system, for sign-in); `identities` and `sessions`
+are **system-only** — a session lookup precedes any owner, so the adapter runs those methods as the
+system actor and everything after runs `asOwner`. Sessions have an absolute TTL and an idle window that
+slides (at most once per quarter-window, never past the TTL). One contract
+(`accountStoreConformance`) runs on memory, SQLite and Postgres. Mutation-checked: the RLS policies,
+the sign-in race, the profile refresh and the expiry pair each fail a test when broken (the idle cap and
+the absolute-expiry check mask each other, so only removing *both* is visible).
 
 ### V21: API tokens and `sbscore auth`
 **Delivers:** the device authorisation flow, hashed scoped revocable tokens, a token list/revoke page,

@@ -1,7 +1,7 @@
 # ADR-0034: The hosted web app becomes the primary surface
 
 - **Status:** Proposed — 2026-09-30, revised the same day after design discussion. V18 (async ports),
-  V19a (tenancy keys) and V19 (the Postgres adapter) are built; the rest of SLICES v0.4 (V20–V26) is the plan.
+  V19a (tenancy keys), V19 (the Postgres adapter) and V20a (the account tables) are built; the rest of SLICES v0.4 (V20–V26) is the plan.
 - **Date:** 2026-09-30
 - **Deciders:** Jian, in design discussion
 - **Relates to:** [ADR-0001](0001-local-first-hosting-shaped.md) (which this cashes in),

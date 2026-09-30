@@ -450,8 +450,8 @@ primary key), copying every row, keeping each operation's `seq` and `batch`, tak
 and checking foreign keys before it commits; a score's `version` is untouched, since a migration is not an
 edit. `tests/store/tenancy-keys.test.ts` holds it.
 
-**The Postgres adapter (V19, ADR-0034).** `@sibei/api/postgres` — four files that may know Postgres exists
-(`postgres-schema.ts`, `-session.ts`, `-store.ts`, `-jobs.ts`; `tests/arch/store-seam.test.ts` is per driver) —
+**The Postgres adapter (V19, ADR-0034).** `@sibei/api/postgres` — five files that may know Postgres exists
+(`postgres-schema.ts`, `-session.ts`, `-store.ts`, `-jobs.ts`, `-accounts.ts`; `tests/arch/store-seam.test.ts` is per driver) —
 implements the same `ScoreStore` and `JobStore` as SQLite and is held to it by one conformance suite. It is
 selected by `sbscore serve --database-url` / `SBSCORE_DATABASE_URL` and is never re-exported from the
 barrel. What is Postgres's own:
@@ -476,3 +476,24 @@ barrel. What is Postgres's own:
 - **Landing an import is idempotent**: the score id is `import-<jobId>`, unique per owner, so a
   `conflict-exists` on it is this job's own earlier landing (a crash between `Applier.import` and
   `jobs.complete`) and the runner completes the job against it instead of failing forever.
+
+## Accounts and sessions (V20a, ADR-0034 decision 3)
+
+`AccountStore` (`store/accounts.ts`) is a port of its own, like `JobStore` — a mutable session row does not
+belong behind the op log's single writer. Adapters: `memoryAccountStore` (the fast layer's double),
+`openSqliteAccountStore` (`sqlite-accounts.ts`, table schema v6) and `openPostgresAccountStore`
+(`postgres-accounts.ts`, schema v2). One contract, `accountStoreConformance`, runs on all three.
+
+- **A user is keyed by an internal id**, never the provider's login; `identities(provider, subject)` maps
+  the provider's *stable* id (GitHub's numeric id) to it, so a second provider adds rows. When hosted, the
+  user id **is** every row's `owner`. Local mode has no user rows; its owner is the literal `local`.
+- **The store never sees a raw token**: `sessions` holds `token_hash` (SHA-256, computed by the caller) and
+  nothing else secret. Sessions have an absolute `ttlMs` and an `idleMs` window; a lookup past either
+  deletes the row and returns `null`. The idle deadline slides on use, but only once a quarter-window has
+  been spent (so a read is not always a write) and never past the TTL.
+- **RLS**: `users` is owner-scoped (`id = app.owner`) plus the system actor (sign-in creates a user before
+  any owner exists); `identities` and `sessions` are **system-only**, because a session lookup happens
+  *before* the caller is known. Only the account methods set `app.system`, and only `getUser` runs
+  `asOwner`. A system actor still cannot reach `scores`/`operations` (`tests/postgres/postgres.test.ts`).
+- `signIn` is idempotent under a race: two first sign-ins of one person yield one user (Postgres: the
+  loser's `ON CONFLICT DO NOTHING` returns no row, so it deletes its provisional user and adopts the winner's).
