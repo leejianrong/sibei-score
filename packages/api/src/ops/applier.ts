@@ -19,7 +19,7 @@ import type { Owner, ScoreReader, ScoreWriter } from '../store/repository.js';
  */
 
 export interface Applier {
-  apply(owner: Owner, scoreId: Id | null, batch: Batch): ApplyResult;
+  apply(owner: Owner, scoreId: Id | null, batch: Batch): Promise<ApplyResult>;
   /**
    * Undo the last applied batch, and redo the last undone one, by replay of the op log (V8a,
    * ADR-0003). Both carry an `expectedVersion` for the same optimistic-concurrency reason a write
@@ -28,8 +28,8 @@ export interface Applier {
    * and they do it here rather than in a route because computing the result needs to *read* the log,
    * which the pure applier in `apply.ts` never can.
    */
-  undo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): UndoResult;
-  redo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): UndoResult;
+  undo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): Promise<UndoResult>;
+  redo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): Promise<UndoResult>;
   /**
    * Copy a score to a new one with a fresh, single-operation log (V8c). A library-lifecycle call
    * like delete — but where delete cannot be an op (it destroys a log), duplicate *creates* one, so
@@ -37,7 +37,7 @@ export interface Applier {
    * carrying the snapshot, so it replays to the copy exactly and has nothing to undo — the "fresh
    * history" a duplicate is expected to have. `newId` is minted from the source id when omitted.
    */
-  duplicate(owner: Owner, scoreId: Id, newId: Id | undefined): DuplicateResult;
+  duplicate(owner: Owner, scoreId: Id, newId: Id | undefined): Promise<DuplicateResult>;
   /**
    * Land a whole document as a new score in one operation (V11, R5). The server-only counterpart of
    * `duplicate`: where duplicate copies an existing score's current document, this takes a document
@@ -52,7 +52,7 @@ export interface Applier {
    * capability is the one path by which a recognised chart becomes a score without a second writer.
    * The document already carries the id the caller minted for it.
    */
-  import(owner: Owner, document: Score): ImportResult;
+  import(owner: Owner, document: Score): Promise<ImportResult>;
 }
 
 export interface ApplyResult {
@@ -110,7 +110,7 @@ export function createApplier(
   now: () => Date = () => new Date(),
 ): Applier {
   return {
-    apply(owner, scoreId, batch) {
+    async apply(owner, scoreId, batch) {
       if (batch.operations.length === 0) {
         throw new OperationError({
           kind: 'validation',
@@ -126,30 +126,30 @@ export function createApplier(
         }
       }
 
-      if (isCreateBatch(batch)) return create(store, owner, batch, now);
+      if (isCreateBatch(batch)) return await create(store, owner, batch, now);
 
       // Both questions are about the batch itself, so both are asked before the store is touched:
       // the answer to "is this a write I can even attempt" must not depend on which ids happen to
       // exist. It also means neither refusal can report on a score's existence.
       const id = requireId(scoreId);
       const expected = requireExpectedVersion(batch);
-      return mutate(store, owner, id, batch, expected, now);
+      return await mutate(store, owner, id, batch, expected, now);
     },
 
-    undo(owner, scoreId, expectedVersion) {
-      return move(store, owner, scoreId, expectedVersion, 'undo', now);
+    async undo(owner, scoreId, expectedVersion) {
+      return await move(store, owner, scoreId, expectedVersion, 'undo', now);
     },
 
-    redo(owner, scoreId, expectedVersion) {
-      return move(store, owner, scoreId, expectedVersion, 'redo', now);
+    async redo(owner, scoreId, expectedVersion) {
+      return await move(store, owner, scoreId, expectedVersion, 'redo', now);
     },
 
-    duplicate(owner, scoreId, newId) {
-      return duplicate(store, owner, scoreId, newId, now);
+    async duplicate(owner, scoreId, newId) {
+      return await duplicate(store, owner, scoreId, newId, now);
     },
 
-    import(owner, document) {
-      return importDocument(store, owner, document, now);
+    async import(owner, document) {
+      return await importDocument(store, owner, document, now);
     },
   };
 }
@@ -160,15 +160,15 @@ export function createApplier(
  * log replays to exactly this document. The document arrives with its id already set (the runner
  * mints it from the job); a clash with an existing id is a conflict, not a silent overwrite.
  */
-function importDocument(
+async function importDocument(
   store: ScoreReader & ScoreWriter,
   owner: Owner,
   document: Score,
   now: () => Date,
-): ImportResult {
+): Promise<ImportResult> {
   const applied = applyOperation(null, { type: 'score.import', payload: { document } });
 
-  const outcome = store.create(owner, applied.score, stamp([applied.operation], now));
+  const outcome = await store.create(owner, applied.score, stamp([applied.operation], now));
   if (!outcome.ok) {
     if (outcome.reason === 'already-exists') throw new OperationError({ kind: 'conflict-exists', id: document.id });
     throw new OperationError({ kind: 'validation', detail: `the store refused: ${outcome.reason}` });
@@ -182,21 +182,21 @@ function importDocument(
  * replay-from-empty reproduces the copy and there is nothing to undo. The write is one transaction
  * through the store's `create`, the same path `score.create` takes.
  */
-function duplicate(
+async function duplicate(
   store: ScoreReader & ScoreWriter,
   owner: Owner,
   sourceId: Id,
   newId: Id | undefined,
   now: () => Date,
-): DuplicateResult {
-  const source = store.get(owner, sourceId);
+): Promise<DuplicateResult> {
+  const source = await store.get(owner, sourceId);
   if (source === null) throw new OperationError({ kind: 'no-such-score', id: sourceId });
 
-  const id = newId ?? freeCopyId(store, owner, sourceId);
+  const id = newId ?? (await freeCopyId(store, owner, sourceId));
   const document = { ...source.score, id };
   const applied = applyOperation(null, { type: 'score.import', payload: { document } });
 
-  const outcome = store.create(owner, applied.score, stamp([applied.operation], now));
+  const outcome = await store.create(owner, applied.score, stamp([applied.operation], now));
   if (!outcome.ok) {
     if (outcome.reason === 'already-exists') throw new OperationError({ kind: 'conflict-exists', id });
     throw new OperationError({ kind: 'validation', detail: `the store refused: ${outcome.reason}` });
@@ -205,12 +205,12 @@ function duplicate(
 }
 
 /** The first free `<id>-copy`, `<id>-copy-2`, … — readable, and it does not collide on a re-run. */
-function freeCopyId(store: ScoreReader, owner: Owner, sourceId: Id): Id {
+async function freeCopyId(store: ScoreReader, owner: Owner, sourceId: Id): Promise<Id> {
   const base = `${sourceId}-copy`;
-  if (!store.exists(owner, base)) return base;
+  if (!await store.exists(owner, base)) return base;
   for (let n = 2; ; n += 1) {
     const candidate = `${base}-${n}`;
-    if (!store.exists(owner, candidate)) return candidate;
+    if (!await store.exists(owner, candidate)) return candidate;
   }
 }
 
@@ -227,23 +227,23 @@ function freeCopyId(store: ScoreReader, owner: Owner, sourceId: Id): Id {
  * revert applied on top of an edit it never saw (ADR-0003). The floor is the `score.create` batch:
  * undo stops there rather than leaving no score at all.
  */
-function move(
+async function move(
   store: ScoreReader & ScoreWriter,
   owner: Owner,
   scoreId: Id,
   expectedVersion: number | undefined,
   direction: 'undo' | 'redo',
   now: () => Date,
-): UndoResult {
+): Promise<UndoResult> {
   if (expectedVersion === undefined) throw new OperationError({ kind: 'missing-expected-version' });
 
-  const current = store.get(owner, scoreId);
+  const current = await store.get(owner, scoreId);
   if (current === null) throw new OperationError({ kind: 'no-such-score', id: scoreId });
   if (expectedVersion !== current.version) {
     throw new OperationError({ kind: 'stale-version', expected: expectedVersion, current: current.version });
   }
 
-  const { applied, redo } = resolveLog(store.operations(owner, scoreId));
+  const { applied, redo } = resolveLog(await store.operations(owner, scoreId));
 
   // The batches that would be in effect *after* this move. Undo drops the last applied batch (but
   // never the create at the floor); redo brings back the last undone one.
@@ -270,7 +270,7 @@ function move(
   }
 
   const marker: ControlOperation = { type: direction };
-  const outcome = store.commit(owner, scoreId, expectedVersion, next, stamp([marker], now));
+  const outcome = await store.commit(owner, scoreId, expectedVersion, next, stamp([marker], now));
   if (!outcome.ok) {
     if (outcome.reason === 'conflict') {
       throw new OperationError({ kind: 'stale-version', expected: expectedVersion, current: outcome.version });
@@ -323,19 +323,19 @@ function requireExpectedVersion(batch: Batch): number {
   return batch.expectedVersion;
 }
 
-function create(
+async function create(
   store: ScoreReader & ScoreWriter,
   owner: Owner,
   batch: Batch,
   now: () => Date,
-): ApplyResult {
+): Promise<ApplyResult> {
   const { score, applied, changed } = fold(null, batch.operations);
   if (score === null) {
     // Unreachable: a batch starting with score.create always produces a score.
     throw new OperationError({ kind: 'validation', detail: 'score.create produced no score' });
   }
 
-  const outcome = store.create(owner, score, stamp(applied, now));
+  const outcome = await store.create(owner, score, stamp(applied, now));
   if (!outcome.ok) {
     if (outcome.reason === 'already-exists') {
       throw new OperationError({ kind: 'conflict-exists', id: score.id });
@@ -345,7 +345,7 @@ function create(
   return { scoreId: score.id, version: outcome.version, changed, applied };
 }
 
-function mutate(
+async function mutate(
   store: ScoreReader & ScoreWriter,
   owner: Owner,
   scoreId: Id,
@@ -353,8 +353,8 @@ function mutate(
   /** Never optional, which is the fix: there is no longer a fallback to fall through to. */
   expected: number,
   now: () => Date,
-): ApplyResult {
-  const current = store.get(owner, scoreId);
+): Promise<ApplyResult> {
+  const current = await store.get(owner, scoreId);
   if (current === null) throw new OperationError({ kind: 'no-such-score', id: scoreId });
 
   // The version is checked here for a clear early error *and* again inside the commit statement,
@@ -376,7 +376,7 @@ function mutate(
     throw new OperationError({ kind: 'validation', detail: 'the batch produced no score' });
   }
 
-  const outcome = store.commit(owner, scoreId, current.version, score, stamp(applied, now));
+  const outcome = await store.commit(owner, scoreId, current.version, score, stamp(applied, now));
   if (!outcome.ok) {
     if (outcome.reason === 'conflict') {
       // Somebody wrote between the read and the commit. The statement refused, nothing landed.

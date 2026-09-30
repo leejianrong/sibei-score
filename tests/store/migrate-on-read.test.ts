@@ -47,8 +47,8 @@ const AHEAD = SCHEMA_VERSION + 1;
 const stores: ScoreStore[] = [];
 const directories: string[] = [];
 
-afterEach(() => {
-  while (stores.length > 0) stores.pop()?.close();
+afterEach(async () => {
+  while (stores.length > 0) await stores.pop()?.close();
   while (directories.length > 0) {
     const directory = directories.pop();
     if (directory !== undefined) rmSync(directory, { recursive: true, force: true });
@@ -97,8 +97,8 @@ function openAhead(filename: string): ScoreStore {
   return store;
 }
 
-function closeAll(): void {
-  while (stores.length > 0) stores.pop()?.close();
+async function closeAll(): Promise<void> {
+  while (stores.length > 0) await stores.pop()?.close();
 }
 
 function swingOf(score: Score): unknown {
@@ -106,74 +106,74 @@ function swingOf(score: Score): unknown {
 }
 
 describe('a document at the current version', () => {
-  it('is read, and reading it twice is stable', () => {
+  it('is read, and reading it twice is stable', async () => {
     const filename = onDisk();
     const store = openHere(filename);
-    insert(store, LOCAL_OWNER, aScore());
+    await insert(store, LOCAL_OWNER, aScore());
 
-    expect(store.get(LOCAL_OWNER, 'score-1')?.score).toEqual(aScore());
-    expect(store.get(LOCAL_OWNER, 'score-1')?.version).toBe(1);
-    expect(store.get(LOCAL_OWNER, 'score-1')?.version).toBe(1);
+    expect((await store.get(LOCAL_OWNER, 'score-1'))?.score).toEqual(aScore());
+    expect((await store.get(LOCAL_OWNER, 'score-1'))?.version).toBe(1);
+    expect((await store.get(LOCAL_OWNER, 'score-1'))?.version).toBe(1);
   });
 });
 
 describe('a document below the current version', () => {
-  it('is migrated on read, so the caller gets the current shape', () => {
+  it('is migrated on read, so the caller gets the current shape', async () => {
     const filename = onDisk();
-    insert(openHere(filename), LOCAL_OWNER, aScore());
-    closeAll();
+    await insert(openHere(filename), LOCAL_OWNER, aScore());
+    await closeAll();
 
-    const found = openAhead(filename).get(LOCAL_OWNER, 'score-1');
+    const found = await openAhead(filename).get(LOCAL_OWNER, 'score-1');
     expect(found?.score.schemaVersion).toBe(AHEAD);
     expect(swingOf(found!.score)).toBe(false);
   });
 
-  it('is written back at the current version, so the next read costs nothing', () => {
+  it('is written back at the current version, so the next read costs nothing', async () => {
     const filename = onDisk();
-    insert(openHere(filename), LOCAL_OWNER, aScore());
-    closeAll();
+    await insert(openHere(filename), LOCAL_OWNER, aScore());
+    await closeAll();
 
-    openAhead(filename).get(LOCAL_OWNER, 'score-1');
-    closeAll();
+    await openAhead(filename).get(LOCAL_OWNER, 'score-1');
+    await closeAll();
 
     // The write-back is what makes this throw: a store that only understands SCHEMA_VERSION now
     // finds an AHEAD document on disk. Before the read there was nothing to complain about.
-    expect(() => openHere(filename).get(LOCAL_OWNER, 'score-1')).toThrow(/only understands/);
+    await expect(openHere(filename).get(LOCAL_OWNER, 'score-1')).rejects.toThrow(/only understands/);
   });
 
-  it('does NOT bump the score version, because a migration is not an edit', () => {
+  it('does NOT bump the score version, because a migration is not an edit', async () => {
     // The assertion ADR-0028 exists for.
     const filename = onDisk();
     const first = openHere(filename);
-    insert(first, LOCAL_OWNER, aScore());
-    update(first, LOCAL_OWNER, 'score-1', 1, aScore());
-    expect(first.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
-    closeAll();
+    await insert(first, LOCAL_OWNER, aScore());
+    await update(first, LOCAL_OWNER, 'score-1', 1, aScore());
+    expect((await first.get(LOCAL_OWNER, 'score-1'))?.version).toBe(2);
+    await closeAll();
 
     const migrating = openAhead(filename);
-    expect(migrating.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
+    expect((await migrating.get(LOCAL_OWNER, 'score-1'))?.version).toBe(2);
     // Twice, deliberately. The first read reports the version it loaded *before* writing back,
     // so only a second read sees what the write-back actually left behind.
-    expect(migrating.get(LOCAL_OWNER, 'score-1')?.version).toBe(2);
+    expect((await migrating.get(LOCAL_OWNER, 'score-1'))?.version).toBe(2);
 
     // And the consequence that matters: a client still holding version 2 can still write. If
     // the read had bumped, this would come back as a conflict for no reason at all.
-    expect(update(migrating, LOCAL_OWNER, 'score-1', 2, aScore())).toMatchObject({
+    expect(await update(migrating, LOCAL_OWNER, 'score-1', 2, aScore())).toMatchObject({
       ok: true,
       version: 3,
     });
   });
 
-  it('does not move the timestamp either, so the library does not reorder itself for a read', () => {
+  it('does not move the timestamp either, so the library does not reorder itself for a read', async () => {
     const filename = onDisk();
     const first = openHere(filename);
-    insert(first, LOCAL_OWNER, aScore());
-    const before = first.list(LOCAL_OWNER)[0]?.updatedAt;
-    closeAll();
+    await insert(first, LOCAL_OWNER, aScore());
+    const before = (await first.list(LOCAL_OWNER))[0]?.updatedAt;
+    await closeAll();
 
     const migrating = openAhead(filename);
-    migrating.get(LOCAL_OWNER, 'score-1');
-    expect(migrating.list(LOCAL_OWNER)[0]?.updatedAt).toBe(before);
+    await migrating.get(LOCAL_OWNER, 'score-1');
+    expect((await migrating.list(LOCAL_OWNER))[0]?.updatedAt).toBe(before);
   });
 });
 
@@ -183,39 +183,39 @@ describe('a document from a newer schema version', () => {
     return { ...aScore(), schemaVersion: AHEAD };
   }
 
-  it('fails loudly rather than being read on a best-effort basis', () => {
+  it('fails loudly rather than being read on a best-effort basis', async () => {
     const filename = onDisk();
     const ahead = openAhead(filename);
-    insert(ahead, LOCAL_OWNER, fromTheFuture());
-    closeAll();
+    await insert(ahead, LOCAL_OWNER, fromTheFuture());
+    await closeAll();
 
     const behind = openHere(filename);
-    expect(() => behind.get(LOCAL_OWNER, 'score-1')).toThrow(DocumentMigrationError);
-    expect(() => behind.get(LOCAL_OWNER, 'score-1')).toThrow(/only understands/);
+    await expect(behind.get(LOCAL_OWNER, 'score-1')).rejects.toThrow(DocumentMigrationError);
+    await expect(behind.get(LOCAL_OWNER, 'score-1')).rejects.toThrow(/only understands/);
   });
 
-  it('is left untouched by the failed read', () => {
+  it('is left untouched by the failed read', async () => {
     // A partial write on the way out would corrupt the one copy of data ADR-0028 calls
     // irreplaceable. The proof is that a build which *can* read it still can.
     const filename = onDisk();
-    insert(openAhead(filename), LOCAL_OWNER, fromTheFuture());
-    closeAll();
+    await insert(openAhead(filename), LOCAL_OWNER, fromTheFuture());
+    await closeAll();
 
-    expect(() => openHere(filename).get(LOCAL_OWNER, 'score-1')).toThrow();
-    closeAll();
+    await expect(openHere(filename).get(LOCAL_OWNER, 'score-1')).rejects.toThrow();
+    await closeAll();
 
-    const found = openAhead(filename).get(LOCAL_OWNER, 'score-1');
+    const found = await openAhead(filename).get(LOCAL_OWNER, 'score-1');
     expect(found?.score.schemaVersion).toBe(AHEAD);
     expect(found?.version).toBe(1);
   });
 
-  it('does not stop the rest of the library being listed', () => {
+  it('does not stop the rest of the library being listed', async () => {
     // A listing reads columns, not documents, so one unreadable chart must not take the
     // library view down with it.
     const filename = onDisk();
-    insert(openAhead(filename), LOCAL_OWNER, fromTheFuture());
-    closeAll();
+    await insert(openAhead(filename), LOCAL_OWNER, fromTheFuture());
+    await closeAll();
 
-    expect(openHere(filename).list(LOCAL_OWNER).map((row) => row.id)).toEqual(['score-1']);
+    expect((await openHere(filename).list(LOCAL_OWNER)).map((row) => row.id)).toEqual(['score-1']);
   });
 });

@@ -47,7 +47,7 @@ async function serveWith(assets: AssetSource | undefined): Promise<void> {
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
 });
 
 async function get(path: string): Promise<{ status: number; type: string | null; text: string }> {

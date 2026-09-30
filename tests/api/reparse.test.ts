@@ -101,8 +101,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   await api.close();
-  jobs.close();
-  store.close();
+  await jobs.close();
+  await store.close();
 });
 
 interface Reply {
@@ -252,7 +252,8 @@ describe('POST /v1/scores/:id/reparse (V14e)', () => {
       jobs: scopedJobs,
       worker,
       logger: silentLogger,
-      authenticate: (request) => ({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
+      authenticate: (request) =>
+        Promise.resolve({ owner: request.headers['x-owner'] === 'b' ? 'owner-b' : 'owner-a' }),
     });
     const { port } = await scopedApi.listen(0);
     const url = `http://127.0.0.1:${port}`;
@@ -282,8 +283,8 @@ describe('POST /v1/scores/:id/reparse (V14e)', () => {
       expect(((await reply.json()) as { error: { kind: string } }).error.kind).toBe('no-source-to-reparse');
     } finally {
       await scopedApi.close();
-      scopedJobs.close();
-      scopedStore.close();
+      await scopedJobs.close();
+      await scopedStore.close();
     }
   });
 });

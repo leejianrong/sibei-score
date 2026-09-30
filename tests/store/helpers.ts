@@ -42,7 +42,7 @@ export function anEdit(): StoredOperation[] {
   return [anOperation({ type: 'meta.set', payload: { style: 'Medium swing' } })];
 }
 
-export function insert(store: ScoreStore, owner: string, score: Score): WriteOutcome {
+export function insert(store: ScoreStore, owner: string, score: Score): Promise<WriteOutcome> {
   return store.create(owner, score, creationOf(score));
 }
 
@@ -52,7 +52,7 @@ export function update(
   id: string,
   expectedVersion: number,
   score: Score,
-): WriteOutcome {
+): Promise<WriteOutcome> {
   return store.commit(owner, id, expectedVersion, score, anEdit());
 }
 

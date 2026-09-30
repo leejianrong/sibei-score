@@ -102,8 +102,12 @@ describe('the op applier is the only writer (ADR-0003)', () => {
     const implementation = codeOf(join(REPO, THE_IMPLEMENTATION));
     expect(implementation).toMatch(/refuseEmpty\(operations\)/);
     // Both writers are transactions, so a document and its operations land together or not at all.
-    expect(implementation).toMatch(/create: db\.transaction/);
-    expect(implementation).toMatch(/commit: db\.transaction/);
+    expect(implementation).toMatch(/createTx = db\.transaction/);
+    expect(implementation).toMatch(/commitTx = db\.transaction/);
+    // ...and the port's methods are reached *through* them (V18 made the methods `async` wrappers over
+    // the synchronous transactions), so no writer can be exposed that bypasses one.
+    expect(implementation).toMatch(/async create\([^)]*\)\s*\{\s*return createTx\(/);
+    expect(implementation).toMatch(/async commit\([^)]*\)\s*\{\s*return commitTx\(/);
   });
 
   it('never updates or deletes a row in the log, because undo replays it', () => {

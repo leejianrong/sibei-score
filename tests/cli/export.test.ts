@@ -39,7 +39,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await api.close();
-  store.close();
+  await store.close();
   rmSync(work, { recursive: true, force: true });
 });
 
@@ -119,9 +119,9 @@ describe('sbscore export writes a real PDF', () => {
 
   it('is a no-op on the score: an export is a read (Q81)', async () => {
     await aChart();
-    const before = store.get('local', 'soul')?.version;
+    const before = (await store.get('local', 'soul'))?.version;
     await sbscore('export', 'soul');
-    expect(store.get('local', 'soul')?.version).toBe(before);
+    expect((await store.get('local', 'soul'))?.version).toBe(before);
   });
 
   it('--pdf is optional and means what the default means', async () => {
@@ -155,7 +155,7 @@ describe('sbscore export writes a real PDF', () => {
     expect(isPdf(partPath)).toBe(true);
     expect(readFileSync(partPath)).not.toEqual(readFileSync(join(work, 'concert.pdf')));
     // A part stores nothing (ADR-0016): the concert chart is untouched.
-    expect(store.get('local', 'soul')?.score.meta.key).toEqual({ tonic: 'D', alter: -1, mode: 'major' });
+    expect((await store.get('local', 'soul'))?.score.meta.key).toEqual({ tonic: 'D', alter: -1, mode: 'major' });
   });
 
   it('422s an instrument this build cannot render, on exit 2', async () => {

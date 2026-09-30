@@ -81,9 +81,9 @@ export type ImportJobSummary = Omit<ImportJob, 'result'>;
 
 export interface JobReader {
   /** This owner's jobs, newest first, without their results. */
-  list(owner: Owner): ImportJobSummary[];
+  list(owner: Owner): Promise<ImportJobSummary[]>;
   /** One job in full, or `null` if it is not this owner's or does not exist. */
-  get(owner: Owner, id: JobId): ImportJob | null;
+  get(owner: Owner, id: JobId): Promise<ImportJob | null>;
   /**
    * The import job that produced a given score, in full, or `null` if this owner has none for it —
    * the reverse of {@link ImportJob.scoreId}. V14 correcting a parse starts from a score the user
@@ -93,7 +93,7 @@ export interface JobReader {
    * is produced by at most one import — a duplicate gets a fresh log, not a job (ADR-0003, Q79) — so
    * it is a single job, not a list. Owner-scoped like {@link JobReader.get}.
    */
-  getByScoreId(owner: Owner, scoreId: Id): ImportJob | null;
+  getByScoreId(owner: Owner, scoreId: Id): Promise<ImportJob | null>;
 }
 
 /**
@@ -107,36 +107,36 @@ export interface JobWriter {
    * recognition engine the runner should request (V14e's re-parse); omitted (or `null`) leaves the
    * worker to pick its default, which is every normal import's path.
    */
-  create(owner: Owner, imageKeys: BlobKey[], engine?: string | null): ImportJob;
+  create(owner: Owner, imageKeys: BlobKey[], engine?: string | null): Promise<ImportJob>;
   /**
    * Atomically take the oldest `queued` job across all owners into `running`, incrementing its
    * attempt count, or return `null` when nothing is waiting. The runner is a system actor, so this
    * is not owner-scoped. Atomic so that even a future multi-process pool cannot claim one job twice.
    */
-  claim(): ImportJob | null;
+  claim(): Promise<ImportJob | null>;
   /**
    * `running` → `succeeded`, storing the recognised objects and the score the import landed (V11).
    * The runner maps the objects onto a `Score` and lands it through the applier *before* completing,
    * so a succeeded job always names the score it produced (V10's `scoreId: null` is gone). No-op
    * (returns `null`) if not running.
    */
-  complete(id: JobId, result: OmrDocument[], scoreId: Id): ImportJob | null;
+  complete(id: JobId, result: OmrDocument[], scoreId: Id): Promise<ImportJob | null>;
   /** `running` → `failed`, storing the diagnostic. No-op (returns `null`) if not running. */
-  fail(id: JobId, diagnostic: string): ImportJob | null;
+  fail(id: JobId, diagnostic: string): Promise<ImportJob | null>;
   /**
    * `failed` → `queued`, for a retry the user asked for (Q80). Owner-scoped: retrying is a user
    * action. Returns the requeued job, or `null` if it is missing, not this owner's, or not failed.
    */
-  retry(owner: Owner, id: JobId): ImportJob | null;
+  retry(owner: Owner, id: JobId): Promise<ImportJob | null>;
   /**
    * Move every `running` job back to a terminal `failed` on startup. The API is stateless (ADR-0001
    * #7), so a job left `running` when the process died is orphaned — nothing is calling the worker
    * for it. Failing it (retryable) rather than silently requeuing avoids an interrupted job that
    * crashes the worker looping forever. Returns how many it recovered.
    */
-  recover(diagnostic: string): number;
+  recover(diagnostic: string): Promise<number>;
 }
 
 export interface JobStore extends JobReader, JobWriter {
-  close(): void;
+  close(): Promise<void>;
 }

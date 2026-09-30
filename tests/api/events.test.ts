@@ -46,7 +46,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const stream of openStreams.splice(0)) stream.close();
   await api.close();
-  store.close();
+  await store.close();
 });
 
 interface SseEvent {
@@ -403,7 +403,7 @@ describe('the boundary guards cover this path too (ADR-0029)', () => {
     const other = createApi({
       store,
       logger: silentLogger,
-      authenticate: () => ({ owner: 'someone-else' }),
+      authenticate: () => Promise.resolve({ owner: 'someone-else' }),
     });
     const { port: otherPort } = await other.listen(0);
     try {

@@ -28,10 +28,15 @@ export interface Principal {
   owner: Owner;
 }
 
-export type Authenticator = (request: IncomingMessage) => Principal | null;
+/**
+ * Resolves a request to a principal, or `null` for one this server does not know. Asynchronous since
+ * V18 (ADR-0034): a real authenticator looks a session or token up in the store, which is a network
+ * call for Postgres. The local resolver below simply resolves at once.
+ */
+export type Authenticator = (request: IncomingMessage) => Promise<Principal | null>;
 
 /** Resolves every request to `local`. The whole of authentication in the MVP (Q46). */
-export const resolveLocalPrincipal: Authenticator = () => ({ owner: LOCAL_OWNER });
+export const resolveLocalPrincipal: Authenticator = async () => ({ owner: LOCAL_OWNER });
 
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

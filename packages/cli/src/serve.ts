@@ -289,11 +289,14 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   );
 
   const stop = () => {
-    void api.close().then(() => {
-      jobStore.close();
-      store.close();
-      process.exit(EXIT.ok);
-    });
+    // Each close is awaited: the store port is asynchronous (V18), and exiting before a pool has
+    // drained would cut off whatever it was still flushing.
+    void api
+      .close()
+      .then(() => Promise.all([jobStore.close(), store.close()]))
+      .then(() => {
+        process.exit(EXIT.ok);
+      });
   };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);

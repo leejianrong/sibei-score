@@ -76,7 +76,7 @@ function stubImporter(): ScoreImporter & { calls: Array<{ owner: string; id: str
     calls,
     import(owner, document) {
       calls.push({ owner, id: document.id });
-      return { scoreId: document.id };
+      return Promise.resolve({ scoreId: document.id });
     },
   };
 }
@@ -111,7 +111,7 @@ async function harness(worker: WorkerClient): Promise<Harness> {
 
   const submit = async (imageKeys = ['img-0']): Promise<{ id: string }> => {
     for (const key of imageKeys) await blobs.put(key, pngBytes());
-    const job = jobs.create(OWNER, imageKeys);
+    const job = await jobs.create(OWNER, imageKeys);
     return { id: job.id };
   };
 
@@ -139,11 +139,12 @@ describe('the import job runner', () => {
     const h = await harness(okWorker(doc));
     const { id } = await h.submit();
 
-    h.runner.start();
-    const event = await h.terminal(id);
+    const settled = h.terminal(id);
+    await h.runner.start();
+    const event = await settled;
     expect(event.status).toBe('succeeded');
 
-    const job = h.jobs.get(OWNER, id);
+    const job = await h.jobs.get(OWNER, id);
     expect(job?.status).toBe('succeeded');
     expect(job?.attempts).toBe(1);
     expect(job?.diagnostic).toBeNull();
@@ -157,10 +158,11 @@ describe('the import job runner', () => {
     const h = await harness(okWorker(noStaffDocument()));
     const { id } = await h.submit();
 
-    h.runner.start();
-    expect((await h.terminal(id)).status).toBe('failed');
+    const first = h.terminal(id);
+    await h.runner.start();
+    expect((await first).status).toBe('failed');
 
-    const job = h.jobs.get(OWNER, id);
+    const job = await h.jobs.get(OWNER, id);
     expect(job?.status).toBe('failed');
     expect(job?.diagnostic).toContain('no staff');
     // The mapper threw before the importer was reached: no score, and nothing to undo.
@@ -175,11 +177,12 @@ describe('the import job runner', () => {
     const h = await harness(worker);
     const { id } = await h.submit();
 
-    h.runner.start();
-    const event = await h.terminal(id);
+    const settled = h.terminal(id);
+    await h.runner.start();
+    const event = await settled;
     expect(event.status).toBe('failed');
 
-    const job = h.jobs.get(OWNER, id);
+    const job = await h.jobs.get(OWNER, id);
     expect(job?.status).toBe('failed');
     expect(job?.diagnostic).toContain('could not reach the OMR worker');
     // Commits nothing: no result, no score.
@@ -200,17 +203,18 @@ describe('the import job runner', () => {
     const h = await harness(worker);
     const { id } = await h.submit();
 
-    h.runner.start();
-    expect((await h.terminal(id)).status).toBe('failed');
+    const first = h.terminal(id);
+    await h.runner.start();
+    expect((await first).status).toBe('failed');
 
     // Retry is a user action: requeue, then wake the runner — the ImportService pairs these.
-    const requeued = h.jobs.retry(OWNER, id);
+    const requeued = await h.jobs.retry(OWNER, id);
     expect(requeued?.status).toBe('queued');
     const settled = h.terminal(id);
     h.runner.wake();
 
     expect((await settled).status).toBe('succeeded');
-    const job = h.jobs.get(OWNER, id);
+    const job = await h.jobs.get(OWNER, id);
     expect(job?.status).toBe('succeeded');
     expect(job?.attempts).toBe(2); // two runs: the failure and the successful retry.
   });
@@ -218,11 +222,12 @@ describe('the import job runner', () => {
   it('fails a job whose source image is missing from the blob store', async () => {
     const h = await harness(okWorker());
     // Create a job pointing at a key we never `put` — a corrupted store, still this job's failure.
-    const job = h.jobs.create(OWNER, ['absent-key']);
+    const job = await h.jobs.create(OWNER, ['absent-key']);
 
-    h.runner.start();
-    expect((await h.terminal(job.id)).status).toBe('failed');
-    expect(h.jobs.get(OWNER, job.id)?.diagnostic).toContain('missing from the blob store');
+    const first = h.terminal(job.id);
+    await h.runner.start();
+    expect((await first).status).toBe('failed');
+    expect((await h.jobs.get(OWNER, job.id))?.diagnostic).toContain('missing from the blob store');
   });
 
   it('drains several queued jobs one after another', async () => {
@@ -231,7 +236,7 @@ describe('the import job runner', () => {
     const b = await h.submit(['b-0']);
 
     const both = Promise.all([h.terminal(a.id), h.terminal(b.id)]);
-    h.runner.start();
+    await h.runner.start();
     const [ea, eb] = await both;
     expect(ea.status).toBe('succeeded');
     expect(eb.status).toBe('succeeded');
@@ -240,8 +245,8 @@ describe('the import job runner', () => {
   it('recovers a job left running by a previous process into a retryable failure (ADR-0001 #7)', async () => {
     const h = await harness(okWorker());
     // Simulate a crash mid-run: a job the store still thinks is running.
-    const job = h.jobs.create(OWNER, ['img-0']);
-    const claimed = h.jobs.claim();
+    const job = await h.jobs.create(OWNER, ['img-0']);
+    const claimed = await h.jobs.claim();
     expect(claimed?.id).toBe(job.id);
     expect(claimed?.status).toBe('running');
 
@@ -253,9 +258,9 @@ describe('the import job runner', () => {
       importer: stubImporter(),
       publisher: h.bus,
     });
-    runner.start();
+    await runner.start();
 
-    const recovered = h.jobs.get(OWNER, job.id);
+    const recovered = await h.jobs.get(OWNER, job.id);
     expect(recovered?.status).toBe('failed');
     expect(recovered?.diagnostic).toContain('server stopped before this import finished');
   });

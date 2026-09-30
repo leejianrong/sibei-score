@@ -33,8 +33,9 @@ slice is therefore a no-behaviour-change refactor of the ports, not an adapter.
 ## Decision
 
 1. **Ports go async first (V18), on SQLite, with no behaviour change.** `ScoreStore`, `JobStore` and
-   `Authenticator` return promises. The op applier's transaction becomes an async unit of work. Every
-   existing test must pass unchanged in meaning. Paying this before Postgres keeps the two risks apart.
+   `Authenticator` return promises, and the applier awaits them (the store's `create` and `commit` are
+   already the units of work, so there is no applier-level transaction to convert). Every existing test
+   must pass unchanged in meaning. Paying this before Postgres keeps the two risks apart.
 2. **Postgres is a second adapter behind the same port (V19)**, selected by config (`DATABASE_URL` →
    Postgres, otherwise SQLite). One shared **conformance suite** runs against both adapters. Tenancy is
    the existing `owner` column, backed by **row-level security** with the owner set per transaction

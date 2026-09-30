@@ -115,21 +115,21 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
   };
 
   return {
-    list(owner) {
+    async list(owner) {
       return statements.list.all(owner).map(toSummary);
     },
 
-    get(owner, id) {
+    async get(owner, id) {
       const row = statements.get.get(owner, id);
       return row === undefined ? null : toJob(row);
     },
 
-    getByScoreId(owner, scoreId) {
+    async getByScoreId(owner, scoreId) {
       const row = statements.byScoreId.get(owner, scoreId);
       return row === undefined ? null : toJob(row);
     },
 
-    create(owner, imageKeys: BlobKey[], engine: string | null = null) {
+    async create(owner, imageKeys: BlobKey[], engine: string | null = null) {
       if (imageKeys.length === 0) throw new Error('an import job must carry at least one image');
       const id = newId();
       statements.insert.run({
@@ -144,31 +144,31 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
       return toJob(statements.byId.get(id)!);
     },
 
-    claim() {
+    async claim() {
       const row = statements.claim.get(timestamp(now));
       return row === undefined ? null : toJob(row);
     },
 
-    complete(id, result: OmrDocument[], scoreId) {
+    async complete(id, result: OmrDocument[], scoreId) {
       const row = statements.complete.get(JSON.stringify(result), scoreId, timestamp(now), id);
       return row === undefined ? null : toJob(row);
     },
 
-    fail(id, diagnostic) {
+    async fail(id, diagnostic) {
       const row = statements.fail.get(diagnostic, timestamp(now), id);
       return row === undefined ? null : toJob(row);
     },
 
-    retry(owner, id) {
+    async retry(owner, id) {
       const row = statements.retry.get(timestamp(now), owner, id);
       return row === undefined ? null : toJob(row);
     },
 
-    recover(diagnostic) {
+    async recover(diagnostic) {
       return statements.recover.run(diagnostic, timestamp(now)).changes;
     },
 
-    close() {
+    async close() {
       db.close();
     },
   };

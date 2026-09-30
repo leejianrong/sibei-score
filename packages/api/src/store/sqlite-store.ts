@@ -162,81 +162,94 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
     return { score: result.score, version: row.version, updatedAt: row.updated_at };
   }
 
+  // The two writes stay synchronous transactions inside — better-sqlite3's `transaction` is what
+  // makes each one atomic — and are exposed through `async` methods below (V18, ADR-0034). SQLite
+  // never yields mid-write, so wrapping does not loosen atomicity; it only matches the port's type.
+  const createTx = db.transaction((owner: Owner, score: Score, operations: readonly StoredOperation[]) => {
+    refuseEmpty(operations);
+    const updatedAt = timestamp(now);
+    try {
+      statements.insert.run({
+        ...listingColumns(score),
+        id: score.id,
+        owner,
+        updated_at: updatedAt,
+        doc: JSON.stringify(score),
+      });
+    } catch (error) {
+      // Let the primary key answer rather than checking first, so the check and the write
+      // cannot come apart. An id collision means a bug upstream, not a user error.
+      if (isUniqueViolation(error)) return { ok: false, reason: 'already-exists' } as const;
+      throw error;
+    }
+    appendOperations(score.id, operations);
+    return { ok: true, version: 1, updatedAt } as const;
+  });
+
+  const commitTx = db.transaction(
+    (
+      owner: Owner,
+      id: Id,
+      expectedVersion: number,
+      score: Score,
+      operations: readonly StoredOperation[],
+    ) => {
+      refuseEmpty(operations);
+      const updatedAt = timestamp(now);
+      const outcome = statements.update.run({
+        ...listingColumns(score),
+        owner,
+        id,
+        expected_version: expectedVersion,
+        updated_at: updatedAt,
+        doc: JSON.stringify(score),
+      });
+
+      if (outcome.changes === 1) {
+        // Inside the same transaction as the version check, so a document can never be written
+        // without the operations that caused it, and vice versa.
+        appendOperations(id, operations);
+        return { ok: true, version: expectedVersion + 1, updatedAt } as const;
+      }
+
+      // The statement matched nothing, so either the score is gone or the version moved.
+      // Reading the row is what tells the client which, and gives it the version to retry at.
+      const row = statements.get.get(owner, id);
+      if (row === undefined) return { ok: false, reason: 'not-found' } as const;
+      return { ok: false, reason: 'conflict', version: row.version } as const;
+    },
+  );
+
   return {
-    list(owner) {
+    async list(owner) {
       return statements.list.all(owner).map(toListing);
     },
 
-    get,
+    async get(owner, id) {
+      return get(owner, id);
+    },
 
-    exists(owner, id) {
+    async exists(owner, id) {
       return statements.exists.get(owner, id) !== undefined;
     },
 
-    operations(owner, id) {
+    async operations(owner, id) {
       return statements.listOps.all(owner, id).map(toStoredOperation);
     },
 
-    create: db.transaction((owner: Owner, score: Score, operations: readonly StoredOperation[]) => {
-      refuseEmpty(operations);
-      const updatedAt = timestamp(now);
-      try {
-        statements.insert.run({
-          ...listingColumns(score),
-          id: score.id,
-          owner,
-          updated_at: updatedAt,
-          doc: JSON.stringify(score),
-        });
-      } catch (error) {
-        // Let the primary key answer rather than checking first, so the check and the write
-        // cannot come apart. An id collision means a bug upstream, not a user error.
-        if (isUniqueViolation(error)) return { ok: false, reason: 'already-exists' } as const;
-        throw error;
-      }
-      appendOperations(score.id, operations);
-      return { ok: true, version: 1, updatedAt } as const;
-    }) as ScoreStore['create'],
+    async create(owner, score, operations) {
+      return createTx(owner, score, operations);
+    },
 
-    commit: db.transaction(
-      (
-        owner: Owner,
-        id: Id,
-        expectedVersion: number,
-        score: Score,
-        operations: readonly StoredOperation[],
-      ) => {
-        refuseEmpty(operations);
-        const updatedAt = timestamp(now);
-        const outcome = statements.update.run({
-          ...listingColumns(score),
-          owner,
-          id,
-          expected_version: expectedVersion,
-          updated_at: updatedAt,
-          doc: JSON.stringify(score),
-        });
+    async commit(owner, id, expectedVersion, score, operations) {
+      return commitTx(owner, id, expectedVersion, score, operations);
+    },
 
-        if (outcome.changes === 1) {
-          // Inside the same transaction as the version check, so a document can never be written
-          // without the operations that caused it, and vice versa.
-          appendOperations(id, operations);
-          return { ok: true, version: expectedVersion + 1, updatedAt } as const;
-        }
-
-        // The statement matched nothing, so either the score is gone or the version moved.
-        // Reading the row is what tells the client which, and gives it the version to retry at.
-        const row = statements.get.get(owner, id);
-        if (row === undefined) return { ok: false, reason: 'not-found' } as const;
-        return { ok: false, reason: 'conflict', version: row.version } as const;
-      },
-    ) as ScoreStore['commit'],
-
-    delete(owner, id) {
+    async delete(owner, id) {
       return statements.delete.run(owner, id).changes === 1;
     },
 
-    close() {
+    async close() {
       db.close();
     },
   };
