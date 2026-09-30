@@ -98,20 +98,20 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
     // history is exactly what undo-by-replay must never be able to do (ADR-0003). Rows go only
     // when the score they belong to does, by cascade.
     appendOp: db.prepare(
-      `INSERT INTO operations (score_id, seq, batch, op_version, type, payload, created_at)
-       VALUES (@score_id, @seq, @batch, @op_version, @type, @payload, @created_at)`,
+      `INSERT INTO operations (owner, score_id, seq, batch, op_version, type, payload, created_at)
+       VALUES (@owner, @score_id, @seq, @batch, @op_version, @type, @payload, @created_at)`,
     ),
     listOps: db.prepare<[Owner, Id], OperationRow>(
-      `SELECT o.seq, o.batch, o.op_version, o.payload, o.created_at
-         FROM operations o JOIN scores s ON s.id = o.score_id
-        WHERE s.owner = ? AND o.score_id = ?
-        ORDER BY o.seq ASC`,
+      `SELECT seq, batch, op_version, payload, created_at
+         FROM operations
+        WHERE owner = ? AND score_id = ?
+        ORDER BY seq ASC`,
     ),
     /** Where the next operation and the next batch go. */
-    nextSeq: db.prepare<[Id], { next_seq: number; next_batch: number }>(
+    nextSeq: db.prepare<[Owner, Id], { next_seq: number; next_batch: number }>(
       `SELECT COALESCE(MAX(seq), 0) + 1  AS next_seq,
               COALESCE(MAX(batch), 0) + 1 AS next_batch
-         FROM operations WHERE score_id = ?`,
+         FROM operations WHERE owner = ? AND score_id = ?`,
     ),
   };
 
@@ -120,10 +120,11 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
    * per score and assigned here rather than by the caller, so the log's order is the store's to
    * guarantee.
    */
-  function appendOperations(scoreId: Id, operations: readonly StoredOperation[]): void {
-    const cursor = statements.nextSeq.get(scoreId) ?? { next_seq: 1, next_batch: 1 };
+  function appendOperations(owner: Owner, scoreId: Id, operations: readonly StoredOperation[]): void {
+    const cursor = statements.nextSeq.get(owner, scoreId) ?? { next_seq: 1, next_batch: 1 };
     operations.forEach((operation, offset) => {
       statements.appendOp.run({
+        owner,
         score_id: scoreId,
         seq: cursor.next_seq + offset,
         batch: cursor.next_batch,
@@ -182,7 +183,7 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
       if (isUniqueViolation(error)) return { ok: false, reason: 'already-exists' } as const;
       throw error;
     }
-    appendOperations(score.id, operations);
+    appendOperations(owner, score.id, operations);
     return { ok: true, version: 1, updatedAt } as const;
   });
 
@@ -208,7 +209,7 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
       if (outcome.changes === 1) {
         // Inside the same transaction as the version check, so a document can never be written
         // without the operations that caused it, and vice versa.
-        appendOperations(id, operations);
+        appendOperations(owner, id, operations);
         return { ok: true, version: expectedVersion + 1, updatedAt } as const;
       }
 

@@ -440,3 +440,12 @@ check and `draining = false` run with no `await` between them. `tests/unit/impor
 reproduces the window with a store whose `claim` answers first and yields after — and fails if the flag
 is removed. `JobRunner.start()` is async (it awaits `recover`), and `Api.listen` awaits it, so recovery
 has finished by the time `listen` resolves.
+
+**Ownership is part of the key (V19a, table schema v5).** `scores` is keyed `(owner, id)` and `operations`
+carries `owner` with a composite foreign key to it, so a chart id is unique *per owner*: two users can each
+have `soul`, each log numbers from 1, and an id collision is only ever reported against your own library —
+never a hint that another tenant holds it. Before v5 `id` alone was the primary key, invisible while the only
+owner was `local`. Opening a v4 library rebuilds both tables inside one transaction (SQLite cannot alter a
+primary key), copying every row, keeping each operation's `seq` and `batch`, taking its owner from its score,
+and checking foreign keys before it commits; a score's `version` is untouched, since a migration is not an
+edit. `tests/store/tenancy-keys.test.ts` holds it.
