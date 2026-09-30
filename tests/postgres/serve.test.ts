@@ -100,7 +100,8 @@ describe('sbscore serve --database-url', () => {
     async () => {
       const first = await startServer(['--database-url', database.url]);
       // Says where the charts are without saying how to get in.
-      expect(first.line['database']).toMatch(/^postgres:\/\/127\.0\.0\.1:\d+\/sibei_test_/);
+      // The host is whatever the URL said (`localhost` in CI, `127.0.0.1` under Compose), not a constant.
+      expect(first.line['database']).toBe(`postgres://${new URL(database.url).host}/${database.name}`);
       expect(first.line).not.toHaveProperty('data');
       expect(first.raw).not.toMatch(/sibei_app/); // neither the role nor its password appears
 
@@ -148,7 +149,7 @@ describe('sbscore serve --database-url', () => {
     const missing = database.url.replace(`/${database.name}`, '/sibei_no_such_database').replace('sibei_app:sibei_app', 'sibei_app:pw-9f3c1');
     const result = await exitOf(['serve', '--port', '0', '--database-url', missing]);
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toMatch(/could not open the Postgres database at postgres:\/\/127\.0\.0\.1:\d+\/sibei_no_such_database/);
+    expect(result.stderr).toContain(`could not open the Postgres database at postgres://${new URL(missing).host}/sibei_no_such_database`);
     expect(result.stderr + result.stdout).not.toMatch(/pw-9f3c1/);
   }, 60_000);
 
