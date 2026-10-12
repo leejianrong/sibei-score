@@ -48,7 +48,7 @@ pnpm sbscore list
 
 | Flag / env | Meaning |
 |---|---|
-| `--url <base>` / `SBSCORE_URL` | The API base URL. Defaults to `http://127.0.0.1:4321` (the `pnpm serve` default). |
+| `--url <base>` / `SBSCORE_URL` | The API base URL. Defaults to `http://127.0.0.1:4321` (the `pnpm serve` default). A trailing slash is ignored. |
 | `--json` | Machine-readable JSON on stdout instead of the human text. On every verb. |
 | `--if-version N` | Optimistic concurrency on any verb that writes — see [Concurrency](#concurrency). |
 
@@ -166,6 +166,43 @@ Every write names the version it expects (ADR-0003). Pass **`--if-version N`** �
 earlier — to pin it: you get exit `4` (a stale-version conflict) if someone moved the chart since,
 which is the only way to be sure what you are overwriting. Without the flag the CLI reads the current
 version first, so an edit is read-modify-write and never a blind overwrite.
+
+## Signing in to a hosted server
+
+A local server has no accounts and needs none. A **hosted** deployment (ADR-0034) gives each person their own
+library, and the CLI signs in to it with an API token it is handed — never a password, a session cookie or a
+GitHub token.
+
+```sh
+sbscore --url https://sibei.example auth login
+#   To sign in to https://sibei.example, open:
+#     https://sibei.example/#/device
+#   and enter this code:  BCDF-GHJK
+#   Waiting for approval (the code expires in 10 minutes)...
+```
+
+Open the address in a browser you are already signed in to, enter the code, and choose the token's name and
+scopes there. The CLI is handed the token once and keeps it. After that every verb works unchanged against that
+server.
+
+| Verb | What it does |
+|---|---|
+| `auth login` | The device flow above. `--json` prints one line for the prompt and one for the result |
+| `auth login --token-stdin` | The headless fallback: read a token from stdin, check it against the server, keep it. `--token VALUE` also works, but leaves the token in your shell history and process list |
+| `auth status` | Who the server thinks you are, where the credential came from, when it expires. Exit `7` when signed out |
+| `auth token` | Prints the token and nothing else, so `$(sbscore auth token)` is a token |
+| `auth logout` | Forgets the credential for this server. The token stays valid until you revoke it in the browser |
+
+**Where the credential lives.** `~/.config/sbscore/credentials.json` (`$XDG_CONFIG_HOME` is honoured;
+`SBSCORE_CREDENTIALS` names another file), mode `0600` in a `0700` directory, written so it is never wider than
+that even briefly. It is filed **per server** and sent only to the server it was issued by, so a mistyped `--url`
+cannot receive a token meant for another. The CLI warns on stderr if the file is readable by other users.
+
+**In CI,** set `SBSCORE_TOKEN` instead: it is used in place of the file and wins over it, so a job needs no home
+directory. `login`, `status` and every error leave the token out of their output; only `auth token` prints it.
+
+A credential the server refuses (revoked in the browser, or past its 90 days) is exit `7` with a pointer back to
+`auth login`; a token limited to `read` that tries a write is exit `7` too.
 
 ## Exit codes
 

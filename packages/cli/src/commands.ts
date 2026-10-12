@@ -12,8 +12,10 @@ import type {
 } from '@sibei/api';
 import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
-import { CliError, createClient } from './client.js';
+import { auth } from './auth.js';
+import { CliError, DEFAULT_BASE_URL, createClient } from './client.js';
 import type { Client, ExportQuery, UndoWire } from './client.js';
+import { credentialsPath as defaultCredentialsPath, isReadableByOthers, resolveToken } from './credentials.js';
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
 import { fallbackName, outputPathFor } from './output.js';
@@ -48,6 +50,15 @@ export interface RunOptions {
    * injected so a test can write into a temp directory rather than changing the process's.
    */
   cwd?: string;
+  /**
+   * The credentials file (V21b). Defaults to `$SBSCORE_CREDENTIALS` or `~/.config/sbscore/credentials.json`;
+   * injected so a test never touches a real home directory.
+   */
+  credentialsPath?: string;
+  /** How `auth login` waits between polls. Injected so a test can approve a code without really waiting. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Where `auth login --token-stdin` reads from. Injected for tests. */
+  readStdin?: () => Promise<string>;
 }
 
 const USAGE = `sbscore — a jazz lead sheet, from the command line
@@ -90,6 +101,13 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
+  sbscore auth login                       sign in to a hosted server: prints a code, you approve it in the
+              browser, and the CLI keeps the API token it is given (never a password or a GitHub token)
+  sbscore auth login --token-stdin         the headless fallback: read a token on stdin and keep it
+              (--token VALUE works too, but leaves the token in your shell history)
+  sbscore auth status                      who this server thinks you are; exit 7 when signed out
+  sbscore auth token                       print the token, bare, so $(sbscore auth token) is a token
+  sbscore auth logout                      forget the credential for this server
 
 Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
@@ -109,6 +127,10 @@ Concurrency (ADR-0003):  --if-version N   on any verb that writes
 
 Everywhere:  --json   machine-readable output
              --url    the API base URL (or SBSCORE_URL)
+
+Signing in (hosted servers only; a local one has no accounts):  a credential is kept per server in
+  ~/.config/sbscore/credentials.json (mode 0600) and sent only to the server it was issued by.
+  SBSCORE_TOKEN supplies one instead — what a CI job uses — and wins over the file.
 
 Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version conflict
              5 not found · 6 no server · 7 refused · 8 already exists
@@ -158,15 +180,37 @@ export async function run(argv: readonly string[], options: RunOptions): Promise
 
 async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promise<ExitCode> {
   const verb = flags.positional[0] ?? '';
-  const client =
-    options.client ??
-    createClient(flags.options.get('url') ?? process.env.SBSCORE_URL ?? options.baseUrl);
   const io = options.io;
+  // No trailing slash: every path is appended to this with a leading one, and `http://host/` + `/v1/…` is a
+  // 404 on every verb. Found by the credentials test, which files a token by URL and so had to ask.
+  const baseUrl = (flags.options.get('url') ?? process.env.SBSCORE_URL ?? options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const credentials = options.credentialsPath ?? defaultCredentialsPath();
+  // The token for *this* server, from SBSCORE_TOKEN or the file. Filed by URL, so it is only ever sent to
+  // the server that issued it (`credentials.ts`).
+  const resolved = verb === 'serve' ? undefined : resolveToken(credentials, baseUrl);
+  if (resolved?.source === 'file' && isReadableByOthers(credentials)) {
+    io.err(
+      `sbscore: ${credentials} is readable by other users, and it holds an API token. Run: chmod 600 ${JSON.stringify(credentials)}`,
+    );
+  }
+  const client = options.client ?? createClient(baseUrl, resolved === undefined ? {} : { token: resolved.token });
 
   switch (verb) {
     case 'serve':
       // The only verb that is not an HTTP client: it is the server.
       return serve(flags, io, json);
+    case 'auth':
+      return auth(flags, {
+        baseUrl,
+        credentialsPath: credentials,
+        io,
+        json,
+        client,
+        resolved,
+        sleep: options.sleep ?? ((ms) => new Promise((done) => setTimeout(done, ms))),
+        readStdin: options.readStdin ?? readAllStdin,
+        now: () => new Date(),
+      });
     case 'new':
       return create(flags, client, io, json);
     case 'list':
@@ -831,4 +875,10 @@ function parseTime(spec: string): TimeSignature {
 /** A readable, sortable default id. Only used when `--id` is not given. */
 function stamp(): string {
   return new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+}
+
+async function readAllStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString('utf8');
 }
