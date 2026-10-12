@@ -117,10 +117,46 @@ describe('the routes cannot write (ADR-0003)', () => {
 
   it('runs the guards before routing, so an unrouted path is not a way past them', () => {
     const server = codeOf(join(REPO, SERVER));
-    const guardAt = server.indexOf('checkHost(request)');
+    const guardAt = server.indexOf('checkHost(request');
+    const originAt = server.indexOf('checkOrigin(request');
     const routeAt = server.indexOf('await route(');
     expect(guardAt).toBeGreaterThan(-1);
     expect(routeAt).toBeGreaterThan(guardAt);
+    // V20: the auth routes and the authenticator are ways in too, so both guards precede every one of them.
+    for (const entry of ['hosted.handle(', 'await authenticate(request)']) {
+      expect(server.indexOf(entry), entry).toBeGreaterThan(Math.max(guardAt, originAt));
+    }
+  });
+
+  it('keeps the identity store out of every request path but the auth module (V20)', () => {
+    // Only the auth module and the adapters may name the port. A route holding an `AuthStore` could read a
+    // session or an identity as an ordinary request — which is exactly what the Postgres policy forbids.
+    const allowed = [
+      'packages/api/src/auth/hosted.ts',
+      'packages/api/src/store/auth.ts',
+      'packages/api/src/store/sqlite-auth.ts',
+      'packages/api/src/store/postgres-auth.ts',
+      'packages/api/src/index.ts',
+      // The composition root hands the store to `createHostedAuth` as an option's type.
+      'packages/cli/src/serve.ts',
+    ];
+    const offenders = productFiles().filter(
+      (file) => !allowed.includes(file) && /\bAuthStore\b/.test(codeOf(join(REPO, file))),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('never logs a secret or a credential from the sign-in flow (V20)', () => {
+    // The flow handles a client secret, an authorisation code, GitHub's access token and the session
+    // token. A log call that so much as names one is a leak waiting for a refactor. `report(` is the
+    // module's only outlet, and it is handed a message and an error, never one of these.
+    const hosted = codeOf(join(REPO, 'packages/api/src/auth/hosted.ts'));
+    const outlets = hosted.match(/report\([^;]*\);/g) ?? [];
+    expect(outlets.length).toBeGreaterThan(0);
+    for (const call of outlets) {
+      expect(call).not.toMatch(/clientSecret|accessToken|\bcode\b|verifier|token\b|cookie/i);
+    }
+    expect(hosted).not.toMatch(/console\./);
   });
 });
 

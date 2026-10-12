@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
+import { POSTGRES_TABLE_SCHEMA_VERSION, openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import type { JobStore, ScoreStore } from '@sibei/api';
 import { aScore, anEdit, insert } from '../store/helpers.js';
 import { pg, provisionDatabase, quiet } from './support.js';
@@ -216,7 +216,7 @@ describe('the migration', () => {
     expect(await insert(opened[0]!, 'alice', aScore('soul'))).toMatchObject({ ok: true });
     expect((await opened[5]!.get('alice', 'soul'))?.version).toBe(1);
     const pool = await rawAppPool();
-    expect((await pool.query(`SELECT value FROM schema_meta WHERE key = 'table_version'`)).rows).toEqual([{ value: 1 }]);
+    expect((await pool.query(`SELECT value FROM schema_meta WHERE key = 'table_version'`)).rows).toEqual([{ value: POSTGRES_TABLE_SCHEMA_VERSION }]);
   });
 
   it('is idempotent: reopening keeps every row', async () => {
@@ -247,13 +247,65 @@ describe('the migration', () => {
     const pool = await rawAppPool();
     const flags = await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class
-        WHERE relname IN ('scores', 'operations', 'import_jobs') ORDER BY relname`,
+        WHERE relname IN ('scores', 'operations', 'import_jobs', 'users', 'identities', 'sessions') ORDER BY relname`,
     );
     expect(flags.rows).toEqual([
+      { relname: 'identities', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'import_jobs', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'operations', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'scores', relrowsecurity: true, relforcerowsecurity: true },
+      { relname: 'sessions', relrowsecurity: true, relforcerowsecurity: true },
+      { relname: 'users', relrowsecurity: true, relforcerowsecurity: true },
     ]);
+  });
+
+  it('takes a v1 database to v2 by adding the identity tables and keeping every row (V20)', async () => {
+    const first = await openPostgresStore({ connectionString: database.url, onError: quiet });
+    await insert(first, 'alice', aScore('soul'));
+    await first.close();
+    // Make it a v1 database again: no identity tables, version 1. That is exactly what a V19 deployment has.
+    const admin = new pg.Client({ connectionString: database.superuserUrl });
+    await admin.connect();
+    try {
+      await admin.query(`DROP TABLE sessions, identities, users`);
+      await admin.query(`UPDATE schema_meta SET value = 1 WHERE key = 'table_version'`);
+    } finally {
+      await admin.end();
+    }
+
+    const second = await openStore();
+    expect((await second.get('alice', 'soul'))?.version).toBe(1);
+    expect((await second.operations('alice', 'soul')).length).toBeGreaterThan(0);
+    const auth = await openPostgresAuthStore({ connectionString: database.url, onError: quiet });
+    closers.push(() => auth.close());
+    const user = await auth.signIn({ provider: 'github', subject: '1', login: 'a', name: null });
+    expect((await auth.getUser(user.id))?.login).toBe('a');
+    const pool = await rawAppPool();
+    expect((await pool.query(`SELECT value FROM schema_meta WHERE key = 'table_version'`)).rows).toEqual([
+      { value: POSTGRES_TABLE_SCHEMA_VERSION },
+    ]);
+  });
+
+  it('admits only the system actor to users, identities and sessions (V20)', async () => {
+    const auth = await openPostgresAuthStore({ connectionString: database.url, onError: quiet });
+    closers.push(() => auth.close());
+    const user = await auth.signIn({ provider: 'github', subject: '1', login: 'a', name: null });
+    await auth.createSession('hash', user.id, '2999-01-01T00:00:00Z');
+
+    const pool = await rawAppPool();
+    // A request-path transaction names an owner — even the user's own id — and sees none of it.
+    for (const table of ['users', 'identities', 'sessions']) {
+      const visible = await asRaw(pool, { owner: user.id }, (query) => query(`SELECT count(*)::int AS n FROM ${table}`));
+      expect({ table, ...visible.rows[0] }).toEqual({ table, n: 0 });
+      const bare = await pool.query(`SELECT count(*)::int AS n FROM ${table}`);
+      expect({ table, ...bare.rows[0] }).toEqual({ table, n: 0 });
+    }
+    // ...and cannot plant a session for itself either.
+    await expect(
+      asRaw(pool, { owner: user.id }, (query) =>
+        query(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('x', $1, 'n', 'z')`, [user.id]),
+      ),
+    ).rejects.toThrow(/row-level security/);
   });
 });
 

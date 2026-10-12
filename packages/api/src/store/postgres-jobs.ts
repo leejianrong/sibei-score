@@ -12,7 +12,7 @@ import { timestamp } from './store-shared.js';
  * The Postgres implementation of the job port (V19, ADR-0034), the durable half of "OMR is a job, not a
  * request" (ADR-0001) and the sibling of `sqlite-jobs.ts`.
  *
- * One of the four files that may know Postgres exists (`tests/arch/store-seam.test.ts`). Held to the
+ * One of the five files that may know Postgres exists (`tests/arch/store-seam.test.ts`). Held to the
  * same contract as the SQLite adapter by the shared conformance suite. Two things are Postgres's own:
  *
  *   - **The claim is `FOR UPDATE SKIP LOCKED`.** SQLite's single conditional UPDATE was enough because
