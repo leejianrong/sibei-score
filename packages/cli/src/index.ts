@@ -14,8 +14,9 @@ export {
   redactCredentials,
   resolveBindHost,
   resolveDatabaseUrl,
+  resolveHostedConfig,
   resolveUiDirectory,
 } from './serve.js';
-export type { DataDirectoryAdoption } from './serve.js';
+export type { DataDirectoryAdoption, HostedConfig } from './serve.js';
 export { loadAssets } from './static-assets.js';
 export { parseDuration, parseFlags, optionalPort } from './args.js';
