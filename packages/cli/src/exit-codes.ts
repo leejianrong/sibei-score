@@ -50,6 +50,13 @@ export const USAGE_KINDS: readonly string[] = [
   'no-such-import-image',
   'job-not-retryable',
   'worker-unavailable',
+  // The browser's GitHub sign-in redirect flow (V20a, `/v1/auth/github/*`). A person's browser
+  // meets these, not a CLI verb; `sbscore auth` (V21) will authenticate by device flow and token.
+  'invalid-state',
+  'missing-code',
+  'sign-in-denied',
+  'sign-in-failed',
+  'github-unavailable',
 ];
 
 /** Kind families built from a template on the server (`bad-upload-${reason}`), matched by prefix. */
@@ -87,6 +94,7 @@ export function exitCodeForKind(kind: string): ExitCode {
       return EXIT.validation;
     case 'no-such-score':
     case 'no-such-route':
+    case 'not-found': // an unrouted /v1/auth/ path (V20a), the same fact as `no-such-route`
       return EXIT.notFound;
     case 'conflict-exists':
       return EXIT.exists;
