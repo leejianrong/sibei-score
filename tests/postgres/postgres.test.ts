@@ -247,9 +247,11 @@ describe('the migration', () => {
     const pool = await rawAppPool();
     const flags = await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class
-        WHERE relname IN ('scores', 'operations', 'import_jobs', 'users', 'identities', 'sessions') ORDER BY relname`,
+        WHERE relname IN ('scores', 'operations', 'import_jobs', 'users', 'identities', 'sessions', 'device_codes', 'api_tokens') ORDER BY relname`,
     );
     expect(flags.rows).toEqual([
+      { relname: 'api_tokens', relrowsecurity: true, relforcerowsecurity: true },
+      { relname: 'device_codes', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'identities', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'import_jobs', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'operations', relrowsecurity: true, relforcerowsecurity: true },
@@ -267,7 +269,7 @@ describe('the migration', () => {
     const admin = new pg.Client({ connectionString: database.superuserUrl });
     await admin.connect();
     try {
-      await admin.query(`DROP TABLE sessions, identities, users`);
+      await admin.query(`DROP TABLE api_tokens, device_codes, sessions, identities, users`);
       await admin.query(`UPDATE schema_meta SET value = 1 WHERE key = 'table_version'`);
     } finally {
       await admin.end();
@@ -304,6 +306,60 @@ describe('the migration', () => {
     await expect(
       asRaw(pool, { owner: user.id }, (query) =>
         query(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ('x', $1, 'n', 'z')`, [user.id]),
+      ),
+    ).rejects.toThrow(/row-level security/);
+  });
+});
+
+describe('API tokens and device codes (V21a)', () => {
+  it('takes a v2 database to v3 by adding the credential tables and keeping every user and session', async () => {
+    const first = await openPostgresAuthStore({ connectionString: database.url, onError: quiet });
+    const user = await first.signIn({ provider: 'github', subject: '1', login: 'a', name: null });
+    await first.createSession('h', user.id, '2999-01-01T00:00:00Z');
+    await first.close();
+    // Exactly what a V20 deployment holds: version 2, and no credential tables.
+    const admin = new pg.Client({ connectionString: database.superuserUrl });
+    await admin.connect();
+    try {
+      await admin.query(`DROP TABLE api_tokens, device_codes`);
+      await admin.query(`UPDATE schema_meta SET value = 2 WHERE key = 'table_version'`);
+    } finally {
+      await admin.end();
+    }
+
+    const second = await openPostgresAuthStore({ connectionString: database.url, onError: quiet });
+    closers.push(() => second.close());
+    expect(await second.getUser(user.id)).toMatchObject({ login: 'a' });
+    expect(await second.findSession('h', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
+    await second.createToken({ id: 'tok_1', tokenHash: 'th', userId: user.id, name: 'x', scopes: ['read'], expiresAt: '2999-01-01T00:00:00Z' });
+    expect(await second.findToken('th', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
+    const pool = await rawAppPool();
+    expect((await pool.query(`SELECT value FROM schema_meta WHERE key = 'table_version'`)).rows).toEqual([
+      { value: POSTGRES_TABLE_SCHEMA_VERSION },
+    ]);
+  });
+
+  it('admits only the system actor to device_codes and api_tokens, so no request path can read a credential', async () => {
+    const auth = await openPostgresAuthStore({ connectionString: database.url, onError: quiet });
+    closers.push(() => auth.close());
+    const user = await auth.signIn({ provider: 'github', subject: '1', login: 'a', name: null });
+    await auth.createDevice({ deviceHash: 'dh', userCode: 'BCDFGHJK', expiresAt: '2999-01-01T00:00:00Z' });
+    await auth.createToken({ id: 'tok_1', tokenHash: 'th', userId: user.id, name: 'x', scopes: ['read'], expiresAt: '2999-01-01T00:00:00Z' });
+
+    const pool = await rawAppPool();
+    for (const table of ['device_codes', 'api_tokens']) {
+      const visible = await asRaw(pool, { owner: user.id }, (query) => query(`SELECT count(*)::int AS n FROM ${table}`));
+      expect({ table, ...visible.rows[0] }).toEqual({ table, n: 0 });
+      const bare = await pool.query(`SELECT count(*)::int AS n FROM ${table}`);
+      expect({ table, ...bare.rows[0] }).toEqual({ table, n: 0 });
+    }
+    // ...and cannot plant a token for itself either.
+    await expect(
+      asRaw(pool, { owner: user.id }, (query) =>
+        query(
+          `INSERT INTO api_tokens (id, token_hash, user_id, name, scopes, created_at, expires_at) VALUES ('t', 'x', $1, 'n', 'read', 'n', 'z')`,
+          [user.id],
+        ),
       ),
     ).rejects.toThrow(/row-level security/);
   });

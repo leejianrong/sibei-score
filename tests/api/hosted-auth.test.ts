@@ -920,11 +920,16 @@ describe('a bearer token', () => {
     const cookie = await signIn(ALICE);
     const { token } = await mint(cookie);
     for (const header of ['Bearer sbs_madeupmadeupmadeupmadeupmadeupmadeupmadeup1', 'Bearer not-ours', 'Bearer ', 'Basic Zm9vOmJhcg==', token]) {
-      const reply = await raw('/v1/scores', { headers: { authorization: header } });
-      expect({ header: header === token ? '(bare token)' : header, status: reply.status }).toEqual({
-        header: header === token ? '(bare token)' : header,
-        status: 401,
-      });
+      const shown = header === token ? '(bare token)' : header;
+      // Alone, and with a perfectly good session cookie beside it: what was presented is what is judged.
+      for (const extra of [{}, { cookie }]) {
+        const reply = await raw('/v1/scores', { headers: { authorization: header, ...extra } });
+        expect({ header: shown, withCookie: 'cookie' in extra, status: reply.status }).toEqual({
+          header: shown,
+          withCookie: 'cookie' in extra,
+          status: 401,
+        });
+      }
     }
     // A valid cookie alongside a bad token: the token is what was presented, so it is what is judged.
     expect((await raw('/v1/scores', { headers: { cookie, authorization: 'Bearer sbs_nope' } })).status).toBe(401);
