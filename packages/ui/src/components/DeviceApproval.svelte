@@ -191,6 +191,10 @@
     font: var(--md-sys-typescale-label-medium);
     color: var(--md-sys-color-on-surface-variant);
   }
+  /* A legend takes no part in the fieldset's flex gap, so it carries its own. */
+  legend {
+    margin-bottom: 6px;
+  }
   .help {
     font: var(--md-sys-typescale-body-small);
     color: var(--md-sys-color-on-surface-variant);

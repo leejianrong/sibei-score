@@ -36,13 +36,13 @@
     {#if onScore}
       <button class="crumb-btn" onclick={onLibrary}>Library</button>
       <span class="crumb-sep">/</span>
-      <span class="crumb-now" class:untitled={title === ''}>
+      <span class="crumb-now" class:untitled={title === ''} class:page={route.view !== 'score'}>
         {#if title === null}…{:else if title === ''}<em>{UNTITLED}</em>{:else}{title}{/if}
       </span>
     {/if}
   </nav>
   <div class="host" title={reachable ? `connected to ${label}` : `no answer from ${label}`}>
-    <span class="dot" class:down={!reachable} aria-hidden="true"></span>{label}
+    <span class="dot" class:down={!reachable} aria-hidden="true"></span><span class="address">{label}</span>
   </div>
   {@render account?.()}
 </header>
@@ -111,6 +111,11 @@
     font-style: italic;
     color: var(--ink-faint);
   }
+  /* The serif is a chart's own title. A page that is not a chart (device approval, API tokens) names itself
+     in the account chrome's one typeface, so the bar and the page beneath it do not speak in two voices. */
+  .crumb-now.page {
+    font: var(--md-sys-typescale-title-medium);
+  }
 
   .host {
     font-size: 11px;
@@ -120,6 +125,14 @@
     align-items: center;
     gap: 7px;
     white-space: nowrap;
+  }
+  /* On a phone the bar has room for the dot or for where you are, not both: with an account chip beside it,
+     the address pushed the page's name out of view. The dot stays (it still says whether the server
+     answers), and the address remains in its tooltip. */
+  @media (max-width: 560px) {
+    .address {
+      display: none;
+    }
   }
   .dot {
     width: 6px;
