@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Authenticator } from '../http/guards.js';
 import { problem } from '../http/problems.js';
 import type { Problem } from '../http/problems.js';
-import { pathOf, queryOf, send } from '../http/routes.js';
+import { pathOf, queryOf, send, sendJson } from '../http/routes.js';
 import type { AuthStore, ProviderProfile } from '../store/auth.js';
 import { timestamp } from '../store/store-shared.js';
 import { hashToken, pkceChallenge, randomToken, readCookie, sameSecret, serializeCookie } from './secrets.js';
@@ -84,6 +84,11 @@ export interface HostedAuth {
   authenticate: Authenticator;
   /** Handle a `/v1/auth/…` request. Needs no session — signing in is how one starts. */
   handle(request: IncomingMessage, response: ServerResponse): Promise<number>;
+  /**
+   * Answer `GET /v1/me` for a principal the server has already authenticated (V20b). Lives here rather
+   * than in a route because it reads a user, and no request path may hold an `AuthStore`.
+   */
+  me(response: ServerResponse, owner: string): Promise<number>;
 }
 
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -251,9 +256,19 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     return 204;
   }
 
+  async function me(response: ServerResponse, owner: string): Promise<number> {
+    const user = await auth.getUser(owner);
+    // A live session whose user is gone (an account deleted under it) is not signed in either.
+    if (user === null) return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
+    // Only what the browser draws. Not the session, not the provider subject, not a timestamp it has no use for.
+    response.setHeader('cache-control', 'no-store');
+    return sendJson(response, 200, { mode: 'hosted', user: { id: user.id, login: user.login, name: user.name } });
+  }
+
   return {
     hosts: new Set([publicUrl.hostname]),
     authenticate,
+    me,
     async handle(request, response) {
       const method = (request.method ?? 'GET').toUpperCase();
       const path = pathOf(request);

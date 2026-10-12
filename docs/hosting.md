@@ -193,3 +193,8 @@ callback URL above. Request scope is `read:user` only; no email is read or store
 Routes: `GET /v1/auth/github/login`, `GET /v1/auth/github/callback`, `POST /v1/auth/logout`. Sessions last 30
 days, are stored as a SHA-256 hash, and travel in an `HttpOnly; SameSite=Lax` cookie (`Secure` over https).
 GitHub's own access token is used once to read the profile and then discarded.
+
+`GET /v1/me` (V20b) says who is signed in: `{"mode":"hosted","user":{"id","login","name"}}`, or `401
+unauthenticated` with no live session. A local-mode server answers `{"mode":"local"}` — there are no accounts to
+name — so a browser can tell "sign in" from "nothing to sign in to". It carries no session, provider subject or
+timestamp, and is `no-store`.
