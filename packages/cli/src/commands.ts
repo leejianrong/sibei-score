@@ -56,7 +56,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (--ui serves the built browser; --host defaults to 127.0.0.1, the container sets 0.0.0.0;
                --worker is the OMR worker's URL — without one, import is unavailable and all else works;
                --database-url URL serves from Postgres instead of the local SQLite file, and --blobs DIR
-               places the scans and export cache; see docs/hosting.md)
+               places the scans and export cache; see docs/hosting.md;
+               hosted mode — GitHub sign-in, one library per user — is on only when --public-url,
+               --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
   sbscore list

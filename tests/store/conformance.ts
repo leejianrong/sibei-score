@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { JobStore, ScoreStore } from '@sibei/api';
+import type { AuthStore, JobStore, ScoreStore } from '@sibei/api';
 import type { MigrationResult, Score } from '@sibei/model';
 import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
 
@@ -19,6 +19,7 @@ import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
 export interface Harness {
   store: ScoreStore;
   jobs: JobStore;
+  auth: AuthStore;
   close(): Promise<void>;
 }
 
@@ -369,6 +370,102 @@ export function jobStoreConformance(label: string, open: OpenHarness): void {
       await jobs.complete(job.id, [], 'score-1');
       expect((await jobs.getByScoreId('alice', 'score-1'))?.id).toBe(job.id);
       expect(await jobs.getByScoreId('bob', 'score-1')).toBeNull();
+    });
+  });
+}
+
+export function authStoreConformance(label: string, open: OpenHarness): void {
+  const open_: Harness[] = [];
+  afterEach(async () => {
+    while (open_.length > 0) await open_.pop()?.close();
+  });
+  async function fresh(options?: OpenOptions): Promise<Harness> {
+    const harness = await open(options);
+    open_.push(harness);
+    return harness;
+  }
+  const octocat = { provider: 'github', subject: '583231', login: 'octocat', name: 'The Octocat' };
+
+  describe(`${label}: the identity store (V20)`, () => {
+    it('creates a user on first sign-in and returns the same one every time after', async () => {
+      const { auth } = await fresh({ now: ticking() });
+      const first = await auth.signIn(octocat);
+      expect(first.id).toMatch(/^usr_/);
+      expect(first).toMatchObject({ login: 'octocat', name: 'The Octocat', createdAt: '2026-08-01T00:00:00Z' });
+      const again = await auth.signIn(octocat);
+      expect(again.id).toBe(first.id);
+      expect(again.createdAt).toBe(first.createdAt);
+    });
+
+    it('keys the user by the provider subject, so a renamed login is still the same person', async () => {
+      const { auth } = await fresh();
+      const before = await auth.signIn(octocat);
+      const after = await auth.signIn({ ...octocat, login: 'octo-renamed', name: null });
+      expect(after.id).toBe(before.id);
+      expect(await auth.getUser(before.id)).toMatchObject({ login: 'octo-renamed', name: null });
+    });
+
+    it('does not merge two people, or the same subject under two providers', async () => {
+      const { auth } = await fresh();
+      const a = await auth.signIn(octocat);
+      const b = await auth.signIn({ ...octocat, subject: '9' });
+      const c = await auth.signIn({ ...octocat, provider: 'google' });
+      expect(new Set([a.id, b.id, c.id]).size).toBe(3);
+    });
+
+    it('makes one user of one person signing in for the first time twice at once', async () => {
+      const { auth } = await fresh();
+      const users = await Promise.all(Array.from({ length: 6 }, () => auth.signIn(octocat)));
+      expect(new Set(users.map((user) => user.id)).size).toBe(1);
+    });
+
+    it('answers null for a user that does not exist', async () => {
+      const { auth } = await fresh();
+      expect(await auth.getUser('usr_nobody')).toBeNull();
+    });
+
+    it('finds a live session by its hash, and only by its hash', async () => {
+      const { auth } = await fresh();
+      const user = await auth.signIn(octocat);
+      await auth.createSession('hash-1', user.id, '2026-09-01T00:00:00Z');
+      expect(await auth.findSession('hash-1', '2026-08-01T00:00:00Z')).toEqual({
+        userId: user.id,
+        expiresAt: '2026-09-01T00:00:00Z',
+      });
+      expect(await auth.findSession('hash-2', '2026-08-01T00:00:00Z')).toBeNull();
+    });
+
+    it('treats a session as gone from the instant it expires, without any purge having run', async () => {
+      const { auth } = await fresh();
+      const user = await auth.signIn(octocat);
+      await auth.createSession('h', user.id, '2026-09-01T00:00:00Z');
+      expect(await auth.findSession('h', '2026-08-31T23:59:59Z')).not.toBeNull();
+      expect(await auth.findSession('h', '2026-09-01T00:00:00Z')).toBeNull();
+      expect(await auth.findSession('h', '2026-10-01T00:00:00Z')).toBeNull();
+    });
+
+    it('ends a session, and signing out twice is not an error', async () => {
+      const { auth } = await fresh();
+      const user = await auth.signIn(octocat);
+      await auth.createSession('h', user.id, '2026-09-01T00:00:00Z');
+      expect(await auth.deleteSession('h')).toBe(true);
+      expect(await auth.findSession('h', '2026-08-01T00:00:00Z')).toBeNull();
+      expect(await auth.deleteSession('h')).toBe(false);
+    });
+
+    it('purges only the sessions that have expired', async () => {
+      const { auth } = await fresh();
+      const user = await auth.signIn(octocat);
+      await auth.createSession('old', user.id, '2026-08-01T00:00:00Z');
+      await auth.createSession('new', user.id, '2026-12-01T00:00:00Z');
+      expect(await auth.purgeExpiredSessions('2026-09-01T00:00:00Z')).toBe(1);
+      expect(await auth.findSession('new', '2026-09-01T00:00:00Z')).not.toBeNull();
+      expect(await auth.purgeExpiredSessions('2026-09-01T00:00:00Z')).toBe(0);
+    });
+
+    it('refuses a session for a user that does not exist', async () => {
+      const { auth } = await fresh();
+      await expect(auth.createSession('h', 'usr_nobody', '2026-09-01T00:00:00Z')).rejects.toThrow();
     });
   });
 }
