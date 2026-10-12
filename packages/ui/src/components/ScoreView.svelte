@@ -21,7 +21,7 @@
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { Paper } from '@sibei/layout';
-  import { formatKeySignature, formatPitch, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
+  import { displayTitle, formatKeySignature, formatPitch, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
   import type { Id, KeySignature, Score } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
   import {
@@ -690,7 +690,7 @@
     <aside class="rail">
       <div>
         <h2 class="rail-title" class:untitled={score.meta.title === ''}>
-          {score.meta.title === '' ? 'Untitled' : score.meta.title}
+          {displayTitle(score.meta.title)}
         </h2>
         {#if score.meta.composer !== ''}
           <p class="rail-by">{score.meta.composer}</p>

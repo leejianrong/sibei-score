@@ -22,6 +22,7 @@
     OfflineError,
     submitImport,
   } from '../lib/api.js';
+  import { UNTITLED } from '@sibei/model';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { displayKey, relativeTime } from '../lib/format.js';
@@ -283,7 +284,7 @@
           <button class="open" onclick={() => open(chart.id)}>
             <span class="row-name">
               {#if chart.title === ''}
-                <span><em>Untitled</em></span>
+                <span><em>{UNTITLED}</em></span>
                 <span class="row-id">{chart.id}</span>
               {:else}
                 <span>{chart.title}</span>
