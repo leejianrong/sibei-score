@@ -11,6 +11,7 @@ export * from './api.js';
 export * from './bar-hit.js';
 export * from './branding.js';
 export * from './chord-hit.js';
+export * from './devices.js';
 export * from './events.js';
 export * from './format.js';
 export * from './hit-test.js';

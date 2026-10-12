@@ -103,6 +103,32 @@ export async function signOut(): Promise<void> {
 }
 
 /**
+ * API tokens (V21b), the browser's half of what `sbscore auth` does from a terminal. A signed-in browser
+ * approves the code a CLI printed, and lists and revokes the tokens that came of it. **The token itself
+ * never reaches the page:** the CLI collects it by polling, and a listing carries only what a person needs
+ * to recognise one. The wire shapes, restated here for the reason `ScoreListing` is.
+ */
+export interface ApiTokenView {
+  id: string;
+  name: string;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string;
+}
+
+export async function approveDevice(approval: { userCode: string; name: string; scopes: readonly string[] }): Promise<void> {
+  await sendBody('POST', `${V1}/auth/device/approve`, approval);
+}
+
+export async function listApiTokens(): Promise<ApiTokenView[]> {
+  return (await getJson<{ tokens: ApiTokenView[] }>(`${V1}/auth/tokens`)).tokens;
+}
+
+export async function revokeApiToken(id: string): Promise<void> {
+  await sendNoBody('DELETE', `${V1}/auth/tokens/${encodeURIComponent(id)}`);
+}
+
+/**
  * Where "Sign in with GitHub" goes. A plain navigation, not a fetch: the whole OAuth round trip is
  * server-side and ends back on `/` with a cookie, so no GitHub token or code ever touches this bundle.
  */
@@ -469,6 +495,21 @@ async function sendNoBody(method: string, path: string): Promise<void> {
   let response: Response;
   try {
     response = await fetch(path, { method, headers: { accept: 'application/json' } });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) throw await failureFrom(response);
+}
+
+/** A request with a JSON body whose answer has none — the device approval, which answers 204. */
+async function sendBody(method: string, path: string, body: unknown): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
   } catch (cause) {
     throw new OfflineError(cause);
   }
