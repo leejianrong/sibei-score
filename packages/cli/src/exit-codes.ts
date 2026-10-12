@@ -32,6 +32,30 @@ export const EXIT = {
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 
 /**
+ * Kinds the server can answer with that map to `usage` (1) **on purpose**, and have since before this
+ * list existed (KAN-612). `exitCodeForKind` falls through to 1 for anything it does not recognise, so
+ * a kind added on the server silently became "usage" unless somebody remembered a case here;
+ * `tests/arch/exit-code-kinds.test.ts` now reads the server's kinds out of its own source and fails
+ * for any that is neither mapped above 1 nor named here. Naming a kind here is the act of deciding.
+ *
+ * Several of these arguably deserve a better number (`no-such-import` is a not-found;
+ * `job-not-retryable` is the same class as `no-source-to-reparse`). Moving one changes what a script
+ * sees, which ADR-0008 forbids doing in passing, so they are recorded as they behave today.
+ */
+export const USAGE_KINDS: readonly string[] = [
+  'internal',
+  'unreadable-document',
+  'method-not-allowed',
+  'no-such-import',
+  'no-such-import-image',
+  'job-not-retryable',
+  'worker-unavailable',
+];
+
+/** Kind families built from a template on the server (`bad-upload-${reason}`), matched by prefix. */
+export const USAGE_KIND_PREFIXES: readonly string[] = ['bad-upload-'];
+
+/**
  * The server's error `kind` to an exit code. One place, so the CLI and the API cannot drift about
  * what a failure *is* — they already agree about the message, because the server sends it.
  */
