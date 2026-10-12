@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 5;
+export const TABLE_SCHEMA_VERSION = 6;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -112,6 +112,38 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, created_at DESC);
 -- The runner claims the oldest queued job across all owners; this index is that claim's scan.
 CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
+
+-- Identity (table schema version 6, V20, ADR-0034). Purely additive: three new tables and no change to
+-- any existing one, so a v5 library opens, gains them, and keeps every row it had. A user's id is what
+-- becomes \`owner\` on the rows they create; the local library's owner stays the literal 'local' and has
+-- no row here.
+--
+--   * identities map a provider's stable subject to a user. (provider, subject) is the key, so one
+--     GitHub account is one user however many times it signs in.
+--   * sessions hold only the SHA-256 of the cookie's token (see store/auth.ts), so reading this table
+--     yields nothing replayable.
+CREATE TABLE IF NOT EXISTS users (
+  id          TEXT NOT NULL PRIMARY KEY,
+  login       TEXT NOT NULL,
+  name        TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS identities (
+  provider    TEXT NOT NULL,
+  subject     TEXT NOT NULL,
+  user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS identities_user ON identities (user_id);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  TEXT NOT NULL PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
 `;
 
 /**
@@ -149,6 +181,7 @@ export function migrateTables(db: Database): void {
   //
   //   v4 (V14e): `import_jobs.engine` — the engine a re-parse asked for; NULL on every older job.
   ensureColumn(db, 'import_jobs', 'engine', 'TEXT');
+  //   v6 (V20): users, identities, sessions — new tables, created by the DDL above; nothing to alter.
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
 }

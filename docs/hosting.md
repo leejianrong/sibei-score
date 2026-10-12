@@ -175,3 +175,21 @@ it is the same `0.0.0.0` bind the hosted deployment uses behind its edge.
 References: ADR-0001 (local-first, hosting-shaped), ADR-0005 (Node API / Python OMR worker), ADR-0006
 (store & blob seams), ADR-0022 (API versioning & the hosted freeze), ADR-0029 (the local HTTP threat
 model).
+
+## Hosted mode: GitHub sign-in (V20a)
+
+Hosted mode is switched on by configuration and nothing else; with none of it set, `sbscore serve` is the
+local app. All three are required together, and a partial set is refused at boot:
+
+| Setting | Meaning |
+|---|---|
+| `--public-url` / `SBSCORE_PUBLIC_URL` | Where browsers reach the deployment. Must be `https` (plain http only for a loopback address, for development). The OAuth redirect URI is `<public-url>/v1/auth/github/callback` |
+| `--github-client-id` / `SBSCORE_GITHUB_CLIENT_ID` | The GitHub OAuth App's client id |
+| `SBSCORE_GITHUB_CLIENT_SECRET` | Its secret. **Environment only**, so it never appears in `ps`, shell history or `docker inspect` args |
+
+Creating the OAuth App (a human step): GitHub → Settings → Developer settings → OAuth Apps → New, with the
+callback URL above. Request scope is `read:user` only; no email is read or stored.
+
+Routes: `GET /v1/auth/github/login`, `GET /v1/auth/github/callback`, `POST /v1/auth/logout`. Sessions last 30
+days, are stored as a SHA-256 hash, and travel in an `HttpOnly; SameSite=Lax` cookie (`Secure` over https).
+GitHub's own access token is used once to read the profile and then discarded.
