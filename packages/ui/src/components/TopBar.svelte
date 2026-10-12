@@ -8,6 +8,7 @@
    * "the server is not running" is the first thing anyone asks — so the address is always
    * visible and the dot answers it.
    */
+  import { UNTITLED } from '@sibei/model';
   import type { Route } from '../lib/routing.js';
 
   interface Props {
@@ -32,7 +33,7 @@
       <button class="crumb-btn" onclick={onLibrary}>Library</button>
       <span class="crumb-sep">/</span>
       <span class="crumb-now" class:untitled={title === ''}>
-        {#if title === null}…{:else if title === ''}<em>Untitled</em>{:else}{title}{/if}
+        {#if title === null}…{:else if title === ''}<em>{UNTITLED}</em>{:else}{title}{/if}
       </span>
     {/if}
   </nav>
