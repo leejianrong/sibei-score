@@ -16,4 +16,5 @@ export * from './format.js';
 export * from './hit-test.js';
 export * from './render.js';
 export * from './routing.js';
+export * from './session.js';
 export * from './structure-edits.js';

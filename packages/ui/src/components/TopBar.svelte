@@ -8,6 +8,7 @@
    * "the server is not running" is the first thing anyone asks — so the address is always
    * visible and the dot answers it.
    */
+  import type { Snippet } from 'svelte';
   import { UNTITLED } from '@sibei/model';
   import type { Route } from '../lib/routing.js';
 
@@ -18,9 +19,11 @@
     /** Whether the last request to the API came back. Not polled — this slice has no live wire. */
     reachable: boolean;
     onLibrary: () => void;
+    /** The account chip, on a hosted deployment (V20b). Absent on a local install, which has no accounts. */
+    account?: Snippet;
   }
 
-  const { route, title, reachable, onLibrary }: Props = $props();
+  const { route, title, reachable, onLibrary, account }: Props = $props();
 
   const label = __API_LABEL__;
   const onScore = $derived(route.view === 'score');
@@ -40,6 +43,7 @@
   <div class="host" title={reachable ? `connected to ${label}` : `no answer from ${label}`}>
     <span class="dot" class:down={!reachable} aria-hidden="true"></span>{label}
   </div>
+  {@render account?.()}
 </header>
 
 <style>

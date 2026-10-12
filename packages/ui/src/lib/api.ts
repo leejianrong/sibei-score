@@ -82,6 +82,44 @@ export class OfflineError extends Error {
   }
 }
 
+/**
+ * Who is signed in (V20b). `GET /v1/me` answers `{mode:'local'}` on a local install — there are no
+ * accounts to name — and `{mode:'hosted', user}` for a live hosted session; a hosted request with no
+ * session is a 401, which the caller reads as "show the sign-in gate", not as a failure. The wire
+ * shape, restated here for the reason `ScoreListing` is.
+ */
+export interface Me {
+  mode: 'local' | 'hosted';
+  user?: { id: string; login: string; name: string | null };
+}
+
+export async function getMe(): Promise<Me> {
+  return await getJson<Me>(`${V1}/me`);
+}
+
+/** End the session. 204 whether or not there was one, so signing out twice is not an error. */
+export async function signOut(): Promise<void> {
+  await sendNoBody('POST', `${V1}/auth/logout`);
+}
+
+/**
+ * Where "Sign in with GitHub" goes. A plain navigation, not a fetch: the whole OAuth round trip is
+ * server-side and ends back on `/` with a cookie, so no GitHub token or code ever touches this bundle.
+ */
+export const SIGN_IN_PATH = `${V1}/auth/github/login`;
+
+/**
+ * Hear about every 401 the API answers. A request that comes back 401 means the session this tab
+ * relied on is gone (it expired, or it was ended in another tab). The shell decides what that means
+ * for what is on screen; this module only reports it, once, from the one place every failure passes.
+ */
+const sessionEnded = new Set<() => void>();
+
+export function onSessionEnded(listener: () => void): () => void {
+  sessionEnded.add(listener);
+  return () => sessionEnded.delete(listener);
+}
+
 export async function listScores(): Promise<ScoreListing[]> {
   const body = await getJson<{ scores: ScoreListing[] }>(`${V1}/scores`);
   return body.scores;
@@ -478,6 +516,8 @@ async function failureFrom(response: Response): Promise<ApiError | OfflineError>
   } catch {
     body = null;
   }
+
+  if (response.status === 401) for (const listener of sessionEnded) listener();
 
   const envelope = body?.error;
   if (envelope === undefined) {
