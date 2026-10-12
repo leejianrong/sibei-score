@@ -5,6 +5,7 @@ import type { Problem } from '../http/problems.js';
 import { pathOf, queryOf, send, sendJson } from '../http/routes.js';
 import type { AuthStore, ProviderProfile } from '../store/auth.js';
 import { timestamp } from '../store/store-shared.js';
+import { createDeviceRoutes, TOKEN_PREFIX } from './device.js';
 import { hashToken, pkceChallenge, randomToken, readCookie, sameSecret, serializeCookie } from './secrets.js';
 
 /**
@@ -115,13 +116,36 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
   const userUrl = options.github.userUrl ?? 'https://api.github.com/user';
   const report = options.onError ?? (() => {});
 
-  const authenticate: Authenticator = async (request) => {
+  /** The user behind a session **cookie**, or `null`. Bearer tokens are not an answer here: see `auth/device.ts`. */
+  async function sessionUser(request: IncomingMessage): Promise<string | null> {
     const token = readCookie(request.headers.cookie, SESSION_COOKIE);
     if (token === undefined) return null;
     // A missing, unknown and expired session are all the same answer to the caller: not signed in.
     const session = await auth.findSession(hashToken(token), timestamp(now));
-    return session === null ? null : { owner: session.userId };
+    return session === null ? null : session.userId;
+  }
+
+  const authenticate: Authenticator = async (request) => {
+    // A request that names a bearer token is judged by it alone. Falling back to a cookie when the token
+    // is bad would make a revoked token's failure depend on which browser the script happened to share.
+    const header = request.headers.authorization;
+    if (header !== undefined) {
+      const match = /^Bearer (\S+)$/i.exec(header);
+      if (match === null || !match[1]!.startsWith(TOKEN_PREFIX)) return null;
+      const token = await auth.findToken(hashToken(match[1]!), timestamp(now));
+      return token === null ? null : { owner: token.userId, scopes: token.scopes };
+    }
+    const userId = await sessionUser(request);
+    return userId === null ? null : { owner: userId };
   };
+
+  const device = createDeviceRoutes({
+    auth,
+    now,
+    sessionUser,
+    // The browser page that takes the code is V21b's; the address is fixed here so the CLI can print it.
+    verificationUri: `${publicUrl.origin}/#/device`,
+  });
 
   function redirect(response: ServerResponse, location: string, cookies: string[]): number {
     // No CORS header, as on every response (ADR-0029). `no-store` because this carries `Set-Cookie`.
@@ -281,6 +305,8 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
       if (path === '/v1/auth/logout') {
         return method === 'POST' ? logout(request, response) : notAllowed(response, 'POST');
       }
+      const handled = await device.handle(request, response);
+      if (handled !== null) return handled;
       return send(response, notFound());
     },
   };

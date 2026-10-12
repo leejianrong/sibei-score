@@ -716,6 +716,356 @@ describe('local mode is untouched when there is no hosted configuration', () => 
   });
 });
 
+// --- API tokens and the device flow (V21a) ----------------------------------------------------------
+
+interface Minted {
+  token: string;
+  tokenId: string;
+  deviceCode: string;
+  userCode: string;
+}
+
+const bearer = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` });
+
+/** Start a device authorisation as the CLI would. */
+async function startDevice(): Promise<{ deviceCode: string; userCode: string; reply: Reply }> {
+  const reply = await raw('/v1/auth/device', { method: 'POST' });
+  expect(reply.status).toBe(200);
+  const body = reply.json();
+  return { deviceCode: body.deviceCode, userCode: body.userCode, reply };
+}
+
+const approve = (cookie: string, body: unknown): Promise<Reply> => jsonPost('/v1/auth/device/approve', body, cookie);
+const poll = (deviceCode: string): Promise<Reply> =>
+  raw('/v1/auth/device/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceCode }),
+  });
+
+/** The whole device flow, as a CLI and the person at the keyboard: a token for whoever holds `cookie`. */
+async function mint(cookie: string, approval: Record<string, unknown> = {}): Promise<Minted> {
+  const { deviceCode, userCode } = await startDevice();
+  expect((await approve(cookie, { userCode, ...approval })).status).toBe(204);
+  const collected = await poll(deviceCode);
+  expect(collected.status).toBe(200);
+  const body = collected.json();
+  return { token: body.accessToken, tokenId: body.tokenId, deviceCode, userCode };
+}
+
+describe('the device authorisation flow', () => {
+  it('starts with a device code the CLI keeps and a short user code a person types, and says where', async () => {
+    const { reply, userCode, deviceCode } = await startDevice();
+    const body = reply.json();
+    expect(userCode).toMatch(/^[BCDFGHJKMNPQRSTVWXYZ2-9]{4}-[BCDFGHJKMNPQRSTVWXYZ2-9]{4}$/);
+    expect(deviceCode.length).toBeGreaterThanOrEqual(40);
+    expect(body.verificationUri).toBe('http://127.0.0.1/#/device');
+    expect(body.expiresIn).toBe(600);
+    expect(body.interval).toBe(5);
+    expect(reply.headers['cache-control']).toBe('no-store');
+  });
+
+  it('keeps two attempts apart: no two codes alike', async () => {
+    const a = await startDevice();
+    const b = await startDevice();
+    expect(a.deviceCode).not.toBe(b.deviceCode);
+    expect(a.userCode).not.toBe(b.userCode);
+  });
+
+  it('answers a poll as pending until a signed-in person approves, then hands over a token', async () => {
+    const cookie = await signIn(ALICE);
+    const { deviceCode, userCode } = await startDevice();
+    const pending = await poll(deviceCode);
+    expect(pending.status).toBe(400);
+    expect(pending.json().error.kind).toBe('authorization-pending');
+
+    expect((await approve(cookie, { userCode, name: 'my laptop' })).status).toBe(204);
+    const done = await poll(deviceCode);
+    expect(done.status).toBe(200);
+    const body = done.json();
+    expect(body.accessToken).toMatch(/^sbs_[A-Za-z0-9_-]{43}$/);
+    expect(body.tokenType).toBe('Bearer');
+    expect(body.scopes).toEqual(['read', 'write']);
+    expect(done.headers['cache-control']).toBe('no-store');
+  });
+
+  it('accepts the user code however it is typed: lower case, no dash, spaces', async () => {
+    const cookie = await signIn(ALICE);
+    for (const spell of [(c: string) => c.toLowerCase(), (c: string) => c.replace('-', ''), (c: string) => c.replace('-', ' ')]) {
+      const { userCode } = await startDevice();
+      expect((await approve(cookie, { userCode: spell(userCode) })).status).toBe(204);
+    }
+  });
+
+  it('shows the token once: the same device code cannot collect a second one', async () => {
+    const cookie = await signIn(ALICE);
+    const { deviceCode } = await mint(cookie);
+    const again = await poll(deviceCode);
+    expect(again.status).toBe(400);
+    expect(again.json().error.kind).toBe('expired-code');
+  });
+
+  it('lets a user code approve only once', async () => {
+    const cookie = await signIn(ALICE);
+    const { userCode } = await startDevice();
+    expect((await approve(cookie, { userCode })).status).toBe(204);
+    const second = await approve(cookie, { userCode });
+    expect(second.status).toBe(404);
+    expect(second.json().error.kind).toBe('unknown-code');
+  });
+
+  it('refuses a code that is not shaped like one, a code nobody started, and scopes that do not exist', async () => {
+    const cookie = await signIn(ALICE);
+    expect((await approve(cookie, { userCode: 'nope' })).json().error.kind).toBe('invalid-code');
+    expect((await approve(cookie, {})).status).toBe(422);
+    expect((await approve(cookie, { userCode: 'BCDF-GHJK' })).json().error.kind).toBe('unknown-code');
+    const { userCode } = await startDevice();
+    const badScopes = await approve(cookie, { userCode, scopes: ['read', 'root'] });
+    expect(badScopes.status).toBe(422);
+    expect(badScopes.json().error.kind).toBe('invalid-scopes');
+    expect(badScopes.json().error.message).toContain('read, write');
+    expect((await approve(cookie, { userCode, scopes: [] })).status).toBe(422);
+  });
+
+  it('lets a code expire: after ten minutes it can neither be approved nor collected', async () => {
+    const cookie = await signIn(ALICE);
+    const { deviceCode, userCode } = await startDevice();
+    clock += 9 * 60 * 1000 + 59_000;
+    expect((await poll(deviceCode)).json().error.kind).toBe('authorization-pending');
+    clock += 1_000;
+    expect((await poll(deviceCode)).json().error.kind).toBe('expired-code');
+    expect((await approve(cookie, { userCode })).status).toBe(404);
+  });
+
+  it('does not let an approved but uncollected code outlive its ten minutes', async () => {
+    const cookie = await signIn(ALICE);
+    const { deviceCode, userCode } = await startDevice();
+    expect((await approve(cookie, { userCode })).status).toBe(204);
+    clock += 10 * 60 * 1000;
+    expect((await poll(deviceCode)).json().error.kind).toBe('expired-code');
+  });
+
+  it('tells a CLI that polls too fast to slow down, and lets it back in after the interval', async () => {
+    const { deviceCode } = await startDevice();
+    expect((await poll(deviceCode)).json().error.kind).toBe('authorization-pending');
+    clock += 2_000;
+    expect((await poll(deviceCode)).json().error.kind).toBe('slow-down');
+    clock += 4_000;
+    expect((await poll(deviceCode)).json().error.kind).toBe('authorization-pending');
+  });
+
+  it('refuses a poll that names no device code, or one nobody issued', async () => {
+    expect((await raw('/v1/auth/device/token', { method: 'POST', body: '{}' })).json().error.kind).toBe('invalid-code');
+    expect((await poll('made-up')).json().error.kind).toBe('expired-code');
+  });
+
+  it('needs a signed-in browser to approve, and a bearer token is not one', async () => {
+    const cookie = await signIn(ALICE);
+    const { token } = await mint(cookie);
+    const { userCode } = await startDevice();
+    expect((await raw('/v1/auth/device/approve', { method: 'POST', body: JSON.stringify({ userCode }) })).status).toBe(401);
+    const withToken = await raw('/v1/auth/device/approve', {
+      method: 'POST',
+      headers: { ...bearer(token), 'content-type': 'application/json' },
+      body: JSON.stringify({ userCode }),
+    });
+    expect(withToken.status).toBe(401);
+  });
+
+  it('keeps the ADR-0029 guards on the browser-facing steps: a foreign Origin cannot approve', async () => {
+    const cookie = await signIn(ALICE);
+    const { userCode } = await startDevice();
+    const reply = await raw('/v1/auth/device/approve', {
+      method: 'POST',
+      headers: { cookie, origin: 'https://evil.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ userCode }),
+    });
+    expect(reply.status).toBe(403);
+    // And the code is still waiting, so the refusal did not spend it.
+    expect((await approve(cookie, { userCode })).status).toBe(204);
+  });
+});
+
+describe('a bearer token', () => {
+  it('acts as the user who approved it: it sees their charts and writes into their library', async () => {
+    const cookie = await signIn(ALICE);
+    expect((await jsonPost('/v1/scores', create('soul'), cookie)).status).toBe(201);
+    const { token } = await mint(cookie);
+
+    expect((await raw('/v1/scores', { headers: bearer(token) })).json().scores.map((s: { id: string }) => s.id)).toEqual(['soul']);
+    const made = await raw('/v1/scores', {
+      method: 'POST',
+      headers: { ...bearer(token), 'content-type': 'application/json' },
+      body: JSON.stringify(create('standards')),
+    });
+    expect(made.status).toBe(201);
+    // Seen from the browser session of the same person: one library, two ways in.
+    const ids = (await raw('/v1/scores', { headers: { cookie } })).json().scores.map((s: { id: string }) => s.id);
+    expect(ids.sort()).toEqual(['soul', 'standards']);
+    const me = await raw('/v1/me', { headers: bearer(token) });
+    expect(me.json().user.login).toBe('alice');
+  });
+
+  it('cannot reach another user\'s data: Bob\'s token sees none of Alice\'s charts', async () => {
+    const alice = await signIn(ALICE);
+    const bob = await signIn(BOB);
+    expect((await jsonPost('/v1/scores', create('secret'), alice)).status).toBe(201);
+    const { token } = await mint(bob);
+    expect((await raw('/v1/scores/secret', { headers: bearer(token) })).status).toBe(404);
+    expect((await raw('/v1/scores', { headers: bearer(token) })).json()).toEqual({ scores: [] });
+    expect((await raw('/v1/scores/secret/export?format=pdf', { headers: bearer(token) })).status).toBe(404);
+  });
+
+  it('is refused when it is garbage, not ours, or the wrong scheme — and a cookie does not rescue it', async () => {
+    const cookie = await signIn(ALICE);
+    const { token } = await mint(cookie);
+    for (const header of ['Bearer sbs_madeupmadeupmadeupmadeupmadeupmadeupmadeup1', 'Bearer not-ours', 'Bearer ', 'Basic Zm9vOmJhcg==', token]) {
+      const reply = await raw('/v1/scores', { headers: { authorization: header } });
+      expect({ header: header === token ? '(bare token)' : header, status: reply.status }).toEqual({
+        header: header === token ? '(bare token)' : header,
+        status: 401,
+      });
+    }
+    // A valid cookie alongside a bad token: the token is what was presented, so it is what is judged.
+    expect((await raw('/v1/scores', { headers: { cookie, authorization: 'Bearer sbs_nope' } })).status).toBe(401);
+  });
+
+  it('expires after ninety days, with no purge needed', async () => {
+    const cookie = await signIn(ALICE);
+    const { token } = await mint(cookie);
+    clock += 89 * 24 * 60 * 60 * 1000;
+    expect((await raw('/v1/scores', { headers: bearer(token) })).status).toBe(200);
+    clock += 2 * 24 * 60 * 60 * 1000;
+    expect((await raw('/v1/scores', { headers: bearer(token) })).status).toBe(401);
+  });
+
+  it('is limited to its scopes: read-only reads and cannot write, write-only writes and cannot read', async () => {
+    const cookie = await signIn(ALICE);
+    const reader = await mint(cookie, { scopes: ['read'] });
+    const writer = await mint(cookie, { scopes: ['write'] });
+
+    expect((await raw('/v1/scores', { headers: bearer(reader.token) })).status).toBe(200);
+    const refusedWrite = await raw('/v1/scores', {
+      method: 'POST',
+      headers: { ...bearer(reader.token), 'content-type': 'application/json' },
+      body: JSON.stringify(create('x')),
+    });
+    expect(refusedWrite.status).toBe(403);
+    expect(refusedWrite.json().error.kind).toBe('insufficient-scope');
+    expect((await raw('/v1/scores/x', { headers: bearer(reader.token) })).status).toBe(404); // nothing was created
+
+    expect(
+      (await raw('/v1/scores', { method: 'POST', headers: { ...bearer(writer.token), 'content-type': 'application/json' }, body: JSON.stringify(create('y')) })).status,
+    ).toBe(201);
+    const refusedRead = await raw('/v1/scores', { headers: bearer(writer.token) });
+    expect(refusedRead.status).toBe(403);
+    expect(refusedRead.json().error.kind).toBe('insufficient-scope');
+  });
+
+  it('is not a way to see or change tokens: listing and revoking are for a signed-in browser only', async () => {
+    const cookie = await signIn(ALICE);
+    const { token, tokenId } = await mint(cookie);
+    expect((await raw('/v1/auth/tokens', { headers: bearer(token) })).status).toBe(401);
+    expect((await raw(`/v1/auth/tokens/${tokenId}`, { method: 'DELETE', headers: bearer(token) })).status).toBe(401);
+    expect((await raw('/v1/scores', { headers: bearer(token) })).status).toBe(200);
+  });
+});
+
+describe('listing and revoking tokens', () => {
+  it('lists a user\'s own tokens with what a person needs to recognise them, and never the token', async () => {
+    const cookie = await signIn(ALICE);
+    const first = await mint(cookie, { name: 'laptop', scopes: ['read'] });
+    await mint(cookie, { name: 'ci' });
+    await mint(await signIn(BOB), { name: 'bobs' });
+
+    const reply = await raw('/v1/auth/tokens', { headers: { cookie } });
+    expect(reply.status).toBe(200);
+    const tokens = reply.json().tokens;
+    expect(tokens.map((t: { name: string }) => t.name)).toEqual(['ci', 'laptop']);
+    expect(tokens[1]).toEqual({
+      id: first.tokenId,
+      name: 'laptop',
+      scopes: ['read'],
+      createdAt: expect.any(String),
+      expiresAt: expect.any(String),
+    });
+    expect(reply.body).not.toContain(first.token);
+    expect(reply.headers['cache-control']).toBe('no-store');
+    expect((await raw('/v1/auth/tokens')).status).toBe(401);
+  });
+
+  it('revokes a token at once: the next request with it is a 401', async () => {
+    const cookie = await signIn(ALICE);
+    const { token, tokenId } = await mint(cookie);
+    expect((await raw('/v1/scores', { headers: bearer(token) })).status).toBe(200);
+    expect((await raw(`/v1/auth/tokens/${tokenId}`, { method: 'DELETE', headers: { cookie } })).status).toBe(204);
+    expect((await raw('/v1/scores', { headers: bearer(token) })).status).toBe(401);
+    expect((await raw('/v1/auth/tokens', { headers: { cookie } })).json().tokens).toEqual([]);
+    expect((await raw(`/v1/auth/tokens/${tokenId}`, { method: 'DELETE', headers: { cookie } })).status).toBe(404);
+  });
+
+  it('will not revoke somebody else\'s token, and says nothing that tells it from one that does not exist', async () => {
+    const alice = await signIn(ALICE);
+    const bob = await signIn(BOB);
+    const { token, tokenId } = await mint(alice);
+    const theirs = await raw(`/v1/auth/tokens/${tokenId}`, { method: 'DELETE', headers: { cookie: bob } });
+    const missing = await raw('/v1/auth/tokens/tok_nonexistent', { method: 'DELETE', headers: { cookie: bob } });
+    expect(theirs.status).toBe(404);
+    expect(theirs.json().error.kind).toBe(missing.json().error.kind);
+    expect((await raw('/v1/scores', { headers: bearer(token) })).status).toBe(200);
+  });
+
+  it('refuses a foreign Origin on a revoke, even with a valid session', async () => {
+    const cookie = await signIn(ALICE);
+    const { tokenId } = await mint(cookie);
+    const reply = await raw(`/v1/auth/tokens/${tokenId}`, { method: 'DELETE', headers: { cookie, origin: 'https://evil.example' } });
+    expect(reply.status).toBe(403);
+  });
+});
+
+describe('credentials never leak', () => {
+  it('puts no device code, user code or token in a log line, or in any response but the one that is theirs', async () => {
+    const cookie = await signIn(ALICE);
+    const { token, deviceCode, userCode } = await mint(cookie);
+    // Provoke the refusal paths too, which are where a careless message would echo what it was given.
+    await raw('/v1/scores', { headers: { authorization: 'Bearer sbs_madeup' } });
+    await poll(deviceCode);
+    await approve(cookie, { userCode });
+    const text = logged.join('\n');
+    for (const secret of [token, deviceCode, userCode, userCode.replace('-', ''), 'sbs_madeup']) {
+      expect(text).not.toContain(secret);
+    }
+    const listing = await raw('/v1/auth/tokens', { headers: { cookie } });
+    expect(listing.body).not.toContain(token);
+    const refused = await raw('/v1/scores', { headers: { authorization: `Bearer ${token}x` } });
+    expect(refused.body).not.toContain(token);
+  });
+});
+
+describe('local mode has no device flow', () => {
+  it('does not route any of it, rather than routing it and failing', async () => {
+    const localStore = openSqliteStore({ filename: ':memory:' });
+    const local = createApi({ store: localStore, logger: recordingLogger() });
+    const { port: localPort } = await local.listen(0);
+    try {
+      for (const [method, path] of [
+        ['POST', '/v1/auth/device'],
+        ['POST', '/v1/auth/device/token'],
+        ['POST', '/v1/auth/device/approve'],
+        ['GET', '/v1/auth/tokens'],
+      ] as const) {
+        const reply = await fetch(`http://127.0.0.1:${localPort}${path}`, { method });
+        expect({ path, status: reply.status }).toEqual({ path, status: 404 });
+      }
+      // And an Authorization header is not an alternative principal there: it is simply ignored.
+      expect((await fetch(`http://127.0.0.1:${localPort}/v1/scores`, { headers: { authorization: 'Bearer sbs_x' } })).status).toBe(200);
+    } finally {
+      await local.close();
+      await localStore.close();
+    }
+  });
+});
+
 // --- helpers that need the app's own vocabulary -----------------------------------------------------
 
 function now(): string {

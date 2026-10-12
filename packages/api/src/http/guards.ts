@@ -26,6 +26,11 @@ export const LOOPBACK = '127.0.0.1';
  */
 export interface Principal {
   owner: Owner;
+  /**
+   * What an API token may do (V21a): `read` for the safe methods, `write` for the state-changing ones. Absent
+   * for a session or the local principal, which are not limited.
+   */
+  scopes?: readonly string[];
 }
 
 /**

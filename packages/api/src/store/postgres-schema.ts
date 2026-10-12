@@ -25,12 +25,13 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 2;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 3;
 
 /**
  * Lineage: v1 (V19) scores, operations, import_jobs. v2 (V20, ADR-0034) adds users, identities and
  * sessions — purely additive, so `migratePostgres` takes a v1 database to v2 by creating three tables
- * and touching none of the existing rows.
+ * and touching none of the existing rows. v3 (V21a, ADR-0034 decision 4) adds device_codes and api_tokens,
+ * likewise additive.
  */
 
 /**
@@ -126,6 +127,34 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
 
+-- API tokens and the device flow that mints them (table version 3, V21a). Hashes only, as for sessions:
+-- token_hash is the SHA-256 of the token, device_hash of the device code the CLI holds. An approved
+-- device code is deleted by the poll that collects it, which is what makes it spendable once.
+CREATE TABLE IF NOT EXISTS device_codes (
+  device_hash     text NOT NULL PRIMARY KEY,
+  user_code       text NOT NULL UNIQUE,
+  status          text NOT NULL CHECK (status IN ('pending', 'approved')),
+  user_id         text REFERENCES users (id) ON DELETE CASCADE,
+  name            text,
+  scopes          text,
+  created_at      text NOT NULL,
+  expires_at      text NOT NULL,
+  last_polled_at  text
+);
+CREATE INDEX IF NOT EXISTS device_codes_expires ON device_codes (expires_at);
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id          text NOT NULL PRIMARY KEY,
+  token_hash  text NOT NULL UNIQUE,
+  user_id     text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  name        text NOT NULL,
+  scopes      text NOT NULL,
+  created_at  text NOT NULL,
+  expires_at  text NOT NULL,
+  seq         bigserial
+);
+CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, seq DESC);
+CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key    text    NOT NULL PRIMARY KEY,
   value  integer NOT NULL
@@ -164,6 +193,10 @@ ALTER TABLE identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE identities FORCE  ROW LEVEL SECURITY;
 ALTER TABLE sessions   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions   FORCE  ROW LEVEL SECURITY;
+ALTER TABLE device_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_codes FORCE  ROW LEVEL SECURITY;
+ALTER TABLE api_tokens   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE api_tokens   FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS system_only ON users;
 CREATE POLICY system_only ON users
@@ -173,6 +206,12 @@ CREATE POLICY system_only ON identities
   USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
 DROP POLICY IF EXISTS system_only ON sessions;
 CREATE POLICY system_only ON sessions
+  USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
+DROP POLICY IF EXISTS system_only ON device_codes;
+CREATE POLICY system_only ON device_codes
+  USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
+DROP POLICY IF EXISTS system_only ON api_tokens;
+CREATE POLICY system_only ON api_tokens
   USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
 `;
 

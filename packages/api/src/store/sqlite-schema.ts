@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 6;
+export const TABLE_SCHEMA_VERSION = 7;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -144,6 +144,38 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+
+-- API tokens and the device flow that mints them (table schema version 7, V21a, ADR-0034 decision 4).
+-- Purely additive, like v6. Both hold only hashes of what a bearer would present: \`token_hash\` is the
+-- SHA-256 of the token and \`device_hash\` the SHA-256 of the device code the CLI holds, so reading either
+-- table yields nothing replayable. \`user_code\` is the short code a person types; it is not a secret that
+-- can be used alone (approving needs a signed-in session) and is unique among live codes.
+--   * status is 'pending' until a signed-in person approves, then 'approved'; an approved row is deleted
+--     by the poll that collects it, which is what makes a code spendable once.
+--   * scopes are stored space-separated ('read write').
+CREATE TABLE IF NOT EXISTS device_codes (
+  device_hash     TEXT NOT NULL PRIMARY KEY,
+  user_code       TEXT NOT NULL UNIQUE,
+  status          TEXT NOT NULL CHECK (status IN ('pending', 'approved')),
+  user_id         TEXT REFERENCES users (id) ON DELETE CASCADE,
+  name            TEXT,
+  scopes          TEXT,
+  created_at      TEXT NOT NULL,
+  expires_at      TEXT NOT NULL,
+  last_polled_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS device_codes_expires ON device_codes (expires_at);
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id          TEXT NOT NULL PRIMARY KEY,
+  token_hash  TEXT NOT NULL UNIQUE,
+  user_id     TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  scopes      TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  expires_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
 `;
 
 /**
@@ -182,6 +214,7 @@ export function migrateTables(db: Database): void {
   //   v4 (V14e): `import_jobs.engine` — the engine a re-parse asked for; NULL on every older job.
   ensureColumn(db, 'import_jobs', 'engine', 'TEXT');
   //   v6 (V20): users, identities, sessions — new tables, created by the DDL above; nothing to alter.
+  //   v7 (V21a): device_codes, api_tokens — likewise.
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
 }

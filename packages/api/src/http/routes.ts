@@ -742,9 +742,9 @@ function newIdFrom(body: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
-const MALFORMED = Symbol('malformed');
+export const MALFORMED = Symbol('malformed');
 
-async function readJsonBody(
+export async function readJsonBody(
   request: IncomingMessage,
   response: ServerResponse,
 ): Promise<unknown | typeof MALFORMED> {

@@ -468,4 +468,160 @@ export function authStoreConformance(label: string, open: OpenHarness): void {
       await expect(auth.createSession('h', 'usr_nobody', '2026-09-01T00:00:00Z')).rejects.toThrow();
     });
   });
+
+  describe(`${label}: device authorisation and API tokens (V21a)`, () => {
+    const T0 = '2026-08-01T00:00:00Z';
+    const T_LATER = '2026-08-01T00:05:00Z';
+    const T_EXPIRED = '2026-08-01T00:10:00Z';
+    const device = { deviceHash: 'dev-hash', userCode: 'BCDFGHJK', expiresAt: T_EXPIRED };
+
+    async function aUser(auth: AuthStore) {
+      return auth.signIn(octocat);
+    }
+
+    it('answers a poll as pending until a person approves, then hands over what to mint — once', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createDevice(device);
+      expect(await auth.pollDevice('dev-hash', T0, 0)).toEqual({ status: 'pending' });
+      expect(await auth.approveDevice('BCDFGHJK', { userId: user.id, name: 'laptop', scopes: ['read', 'write'] }, T0)).toBe(true);
+      expect(await auth.pollDevice('dev-hash', T_LATER, 0)).toEqual({
+        status: 'authorized',
+        userId: user.id,
+        name: 'laptop',
+        scopes: ['read', 'write'],
+      });
+      // Spent by the poll that returned it: a second presentation of the same device code is not an answer.
+      expect(await auth.pollDevice('dev-hash', T_LATER, 0)).toEqual({ status: 'expired' });
+    });
+
+    it('lets a code approve only once, and not at all after it expires or if it never existed', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      const approval = { userId: user.id, name: 'laptop', scopes: ['read'] as const };
+      await auth.createDevice(device);
+      expect(await auth.approveDevice('ZZZZZZZZ', approval, T0)).toBe(false);
+      expect(await auth.approveDevice('BCDFGHJK', approval, T_EXPIRED)).toBe(false);
+      expect(await auth.approveDevice('BCDFGHJK', approval, T0)).toBe(true);
+      expect(await auth.approveDevice('BCDFGHJK', approval, T0)).toBe(false);
+    });
+
+    it('treats a device code as gone from the instant it expires', async () => {
+      const { auth } = await fresh();
+      await auth.createDevice(device);
+      expect(await auth.pollDevice('dev-hash', '2026-08-01T00:09:59Z', 0)).toEqual({ status: 'pending' });
+      expect(await auth.pollDevice('dev-hash', T_EXPIRED, 0)).toEqual({ status: 'expired' });
+    });
+
+    it('does not let an expired approval be collected', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createDevice(device);
+      await auth.approveDevice('BCDFGHJK', { userId: user.id, name: 'x', scopes: ['read'] }, T0);
+      expect(await auth.pollDevice('dev-hash', T_EXPIRED, 0)).toEqual({ status: 'expired' });
+    });
+
+    it('tells a poller that comes back too soon to slow down, and does not reset its clock for doing so', async () => {
+      const { auth } = await fresh();
+      await auth.createDevice(device);
+      expect(await auth.pollDevice('dev-hash', '2026-08-01T00:00:00Z', 5_000)).toEqual({ status: 'pending' });
+      expect(await auth.pollDevice('dev-hash', '2026-08-01T00:00:02Z', 5_000)).toEqual({ status: 'slow-down' });
+      expect(await auth.pollDevice('dev-hash', '2026-08-01T00:00:04Z', 5_000)).toEqual({ status: 'slow-down' });
+      expect(await auth.pollDevice('dev-hash', '2026-08-01T00:00:05Z', 5_000)).toEqual({ status: 'pending' });
+    });
+
+    it('lets exactly one of several concurrent polls collect an approval', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createDevice(device);
+      await auth.approveDevice('BCDFGHJK', { userId: user.id, name: 'x', scopes: ['read'] }, T0);
+      const polls = await Promise.all(Array.from({ length: 6 }, () => auth.pollDevice('dev-hash', T_LATER, 0)));
+      expect(polls.filter((p) => p.status === 'authorized')).toHaveLength(1);
+    });
+
+    it('refuses two live device codes with the same user code', async () => {
+      const { auth } = await fresh();
+      await auth.createDevice(device);
+      await expect(auth.createDevice({ ...device, deviceHash: 'other' })).rejects.toThrow();
+    });
+
+    it('mints a token, finds it by hash while it lives, and never finds a hash it was not given', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      const made = await auth.createToken({
+        id: 'tok_1',
+        tokenHash: 'h1',
+        userId: user.id,
+        name: 'laptop',
+        scopes: ['read'],
+        expiresAt: '2026-11-01T00:00:00Z',
+      });
+      expect(made).toEqual({
+        id: 'tok_1',
+        name: 'laptop',
+        scopes: ['read'],
+        createdAt: expect.any(String),
+        expiresAt: '2026-11-01T00:00:00Z',
+      });
+      expect(await auth.findToken('h1', T0)).toEqual({ id: 'tok_1', userId: user.id, scopes: ['read'] });
+      expect(await auth.findToken('h2', T0)).toBeNull();
+    });
+
+    it('treats a token as gone from the instant it expires, with no purge needed', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createToken({ id: 'tok_1', tokenHash: 'h1', userId: user.id, name: 'x', scopes: ['read'], expiresAt: '2026-09-01T00:00:00Z' });
+      expect(await auth.findToken('h1', '2026-08-31T23:59:59Z')).not.toBeNull();
+      expect(await auth.findToken('h1', '2026-09-01T00:00:00Z')).toBeNull();
+    });
+
+    it('lists only the caller\'s tokens, newest first, and never a hash', async () => {
+      const { auth } = await fresh({ now: ticking() });
+      const alice = await aUser(auth);
+      const bob = await auth.signIn({ ...octocat, subject: '2', login: 'bob' });
+      const base = { scopes: ['read'] as const, expiresAt: '2026-11-01T00:00:00Z' };
+      await auth.createToken({ id: 'tok_a1', tokenHash: 'a1', userId: alice.id, name: 'first', ...base });
+      await auth.createToken({ id: 'tok_a2', tokenHash: 'a2', userId: alice.id, name: 'second', ...base });
+      await auth.createToken({ id: 'tok_b1', tokenHash: 'b1', userId: bob.id, name: 'bobs', ...base });
+      const listed = await auth.listTokens(alice.id);
+      expect(listed.map((t) => t.id)).toEqual(['tok_a2', 'tok_a1']);
+      // The hashes ('a1', 'a2') are the stored secret form; a listing carries neither them nor a field for one.
+      const text = JSON.stringify(listed);
+      expect(text).not.toContain('"a1"');
+      expect(text).not.toContain('"a2"');
+      expect(text.toLowerCase()).not.toContain('hash');
+    });
+
+    it('revokes a token at once, and only for its owner', async () => {
+      const { auth } = await fresh();
+      const alice = await aUser(auth);
+      const bob = await auth.signIn({ ...octocat, subject: '2', login: 'bob' });
+      await auth.createToken({ id: 'tok_a', tokenHash: 'ha', userId: alice.id, name: 'x', scopes: ['read'], expiresAt: '2026-11-01T00:00:00Z' });
+      expect(await auth.revokeToken(bob.id, 'tok_a')).toBe(false);
+      expect(await auth.findToken('ha', T0)).not.toBeNull();
+      expect(await auth.revokeToken(alice.id, 'tok_a')).toBe(true);
+      expect(await auth.findToken('ha', T0)).toBeNull();
+      expect(await auth.revokeToken(alice.id, 'tok_a')).toBe(false);
+    });
+
+    it('refuses a token for a user that does not exist', async () => {
+      const { auth } = await fresh();
+      await expect(
+        auth.createToken({ id: 'tok_z', tokenHash: 'hz', userId: 'usr_nobody', name: 'x', scopes: ['read'], expiresAt: '2026-11-01T00:00:00Z' }),
+      ).rejects.toThrow();
+    });
+
+    it('purges only the device codes and tokens that have expired', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createDevice({ deviceHash: 'old', userCode: 'AAAAAAAA', expiresAt: '2026-08-01T00:00:00Z' });
+      await auth.createDevice({ deviceHash: 'new', userCode: 'BBBBBBBB', expiresAt: '2026-12-01T00:00:00Z' });
+      await auth.createToken({ id: 'tok_old', tokenHash: 'ho', userId: user.id, name: 'x', scopes: ['read'], expiresAt: '2026-08-01T00:00:00Z' });
+      await auth.createToken({ id: 'tok_new', tokenHash: 'hn', userId: user.id, name: 'x', scopes: ['read'], expiresAt: '2026-12-01T00:00:00Z' });
+      expect(await auth.purgeExpiredCredentials('2026-09-01T00:00:00Z')).toBe(2);
+      expect(await auth.findToken('hn', '2026-09-01T00:00:00Z')).not.toBeNull();
+      expect(await auth.pollDevice('new', '2026-09-01T00:00:00Z', 0)).toEqual({ status: 'pending' });
+      expect(await auth.purgeExpiredCredentials('2026-09-01T00:00:00Z')).toBe(0);
+    });
+  });
 }

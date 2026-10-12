@@ -57,6 +57,10 @@ export const USAGE_KINDS: readonly string[] = [
   'sign-in-denied',
   'sign-in-failed',
   'github-unavailable',
+  // The device-flow poll's two *expected* answers (V21a). `sbscore auth login` (V21b) loops on them and
+  // never shows either to a person, so they have no exit code of their own to decide.
+  'authorization-pending',
+  'slow-down',
 ];
 
 /** Kind families built from a template on the server (`bad-upload-${reason}`), matched by prefix. */
@@ -91,16 +95,25 @@ export function exitCodeForKind(kind: string): ExitCode {
     // A re-parse of a chart with no scan behind it (V14e): the request was readable, there is simply
     // nothing to re-run — the same "readable, cannot be produced" class as an unsupported export value.
     case 'no-source-to-reparse':
+    // The device flow (V21a). A code that is not eight letters and digits, a scope that does not exist, and
+    // a code that expired or was already used are requests that were readable and cannot be fulfilled: the
+    // same class as `validation`, and the fix is to start again or correct the value.
+    case 'invalid-code':
+    case 'invalid-scopes':
+    case 'expired-code':
       return EXIT.validation;
     case 'no-such-score':
     case 'no-such-route':
     case 'not-found': // an unrouted /v1/auth/ path (V20a), the same fact as `no-such-route`
+    case 'no-such-token': // V21a: another user's token and a missing one are the same answer
+    case 'unknown-code': // V21a: a user code that is not waiting for approval
       return EXIT.notFound;
     case 'conflict-exists':
       return EXIT.exists;
     case 'foreign-origin':
     case 'foreign-host':
     case 'unauthenticated':
+    case 'insufficient-scope': // V21a: a token that lacks the scope for what it asked to do
       return EXIT.refused;
     default:
       return EXIT.usage;
