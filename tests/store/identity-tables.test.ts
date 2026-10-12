@@ -36,8 +36,8 @@ function scratchFile(): string {
 }
 
 describe('table schema version 6', () => {
-  it('is the version that adds identity', () => {
-    expect(TABLE_SCHEMA_VERSION).toBe(6);
+  it('has moved on to the version that adds API tokens (V21a), which is additive over identity', () => {
+    expect(TABLE_SCHEMA_VERSION).toBe(7);
   });
 
   it('takes a v5 library to v6 without losing a score or a log row, and then signs somebody in', async () => {
@@ -48,7 +48,7 @@ describe('table schema version 6', () => {
 
     // Turn it back into exactly what a V19 install holds: v5, and no identity tables.
     const raw = new SqliteDatabase(filename);
-    raw.exec('DROP TABLE sessions; DROP TABLE identities; DROP TABLE users;');
+    raw.exec('DROP TABLE api_tokens; DROP TABLE device_codes; DROP TABLE sessions; DROP TABLE identities; DROP TABLE users;');
     raw.pragma('user_version = 5');
     raw.close();
 
@@ -69,7 +69,7 @@ describe('table schema version 6', () => {
     const check = new SqliteDatabase(filename);
     expect(check.pragma('user_version', { simple: true })).toBe(TABLE_SCHEMA_VERSION);
     const tables = check.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[];
-    expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(['users', 'identities', 'sessions']));
+    expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(['users', 'identities', 'sessions', 'device_codes', 'api_tokens']));
     check.close();
   });
 
@@ -84,5 +84,38 @@ describe('table schema version 6', () => {
     expect(await auth.getUser('local')).toBeNull();
     await store.close();
     await auth.close();
+  });
+});
+
+describe('table schema version 7 (V21a)', () => {
+  it('takes a v6 library to v7 keeping every user and session, and then mints a token', async () => {
+    const filename = scratchFile();
+    const first = openSqliteAuthStore({ filename });
+    const user = await first.signIn({ provider: 'github', subject: '1', login: 'a', name: null });
+    await first.createSession('h', user.id, '2999-01-01T00:00:00Z');
+    await first.close();
+
+    // Exactly what a V20 install holds: v6, and no token or device tables.
+    const raw = new SqliteDatabase(filename);
+    raw.exec('DROP TABLE api_tokens; DROP TABLE device_codes;');
+    raw.pragma('user_version = 6');
+    raw.close();
+
+    const second = openSqliteAuthStore({ filename });
+    try {
+      expect(await second.getUser(user.id)).toMatchObject({ login: 'a' });
+      expect(await second.findSession('h', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
+      await second.createToken({
+        id: 'tok_1',
+        tokenHash: 'th',
+        userId: user.id,
+        name: 'laptop',
+        scopes: ['read'],
+        expiresAt: '2999-01-01T00:00:00Z',
+      });
+      expect(await second.findToken('th', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
+    } finally {
+      await second.close();
+    }
   });
 });

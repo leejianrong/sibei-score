@@ -198,3 +198,33 @@ GitHub's own access token is used once to read the profile and then discarded.
 unauthenticated` with no live session. A local-mode server answers `{"mode":"local"}` — there are no accounts to
 name — so a browser can tell "sign in" from "nothing to sign in to". It carries no session, provider subject or
 timestamp, and is `no-store`.
+
+### API tokens and the device flow (V21a)
+
+How `sbscore` and an agent get a credential of their own, with no password, no session cookie and none of GitHub's
+tokens (ADR-0034 decision 4). RFC 8628 in shape, entirely on our own server:
+
+| Route | Who | What |
+|---|---|---|
+| `POST /v1/auth/device` | anyone | The CLI asks to be authorised. Answers `deviceCode` (secret, only the CLI holds it), `userCode` (`ABCD-EFGH`, what a person types), `verificationUri`, `expiresIn` (600), `interval` (5) |
+| `POST /v1/auth/device/approve` | a signed-in **browser** (cookie) | `{userCode, name?, scopes?}`. `204`. A code approves once |
+| `POST /v1/auth/device/token` | the CLI | `{deviceCode}`. `400 authorization-pending` / `slow-down` / `expired-code`, or `200 {accessToken, tokenType:'Bearer', tokenId, scopes, expiresAt}` — **once** |
+| `GET /v1/auth/tokens` | a signed-in browser | The caller's own tokens (id, name, scopes, dates; never the token) |
+| `DELETE /v1/auth/tokens/:id` | a signed-in browser | Revoke at once. Someone else's token and a missing one are the same `404` |
+
+A token is `sbs_` plus 256 random bits, stored **only as a SHA-256 hash**, shown once in the poll's response
+(`no-store`), and expires after 90 days. Present it as `Authorization: Bearer sbs_…`; it acts as the user who
+approved it, so every owner-scoped query and every Postgres RLS policy applies to it unchanged. Scopes are `read`
+(the safe methods) and `write` (anything that changes state); a missing scope is `403 insufficient-scope`.
+
+Three rules worth knowing:
+
+- **Approval and token management take a cookie and never a token.** A token must not be able to mint tokens, or a
+  leaked read-only one becomes a permanent foothold, and approval is the one step where a human says yes.
+- **A request that names a bearer token is judged by it alone.** A bad token with a good cookie beside it is a
+  `401`, so a revoked token fails the same way in every client.
+- **A code is spendable once.** The poll that returns an approval deletes it in the same step (row-locked under
+  Postgres), so concurrent polls cannot both collect it. An approval a CLI never collects dies with its ten minutes.
+
+The browser page that takes the code, the token list page and the `sbscore auth` verbs are V21b. Per-IP limits on
+the unauthenticated start route are V23 (rate limits).

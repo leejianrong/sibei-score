@@ -31,7 +31,10 @@ describe('the persistence ports are asynchronous', () => {
   });
 
   it('the Authenticator resolves a principal asynchronously', () => {
-    expectTypeOf<ReturnType<Authenticator>>().toEqualTypeOf<Promise<{ owner: string } | null>>();
+    // `scopes` (V21a) is what an API token carries; a session or the local principal has none.
+    expectTypeOf<ReturnType<Authenticator>>().toEqualTypeOf<
+      Promise<{ owner: string; scopes?: readonly string[] } | null>
+    >();
   });
 
   it('the type-level check can fail: a synchronous method is caught', () => {

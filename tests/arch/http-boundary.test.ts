@@ -133,6 +133,9 @@ describe('the routes cannot write (ADR-0003)', () => {
     // session or an identity as an ordinary request — which is exactly what the Postgres policy forbids.
     const allowed = [
       'packages/api/src/auth/hosted.ts',
+      // The device flow and token management (V21a) read and write the same credentials, and are built
+      // by `hosted.ts`, which hands them the port; no request path outside the auth module does.
+      'packages/api/src/auth/device.ts',
       'packages/api/src/store/auth.ts',
       'packages/api/src/store/sqlite-auth.ts',
       'packages/api/src/store/postgres-auth.ts',
@@ -144,6 +147,13 @@ describe('the routes cannot write (ADR-0003)', () => {
       (file) => !allowed.includes(file) && /\bAuthStore\b/.test(codeOf(join(REPO, file))),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it('has no log outlet at all in the device flow, where every value is a credential (V21a)', () => {
+    // A device code, a user code, a bearer token: nothing in `auth/device.ts` is safe to print. So the
+    // module takes no logger and has no `report(` to hand one to — there is nowhere to put a secret.
+    const device = codeOf(join(REPO, 'packages/api/src/auth/device.ts'));
+    expect(device).not.toMatch(/console\.|\blogger\b|\breport\(|\bonError\b/);
   });
 
   it('never logs a secret or a credential from the sign-in flow (V20)', () => {

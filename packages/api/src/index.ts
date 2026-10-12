@@ -18,7 +18,8 @@ export type {
   JobStore,
   JobWriter,
 } from './store/jobs.js';
-export type { AuthStore, ProviderProfile, Session, User, UserId } from './store/auth.js';
+export { TOKEN_SCOPES } from './store/auth.js';
+export type { ApiToken, AuthStore, DeviceApproval, DevicePoll, NewApiToken, NewDevice, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './store/auth.js';
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 

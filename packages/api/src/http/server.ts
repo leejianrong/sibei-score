@@ -19,7 +19,7 @@ import type { JobStore } from '../store/jobs.js';
 import type { Owner, ScoreStore } from '../store/repository.js';
 import { createEventStreams } from './event-stream.js';
 import { createJobStreams } from './job-stream.js';
-import { LOOPBACK, checkHost, checkOrigin, resolveLocalPrincipal } from './guards.js';
+import { LOOPBACK, checkHost, checkOrigin, isStateChanging, resolveLocalPrincipal } from './guards.js';
 import type { Authenticator } from './guards.js';
 import { problem, problemForUnknown } from './problems.js';
 import { pathOf, route, send, sendJson } from './routes.js';
@@ -287,6 +287,18 @@ export function createApi(options: ApiOptions): Api {
       hosted !== undefined && isPublic(request) ? { owner: SIGNED_OUT } : await authenticate(request);
     if (principal === null) {
       return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
+    }
+
+    // A token carries the scopes it was minted with (V21a). Reads need `read`, anything that changes state
+    // needs `write`; a session or the local principal has no `scopes` and is not limited.
+    if (principal.scopes !== undefined) {
+      const needed = isStateChanging(request.method) ? 'write' : 'read';
+      if (!principal.scopes.includes(needed)) {
+        return send(
+          response,
+          problem(403, 'insufficient-scope', `this token is not allowed to ${needed}; mint one with the ${needed} scope`),
+        );
+      }
     }
 
     // Who am I (V20b). After the principal is resolved, so signed out is the 401 every private path
