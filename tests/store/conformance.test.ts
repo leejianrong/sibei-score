@@ -1,5 +1,5 @@
-import { openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
-import { jobStoreConformance, storeConformance } from './conformance.js';
+import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
+import { authStoreConformance, jobStoreConformance, storeConformance } from './conformance.js';
 import type { OpenHarness } from './conformance.js';
 
 /**
@@ -15,15 +15,19 @@ const open: OpenHarness = async (options = {}) => {
     ...(options.migrate === undefined ? {} : { migrate: options.migrate }),
   });
   const jobs = openSqliteJobStore({ filename: ':memory:', ...(options.now === undefined ? {} : { now: options.now }) });
+  const auth = openSqliteAuthStore({ filename: ':memory:', ...(options.now === undefined ? {} : { now: options.now }) });
   return {
     store,
     jobs,
+    auth,
     async close() {
       await store.close();
       await jobs.close();
+      await auth.close();
     },
   };
 };
 
 storeConformance('sqlite', open);
 jobStoreConformance('sqlite', open);
+authStoreConformance('sqlite', open);

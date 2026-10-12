@@ -5,6 +5,8 @@ import type { BlobStore } from '../blob/blob-store.js';
 import { memoryBlobStore } from '../blob/memory-blob-store.js';
 import { createChangeBus, publishingApplier, publishingLibrary } from '../events/change-bus.js';
 import { createJobBus } from '../events/job-bus.js';
+import { createHostedAuth } from '../auth/hosted.js';
+import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createExporter } from '../export/export.js';
 import { createJobRunner } from '../imports/runner.js';
 import type { JobRunner } from '../imports/runner.js';
@@ -68,8 +70,14 @@ export interface ApiOptions {
    * address (ADR-0001).
    */
   worker?: WorkerClient;
-  /** Defaults to resolving `local` (ADR-0029). */
+  /** Defaults to resolving `local` (ADR-0029). Exclusive with `hosted`, which supplies its own. */
   authenticate?: Authenticator;
+  /**
+   * Hosted mode (V20, ADR-0034): GitHub login and cookie sessions, owner = the user's id. Absent means
+   * local mode, which is **exactly** what it was before — the local principal, loopback-only guards, and
+   * no `/v1/auth/` routes. Chosen by configuration at the composition root, never inferred.
+   */
+  hosted?: HostedAuthOptions;
   logger?: Logger;
   /**
    * How often an idle event stream writes its keep-alive comment. Defaults to
@@ -103,8 +111,19 @@ export interface Api {
 
 export function createApi(options: ApiOptions): Api {
   const store = options.store;
-  const authenticate = options.authenticate ?? resolveLocalPrincipal;
   const logger = options.logger ?? consoleLogger;
+  if (options.hosted !== undefined && options.authenticate !== undefined) {
+    throw new Error('`hosted` supplies its own authenticator; pass one or the other, not both');
+  }
+  const hosted =
+    options.hosted === undefined
+      ? undefined
+      : createHostedAuth({
+          onError: (message, error) => logger.error(message, error),
+          ...options.hosted,
+        });
+  const authenticate = hosted?.authenticate ?? options.authenticate ?? resolveLocalPrincipal;
+  const hostedHosts = hosted?.hosts ?? new Set<string>();
 
   // The change bus (V4a). This file is the only one holding both halves of it, exactly as it is the
   // only one holding both halves of the store — the mutating paths get the publisher by being
@@ -244,13 +263,28 @@ export function createApi(options: ApiOptions): Api {
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<number> {
     // The guards run *before* routing, so an unrouted path cannot become a way past them.
-    const host = checkHost(request);
+    const host = checkHost(request, hostedHosts);
     if (!host.ok) return send(response, problem(403, 'foreign-host', host.reason));
 
-    const origin = checkOrigin(request);
+    const origin = checkOrigin(request, hostedHosts);
     if (!origin.ok) return send(response, problem(403, 'foreign-origin', origin.reason));
 
-    const principal = await authenticate(request);
+    // Signing in cannot require being signed in, so the auth routes answer without a session. They are
+    // behind the guards above, like everything.
+    if (hosted !== undefined && pathOf(request).startsWith('/v1/auth/')) {
+      try {
+        return await hosted.handle(request, response);
+      } catch (error) {
+        logger.error('an auth request failed', error);
+        if (response.headersSent) return 500;
+        return send(response, problemForUnknown(error));
+      }
+    }
+
+    // In hosted mode a handful of paths answer to a signed-out caller (`isPublic`); every other path
+    // needs a live session, and a missing, unknown or expired one is a 401.
+    const principal =
+      hosted !== undefined && isPublic(request) ? { owner: SIGNED_OUT } : await authenticate(request);
     if (principal === null) {
       return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
     }
@@ -313,6 +347,25 @@ export function createApi(options: ApiOptions): Api {
       return new Promise((resolve) => server.close(() => resolve()));
     },
   };
+}
+
+/**
+ * The owner a signed-out request carries on the public paths. It is not a user id (those are `usr_…`)
+ * and not `local`, so it can never match a row; and `isPublic` admits only paths whose handlers never
+ * read a store, so it never has the chance to.
+ */
+const SIGNED_OUT = '(signed-out)';
+
+/**
+ * What a signed-out caller may reach in hosted mode: the health check (a load balancer has no cookie) and
+ * the built UI's files (a browser must load the shell before it can sign in from it). Everything under
+ * `/v1/` other than those is private by default — a new route is closed until somebody opens it here.
+ */
+function isPublic(request: IncomingMessage): boolean {
+  const path = pathOf(request);
+  const method = (request.method ?? 'GET').toUpperCase();
+  if (path === '/v1/health') return method === 'GET';
+  return method === 'GET' && !path.startsWith('/v1/');
 }
 
 function round(ms: number): number {
