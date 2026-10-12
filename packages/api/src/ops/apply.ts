@@ -20,6 +20,7 @@ import {
   AddressError,
 } from '@sibei/model';
 import type {
+  AccidentalDisplay,
   Bar,
   BarItem,
   Chord,
@@ -33,6 +34,7 @@ import type {
   Review,
   Score,
   StartBarline,
+  TieRole,
   TimeSignature,
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
@@ -289,9 +291,9 @@ function addNote(score: Score, target: string, payload: NoteAddPayload): Applied
     onset: position.onset,
     duration: validDuration(payload.duration),
     pitch: validPitch(payload.pitch),
-    ...(payload.accidental === undefined ? {} : { accidental: payload.accidental }),
-    ...(payload.tie === undefined ? {} : { tie: payload.tie }),
-    ...(payload.spellingPinned === undefined ? {} : { spellingPinned: payload.spellingPinned }),
+    ...(payload.accidental === undefined ? {} : { accidental: validAccidental(payload.accidental) }),
+    ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
+    ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   });
 
   return {
@@ -356,9 +358,9 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
     ...note,
     ...(payload.pitch === undefined ? {} : { pitch: validPitch(payload.pitch) }),
     ...(payload.duration === undefined ? {} : { duration: validDuration(payload.duration) }),
-    ...(payload.accidental === undefined ? {} : { accidental: payload.accidental }),
-    ...(payload.tie === undefined ? {} : { tie: payload.tie }),
-    ...(payload.spellingPinned === undefined ? {} : { spellingPinned: payload.spellingPinned }),
+    ...(payload.accidental === undefined ? {} : { accidental: validAccidental(payload.accidental) }),
+    ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
+    ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   };
 
   return {
@@ -740,6 +742,41 @@ function reflag(bar: Bar): Bar {
 // ---------------------------------------------------------------------------
 
 const NOTE_VALUES = [1, 2, 4, 8, 16, 32];
+
+const ACCIDENTAL_DISPLAYS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide'];
+const TIE_ROLES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
+
+// These three used to be spread through raw, so `accidental: "cautionary"` was stored and answered
+// 200 (KAN-606). The lists are the model's own union members, quoted so a refusal says what works.
+function validAccidental(value: unknown): AccidentalDisplay {
+  if (!ACCIDENTAL_DISPLAYS.includes(value as AccidentalDisplay)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${JSON.stringify(value)} is not an accidental display; use one of ${ACCIDENTAL_DISPLAYS.join(', ')}`,
+    });
+  }
+  return value as AccidentalDisplay;
+}
+
+function validTie(value: unknown): TieRole {
+  if (!TIE_ROLES.includes(value as TieRole)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${JSON.stringify(value)} is not a tie role; use one of ${TIE_ROLES.join(', ')}`,
+    });
+  }
+  return value as TieRole;
+}
+
+function validPinned(value: unknown): boolean {
+  if (typeof value !== 'boolean') {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `spellingPinned must be true or false, not ${JSON.stringify(value)}`,
+    });
+  }
+  return value;
+}
 
 function validDuration(duration: Duration | undefined): Duration {
   if (duration === null || typeof duration !== 'object') {

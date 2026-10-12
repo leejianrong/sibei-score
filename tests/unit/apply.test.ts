@@ -176,6 +176,49 @@ describe('note.add', () => {
   });
 });
 
+describe('note.add and note.set field validation (KAN-606)', () => {
+  const add = (payload: Record<string, unknown>): Operation =>
+    ({ type: 'note.add', target: 'bar1.beat1', payload: { pitch: 'Eb5', duration: dur(4), ...payload } }) as Operation;
+  const set = (payload: Record<string, unknown>): Operation =>
+    ({ type: 'note.set', target: 'bar1.beat1', payload }) as Operation;
+  const withNote = (): Score => applyOperation(create(), quarterAt('bar1.beat1', 'Eb5')).score;
+
+  it.each([
+    ['accidental', 'cautionary', /is not an accidental display; use one of auto, show, hide/],
+    ['tie', 'sideways', /is not a tie role; use one of none, start, stop, both/],
+    ['spellingPinned', 'yes', /spellingPinned must be true or false/],
+  ])('note.add refuses a bad %s', (field, value, message) => {
+    expect(() => applyOperation(create(), add({ [field]: value }))).toThrow(message);
+  });
+
+  it.each([
+    ['accidental', 'cautionary', /is not an accidental display/],
+    ['tie', 'sideways', /is not a tie role/],
+    ['spellingPinned', 1, /spellingPinned must be true or false/],
+  ])('note.set refuses a bad %s', (field, value, message) => {
+    expect(() => applyOperation(withNote(), set({ [field]: value }))).toThrow(message);
+  });
+
+  it('reports a bad value as a validation failure, not an unknown error', () => {
+    try {
+      applyOperation(create(), add({ accidental: 'cautionary' }));
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(OperationError);
+      expect((error as OperationError).failure.kind).toBe('validation');
+    }
+  });
+
+  it('still accepts every legal value', () => {
+    const score = applyOperation(
+      create(),
+      add({ accidental: 'show', tie: 'start', spellingPinned: true }),
+    ).score;
+    const note = notesOf(score.bars[0]!)[0]!;
+    expect([note.accidental, note.tie, note.spellingPinned]).toEqual(['show', 'start', true]);
+  });
+});
+
 describe('note.set', () => {
   const withANote = () => applyOperation(create(), quarterAt('bar1.beat1', 'Eb5')).score;
 
