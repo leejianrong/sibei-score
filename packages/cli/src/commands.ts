@@ -1,6 +1,6 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
-import { projectScore } from '@sibei/model';
+import { displayTitle, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -256,7 +256,8 @@ async function list(client: Client, io: Io, json: boolean): Promise<ExitCode> {
   }
   for (const score of scores) {
     const composer = score.composer === '' ? '' : `  ${score.composer}`;
-    io.out(`${score.id}  v${score.version}  ${score.key}  ${score.title}${composer}`);
+    // An unnamed chart prints the browser's own word (KAN-609), not a blank column with trailing spaces.
+    io.out(`${score.id}  v${score.version}  ${score.key}  ${displayTitle(score.title)}${composer}`);
   }
   return EXIT.ok;
 }

@@ -9,6 +9,7 @@ export * from './query.js';
 export * from './migrate.js';
 export * from './address.js';
 export * from './review.js';
+export * from './title.js';
 export * from './projection.js';
 export * from './omr.js';
 export * from './omr-map.js';

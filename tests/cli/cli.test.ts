@@ -100,6 +100,16 @@ describe('the library verbs', () => {
     expect((await sbscore('list')).out).toBe('soul  v1  Db  Body and Soul  Johnny Green');
   });
 
+  it('lists an unnamed chart under the browser\'s word, with no trailing whitespace (KAN-609)', async () => {
+    expect((await sbscore('new', '--id', 'nameless', '--bars', '4')).code).toBe(EXIT.ok);
+    const listed = await sbscore('list');
+    expect(listed.out).toBe('nameless  v1  C  Untitled');
+    expect(listed.out).toBe(listed.out.trimEnd());
+    // --json is the data, not the display: the stored title is still the empty string.
+    const raw = json<{ scores: { title: string }[] }>((await sbscore('list', '--json')).out);
+    expect(raw.scores[0]!.title).toBe('');
+  });
+
   it('opens the full structured dump, which is where anything the projection drops lives', async () => {
     await aChart();
     const result = await sbscore('open', 'soul');
