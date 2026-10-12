@@ -287,6 +287,13 @@ Full guide: `agent_docs/proofing.md`. Never refresh a snapshot to make a red tes
 fresh `main`. Match the surrounding style — comment density, naming, and citing the ADR that forced
 a decision. Run `pnpm check` locally (the pre-push hook runs the `fast` half).
 
+**The board follows the code, not the other way round.** File the card on pandan **board 13**
+(sibei-score) *before* you start a slice, with points and acceptance criteria — V18, V19a and V19
+merged on 2026-09-30 with no card, and three of this project's cards had been filed on another
+project's board. At each sprint ceremony `git fetch` first and compare the merged `Vxx` PR titles on
+`origin/main` against the cards; a checkout can be months behind (this one was), and `origin/main` is
+the truth about what shipped.
+
 **The six required status checks are matched by name, and the names are load-bearing** — a CI job's
 `name:` must keep matching its context string or the check can never report and the PR can never
 merge:
