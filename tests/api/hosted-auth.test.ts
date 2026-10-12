@@ -490,6 +490,53 @@ describe('a missing, unknown or expired session is a 401', () => {
   });
 });
 
+// --- who am I (V20b) --------------------------------------------------------------------------------
+
+describe('GET /v1/me says who is signed in', () => {
+  it('is a 401 with no session, the same answer every private route gives', async () => {
+    const reply = await raw('/v1/me');
+    expect(reply.status).toBe(401);
+    expect(reply.json().error.kind).toBe('unauthenticated');
+    expect((await raw('/v1/me', { headers: { cookie: 'sb_session=made-up' } })).status).toBe(401);
+  });
+
+  it('returns the signed-in user for a live session, and only what the browser needs', async () => {
+    const cookie = await signIn(ALICE);
+    const reply = await raw('/v1/me', { headers: { cookie } });
+    expect(reply.status).toBe(200);
+    const body = reply.json();
+    expect(body.mode).toBe('hosted');
+    expect(body.user).toEqual({ id: expect.stringMatching(/^usr_/), login: 'alice', name: 'Alice A' });
+    // Nothing that identifies the session or the provider account travels with it.
+    expect(reply.body).not.toContain(cookie.replace('sb_session=', ''));
+    expect(Object.keys(body.user).sort()).toEqual(['id', 'login', 'name']);
+    expect(reply.headers['cache-control']).toBe('no-store');
+  });
+
+  it('tells two users apart', async () => {
+    const alice = await signIn(ALICE);
+    const bob = await signIn(BOB);
+    expect((await raw('/v1/me', { headers: { cookie: alice } })).json().user.login).toBe('alice');
+    const bobMe = (await raw('/v1/me', { headers: { cookie: bob } })).json().user;
+    expect(bobMe.login).toBe('bob');
+    expect(bobMe.name).toBeNull();
+  });
+
+  it('is a 401 again once the session is signed out', async () => {
+    const cookie = await signIn();
+    expect((await raw('/v1/me', { headers: { cookie } })).status).toBe(200);
+    await raw('/v1/auth/logout', { method: 'POST', headers: { cookie } });
+    expect((await raw('/v1/me', { headers: { cookie } })).status).toBe(401);
+  });
+
+  it('only answers GET', async () => {
+    const cookie = await signIn();
+    const reply = await raw('/v1/me', { method: 'POST', headers: { cookie }, body: '{}' });
+    expect(reply.status).toBe(405);
+    expect(reply.headers.allow).toBe('GET');
+  });
+});
+
 // --- tenancy ----------------------------------------------------------------------------------------
 
 describe('a session for user A cannot reach user B\'s data', () => {
@@ -656,6 +703,10 @@ describe('local mode is untouched when there is no hosted configuration', () => 
       });
       expect(created.status).toBe(201);
       expect((await localStore.list('local')).map((row) => row.id)).toEqual(['soul']);
+      // `/v1/me` answers, with nobody to name: local mode has no accounts, and a browser needs to know that.
+      const me = await fetch(`http://127.0.0.1:${localPort}/v1/me`);
+      expect(me.status).toBe(200);
+      expect(await me.json()).toEqual({ mode: 'local' });
       // The sign-in routes do not exist, rather than existing and failing.
       expect((await fetch(`http://127.0.0.1:${localPort}/v1/auth/github/login`, { redirect: 'manual' })).status).toBe(404);
     } finally {

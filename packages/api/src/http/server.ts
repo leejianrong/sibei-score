@@ -22,7 +22,7 @@ import { createJobStreams } from './job-stream.js';
 import { LOOPBACK, checkHost, checkOrigin, resolveLocalPrincipal } from './guards.js';
 import type { Authenticator } from './guards.js';
 import { problem, problemForUnknown } from './problems.js';
-import { pathOf, route, send } from './routes.js';
+import { pathOf, route, send, sendJson } from './routes.js';
 import type { ImportService } from './routes.js';
 import type { AssetSource } from './static.js';
 import { consoleLogger } from './log.js';
@@ -287,6 +287,17 @@ export function createApi(options: ApiOptions): Api {
       hosted !== undefined && isPublic(request) ? { owner: SIGNED_OUT } : await authenticate(request);
     if (principal === null) {
       return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
+    }
+
+    // Who am I (V20b). After the principal is resolved, so signed out is the 401 every private path
+    // gives; before `route`, because answering it in hosted mode reads a user, which no route may.
+    if (pathOf(request) === '/v1/me') {
+      if ((request.method ?? 'GET').toUpperCase() !== 'GET') {
+        response.setHeader('allow', 'GET');
+        return send(response, problem(405, 'method-not-allowed', 'try GET'));
+      }
+      // Local mode has no accounts. Saying so lets the browser draw no account chrome rather than guess.
+      return hosted === undefined ? sendJson(response, 200, { mode: 'local' }) : await hosted.me(response, principal.owner);
     }
 
     try {
