@@ -95,7 +95,33 @@ export interface Client {
    */
   reparse(id: string, engine?: string): Promise<ImportJobWire>;
   health(): Promise<{ status: string; api: string }>;
+  /** Who this server says is asking (V20b). `local` has no accounts; `hosted` names the user, or is a 401. */
+  me(): Promise<MeWire>;
+  /** Begin a device authorisation (V21a). The CLI keeps `deviceCode`; a person types `userCode`. */
+  startDevice(): Promise<DeviceStartWire>;
+  /** One poll. Pending and slow-down are answers, not failures; a token is returned exactly once. */
+  pollDevice(deviceCode: string): Promise<DevicePollWire>;
 }
+
+/** `GET /v1/me`. */
+export interface MeWire {
+  mode: 'local' | 'hosted';
+  user?: { id: string; login: string; name: string | null };
+}
+
+/** `POST /v1/auth/device`. */
+export interface DeviceStartWire {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export type DevicePollWire =
+  | { status: 'pending' }
+  | { status: 'slow-down' }
+  | { status: 'authorized'; accessToken: string; tokenId: string; scopes: string[]; expiresAt: string };
 
 /** One page to import: its bytes, a filename for provenance, and the media type from its extension. */
 export interface ImportImage {
@@ -182,13 +208,24 @@ export interface DuplicateWire {
   sourceId: string;
 }
 
-export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
+export interface ClientOptions {
+  /**
+   * The API token to present to *this* server (V21). Sent as `Authorization: Bearer` on every request, and
+   * on none to any other server: the caller resolves it for `baseUrl` (`credentials.ts` files tokens by
+   * server), so a token cannot follow a `--url` somewhere it was not issued.
+   */
+  token?: string;
+}
+
+export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: ClientOptions = {}): Client {
+  const authorization: Record<string, string> = options.token === undefined ? {} : { authorization: `Bearer ${options.token}` };
+
   async function send(method: string, path: string, body?: unknown): Promise<Response> {
     try {
       return await fetch(`${baseUrl}${path}`, {
         method,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' } }),
+        headers: { ...authorization, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       });
     } catch (error) {
       // The one failure a file-editing CLI would not have had. Say what to do about it.
@@ -214,7 +251,13 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
     }
     // The server's own message, verbatim. Both surfaces print the same words because neither
     // rewrites them (PLAN.md).
-    throw new CliError(exitCodeForKind(error.kind), error.kind, error.message, {
+    // A 401 is the server saying it does not know who is asking. Its own words stay (both surfaces say the
+    // same thing); what the CLI adds is the one thing it knows that the server does not, which is the cure.
+    const message =
+      status === 401
+        ? `${error.message}. ${options.token === undefined ? 'You are not signed in' : 'This credential was refused (revoked or expired)'}: run \`sbscore auth login\`.`
+        : error.message;
+    throw new CliError(exitCodeForKind(error.kind), error.kind, message, {
       detail: error.detail,
       ...(error.currentVersion === undefined ? {} : { currentVersion: error.currentVersion }),
       ...(error.operation === undefined ? {} : { operation: error.operation }),
@@ -262,6 +305,22 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
 
   return {
     health: () => call('GET', '/v1/health'),
+    me: () => call('GET', '/v1/me'),
+    startDevice: () => call('POST', '/v1/auth/device', {}),
+    async pollDevice(deviceCode: string): Promise<DevicePollWire> {
+      try {
+        const granted = await call<Omit<Extract<DevicePollWire, { status: 'authorized' }>, 'status'>>(
+          'POST',
+          '/v1/auth/device/token',
+          { deviceCode },
+        );
+        return { status: 'authorized', ...granted };
+      } catch (error) {
+        if (error instanceof CliError && error.kind === 'authorization-pending') return { status: 'pending' };
+        if (error instanceof CliError && error.kind === 'slow-down') return { status: 'slow-down' };
+        throw error;
+      }
+    },
     list: () => call('GET', '/v1/scores'),
     read: (id) => call('GET', `/v1/scores/${encodeURIComponent(id)}`),
     remove: (id) => call('DELETE', `/v1/scores/${encodeURIComponent(id)}`),
@@ -281,7 +340,7 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL): Client {
       }
       let response: Response;
       try {
-        response = await fetch(`${baseUrl}/v1/imports`, { method: 'POST', body: form });
+        response = await fetch(`${baseUrl}/v1/imports`, { method: 'POST', body: form, headers: authorization });
       } catch (error) {
         throw new CliError(
           EXIT.noServer,
