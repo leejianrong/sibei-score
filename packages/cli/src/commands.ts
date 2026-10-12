@@ -1,6 +1,6 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
-import { projectScore } from '@sibei/model';
+import { displayTitle, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -56,7 +56,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (--ui serves the built browser; --host defaults to 127.0.0.1, the container sets 0.0.0.0;
                --worker is the OMR worker's URL — without one, import is unavailable and all else works;
                --database-url URL serves from Postgres instead of the local SQLite file, and --blobs DIR
-               places the scans and export cache; see docs/hosting.md)
+               places the scans and export cache; see docs/hosting.md;
+               hosted mode — GitHub sign-in, one library per user — is on only when --public-url,
+               --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
   sbscore list
@@ -254,7 +256,8 @@ async function list(client: Client, io: Io, json: boolean): Promise<ExitCode> {
   }
   for (const score of scores) {
     const composer = score.composer === '' ? '' : `  ${score.composer}`;
-    io.out(`${score.id}  v${score.version}  ${score.key}  ${score.title}${composer}`);
+    // An unnamed chart prints the browser's own word (KAN-609), not a blank column with trailing spaces.
+    io.out(`${score.id}  v${score.version}  ${score.key}  ${displayTitle(score.title)}${composer}`);
   }
   return EXIT.ok;
 }

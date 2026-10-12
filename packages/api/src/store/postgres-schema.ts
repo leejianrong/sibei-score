@@ -3,8 +3,8 @@ import type { Pool, PoolClient } from 'pg';
 /**
  * The Postgres schema, its version, and the migration that brings a database up to it (V19, ADR-0034).
  *
- * **This is one of only four files that may know Postgres exists** (with `postgres-session.ts`,
- * `postgres-store.ts` and `postgres-jobs.ts`); `tests/arch/store-seam.test.ts` holds it, the sibling of the SQLite seam.
+ * **This is one of only five files that may know Postgres exists** (with `postgres-session.ts`,
+ * `postgres-store.ts`, `postgres-jobs.ts` and `postgres-auth.ts`); `tests/arch/store-seam.test.ts` holds it, the sibling of the SQLite seam.
  *
  * The shape is the SQLite adapter's table schema v5 (`sqlite-schema.ts`): the same columns, and
  * ownership in the keys — `scores` is keyed `(owner, id)` and `operations` carries the owner with a
@@ -25,7 +25,13 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 1;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 2;
+
+/**
+ * Lineage: v1 (V19) scores, operations, import_jobs. v2 (V20, ADR-0034) adds users, identities and
+ * sessions — purely additive, so `migratePostgres` takes a v1 database to v2 by creating three tables
+ * and touching none of the existing rows.
+ */
 
 /**
  * Row-level security is the backstop for a missed `WHERE owner = …` (ADR-0034 decision 2, hosting.md).
@@ -95,11 +101,44 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, created_at DESC);
 CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
 
+-- Identity (table version 2, V20). A user's id becomes the \`owner\` on the rows they create. Sessions hold
+-- only the SHA-256 of the cookie token (store/auth.ts), so the table yields nothing replayable.
+CREATE TABLE IF NOT EXISTS users (
+  id          text NOT NULL PRIMARY KEY,
+  login       text NOT NULL,
+  name        text,
+  created_at  text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS identities (
+  provider    text NOT NULL,
+  subject     text NOT NULL,
+  user_id     text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  text NOT NULL,
+  PRIMARY KEY (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS identities_user ON identities (user_id);
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  text NOT NULL PRIMARY KEY,
+  user_id     text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at  text NOT NULL,
+  expires_at  text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key    text    NOT NULL PRIMARY KEY,
   value  integer NOT NULL
 );
 `;
+
+/**
+ * The identity tables admit **only the system actor**. A session is looked up by its hash before anyone
+ * knows whose request it is, so there is no owner to key a policy on; and no request path should ever
+ * read these tables as a user, so default-deny for everyone but the auth store (which runs `asSystem`) is
+ * exactly right. A missed filter in a route therefore cannot reach a session or an identity.
+ */
+const SYSTEM_POLICY = `current_setting('app.system', true) = 'on'`;
 
 const SECURITY = `
 ALTER TABLE scores      ENABLE ROW LEVEL SECURITY;
@@ -118,6 +157,23 @@ CREATE POLICY owner_isolation ON operations
 DROP POLICY IF EXISTS owner_isolation ON import_jobs;
 CREATE POLICY owner_isolation ON import_jobs
   USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
+
+ALTER TABLE users      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users      FORCE  ROW LEVEL SECURITY;
+ALTER TABLE identities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE identities FORCE  ROW LEVEL SECURITY;
+ALTER TABLE sessions   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions   FORCE  ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS system_only ON users;
+CREATE POLICY system_only ON users
+  USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
+DROP POLICY IF EXISTS system_only ON identities;
+CREATE POLICY system_only ON identities
+  USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
+DROP POLICY IF EXISTS system_only ON sessions;
+CREATE POLICY system_only ON sessions
+  USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
 `;
 
 /** Any fixed number: it only has to be the same in every process that migrates this database. */

@@ -18,6 +18,7 @@ export type {
   JobStore,
   JobWriter,
 } from './store/jobs.js';
+export type { AuthStore, ProviderProfile, Session, User, UserId } from './store/auth.js';
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 
@@ -111,6 +112,8 @@ export type {
   ScoreDeleted,
 } from './events/change-bus.js';
 
+export { createHostedAuth, GITHUB, SESSION_COOKIE } from './auth/hosted.js';
+export type { GitHubOptions, HostedAuth, HostedAuthOptions } from './auth/hosted.js';
 export { createApi } from './http/server.js';
 export type { Api, ApiOptions } from './http/server.js';
 export { DEFAULT_HEARTBEAT_MS, createEventStreams } from './http/event-stream.js';

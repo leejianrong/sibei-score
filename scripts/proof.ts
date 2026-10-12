@@ -39,31 +39,11 @@ import { basename, dirname, resolve } from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import type { MusicFontName } from '@sibei/engrave';
 import { MUSIC_FONT_NAMES, engravePage, musicFontNamed } from '@sibei/engrave';
-import {
-  aabaChart,
-  everyGlyphChart,
-  beamingChart,
-  invalidBarChart,
-  longFormChart,
-  nastyChart,
-  reviewChart,
-  untitledChart,
-} from '@sibei/fixtures';
+import { FIXTURE_REGISTRY as FIXTURES } from '@sibei/fixtures';
 import type { LayoutResult, Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import type { Score } from '@sibei/model';
 import { renderScoreToPdf, renderScoreToSvg } from '@sibei/pdf';
-
-const FIXTURES: Record<string, () => Score> = {
-  'nasty-chart': nastyChart,
-  'every-glyph': everyGlyphChart,
-  beaming: beamingChart,
-  'invalid-bars': invalidBarChart,
-  review: reviewChart,
-  'long-form': longFormChart,
-  'aaba-chart': aabaChart,
-  untitled: untitledChart,
-};
 
 const PROOF_DIR = resolve('out/proof');
 

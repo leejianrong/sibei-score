@@ -11,7 +11,7 @@ import type { ListingRow, OperationRow } from './store-shared.js';
 /**
  * The Postgres implementation of the store port (V19, ADR-0006, ADR-0034).
  *
- * One of the four files that may know Postgres exists (`tests/arch/store-seam.test.ts`); the sibling of
+ * One of the five files that may know Postgres exists (`tests/arch/store-seam.test.ts`); the sibling of
  * `sqlite-store.ts`, and held to the same contract by one conformance suite that runs against both
  * (`tests/store/conformance.ts`). Where they differ it is in mechanism, never in what a caller sees:
  *

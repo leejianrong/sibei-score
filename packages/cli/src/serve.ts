@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createApi, createHttpWorkerClient, openDirectoryBlobStore } from '@sibei/api';
-import type { AssetSource, WorkerClient } from '@sibei/api';
-import { openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
-import { openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
-import type { JobStore, ScoreStore } from '@sibei/api';
+import type { Api, AssetSource, WorkerClient } from '@sibei/api';
+import { openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
+import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
+import type { AuthStore, JobStore, ScoreStore } from '@sibei/api';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
 import { CliError } from './client.js';
@@ -249,6 +249,49 @@ export function describeDatabase(url: string): string {
   }
 }
 
+/** What hosted mode needs to sign anybody in (V20, ADR-0034). */
+export interface HostedConfig {
+  publicUrl: string;
+  clientId: string;
+  clientSecret: string;
+}
+
+/**
+ * Hosted mode, or `undefined` for the local default — which is **no configuration at all**: with none of
+ * these set, `serve` is exactly what it was before V20 (the local principal, no sign-in).
+ *
+ *   --public-url / SBSCORE_PUBLIC_URL           where browsers reach this deployment (https)
+ *   --github-client-id / SBSCORE_GITHUB_CLIENT_ID
+ *   SBSCORE_GITHUB_CLIENT_SECRET                 **environment only**, deliberately: a flag lands in `ps`,
+ *                                                shell history and a container's inspect output
+ *
+ * All or nothing. A deployment with the id but no secret would otherwise start, serve nobody, and fail
+ * only when the first person tried to sign in — so a partial configuration is refused at boot, naming
+ * what is missing (never a value).
+ */
+export function resolveHostedConfig(flags: Flags): HostedConfig | undefined {
+  const given = (value: string | undefined): string | undefined => (value === undefined || value === '' ? undefined : value);
+  const publicUrl = given(flags.options.get('public-url') ?? process.env.SBSCORE_PUBLIC_URL);
+  const clientId = given(flags.options.get('github-client-id') ?? process.env.SBSCORE_GITHUB_CLIENT_ID);
+  const clientSecret = given(process.env.SBSCORE_GITHUB_CLIENT_SECRET);
+  if (publicUrl === undefined && clientId === undefined && clientSecret === undefined) return undefined;
+
+  const missing = [
+    publicUrl === undefined ? '--public-url (or SBSCORE_PUBLIC_URL)' : undefined,
+    clientId === undefined ? '--github-client-id (or SBSCORE_GITHUB_CLIENT_ID)' : undefined,
+    clientSecret === undefined ? 'SBSCORE_GITHUB_CLIENT_SECRET' : undefined,
+  ].filter((name) => name !== undefined);
+  if (publicUrl === undefined || clientId === undefined || clientSecret === undefined) {
+    throw new CliError(
+      EXIT.usage,
+      'incomplete-hosted-config',
+      `hosted mode (GitHub sign-in) needs all of its settings, and these are missing: ${missing.join(', ')}. ` +
+        `Set none of them to run the local app.`,
+    );
+  }
+  return { publicUrl, clientId, clientSecret };
+}
+
 /** Where the exported-PDF cache and the uploaded scans live: `--blobs`/`SBSCORE_BLOBS`, else beside the library. */
 function resolveBlobDirectory(flags: Flags, libraryFile: string): string {
   const chosen = flags.options.get('blobs') ?? process.env.SBSCORE_BLOBS;
@@ -259,6 +302,8 @@ function resolveBlobDirectory(flags: Flags, libraryFile: string): string {
 interface OpenedStores {
   store: ScoreStore;
   jobStore: JobStore;
+  /** Only opened in hosted mode (V20); local mode has no users. */
+  authStore?: AuthStore;
 }
 
 /**
@@ -266,15 +311,25 @@ interface OpenedStores {
  * connections (ADR-0006); Postgres gives each its own pool, and both refuse to run as a role that row-level
  * security does not bind unless told to (`--allow-rls-bypass`, for local development only).
  */
-async function openStores(databaseUrl: string | undefined, filename: string, flags: Flags): Promise<OpenedStores> {
+async function openStores(
+  databaseUrl: string | undefined,
+  filename: string,
+  flags: Flags,
+  hosted: boolean,
+): Promise<OpenedStores> {
   if (databaseUrl === undefined) {
-    return { store: openSqliteStore({ filename }), jobStore: openSqliteJobStore({ filename }) };
+    return {
+      store: openSqliteStore({ filename }),
+      jobStore: openSqliteJobStore({ filename }),
+      ...(hosted ? { authStore: openSqliteAuthStore({ filename }) } : {}),
+    };
   }
   const allowRlsBypass = flags.switches.has('allow-rls-bypass') || process.env.SBSCORE_ALLOW_RLS_BYPASS === '1';
   try {
     const store = await openPostgresStore({ connectionString: databaseUrl, allowRlsBypass });
     const jobStore = await openPostgresJobStore({ connectionString: databaseUrl, allowRlsBypass });
-    return { store, jobStore };
+    const authStore = hosted ? await openPostgresAuthStore({ connectionString: databaseUrl, allowRlsBypass }) : undefined;
+    return { store, jobStore, ...(authStore === undefined ? {} : { authStore }) };
   } catch (error) {
     // Never echo the error's own text wholesale: a connection failure can carry the URL, and with it the
     // password. The operator gets the cause in words and where it was aimed, redacted.
@@ -353,14 +408,32 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const worker: WorkerClient | undefined =
     workerUrl === undefined ? undefined : createHttpWorkerClient({ url: workerUrl });
 
-  const { store, jobStore } = await openStores(databaseUrl, filename, flags);
-  const api = createApi({
-    store,
-    jobs: jobStore,
-    blobs: openDirectoryBlobStore({ directory: blobDirectory }),
-    ...(worker === undefined ? {} : { worker }),
-    ...(assets === undefined ? {} : { assets }),
-  });
+  const hostedConfig = resolveHostedConfig(flags);
+
+  const { store, jobStore, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
+  let api: Api;
+  try {
+    api = createApi({
+      store,
+      jobs: jobStore,
+      ...(hostedConfig === undefined || authStore === undefined
+        ? {}
+        : {
+            hosted: {
+              auth: authStore,
+              publicUrl: hostedConfig.publicUrl,
+              github: { clientId: hostedConfig.clientId, clientSecret: hostedConfig.clientSecret },
+            },
+          }),
+      blobs: openDirectoryBlobStore({ directory: blobDirectory }),
+      ...(worker === undefined ? {} : { worker }),
+      ...(assets === undefined ? {} : { assets }),
+    });
+  } catch (error) {
+    // A refused configuration (a plain-http public URL, say) is a usage error, not a crash.
+    await Promise.all([jobStore.close(), store.close(), authStore?.close()]);
+    throw new CliError(EXIT.usage, 'bad-hosted-config', error instanceof Error ? error.message : String(error));
+  }
   const bound = await api.listen(port, bindHost);
 
   // The one place a store path is legitimately printed: the operator asked to start a server and
@@ -378,6 +451,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           blobs: blobDirectory,
           ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
           ...(workerUrl === undefined ? {} : { worker: workerUrl }),
+          ...(hostedConfig === undefined ? {} : { hosted: hostedConfig.publicUrl }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
@@ -386,6 +460,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           }\n` +
           `  cached exports in ${blobDirectory}\n` +
           (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
+          (hostedConfig === undefined ? '' : `  hosted mode: GitHub sign-in required, served as ${hostedConfig.publicUrl}\n`) +
           (workerUrl === undefined
             ? '  no OMR worker configured — import is unavailable (set --worker or SBSCORE_WORKER_URL)\n'
             : `  OMR worker at ${workerUrl}\n`) +
@@ -397,7 +472,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     // drained would cut off whatever it was still flushing.
     void api
       .close()
-      .then(() => Promise.all([jobStore.close(), store.close()]))
+      .then(() => Promise.all([jobStore.close(), store.close(), authStore?.close()]))
       .then(() => {
         process.exit(EXIT.ok);
       });
