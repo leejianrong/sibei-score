@@ -38,6 +38,9 @@ export type Authenticator = (request: IncomingMessage) => Promise<Principal | nu
 /** Resolves every request to `local`. The whole of authentication in the MVP (Q46). */
 export const resolveLocalPrincipal: Authenticator = async () => ({ owner: LOCAL_OWNER });
 
+/** No extra hosts: the local default, under which the guards are exactly what they were before V20. */
+const NO_HOSTS: ReadonlySet<string> = new Set();
+
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export function isStateChanging(method: string | undefined): boolean {
@@ -69,13 +72,13 @@ function hostnameOf(header: string): string {
  * GET. Checking Host closes that, costs nothing, and cannot inconvenience a real client, because a
  * real client is talking to localhost.
  */
-export function checkHost(request: IncomingMessage): GuardVerdict {
+export function checkHost(request: IncomingMessage, extraHosts: ReadonlySet<string> = NO_HOSTS): GuardVerdict {
   const host = request.headers.host;
   if (host === undefined || host === '') {
     return { ok: false, reason: 'a request must carry a Host header' };
   }
   const hostname = hostnameOf(host);
-  if (!LOOPBACK_HOSTS.has(hostname)) {
+  if (!LOOPBACK_HOSTS.has(hostname) && !extraHosts.has(hostname)) {
     return {
       ok: false,
       reason:
@@ -96,7 +99,7 @@ export function checkHost(request: IncomingMessage): GuardVerdict {
  * is not a browser page. The CLI and `curl` send none, and they are half the intended users
  * (ADR-0002). Requiring one would break the CLI while stopping nothing a browser can do.
  */
-export function checkOrigin(request: IncomingMessage): GuardVerdict {
+export function checkOrigin(request: IncomingMessage, hostedHosts: ReadonlySet<string> = NO_HOSTS): GuardVerdict {
   if (!isStateChanging(request.method)) return { ok: true };
 
   const origin = request.headers.origin;
@@ -112,7 +115,14 @@ export function checkOrigin(request: IncomingMessage): GuardVerdict {
 
   // Same-origin only, by hostname. The port is not pinned: the dev server and the built UI sit on
   // different ones and both are the user's own machine.
-  if (!LOOPBACK_HOSTS.has(hostname) && !LOOPBACK_HOSTS.has(`[${hostname}]`)) {
+  // Hosted mode (V20) replaces loopback with the deployment's own host rather than adding to it: a page
+  // on someone's `localhost` has no business driving a cookie-authenticated hosted API. ADR-0034 decision
+  // 7 widens the allow-list properly in V23; this is the one name a deployment needs to sign anybody in.
+  const allowed =
+    hostedHosts.size > 0
+      ? hostedHosts.has(hostname)
+      : LOOPBACK_HOSTS.has(hostname) || LOOPBACK_HOSTS.has(`[${hostname}]`);
+  if (!allowed) {
     return {
       ok: false,
       reason:

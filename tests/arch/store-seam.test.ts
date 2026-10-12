@@ -30,11 +30,14 @@ const SQLITE_IMPLEMENTATION = [
   // the same database — rather than more methods on `sqlite-store.ts`, because a mutable job is not
   // the append-only op log that file guards (ADR-0003). See its header.
   'packages/api/src/store/sqlite-jobs.ts',
+  // The fourth (V20): identity — users, identities, hashed sessions. Its own file and connection for the
+  // reason the job store is: a session is not a score. See its header.
+  'packages/api/src/store/sqlite-auth.ts',
 ];
 
 /**
  * The Postgres adapter (V19): the schema and migration, the transaction/session helper that names the
- * owner for row-level security, the score store and the job store. Four files, each argued in its header;
+ * owner for row-level security, the score store and the job store. Five files (V20 added `postgres-auth.ts`), each argued in its header;
  * `postgres-session.ts` is the fourth because both stores must run every statement the same way.
  */
 const POSTGRES_IMPLEMENTATION = [
@@ -42,6 +45,7 @@ const POSTGRES_IMPLEMENTATION = [
   'packages/api/src/store/postgres-session.ts',
   'packages/api/src/store/postgres-store.ts',
   'packages/api/src/store/postgres-jobs.ts',
+  'packages/api/src/store/postgres-auth.ts',
 ];
 
 const THE_IMPLEMENTATION = [...SQLITE_IMPLEMENTATION, ...POSTGRES_IMPLEMENTATION];
