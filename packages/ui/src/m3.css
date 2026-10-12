@@ -99,13 +99,19 @@
   --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
 
-  /* Type scale roles used here: size / line-height / weight / tracking. The brand slot is the app's
-     existing serif, so the headline matches the chart titles it sits beside. */
-  --md-sys-typescale-headline-small: 400 1.5rem/2rem var(--serif);
-  --md-sys-typescale-title-medium: 500 1rem/1.5rem system-ui, sans-serif;
-  --md-sys-typescale-body-medium: 400 0.875rem/1.25rem system-ui, sans-serif;
-  --md-sys-typescale-body-small: 400 0.75rem/1rem system-ui, sans-serif;
-  --md-sys-typescale-label-large: 500 0.875rem/1.25rem system-ui, sans-serif;
+  /* One typeface for all the account chrome: the system sans, in every role (V21b). The first cut set the
+     headline in the app's chart-title serif and the code in a monospace, and the result read as three
+     voices on one card. The brand serif stays where it belongs, on a chart's own title. The code a person
+     types is the same sans, spaced and tabular, rather than a second family. */
+  --md-sys-font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --md-sys-typescale-headline-small: 400 1.5rem/2rem var(--md-sys-font);
+  --md-sys-typescale-title-large: 400 1.375rem/1.75rem var(--md-sys-font);
+  --md-sys-typescale-title-medium: 500 1rem/1.5rem var(--md-sys-font);
+  --md-sys-typescale-body-large: 400 1rem/1.5rem var(--md-sys-font);
+  --md-sys-typescale-body-medium: 400 0.875rem/1.25rem var(--md-sys-font);
+  --md-sys-typescale-body-small: 400 0.75rem/1rem var(--md-sys-font);
+  --md-sys-typescale-label-large: 500 0.875rem/1.25rem var(--md-sys-font);
+  --md-sys-typescale-label-medium: 500 0.75rem/1rem var(--md-sys-font);
   --md-sys-typescale-label-large-tracking: 0.00625rem;
 }
 

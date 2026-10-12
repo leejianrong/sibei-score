@@ -26,7 +26,8 @@
   const { route, title, reachable, onLibrary, account }: Props = $props();
 
   const label = __API_LABEL__;
-  const onScore = $derived(route.view === 'score');
+  // Anything but the library is somewhere to come back from: a chart, the device approval, the token list.
+  const onScore = $derived(route.view !== 'library');
 </script>
 
 <header class="top">
