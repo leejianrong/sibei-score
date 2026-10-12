@@ -11,30 +11,12 @@
 
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import {
-  aabaChart,
-  everyGlyphChart,
-  invalidBarChart,
-  longFormChart,
-  nastyChart,
-  reviewChart,
-  untitledChart,
-} from '@sibei/fixtures';
+import { FIXTURE_REGISTRY as FIXTURES } from '@sibei/fixtures';
 import type { Paper } from '@sibei/layout';
 import { layout } from '@sibei/layout';
 import { scoreMetrics } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { renderScoreToPdf, renderScoreToSvg } from '@sibei/pdf';
-
-const FIXTURES: Record<string, () => Score> = {
-  'nasty-chart': nastyChart,
-  'every-glyph': everyGlyphChart,
-  'invalid-bars': invalidBarChart,
-  review: reviewChart,
-  'long-form': longFormChart,
-  'aaba-chart': aabaChart,
-  untitled: untitledChart,
-};
 
 /**
  * One directory per fixture under here, so a chart's PDF and its pages sit together and
