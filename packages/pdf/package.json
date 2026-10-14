@@ -13,7 +13,7 @@
     "@sibei/engrave": "workspace:*",
     "@sibei/layout": "workspace:*",
     "@sibei/model": "workspace:*",
-    "pdfkit": "0.19.1",
+    "pdfkit": "0.20.2",
     "svg-to-pdfkit": "0.1.8"
   },
   "devDependencies": {
