@@ -924,6 +924,75 @@ than assumed.
       render* rather than a build-time constant; Q38 makes the paper one. An export endpoint
       that could only emit A4-Bravura would have contradicted both.
 
+## v0.5: the real corpus (KAN-1522)
+
+Planning pass for a labelling studio, a training dataset, and song identification, run against a
+newly-available large real PDF corpus. Not built; recorded here as the plan of record alongside
+ADR-0036 and ADR-0037.
+
+- **Q85.** `P2` `ASSUMED` **How many PDFs, and how many pages total — the labelling-effort
+  budget?** The card that opened this planning pass could not attach the actual corpus, so this
+  was not checkable from a desk.
+  - A (ASSUMED, correct if wrong): unknown, and **not a blocking unknown**. The studio is designed
+    around ongoing, incremental labelling throughput (pages corrected per session) rather than a
+    fixed target count, so the plan does not need the number to proceed — V27's first slice is
+    pointing the studio at the real files and finding out, the same gate-before-build discipline
+    V9 and V15 already used for an unknown this project could not check in advance.
+- **Q86.** `P1` `ASSUMED` **Are the PDFs scanned raster, or real vector + embedded text — and does
+  that change ingestion?**
+  - A (ASSUMED, correct if wrong): design for both without needing to know in advance. Every page
+    is rasterized regardless (a lead-sheet PDF's vector paths, when present, are glyph outlines,
+    not a MusicXML-shaped semantic layer, so there is no true fast path around recognition even for
+    a "digital" PDF); an embedded text layer, when a page has one, is read opportunistically as a
+    bonus pre-label seed for title/composer capture (Q87), never as a substitute for visual
+    annotation. This does not reopen ADR-0018, which governs the product's *import* boundary, not
+    this dev-time labelling tool.
+- **Q87.** `P2` `ASSUMED` **Do the PDFs carry metadata (title/composer) that could seed song
+  matching cheaply?**
+  - A (ASSUMED, correct if wrong): maybe, and it does not matter which — the studio captures
+    title/composer as a required per-song label regardless of source, pre-filled from a PDF text
+    layer or DocInfo/XMP metadata when present (checked, used if there, ignored if not) and
+    otherwise entered by hand or read off the title band the same way `band_ocr.py` already reads
+    the chord band (ADR-0027). Song matching's fingerprint index (ADR-0037) is seeded reliably
+    either way.
+- **Q88.** `P0` `ANSWERED` **What is the song-matching signal, and where does it sit in the
+  pipeline?**
+  - A: a transposition-invariant **chord-progression fingerprint**, primary; melodic interval
+    contour is a plausible secondary signal but is **deferred**, because today's note-level
+    recognition error on real photos would inject noise into exactly the signal meant to correct
+    noise. It sits as a new, independent stage **after Stage 3** (beat mapping), reading the mapped
+    chord sequence and writing nothing back into it — advisory only, confidence-gated, applied (if
+    accepted) through the ordinary op log. Full reasoning and alternatives: ADR-0037.
+- **Q89.** `P1` `ANSWERED` **Is the labelling studio a new `packages/*` app, an extension of
+  `packages/ui`, or a standalone tool like `worker/devtools`?**
+  - A: a new **`worker/devtools/label_studio`**, a sibling to `worker/devtools/omr_viz` (EPIC-228),
+    not the same tool and not either of the other two options. It reuses `omr_viz`'s in-process
+    access to `sibei_omr.engines.bespoke` and the internal per-stage functions already refactored
+    out for its overlay views, which a `packages/*` app would have to re-derive behind a new
+    Node↔Python bridge for no benefit; `packages/ui` is bound by product invariants (byte-identical
+    rendering, CLI/UI parity) an annotation tool has no reason to satisfy. Full reasoning: ADR-0036.
+- **Q90.** `P0` `ANSWERED` **Does ADR-0020's "no corpus of copyrighted charts is retained or
+  shared" allow this corpus to be kept at all, even locally and out of git?** Raised while drafting
+  ADR-0036's storage design, which had originally proposed retaining rasterized pages durably.
+  - A (asked directly, not assumed — see the conversation this plan was written in): **the corpus
+    is confirmed not rights-cleared**, so the rule applies at its word: no raw page image or crop
+    is retained durably by any part of the project, not only kept out of git. ADR-0036's dataset
+    store therefore retains **derived structural data only** — pixel coordinates, token sequences,
+    chord text, fingerprints — keyed to `(source PDF path, page number)`, and re-rasterizes
+    transiently from the maintainer's own retained PDFs only for the duration of a labelling
+    session or an export/training run. Recorded as an amendment on ADR-0020 itself, not a silent
+    workaround. A per-song "rights cleared" escape hatch was deliberately not built (a genuinely
+    licensed future corpus would be different enough — no raster constraint at all — to earn its
+    own ADR rather than a flag on this one).
+- **Q91.** `P2` `ASSUMED` **Does growing the eval harness's real-photo control set
+  (`tests/fixtures/eval/real/`) use this same corpus and store?**
+  - A (ASSUMED, correct if wrong): **no.** That directory is git-committed and its own README
+    already requires a photo the maintainer has the right to commit — exactly what Q90 just ruled
+    out for the third-party corpus. Growing it stays a separate, lighter workflow: the maintainer's
+    own phone photos of physically-owned charts, imported and corrected through the ordinary
+    product loop (`sbscore import`, the V14 review UI, `sbscore open --json`), unrelated to
+    `SIBEI_REAL_CORPUS_DIR` or the studio. See SLICES.md V28.
+
 ## Coverage
 
 One row per checklist category, so a skipped category would be visible.
@@ -945,3 +1014,4 @@ One row per checklist category, so a skipped category would be visible.
 | *Domain:* rendering and layout correctness | Q12, Q36, Q38, Q39, Q57, Q58 |
 | *Domain:* music theory correctness | Q9, Q10, Q60 |
 | *Domain:* recognition quality and correction | Q3, Q16, Q26, Q27, Q29, Q53, Q54, Q55 |
+| *Domain:* real-corpus labelling, dataset, and song matching (v0.5) | Q85, Q86, Q87, Q88, Q89, Q90, Q91 |

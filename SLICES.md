@@ -1396,6 +1396,197 @@ second API replica (Redis already makes it a config change), Kubernetes.
 
 ---
 
+# v0.5 — the real corpus (planning of record, KAN-1522)
+
+> **Added, 2026-09-19.** V15–V17 trained everything on `packages/synth`'s synthetic corpus. A large,
+> real, previously-unseen PDF corpus of published jazz lead sheets — hundreds of pages each — is now
+> available, the project's first chance to train and evaluate on the distribution the product actually
+> has to work on. This milestone is planning of record, not yet built: a labelling studio (V27), the
+> training dataset it produces (V28), and a genuinely new capability the real corpus makes possible —
+> song identification (V29). New ADRs: **ADR-0036** (the studio and dataset) and **ADR-0037** (song
+> matching), plus an amendment to **ADR-0020** recording that this specific corpus is not rights-cleared,
+> which shapes V27/V28's storage design throughout.
+
+**The constraint that shapes everything here: no raw copyrighted page or crop is ever retained**
+(ADR-0020, amended). Unlike every corpus this project has built so far — synthetic (free to
+regenerate) or the maintainer's own photos (freely committable) — this one is real, third-party, and
+not rights-cleared. The studio and the dataset store therefore deal only in *derived structural data*
+(pixel coordinates, token sequences, chord text, fingerprints), re-deriving pixels transiently from the
+maintainer's own retained PDFs only for as long as a labelling session or a training run needs them.
+This is not a workaround bolted on after the fact — see the ADR-0020 amendment and `QUESTIONS.md` Q90
+for how it was actually decided, not assumed.
+
+**The other constraint: hundreds of pages per PDF makes from-scratch annotation impractical.**
+Pre-label from the current recogniser (bespoke or oemer), then correct — the same discipline this
+whole product already applies to a user's own import (ADR-0019), turned into the *method of production*
+for training data rather than only the product's own correction UX.
+
+**This milestone does not block, and is not blocked by, V17f.** Song matching (V29) reads whichever
+engine's output the pipeline already produces; it has no opinion on which engine that is. Retraining on
+real data (V28) is a separate track from deciding the default-engine swap.
+
+## V27: The labelling studio
+
+**Delivers:** R10
+
+**Rests on assumptions:** `worker/devtools/omr_viz` (EPIC-228) exists and already refactored the
+bespoke engine's internal per-stage functions for a viewer to call independently. ADR-0036 (new). Q86
+(rasterize always, use a text layer only opportunistically), Q89 (a new sibling devtool, not a
+`packages/*` app or `packages/ui`), Q90 (derived data only, no retained pixels).
+
+**Build plan**
+
+1. PDF ingestion: rasterize every page of a source PDF to the resolution the current engines already
+   expect; probe each page for an extractable text layer, keeping any text found as a bonus pre-label
+   seed for step 4, never a semantic fast path (Q86).
+2. Pre-labelling: run the current default engine's Stage 1 + 2a + 2b in-process over each rasterized
+   page (reusing `engines/bespoke/{layout,stage2a,chords}` exactly as the server does, engine-selectable
+   like the worker's own `--engine`), producing an `OmrDocument` per page.
+3. `worker/devtools/label_studio` (new, sibling to `omr_viz`, its own venv/dependency group, same
+   never-in-CI/never-shipped posture as `omr_viz`): extends `omr_viz`'s existing read-only Stage-1/2a/2b
+   overlay panels into editable ones — drag/resize/delete/add a Stage-1 box; click-to-edit a Stage-2a
+   note's pitch/duration/order; click-to-edit a Stage-2b chord's text/span. A "commit page" action
+   validates the correction against the TypeScript label shapes (`PageObjectBox`/`SystemLabel`/
+   `SystemChords`, already defined in `packages/synth`) via a small bridge script (the same shape as
+   `scripts/omr-viz-bridge.ts`) and persists **only that structural data** — never the raster — keyed by
+   `(source PDF path, page number)`.
+4. Per-song metadata: a title/composer field per song, pre-filled from step 1's text-layer extraction or
+   a title-band OCR read (reusing `band_ocr.py`'s pattern) when available, otherwise entered by hand
+   (Q87) — the seed for V29's fingerprint index.
+5. A manifest tracking each page's status (unlabelled / pre-labelled / corrected) per song, so a
+   hundreds-of-pages PDF survives being labelled across many sessions.
+
+**Demo:** point the studio at one real multi-page PDF; for one page, see the current engine's pre-label
+overlaid, correct a wrong notehead and a misread chord, commit, and see that page's status flip to
+"corrected" in the manifest — with nothing written to disk anywhere containing the page's actual pixels.
+
+### Test plan
+
+#### Unit (Python, the worker's own standalone suite)
+- The rasterizer produces the expected page count and resolution for a small fixture PDF.
+- The text-layer probe correctly flags a text-based fixture PDF as "has text" and a scanned fixture PDF
+  as "no text."
+- Committing a corrected page's labels round-trips through the same validation
+  `page-boxes.ts`/`systems.ts`/`chord-labels.ts` types would accept — a schema-conformance check via the
+  bridge, the same discipline as the `OmrDocument` schema test at V9.
+
+#### Integration
+- Correcting one box in a pre-labelled page updates only that box in the persisted manifest, leaving the
+  rest of the pre-label untouched — correction is additive, not a full re-annotation.
+- A committed page's persisted record contains no image bytes, byte-for-byte checked (the acceptance
+  test for the ADR-0020 amendment holding, not just a design intention).
+
+#### Manual / qualitative
+- Proofed by eye on a handful of real pages, the posture `pnpm proof` and `worker/visualize_bespoke.py`
+  already take for output no automated test can judge — a human's correction *is* the ground truth here.
+
+---
+
+## V28: The real-corpus dataset, wired into training and the eval harness
+
+**Delivers:** R11
+
+**Rests on assumptions:** V27 shipped, so labelled pages exist. `worker/training/{dataset,
+detect_dataset,chord_dataset}.py` (V15b/V16b/V17c) are unchanged in shape. Q91 (the eval control set
+grows through a separate, existing workflow, not this store).
+
+**Build plan**
+
+1. The exporter (`pnpm export:real-corpus --stage detect|stage2a|chords --out out/real-<stage>-corpus`):
+   reads the real-corpus store, re-rasterizes each referenced page from the maintainer's own retained
+   source PDF, and writes the **identical** on-disk shape (`classes.json`/`vocab.json` + `labels.jsonl`
+   + an image directory) each existing `*_dataset.py` loader already parses — gitignored under `out/`,
+   ephemeral for a sharper reason than the synthetic corpora (must not persist beyond the run that needs
+   it, not merely "free to regenerate").
+2. Acceptance check: point `training.detect_train`/`training.train`/`training.chord_train` at an
+   exported real-corpus directory and confirm it loads with **zero changes** to those three files.
+3. The one additive training change: each script accepts more than one `--corpus` directory, so a
+   synthetic and a real corpus mix in one run. Validation split stays seed/song-disjoint.
+4. Separately — the ordinary product loop, not the studio or the exporter — grow
+   `tests/fixtures/eval/real/` past its near-empty state: import a handful of the maintainer's own
+   phone photos of physically-owned charts (not the third-party PDF corpus, per Q91) through
+   `sbscore import`, correct in the V14 review UI, commit the result as new `<name>.jpg`/`<name>.json`
+   pairs — closing the KAN-1426 real-control-set half and, if one of them is a clean 32-bar head, the
+   V14f-deferred `gate-32` fixture.
+5. Retrain Stage 1 and Stage 2a on synthetic-plus-real corpora (a RunPod GPU run, `tools/runpod/rp`),
+   re-score on `make eval`'s now-larger real-photo control set, and record before/after numbers on
+   ADR-0031/`docs/eval.md` — the first real test of whether real training data closes the
+   synthetic→real gap, directly targeting KAN-1487 (face/typeface) and KAN-1512 (chord font/size),
+   since the real corpus carries whatever fonts and sizes third-party publishers actually used, with no
+   need to guess at randomisation ranges.
+
+**Demo:** `make eval` reports a `real` row backed by more than one real photo; a Stage-1/Stage-2a model
+retrained on synthetic+real scores higher on that row than the synthetic-only baseline it replaced.
+
+### Test plan
+
+#### Unit
+- The exporter's output, fed straight to each existing `*_dataset.py`'s loader function (no training
+  loop), yields the expected record count with no schema errors.
+- A source PDF that has moved or been deleted fails the export loudly for that song, rather than
+  silently shrinking the exported corpus.
+
+#### Integration
+- A CPU smoke run (`--device cpu --workers 0`, the convention each training script already uses) trains
+  one step on an exported real-corpus directory without crashing.
+- `make eval`'s real-control-set scoring correctly reads and averages more than one pair (verify the
+  harness already handles N>1 — it should, since the format is pair-based — rather than assuming).
+
+---
+
+## V29: Song identification via chord-progression retrieval
+
+**Delivers:** R12
+
+**Rests on assumptions:** V27/V28 (a labelled, fingerprinted real corpus exists to match against). The
+V5 grammar corrector (ADR-0011) for chord canonicalisation. Q88 (the signal and its position in the
+pipeline), ADR-0037, ADR-0019 (flag, don't guess silently), Q79/Q18 (op-first parity).
+
+**Build plan**
+
+1. Fingerprint extraction: from a `Score`'s chord sequence in bar/onset order, canonicalise each
+   chord's root relative to the progression's own tonal centre (transposition-invariant by
+   construction) and shingle the canonicalised sequence into overlapping n-grams — a small runtime
+   function in `@sibei/model` (or a new small `@sibei/retrieval`), generalising the traversal
+   `packages/synth/src/labels.ts`'s `chordSequence` already uses for the synthetic case. Never
+   `@sibei/synth`, which stays build-time-only (ADR-0031's exception).
+2. An index: each labelled song's fingerprint, computed once at the studio's metadata-commit step
+   (V27), stored in a small local table alongside — not inside — `SIBEI_REAL_CORPUS_DIR`. Reference
+   data, not a user's library (ADR-0002) and not baked model weight (ADR-0024) — a third category that
+   degrades to "no matches, ever" when absent.
+3. A matching stage: after `mapOmrToScore` + Stage 3 produce a draft chord sequence for a fresh import,
+   fingerprint it identically and query the index by edit-distance/LCS over the shingles.
+4. Confidence gating: above a stated threshold, the review surface (V14's flagged-object UI) gains a
+   "possible match: `<title>`, confidence `X`%" banner offering the known chart's chords as an
+   accept-or-reject suggestion, never auto-applied. Below threshold, or with the index empty or absent,
+   import behaves exactly as it does today — the same graceful-degradation contract already proven for
+   a missing chord model pair and for a missing worker entirely (Q80).
+5. Parity (Q79): `sbscore import`'s output (or a new `sbscore match <id>` verb) and the browser's review
+   pane gain the match affordance at the same milestone. Accepting a match applies it as an ordinary
+   `chord.set`/`note.set` batch through the existing op log (ADR-0003) — no new write path.
+
+**Demo:** import a page from a song already in the labelled corpus, under moderate OMR noise; the
+review surface shows a high-confidence match to the correct title. Import a page from an unrelated tune;
+no match appears and import behaves exactly as v0.3's does today.
+
+### Test plan
+
+#### Unit
+- The fingerprint function is transposition-invariant (the same progression transposed to a different
+  key produces the same fingerprint) and order-sensitive (reordering bars changes it).
+- Matching a noisy/partial chord sequence against a known fingerprint still finds it above threshold at
+  a stated noise tolerance; a genuinely different song's sequence scores below threshold.
+
+#### Integration
+- An import through the full pipeline with the index populated shows the match banner in both
+  `sbscore import`'s output and the browser's review pane (parity).
+- With the index unpopulated or absent, import completes identically to the no-index case — a
+  regression test, not just an assertion, proving graceful degradation.
+- Accepting a suggested match is indistinguishable, from the op log's point of view, from a manual
+  correction: undo/redo, versioning and CLI/UI parity all cover it with no special-casing.
+
+---
+
 ## Sequencing notes
 
 - **V1, V1b and V9 are gates, not features.** Each has an explicit decision as its exit
@@ -1419,3 +1610,12 @@ second API replica (Redis already makes it a config change), Kubernetes.
   `OmrDocument` (ADR-0005, ADR-0031), so `mapOmrToScore`, the runner and both surfaces never
   learn which engine ran. That is what lets oemer and the bespoke engine be compared on the
   harness and kept side by side, with the default swapped only when the numbers say so.
+- **v0.5 does not gate, and is not gated by, v0.3's engine swap.** V27–V29 rest on the same
+  `OmrDocument`/`mapOmrToScore` boundary regardless of which engine is the default, so the real
+  corpus can be labelled, trained on, and matched against in parallel with V17f's decision.
+- **v0.5's constraint is legal, not architectural, and it was checked rather than assumed.**
+  Every prior corpus this project built was either free to regenerate (synthetic) or freely
+  committable (the maintainer's own photos). The real corpus is neither, and ADR-0020 already had
+  a decision of record for exactly this shape of risk — the amendment recorded there, not a new
+  invention, is what makes V27/V28's "derived data only, no retained pixel" design a documented
+  consequence of asking the right existing ADR the right question, not a workaround.
