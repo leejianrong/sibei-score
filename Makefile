@@ -12,7 +12,7 @@ SHELL := bash
 COMPOSE := docker compose
 DC_CLI := $(COMPOSE) exec -T -e SBSCORE_URL=http://127.0.0.1:8080 sbscore pnpm -s sbscore
 
-.PHONY: help up down logs sample cli install check test test-fast typecheck proof render demo eval hooks clean omr-viz-setup omr-viz
+.PHONY: help up down logs sample cli install check test test-fast typecheck proof render demo eval hooks clean omr-viz-setup omr-viz label-studio-setup label-studio
 
 # Where the indah dev checkout lives (EPIC-228) — override if yours is elsewhere:
 #   make omr-viz INDAH_PATH=/path/to/indah-python-ui
@@ -96,6 +96,22 @@ omr-viz: omr-viz-setup ## Qualitatively review the bespoke OMR pipeline (Stage 1
 	cd worker/devtools/omr_viz && \
 	  SIBEI_BESPOKE_MODEL_DIR=$(CURDIR)/out/bespoke \
 	  OMR_VIZ_CORPUS_DIR=$(CURDIR)/out/viz-corpus \
+	  .venv/bin/python app.py
+
+label-studio-setup: ## One-time setup for the labelling studio (ADR-0036): venv + indah + bespoke weights
+	@if [ ! -d worker/devtools/label_studio/.venv ]; then \
+	  echo "setting up worker/devtools/label_studio/.venv ..."; \
+	  cd worker/devtools/label_studio && uv venv --python 3.11 && \
+	    uv pip install -e "$(INDAH_PATH)" && uv pip install -e .; \
+	fi
+	@if [ ! -f out/bespoke/detect.onnx ]; then \
+	  echo "fetching bespoke weights ..."; \
+	  python3 worker/fetch_bespoke.py --dir out/bespoke; \
+	fi
+
+label-studio: label-studio-setup ## Label real PDF pages (dev-only; pages are never kept on disk, ADR-0036)
+	cd worker/devtools/label_studio && \
+	  SIBEI_BESPOKE_MODEL_DIR=$(CURDIR)/out/bespoke \
 	  .venv/bin/python app.py
 
 clean: ## Remove build and render output
