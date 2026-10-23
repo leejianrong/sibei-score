@@ -12,20 +12,29 @@ text keyed by `(source PDF path, page)` — never pixels (`labels.scan_for_pixel
 
 ## Status
 
-Slice SIB2-117: open a PDF page, see Stage 1's pre-label, and **correct it** — drag a box to move it,
-drag a handle to resize, drag empty space to draw, Delete to remove, Ctrl-Z / Ctrl-Shift-Z to undo and
-redo, arrows to nudge (Shift: 10px), Ctrl-wheel or the +/− buttons to zoom. Every region has a **kind**
-(`lead-staff`, `accompaniment-staff`, `drum-staff`, `chord-band`, `title`, `rehearsal-mark`, `tempo`,
-`footer`, `other`, `barline`) and a **status** (`pre-labelled` = an unreviewed engine guess, `structure-only`,
-`partial`, `transcribed`, `ignore`) — see ADR-0036's 2026-10-23 amendment and `labels.py`. **Commit page**
-writes `labels/<song-id>/<page>.json` and flips the page to `corrected` in `manifest.json`, under
-`$SIBEI_REAL_CORPUS_DIR` (default `~/.local/share/sbscore/real-corpus`). Reopening a committed page
-restores it. Notes and chords (Stage 2a/2b) are SIB2-118/119; validation against the TypeScript label
-types is SIB2-120; the exporter that projects these labels onto training is SIB2-108.
+SIB2-126: a **workbench** — one full-viewport screen: a one-row app bar (file, pager, page state,
+Commit), the page on a tonal canvas, and a side sheet with the selected region's kind and status plus a
+review list grouped by system. Material 3 roles come from `m3_theme.py` (seeded with the product's
+accent, `#22409c`, as in `packages/ui/src/m3.css`) and follow the OS light/dark setting.
 
-The editor is an indah ES-module custom component (`modules/region-editor.js`), because indah's
-`ImageOverlay` is display-only. Unreviewed (`pre-labelled`) and `ignore` regions are **masked** by the
-exporter, never trained on as truth, so use **Confirm all unreviewed** only once you have looked.
+**The review loop** (click the page first): `Tab` / `Shift Tab` jump to the next / previous unreviewed
+region, `Enter` confirms it and moves on, `1`–`6` set its kind, `Delete` removes it, arrows nudge (Shift:
+10px), `Ctrl Z` undoes, `W` / `F` fit width / page, `Ctrl S` commits, `?` lists them. Drag a box to move
+it, a handle to resize, empty space to draw (as the kind in "Draw as"). Ctrl-wheel zooms. The ⋮ menu has
+**Confirm all unreviewed** and **Reset to engine pre-label**; leaving a page with uncommitted edits asks.
+
+Every region has a **kind** (`lead-staff`, `accompaniment-staff`, `drum-staff`, `chord-band`, `title`,
+`rehearsal-mark`, `tempo`, `footer`, `other`, `barline`) and a **status**: dashed = `pre-labelled`
+(an unreviewed engine guess, kept **out of training**), solid = reviewed (`structure-only` shown as
+*Confirmed*, `partial`, `transcribed`), hatched = `ignore`. See ADR-0036's 2026-10-23 amendment and
+`labels.py`. **Commit** writes `labels/<song-id>/<page>.json` and flips the page to `corrected` in
+`manifest.json` under `$SIBEI_REAL_CORPUS_DIR` (default `~/.local/share/sbscore/real-corpus`); reopening
+a committed page restores it. Notes and chords (Stage 2a/2b) are SIB2-118/119; validation against the
+TypeScript label types is SIB2-120; the exporter that projects labels onto training is SIB2-108.
+
+The screen is an indah ES-module custom component (`modules/workbench.js`), because indah's
+`ImageOverlay` is display-only and the review loop needs a keyboard-first canvas. It covers indah's own
+shell bar (`position: fixed`), so there is no indah chrome, theme toggle included.
 
 ## Running it
 

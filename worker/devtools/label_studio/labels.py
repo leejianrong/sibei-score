@@ -64,25 +64,26 @@ def prelabel_regions(staves: list[dict], barlines: list[dict]) -> list[dict]:
     `pre-labelled` — an unreviewed guess — with a stable id (`r1`, `r2`, ...) the corrections key on."""
     out: list[dict] = []
 
-    def add(kind: str, x: float, y: float, w: float, h: float) -> None:
-        out.append(
-            {
-                "id": f"r{len(out) + 1}",
-                "kind": kind,
-                "status": "pre-labelled",
-                "origin": "engine",
-                "box": {"x": round(x), "y": round(y), "w": round(w), "h": round(h)},
-            }
-        )
+    def add(kind: str, x: float, y: float, w: float, h: float, system: int | None) -> None:
+        r = {
+            "id": f"r{len(out) + 1}",
+            "kind": kind,
+            "status": "pre-labelled",
+            "origin": "engine",
+            "box": {"x": round(x), "y": round(y), "w": round(w), "h": round(h)},
+        }
+        if system is not None:
+            r["system"] = system  # which detected system it belongs to, for grouping in the UI
+        out.append(r)
 
-    for s in staves:
-        add("lead-staff", s["xLeft"], s["yUpper"], s["xRight"] - s["xLeft"], s["yLower"] - s["yUpper"])
+    for i, s in enumerate(staves):
+        add("lead-staff", s["xLeft"], s["yUpper"], s["xRight"] - s["xLeft"], s["yLower"] - s["yUpper"], i)
         band = s.get("chordBand")
         if band is not None:
-            add("chord-band", band["x"], band["y"], band["w"], band["h"])
+            add("chord-band", band["x"], band["y"], band["w"], band["h"], i)
     for b in barlines:
         x1, y1, x2, y2 = b["bbox"]
-        add("barline", x1, y1, x2 - x1, y2 - y1)
+        add("barline", x1, y1, x2 - x1, y2 - y1, b.get("group"))
     return out
 
 
@@ -133,6 +134,8 @@ def reconcile(prelabel: list[dict], current: list[dict]) -> tuple[list[dict], li
         rec = {k: r[k] for k in ("id", "kind", "status", "box")}
         if r.get("attrs"):
             rec["attrs"] = r["attrs"]
+        if r.get("system") is not None:
+            rec["system"] = r["system"]
         if orig is None:
             rec["origin"] = "human"
         else:
