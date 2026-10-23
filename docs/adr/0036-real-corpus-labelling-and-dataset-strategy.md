@@ -1,6 +1,7 @@
 # ADR-0036: A real-corpus labelling studio and dataset strategy
 
-- **Status:** Proposed — planning of record for v0.5 (KAN-1522). Not yet built.
+- **Status:** Proposed — planning of record for v0.5 (KAN-1522). Not yet built. Part 3 and part 4's
+  exporter are **amended 2026-10-23** (expressive labels; see the Amendment below).
 - **Date:** 2026-09-19
 - **Deciders:** Jian, in design discussion
 - **Relates to:** [ADR-0005](0005-node-owns-api-python-omr-worker.md),
@@ -8,7 +9,8 @@
   [ADR-0020](0020-omr-evaluation-strategy.md),
   [ADR-0024](0024-model-weights-baked-at-build-time.md),
   [ADR-0031](0031-bespoke-recogniser.md),
-  [ADR-0033](0033-bespoke-model-artifact-store.md)
+  [ADR-0033](0033-bespoke-model-artifact-store.md),
+  [ADR-0038](0038-full-notation-is-the-long-term-direction.md)
 
 ## Context
 
@@ -106,7 +108,10 @@ correction against the same TypeScript label shapes training already trusts (bel
 hundreds-of-pages PDF survives being labelled across many sessions and reopening a page for re-review
 simply re-rasterizes it from the same source file.
 
-### 3. Ground truth is shaped exactly like `packages/synth`'s labels — because that shape is already the training contract
+### 3. Ground truth is shaped like `packages/synth`'s labels — because that shape is already the training contract
+
+> **Amended 2026-10-23.** "Exactly" below is superseded: the three shapes are kept as a **subset** of a
+> wider label (see the Amendment). The training loaders still parse them unchanged.
 
 The corrected label for a page is not a new schema. It is the same three shapes the synthetic pipeline
 already produces and the training scripts already consume:
@@ -178,6 +183,49 @@ that README's "keep it small, and a genuine photo" discipline. Preferring the ma
 photos of physically-owned charts for anything actually committed avoids exactly the ambiguity a
 third-party PDF corpus would otherwise introduce into a git-tracked test fixture. See SLICES.md V28.
 
+## Amendment (2026-10-23): expressive labels — record wide, train narrow
+
+**Why.** The first real pages (a full-band intro with a grand staff, drum staff, diamond heads and an
+8va line; a lead sheet with triplets) showed that "exactly the three synthetic shapes" is too narrow
+a record. Leaving a staff unlabelled makes the detector learn it is *background*, and labelling only
+what today's vocabulary expresses means redoing every page each time it widens. The maintainer's
+direction is full notation in the long run ([ADR-0038](0038-full-notation-is-the-long-term-direction.md));
+labels are the one asset that cannot be regenerated, so they are recorded at the fidelity a human can
+supply cheaply and **projected down** by the exporter. Decided with the maintainer, 2026-10-23.
+
+**The label is a superset.** Every record still carries the three existing shapes' fields; the
+additions are optional, ignored by the existing loaders, and live beside them (extra JSON keys, never a
+second format):
+
+| Addition | Where | Meaning |
+|---|---|---|
+| `kind` | every region (`PageObjectBox`) | An **open string**. Seed taxonomy: `lead-staff`, `accompaniment-staff`, `drum-staff`, `chord-band`, `title`, `rehearsal-mark`, `tempo`, `footer`, `other` — plus `barline`, unchanged. `lead-staff`/`chord-band`/`title`/`barline` map to the detector's current `BOX_CLASSES` (`staff` ≙ `lead-staff`); every other kind has **no `clsId` yet**. |
+| `attrs` | a staff region | Optional and free: `clef`, a `group` id shared by the staves of one brace/bracket (a grand staff), a `role` note. Recorded, not trained on. |
+| `status` | every region and every system | `transcribed` (content complete, all in-vocab) · `partial` (some content not captured; its positions are recorded as extended tags) · `structure-only` (region and kind, no content) · `ignore` (do not train or score). **Never absent**: a region the human has not touched is `pre-labelled`, which the exporter treats as `ignore`, so an unreviewed engine guess is never trained on as truth. |
+| `extended` | a system | Positioned **extended tags** for what the vocabulary cannot yet say: `{tag, box, note?}` with `tag` in an open `x:` namespace (`x:tuplet(3,2)`, `x:notehead=diamond`, `x:8va`, `x:accent`). A record of what was seen, not a notation language (ADR-0038 risk). |
+
+**What the exporter does with it** (replacing "reads the labels and writes the identical shape"):
+
+- **Stage 1 (detect).** Regions whose `kind` has a `clsId` are written as boxes. Regions with **no
+  `clsId`** (and anything `ignore`/`pre-labelled`) are **masked**: because the exporter already
+  re-rasterizes transiently, it fills the box white in the training image, so the detector sees a blank
+  rather than an unlabelled staff, and **no training-script change is needed** — the acceptance test
+  below survives. Adding a detector class later (e.g. `drum-staff`) is then a re-export, not a re-label.
+- **Stage 2a (melody).** Only systems with status `transcribed` and every token in the vocabulary are
+  exported; a CTC loss cannot take an unknown token without corrupting the alignment. A `partial` system
+  still feeds Stage 1 and 2b.
+- **Stage 2b (chords).** Bands with status `transcribed` and chord text are exported.
+- **Evaluation.** The harness excludes `ignore` / `structure-only` / `pre-labelled` regions from the
+  metrics rather than scoring them as misses.
+
+The commit-time validation (part 3's bridge script) checks the **subset** against the TypeScript
+types and the new fields against a small schema owned beside them in `packages/synth`; an unknown
+`kind` or `status` is refused, an unknown `x:` tag is accepted (it is an open record).
+
+**Cost, stated.** More fields per page means slower labelling. The tiers are deliberately uneven:
+choosing a `kind` is a click; transcribing notes is expensive; an `x:` tag is optional and a free-text
+note will do at first. Throughput, not a page count, stays the metric (Consequences, below).
+
 ## Consequences
 
 - **Two real, separately-justified data stores exist after this:** the large, private, song/page-keyed
@@ -209,5 +257,6 @@ third-party PDF corpus would otherwise introduce into a git-tracked test fixture
 | Build a new `packages/label-studio` TypeScript app | Would need a Node↔Python bridge to run the exact engines being annotated, solving nothing `omr_viz`'s existing in-process Python access doesn't already solve for free. |
 | Extend `packages/ui` (the product browser) with an annotation mode | Binds an internal tool to product invariants (ADR-0014/0015, CLI/UI parity) it has no reason to satisfy, and risks a real regression in the actual product surface for dev-tooling's sake. |
 | Extend `omr_viz` itself in place | Conflates a stateless qualitative viewer (EPIC-228's stated scope) with a stateful labelling tool holding hours of irreplaceable human correction — different failure costs deserve different blast radii. |
+| Label only what the vocabulary expresses, or only whole pages (the first draft's "exactly the synthetic shapes") | Leaves real staves as detector *background* and forces a re-label on every vocabulary widening. Superseded by the 2026-10-23 amendment. |
 | Invent a new label schema tailored to real photos | Directly contradicts the goal ("plugs into the existing eval harness and training scripts without inventing a second format") for no accuracy benefit — the existing shapes already carry everything a page can need. |
 | Store the real corpus in the product's SQLite `Store` | It is training reference data, not a user's library (ADR-0002's "server owns the score" is about a person's chart, not a labelling corpus); mixing them would leak dev-only data into the product's backup/export/migration surface. |

@@ -1445,7 +1445,9 @@ bespoke engine's internal per-stage functions for a viewer to call independently
 3. `worker/devtools/label_studio` (new, sibling to `omr_viz`, its own venv/dependency group, same
    never-in-CI/never-shipped posture as `omr_viz`): extends `omr_viz`'s existing read-only Stage-1/2a/2b
    overlay panels into editable ones — drag/resize/delete/add a Stage-1 box; click-to-edit a Stage-2a
-   note's pitch/duration/order; click-to-edit a Stage-2b chord's text/span. A "commit page" action
+   note's pitch/duration/order; click-to-edit a Stage-2b chord's text/span. Every region also takes a
+   `kind` and a `status` (ADR-0036 amendment); out-of-vocabulary content is kept as an extended tag
+   rather than dropped. A "commit page" action
    validates the correction against the TypeScript label shapes (`PageObjectBox`/`SystemLabel`/
    `SystemChords`, already defined in `packages/synth`) via a small bridge script (the same shape as
    `scripts/omr-viz-bridge.ts`) and persists **only that structural data** — never the raster — keyed by
@@ -1497,7 +1499,9 @@ grows through a separate, existing workflow, not this store).
    source PDF, and writes the **identical** on-disk shape (`classes.json`/`vocab.json` + `labels.jsonl`
    + an image directory) each existing `*_dataset.py` loader already parses — gitignored under `out/`,
    ephemeral for a sharper reason than the synthetic corpora (must not persist beyond the run that needs
-   it, not merely "free to regenerate").
+   it, not merely "free to regenerate"). It **projects** the wider labels down (ADR-0036 amendment):
+   Stage 1 whites out regions with no detector class (and `ignore`/`pre-labelled`) in the image; Stage 2a
+   takes only `transcribed`, fully in-vocab systems; the eval harness skips masked regions.
 2. Acceptance check: point `training.detect_train`/`training.train`/`training.chord_train` at an
    exported real-corpus directory and confirm it loads with **zero changes** to those three files.
 3. The one additive training change: each script accepts more than one `--corpus` directory, so a

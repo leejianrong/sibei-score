@@ -993,6 +993,23 @@ ADR-0036 and ADR-0037.
     product loop (`sbscore import`, the V14 review UI, `sbscore open --json`), unrelated to
     `SIBEI_REAL_CORPUS_DIR` or the studio. See SLICES.md V28.
 
+- **Q92.** `P0` `ANSWERED` **For real pages that exceed the lead-sheet vocabulary (a grand-staff intro,
+  drum staff, triplets), do we ignore them, label them fully, or something between?**
+  - A (decided with the maintainer, 2026-10-23): **record wide, train narrow.** Every region gets an open
+    `kind` and a completion `status`; out-of-vocabulary content is kept as positioned extended tags;
+    the exporter projects down. Ignoring by omission is rejected (it teaches the detector that real
+    staves are background); full transcription is rejected (no vocabulary, throughput collapse).
+    ADR-0036 amendment.
+- **Q93.** `P0` `ANSWERED` **Is full notation (polyphony, multi-staff, percussion) a project?**
+  - A (maintainer, 2026-10-23): **yes, as the long-term direction** — staged, behind the harness,
+    never gating the lead-sheet path, and not a schedule. The editor's `Score` is unchanged for now;
+    non-representable regions stay visible and unparsed. ADR-0038; SIB2-74 becomes its umbrella.
+- **Q94.** `P1` `ANSWERED` **How is a region the detector has no class for kept out of Stage-1 training
+  without changing the training scripts?**
+  - A (maintainer agreed, 2026-10-23): the exporter already re-rasterizes transiently, so it **whites
+    out** those regions. Adding a class later is a re-export. Cost: the detector sees a blank where a
+    staff was, which is true to the page and harmless to the classes it does learn.
+
 ## Coverage
 
 One row per checklist category, so a skipped category would be visible.
@@ -1014,4 +1031,4 @@ One row per checklist category, so a skipped category would be visible.
 | *Domain:* rendering and layout correctness | Q12, Q36, Q38, Q39, Q57, Q58 |
 | *Domain:* music theory correctness | Q9, Q10, Q60 |
 | *Domain:* recognition quality and correction | Q3, Q16, Q26, Q27, Q29, Q53, Q54, Q55 |
-| *Domain:* real-corpus labelling, dataset, and song matching (v0.5) | Q85, Q86, Q87, Q88, Q89, Q90, Q91 |
+| *Domain:* real-corpus labelling, dataset, and song matching (v0.5) | Q85, Q86, Q87, Q88, Q89, Q90, Q91, Q92, Q93, Q94 |
