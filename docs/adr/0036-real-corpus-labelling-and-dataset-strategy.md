@@ -93,6 +93,11 @@ Reasoning:
   correction that must not evaporate; giving it a separate app keeps that persistence requirement out of
   a tool whose whole design point (so far) is "no state to manage."
 
+**Editing.** indah's `ImageOverlay` is display-only (interactive annotation is its own unbuilt ADR-0020
+step two), so the editable overlay is an indah ES-module custom component (indah ADR-0039,
+`modules/region-editor.js`) — still indah, still in-process Python, no second UI stack. Found building
+SIB2-117.
+
 Its own `pyproject.toml`/venv, its own dependency group, same posture as `omr_viz` (never in CI, never
 in the shipped worker image, ADR-0005/0024). It reuses `indah` and imports `sibei_omr.engines.bespoke`
 directly, exactly as `omr_viz` does.
