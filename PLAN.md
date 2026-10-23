@@ -1,6 +1,8 @@
 # sibei-score: Plan
 
-Status: draft · Milestones: **v0.1** (app without import) and **v0.2** (import)
+Status: draft · Milestones: **v0.1** (app without import), **v0.2** (import), **v0.3** (the
+bespoke recogniser, `SLICES.md`), **v0.4** (the hosted web app, ADR-0034), **v0.5** (the real corpus — labelling, dataset, song matching;
+planning of record only, KAN-1522, not yet built)
 
 The live planning document. Terms are defined in `CONTEXT.md`, which also holds the
 decision register; this file cites ADRs rather than restating them. Build handoff is
@@ -95,6 +97,19 @@ milestone.
 - **Barline *type* detection** — import yields single barlines only; double barlines,
   repeats and sections are hand-added (ADR-0021).
 
+### In — v0.5 (the real corpus: labelling, dataset, song matching — planning of record, KAN-1522)
+
+- A labelling studio that pre-labels real, previously-unseen lead-sheet pages from the current
+  recogniser and lets a human correct them, producing the same label shapes `packages/synth`
+  already produces (ADR-0036)
+- A durable, song/page-keyed dataset of that corrected structural data — never a raw copyrighted
+  page or crop, per the ADR-0020 amendment — that exports into the exact corpus format
+  `worker/training/*.py` already reads, with no training-script rewrite (ADR-0036)
+- Retraining Stage 1 / 2a / 2b on synthetic-plus-real corpora and re-scoring on a grown
+  `tests/fixtures/eval/real/` control set (ADR-0036, closing the KAN-1426/KAN-1487/KAN-1512 gaps)
+- Song identification: a transposition-invariant chord-progression fingerprint match, advisory
+  only, surfaced on both surfaces, applied (if accepted) through the ordinary op log (ADR-0037)
+
 ## Requirements
 
 | ID | Requirement | Status |
@@ -109,6 +124,9 @@ milestone.
 | R7 | The whole app runs locally, offline, on CPU alone, from a container — true of v0.1 as a single container, and of v0.2 with the worker | Must-have |
 | R8 | Hosting the app later is a deployment change, not a rewrite | Must-have |
 | R9 | Concurrent edits from a human and an agent cannot silently lose work | Must-have |
+| R10 | A large corpus of real, unlabelled lead-sheet PDFs can be turned into stage-level training labels efficiently — pre-label from the current recogniser, then correct — without inventing a second data format | Must-have (v0.5) |
+| R11 | Corrected real labels train the same `worker/training/*` pipelines and grow the V12 harness's real-photo control set, with no raw copyrighted page or crop ever retained | Must-have (v0.5) |
+| R12 | A future upload can be matched, advisory-only, to a known song from the labelled corpus, and an accepted match applies through the ordinary op log like any other correction | Must-have (v0.5) |
 
 ## Shape
 
@@ -137,6 +155,10 @@ The mechanisms being built. Each is a thing you build, not an intention.
 | P19 | Import as one operation carrying the whole parsed document | ADR-0003 |
 | P20 | Evaluation harness: MusicXML → render → degrade generator, plus note, chord and metric-validity metrics | ADR-0020 |
 | P21 | Container topology: `api` (Node) and `worker` (Python) via compose, weights baked at build time, opt-in GPU profile | ADR-0024, ADR-0025, Q44 |
+| P22 | PDF ingestion (dev-tooling): rasterize every page; probe an embedded text layer as an opportunistic pre-label seed only, never a fast path | ADR-0036, ADR-0018 |
+| P23 | The labelling studio (`worker/devtools/label_studio`): pre-label from the current engine, correct in an editable extension of the `omr_viz` overlay machinery, commit structural data only | ADR-0036 |
+| P24 | The real-corpus dataset store and exporter: song/page-keyed derived labels, no retained pixels (ADR-0020 amendment); an exporter re-rasterizes from the maintainer's own PDFs into the exact `worker/training/*` corpus shape on demand | ADR-0036, ADR-0020, ADR-0033 |
+| P25 | Song identification: a transposition-invariant chord-progression fingerprint index, queried after Stage 3, advisory only, applied via the ordinary op log | ADR-0037, ADR-0019, ADR-0003 |
 
 ## Affordances
 
@@ -157,6 +179,7 @@ The mechanisms being built. Each is a thing you build, not an intention.
 | Source image beside the score, zoomable | Score view, split pane (v0.2) | P6 blob fetch |
 | Review flags on uncertain objects, and a no-sections prompt | Score view (v0.2) | model flags from P17/P18 |
 | Import progress | Library view (v0.2) | P16 job subscription |
+| Song-match suggestion banner, accept per-chord or wholesale | Score view review pane (v0.5) | P25, applied as an ops `batch` |
 
 **Non-UI**
 
@@ -182,6 +205,8 @@ the name moved — every verb and every exit code below means what it meant.
 | Job runner | Service | P16 |
 | OMR worker | Service (Python container) | P17, P18 |
 | Eval harness | Command | P20 |
+| `sbscore match <id>` (v0.5) | CLI command | P25 |
+| `pnpm export:real-corpus` (v0.5, dev-only) | Command | P24 |
 
 ## Implementation decisions
 
@@ -290,6 +315,9 @@ Taken on your behalf. Each is one row in `QUESTIONS.md` and each is correctable.
 | Q80 | A failed import commits nothing and is retryable | Contained to the job runner |
 | Q74 | PaddleOCR over EasyOCR | Redoes stage 2's fine-tuning work if reversed later |
 | Q81 | Exports are cached in the blob store keyed by score version | Trivial — delete the cache and generate every time |
+| Q86 | Real corpus PDFs are rasterized always; an embedded text layer, when present, is used only as a bonus pre-label seed, never a semantic fast path | Contained — a page with no usable text layer degrades to the raster-only path unchanged |
+| Q87 | Song/composer metadata is captured as a required studio label field regardless of source, with PDF text/metadata as an opportunistic seed | Contained — title/composer stays editable, same as v0.2's Q37 |
+| Q90 | The real-corpus dataset store is keyed by `(source PDF path, page number)`, not by a stable copy of the file — a moved/renamed source PDF breaks re-export until the manifest is repointed | Contained to the exporter; the durable structural labels are unaffected |
 
 ## Open risks
 
@@ -302,3 +330,5 @@ Taken on your behalf. Each is one row in `QUESTIONS.md` and each is correctable.
 | Automatic preprocessing cannot cope with real phone photos, and there is no crop UI | **V12**'s real-photo control set, deliberately including bad photos |
 | Because sections are not detected, every import needs structural correction before it lays out correctly | **V13**, and it is why the no-sections prompt is in that slice |
 | oemer is unmaintained since October 2023 | Already known. Mitigated by MIT licensing and worker isolation |
+| The actual PDF count / total page count of the real corpus is unknown, so V27's labelling-throughput estimate could be badly wrong in either direction | **V27**'s first slice, pointing the studio at the real files, the same gate-before-build discipline as V9/V15 |
+| A false song-match at high confidence could mislead a correction rather than help it | Confidence threshold + advisory-only UI (never auto-applied), ADR-0037, tuned once real match/no-match examples exist (V29) |
