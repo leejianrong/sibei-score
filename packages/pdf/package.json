@@ -18,6 +18,6 @@
   },
   "devDependencies": {
     "@types/pdfkit": "0.17.6",
-    "@types/svg-to-pdfkit": "0.1.4"
+    "@types/svg-to-pdfkit": "0.1.5"
   }
 }
