@@ -7,7 +7,7 @@
  * fixes it; a quota is about *how much*, and only deleting something (or, for the daily ones, the window
  * rolling over) fixes it.
  */
-export type QuotaName = 'scores' | 'import-pages' | 'import-bytes' | 'streams';
+export type QuotaName = 'scores' | 'import-pages' | 'import-bytes' | 'streams' | 'audio-seconds';
 
 export class QuotaError extends Error {
   constructor(
