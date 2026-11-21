@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "source": {
+    "sha256": "e11c4db50d20364c37860dbb2c190e9869155f3ee981dac295b6a6d60d7fb5d6",
+    "duration_s": 2.5
+  },
+  "instrument": "drums",
+  "producer": {
+    "model_id": "hand-made-fixture",
+    "model_version": "0",
+    "stage": "transcribe"
+  },
+  "beats": [
+    {
+      "t_s": 0.002,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 0.504,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.002,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.496,
+      "is_downbeat": false
+    }
+  ],
+  "notes": [
+    {
+      "id": "n1",
+      "onset_s": 0,
+      "offset_s": 0.109,
+      "pitch": 36,
+      "confidence": 0.9,
+      "velocity": 80
+    },
+    {
+      "id": "n2",
+      "onset_s": 0.49,
+      "offset_s": 0.594,
+      "pitch": 38,
+      "confidence": 0.9,
+      "velocity": 80
+    },
+    {
+      "id": "n3",
+      "onset_s": 1.006,
+      "offset_s": 1.072,
+      "pitch": 36,
+      "confidence": 0.9,
+      "velocity": 80
+    },
+    {
+      "id": "n4",
+      "onset_s": 1.507,
+      "offset_s": 1.557,
+      "pitch": 38,
+      "confidence": 0.9,
+      "velocity": 80
+    }
+  ],
+  "warnings": []
+}
