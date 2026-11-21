@@ -43,6 +43,13 @@ export interface LimitsConfig {
   workerFailIp?: Rate;
   /** Per-IP, `/v1/auth/*` only: sign-in and device-flow endpoints, which are public by nature. */
   authIp: Rate;
+  /**
+   * Per-IP, `POST /v1/auth/device` only (SEC M5): every start writes a row that lives for the device code's
+   * 10 minutes, so a window of that length bounds the unexpired, unapproved codes one address can hold.
+   */
+  deviceStartIp?: Rate;
+  /** All callers together, device-code starts: the ceiling on unapproved codes a distributed flood can park. */
+  deviceStart?: Rate;
   /** Per-user, by class. A class with no entry here is not limited per user. */
   rates: Record<RequestClass, Rate>;
   quotas: {
@@ -78,6 +85,9 @@ export const DEFAULT_LIMITS: LimitsConfig = {
   global: { limit: 6000, windowMs: MINUTE },
   workerFailIp: { limit: 30, windowMs: MINUTE },
   authIp: { limit: 30, windowMs: MINUTE },
+  // The window is the device code's life (`DEVICE_TTL_MS`), so these are caps on live unapproved codes.
+  deviceStartIp: { limit: 20, windowMs: 10 * MINUTE },
+  deviceStart: { limit: 2000, windowMs: 10 * MINUTE },
   rates: {
     read: { limit: 300, windowMs: MINUTE },
     write: { limit: 120, windowMs: MINUTE },
@@ -231,6 +241,12 @@ export function createLimits(options: LimitsOptions = {}): Limits {
       if (path.startsWith('/v1/auth/')) {
         const tight = refusal(await consume(`ip-auth:${address}`, 1, config.authIp, true), 'auth-ip', 'auth');
         if (tight !== null) return tight;
+      }
+      if (method === 'POST' && path === '/v1/auth/device') {
+        const mine = refusal(await consume(`ip-device:${address}`, 1, config.deviceStartIp ?? DEFAULT_LIMITS.deviceStartIp!, true), 'auth-ip', 'auth');
+        if (mine !== null) return mine;
+        const all = refusal(await consume('device-start', 1, config.deviceStart ?? DEFAULT_LIMITS.deviceStart!, true), 'ip', 'auth');
+        if (all !== null) return all;
       }
       return refusal(await consume(`ip:${address}`, 1, config.ip, closed), 'ip', 'any');
     },
