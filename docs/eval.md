@@ -266,6 +266,34 @@ counts as errors, so end-to-end chordF1 at V17e should sit at or above this. The
 default-engine swap is decided at **V17f**, when the whole bespoke import — notes *and* chords — is
 scored against oemer's widened-corpus baseline (KAN-1426).
 
+### Stacked slashes and alternates in the chord-band corpus (SIB2-203, opt-in, nothing retrained)
+
+The engraver draws stacked slash chords and parenthesised alternates (`(Gm7 C7)`), and the corpus can
+now contain them. **Both are off by default**: a seed that opts into nothing is byte-identical to
+before (a unit test pins a SHA-256 of a 40-seed sweep, taken on the pre-change code), because the
+shipped `chord.onnx` was trained on that corpus.
+
+- `pnpm dump:v17b --stacked-slash P` draws a share P of *charts* (0..1) with stacked slashes
+  (`randomChordStyle(rng, { stackedSlash })`; the draw comes last in the style, only when asked, so no
+  other field moves). Stacked changes pixels, not the label (`/bass` either way). The bass drops below
+  the chord baseline, where the band box ends, so the dump also crops 5 layout units lower
+  (`renderBandCrops({ descent })`, default 0) or the bass is shaved. **The same clipping applies at
+  inference**: Stage 2b crops the detected `chordBand` box, so a real stacked bass will be cut unless
+  the box or crop is extended there too.
+- `pnpm dump:v17b --alternates P` makes a share P of chords alternates of one or two members
+  (`generateScore({ alternates })`, its own salted rng stream; notes and primary chords are untouched).
+  An alternate's label contains a space, a character the shipped vocabulary lacks, so this needs
+  **chord vocabulary version 2** (below). The dump writes `vocab.json` with `"version": 2` when it is on.
+- Each dump writes `corpus.json`: options, vocab version, generator git SHA, date. Keep it beside any
+  weights trained on the corpus (the provenance rule).
+
+**Vocabulary impact.** `buildChordVocabulary({ version })`: version 1 (default) is the shipped 40-class
+table, unchanged. Version 2 **appends** one class, `' '` (id 40, size 41), after every existing id, so
+nothing is renumbered and a v1 model's ids stay valid. A v1 `chord.onnx` (40 outputs) cannot emit the
+new class and is incompatible with a v2 corpus's targets; it is not drop-in. A retrain on a v2 corpus
+needs a new matched `chord.onnx` + v2 `chord-vocab.json` (`pnpm export:v17c-vocab --version 2`; the default stays v1) and the worker's vocab loader already reads the size from the file.
+Whether to retrain is a separate decision (the model also meets Finding 2's crop-alignment gap first).
+
 ## The whole bespoke import scored end to end (V17e result) — not yet swap-ready
 
 V17e ran the fully-wired bespoke engine (Stage 1 + 2a + 2b) through `pnpm eval --engine worker`, the

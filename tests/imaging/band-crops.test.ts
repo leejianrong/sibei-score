@@ -35,6 +35,17 @@ describe('renderBandCrops', () => {
     }
   });
 
+  it('descent lengthens each crop below the baseline and defaults to none (SIB2-203)', async () => {
+    const score = generateScore({ seed: 4, bars: 8, chords: true });
+    const plain = await renderBandCrops(score, { zoom: 2 });
+    const deep = await renderBandCrops(score, { zoom: 2, descent: 5 });
+    expect(deep.length).toBe(plain.length);
+    deep.forEach((crop, i) => {
+      expect(crop.heightPx).toBeGreaterThan(plain[i]!.heightPx);
+      expect(crop.widthPx).toBe(plain[i]!.widthPx);
+    });
+  });
+
   it('produces no crops for a chordless score', async () => {
     const score = generateScore({ seed: 4, bars: 12, chords: false });
     const crops = await renderBandCrops(score, { vocab });
