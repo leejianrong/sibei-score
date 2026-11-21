@@ -69,7 +69,28 @@ metrics, plus **barAcc** (the fraction of bars reproduced exactly, bar for bar).
 A `(seed, level)` pair always renders the same document, so a row is reproducible and a change in it is a
 change in the importer. Reference run at the time it landed (6 charts, 8 bars, diatonic melodies in five
 keys): clean 0.965 noteF1 / 0.875 barAcc, light 0.965, medium 0.809, heavy 0.519. The jitter rows are the
-baseline to beat, not a pass mark. Two known costs are visible in `clean`: a true sixteenth rest after a long
+baseline to beat, not a pass mark.
+
+**SIB2-196 (quantizer under heavy jitter).** Heavy lost mostly to onset error, not to split or dropped
+notes (ablated on the heavy profile: with only onset noise left it still scores 0.77, removing splits
+gains 0.015). The quantizer now treats a clip whose onsets visibly scatter around the grid as performed:
+it removes the clip's steady onset lateness, snaps the onsets jointly rather than one by one, reads a
+one-step silence as legato, and heals a low-confidence same-pitch note re-picked up within 30 ms. A
+clean clip takes none of these paths. The generator's jitter is unchanged, so every level is still
+reproducible. Before and after, mean noteF1 (barAcc in brackets):
+
+| Level | 6 charts, before | 6 charts, after | 40 charts, before | 40 charts, after |
+|---|---|---|---|---|
+| clean | 0.965 (0.875) | 0.965 (0.875) | 0.968 (0.894) | 0.968 (0.894) |
+| light | 0.965 (0.875) | 0.965 (0.875) | 0.967 (0.894) | 0.967 (0.894) |
+| medium | 0.809 (0.521) | 0.865 (0.604) | 0.844 (0.556) | 0.893 (0.688) |
+| heavy | 0.519 (0.104) | 0.692 (0.292) | 0.570 (0.131) | 0.713 (0.319) |
+| unmarked | 0.809 (0.521) | 0.865 (0.604) | 0.844 (0.556) | 0.893 (0.688) |
+
+(The 40-chart column is `--seeds 40`, a steadier read; the 6-chart column is the default run.) Caveats:
+the split merge keys on the second half's confidence, which the generator lowers (x0.7) and a real
+transcriber may not, so treat that part as unproven on real audio; the remaining heavy gap is the
+onset noise itself, since 50 ms sigma is about half a sixteenth at 140 bpm and no grid can recover it. Two known costs are visible in `clean`: a true sixteenth rest after a long
 note is read as legato, and a sustained note is tied where the grid forces it. Audio rendering is the audio
 repo's; the corpus here needs none.
 
