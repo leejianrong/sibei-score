@@ -119,9 +119,20 @@ export interface Note {
    * stored document changes shape and `SCHEMA_VERSION` stays (ADR-0028). Playback length is not modelled.
    */
   fermata?: boolean;
+  /**
+   * Staccato, accent and marcato marks on this note (SIB2-179), in `ARTICULATIONS` order and without repeats.
+   * Optional-and-absent when there are none, so no stored document changes shape (ADR-0028). Jazz
+   * articulations (fall, doit, scoop) are not modelled.
+   */
+  articulations?: Articulation[];
   confidence: Confidence;
   review: Review;
 }
+
+export type Articulation = 'staccato' | 'accent' | 'marcato';
+
+/** In the order they stack away from the notehead: staccato nearest, marcato furthest. */
+export const ARTICULATIONS: readonly Articulation[] = ['staccato', 'accent', 'marcato'];
 
 /** A first-class object, not an implied gap — metric validity depends on it (ADR-0013). */
 export interface Rest {

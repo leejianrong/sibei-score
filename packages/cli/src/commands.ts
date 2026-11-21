@@ -102,8 +102,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
-  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell] [--artic staccato,accent,marcato]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
+              [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
@@ -792,6 +793,13 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
 }
 
+/** `--artic staccato,accent` or `--artic none` (SIB2-179). The server judges the names. */
+function articOf(flags: Flags): { articulations?: string[] } {
+  const raw = flags.options.get('artic');
+  if (raw === undefined) return {};
+  return { articulations: raw === 'none' || raw === '' ? [] : raw.split(',').map((part) => part.trim()) };
+}
+
 async function note(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `note ${sub}`);
@@ -803,17 +811,18 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
       duration: parseDuration(required(flags, 'dur', 'note add')),
       ...tieOf(flags),
       ...spellOf(flags),
+      ...articOf(flags),
     };
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags), ...spellOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...spellOf(flags), ...articOf(flags) };
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --spell');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --spell --artic');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }

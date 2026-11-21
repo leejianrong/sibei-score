@@ -112,6 +112,12 @@ const GLYPHS: readonly string[] = [
   'gClef',
   'repeatDot',
   'fermataAbove',
+  'articStaccatoAbove',
+  'articStaccatoBelow',
+  'articAccentAbove',
+  'articAccentBelow',
+  'articMarcatoAbove',
+  'articMarcatoBelow',
   ...Array.from({ length: 10 }, (_, digit) => `timeSig${digit}`),
   ...Array.from({ length: 10 }, (_, digit) => `tuplet${digit}`),
 ];

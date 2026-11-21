@@ -311,6 +311,11 @@ function notations(
   if (note !== null) {
     if (note.tie === 'stop' || note.tie === 'both') parts.push(elem('tied', { type: 'stop' }));
     if (note.tie === 'start' || note.tie === 'both') parts.push(elem('tied', { type: 'start' }));
+    // Staccato, accent and marcato (SIB2-179). MusicXML's marcato is the strong accent.
+    const marks = (note.articulations ?? []).map((mark) =>
+      mark === 'staccato' ? elem('staccato', {}) : mark === 'accent' ? elem('accent', {}) : elem('strong-accent', { type: 'up' }),
+    );
+    if (marks.length > 0) parts.push(elem('articulations', {}, marks));
   }
 
   // `<fermata type="upright"/>` is the hold above the note or rest (SIB2-183).

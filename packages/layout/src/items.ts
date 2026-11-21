@@ -1,4 +1,5 @@
 import type {
+  Articulation,
   AccidentalDisplay,
   Alter,
   Duration,
@@ -83,6 +84,8 @@ export interface NoteItem {
   flagged: boolean;
   /** A fermata above this note (SIB2-183). */
   fermata?: boolean;
+  /** Staccato, accent and marcato marks, in stacking order (SIB2-179). */
+  articulations?: Articulation[];
 }
 
 export interface RestItem {

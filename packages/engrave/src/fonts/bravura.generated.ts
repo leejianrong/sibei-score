@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Bravura 1.392: the metrics the engraver
- * anchors to, and the outlines of the 44 glyphs it draws.
+ * anchors to, and the outlines of the 50 glyphs it draws.
  * Bravura is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * bravura-1.392, outlines from the font's own SVG font.
  *
@@ -307,6 +307,60 @@ export const BRAVURA = {
       anchors: {},
       path:
         'M302 221c-206 0 -251 -153 -263 -194c-1 -4 -2 -8 -3 -9c-6 -14 -11 -21 -20 -21c-8 0 -13 3 -13 13c0 3 0 7 1 11c61 306 268 308 300 308c29 0 238 -2 300 -308c1 -4 1 -7 1 -10c0 -10 -5 -14 -14 -14c-10 0 -14 7 -21 21c-1 1 -1 4 -2 7c-10 38 -53 196 -266 196z M358 52c0 -30 -25 -55 -55 -55c-29 0 -54 25 -54 55c0 29 25 54 54 54c30 0 55 -25 55 -54z',
+    },
+    articStaccatoAbove: {
+      codepoint: 'U+E4A2',
+      advance: 0.336,
+      bBoxSW: [0, 0],
+      bBoxNE: [0.336, 0.336],
+      anchors: {},
+      path:
+        'M84 42c0 -23 -19 -42 -42 -42s-42 19 -42 42s19 42 42 42s42 -19 42 -42z',
+    },
+    articStaccatoBelow: {
+      codepoint: 'U+E4A3',
+      advance: 0.336,
+      bBoxSW: [0, -0.336],
+      bBoxNE: [0.336, 0],
+      anchors: {},
+      path:
+        'M84 -42c0 -23 -19 -42 -42 -42s-42 19 -42 42s19 42 42 42s42 -19 42 -42z',
+    },
+    articAccentAbove: {
+      codepoint: 'U+E4A0',
+      advance: 1.356,
+      bBoxSW: [0, 0.004],
+      bBoxNE: [1.356, 0.98],
+      anchors: {},
+      path:
+        'M326 105l-306 -103c-1 -1 -3 -1 -4 -1c-7 0 -11 8 -14 15c-1 3 -2 6 -2 9c0 5 3 10 14 15c0 0 214 73 225 76c6 2 8 4 8 7s-2 6 -7 7c-10 4 -226 77 -226 77c-11 4 -14 9 -14 14c0 3 1 6 2 10c3 8 6 14 15 14c1 0 5 -1 9 -2l300 -102c13 -4 13 -10 13 -18s0 -15 -13 -18z',
+    },
+    articAccentBelow: {
+      codepoint: 'U+E4A1',
+      advance: 1.356,
+      bBoxSW: [0, -0.976],
+      bBoxNE: [1.356, 0],
+      anchors: {},
+      path:
+        'M326 -140l-306 -103c-1 -1 -3 -1 -4 -1c-7 0 -11 8 -14 15c-1 3 -2 6 -2 9c0 5 3 10 14 15c0 0 214 73 225 76c6 2 8 4 8 7s-2 6 -7 7c-10 4 -226 77 -226 77c-11 4 -14 9 -14 14c0 3 1 6 2 10c3 8 6 14 15 14c1 0 5 -1 9 -2l300 -102c13 -4 13 -10 13 -18s0 -15 -13 -18 z',
+    },
+    articMarcatoAbove: {
+      codepoint: 'U+E4AC',
+      advance: 0.944,
+      bBoxSW: [-0.004, -0.004],
+      bBoxNE: [0.94, 1.012],
+      anchors: {},
+      path:
+        'M126 247l108 -231c1 -1 1 -3 1 -5c0 -6 -4 -10 -11 -11h-68c-4 0 -8 2 -11 6c0 0 -56 119 -57 123c-2 2 -4 3 -6 3s-3 -1 -4 -3c-2 -4 -56 -123 -56 -123c-2 -5 -7 -7 -11 -7c-1 0 -4 0 -5 1c-5 1 -7 6 -7 11c0 2 0 3 1 5l106 231s3 6 10 6c4 0 7 -2 10 -6z',
+    },
+    articMarcatoBelow: {
+      codepoint: 'U+E4AD',
+      advance: 0.944,
+      bBoxSW: [-0.004, -1.016],
+      bBoxNE: [0.94, 0],
+      anchors: {},
+      path:
+        'M108 -248l-108 231c-1 1 -1 3 -1 5c0 6 4 10 11 11h68c4 0 8 -2 11 -6c0 0 56 -119 57 -123c2 -2 4 -3 6 -3s3 1 4 3c2 4 56 123 56 123c2 5 7 7 11 7c1 0 4 0 5 -1c5 -1 7 -6 7 -11c0 -2 0 -3 -1 -5l-106 -231s-3 -6 -10 -6c-4 0 -7 2 -10 6z',
     },
     timeSig0: {
       codepoint: 'U+E080',
