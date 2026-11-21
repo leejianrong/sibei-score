@@ -119,6 +119,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]   bracket --over items from <address>: --notes in the time of --in
+  sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
   sbscore slur rm  <id> <slur-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
@@ -290,6 +292,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'tuplet':
+      return tuplet(flags, client, io, json);
     case 'slur':
       return slur(flags, client, io, json);
     case 'break':
@@ -1008,6 +1012,33 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
     return submit(flags, client, io, json, id, [{ type: 'ending.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
+}
+
+/**
+ * `sbscore tuplet set <id> bar3.beat2 --notes 3 --in 2 --over 3` and `tuplet rm <id> bar3.beat2`
+ * (SIB2-166). `--notes` written in the time of `--in` (a triplet is 3 in 2); `--in` defaults to the
+ * power of two just below `--notes`, so `--notes 3` is a triplet and `--notes 5` a quintuplet in 4.
+ * `--over` is how many items the bracket spans from the address, default `--notes`. The server re-lays
+ * the run and judges the ratio; `rm` takes any member's address.
+ */
+async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `tuplet ${sub}`);
+  const target = requiredPositional(flags, 3, 'an address', `tuplet ${sub}`);
+
+  if (sub === 'set') {
+    const actual = optionalNumber(flags, 'notes');
+    if (actual === undefined) throw new CliError(EXIT.usage, 'usage', 'tuplet set needs --notes, e.g. --notes 3');
+    const normal = optionalNumber(flags, 'in') ?? 2 ** Math.floor(Math.log2(Math.max(actual - 1, 1)));
+    const count = optionalNumber(flags, 'over') ?? actual;
+    return submit(flags, client, io, json, id, [
+      { type: 'tuplet.set', target, payload: { actual, normal, count } } as Operation,
+    ]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'tuplet.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'tuplet takes set or rm');
 }
 
 /**
