@@ -192,7 +192,7 @@ to put that name in.
 sbscore audio submit take.wav [--instrument piano]   # uploads, queues, prints the job id
 sbscore audio list                                   # your audio jobs, newest first
 sbscore audio show <id>                              # status, progress, the reason if it failed, or the draft and its warnings
-sbscore audio retry <id>                             # requeue a failed job
+sbscore audio retry <id>                             # requeue a failed job; refused (exit 2) if its audio was already deleted: upload again
 sbscore audio rm <id>                                # delete the job and its audio
 ```
 
