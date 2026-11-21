@@ -21,6 +21,7 @@ import type { JobBus } from '../events/job-bus.js';
 import { quotaApplier } from '../limits/quota.js';
 import type { Limits, LimitRefusal } from '../limits/limits.js';
 import { createHostedAuth } from '../auth/hosted.js';
+import { DEFAULT_MCP_KNOWN_HOSTS } from '../auth/oauth.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createOwnerEraser, isManaged } from '../account/erase.js';
 import { createExporter } from '../export/export.js';
@@ -129,6 +130,12 @@ export interface ApiOptions {
    * the affordance; NoteEvents and audio are unaffected. Default `true`: a local install is unchanged.
    */
   photoImport?: boolean;
+  /**
+   * Redirect hosts the MCP consent page treats as known clients (SIB2-207), told to the browser by hosted
+   * `GET /v1/me`. Default `DEFAULT_MCP_KNOWN_HOSTS`. The browser cannot be trusted to bring its own list: the
+   * consent link is built by whoever registered the client.
+   */
+  mcpKnownHosts?: readonly string[];
   /**
    * Which account owns which stored blob (V25), so account deletion and the sweep can find them. Defaults
    * to a process-lifetime in-memory ledger; `sbscore serve` supplies the SQLite or Postgres one beside the
@@ -609,7 +616,10 @@ export function createApi(options: ApiOptions): Api {
       const capabilities = options.photoImport === false ? { photoImport: false } : {};
       return hosted === undefined
         ? sendJson(response, 200, { mode: 'local', ...capabilities })
-        : await hosted.me(response, principal.owner, capabilities);
+        : await hosted.me(response, principal.owner, {
+            ...capabilities,
+            mcpKnownHosts: options.mcpKnownHosts ?? DEFAULT_MCP_KNOWN_HOSTS,
+          });
     }
 
     // A live-update stream is held open for as long as a tab is (KAN-602), so it is capped per user rather

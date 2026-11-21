@@ -10,13 +10,22 @@
    *
    * Material 3, tokens only (`m3.css`), in one typeface throughout.
    */
-  import { decideAuthorization } from '../lib/api.js';
+  import { decideAuthorization, getMe } from '../lib/api.js';
   import { consentFailure, describeRequest } from '../lib/consent.js';
   import { hashOf, LIBRARY } from '../lib/routing.js';
 
   let { params }: { params: Record<string, string> } = $props();
 
-  const view = $derived(describeRequest(params));
+  // The server's list of known client hosts. It comes from `GET /v1/me`, never from the link: the link is built
+  // by whoever registered the client. Until it arrives, or if it cannot be had, every host reads as unknown.
+  let knownHosts = $state<string[]>([]);
+  let listed = $state(false);
+  void getMe()
+    .then((me) => (knownHosts = me.mcpKnownHosts ?? []))
+    .catch(() => {})
+    .finally(() => (listed = true));
+
+  const view = $derived(describeRequest(params, knownHosts));
   let sending = $state(false);
   let failure = $state<string | null>(null);
 
@@ -44,11 +53,22 @@
         <button class="filled" type="button" onclick={() => (window.location.hash = hashOf(LIBRARY))}>Back to the library</button>
       </div>
     {:else}
-      <h1 id="consent-title">Connect {view.clientName}?</h1>
+      <h1 id="consent-title">Send access to <span class="origin">{view.origin}</span>?</h1>
       <p class="lede">
-        <strong>{view.clientName}</strong> is asking to use your sibei-score charts through MCP. Only approve an app
-        you just opened yourself.
+        An app that calls itself <strong>{view.clientName}</strong> (a name it chose; we cannot verify it) is asking to
+        use your sibei-score charts through MCP. After you approve, it receives access at that address. Only approve
+        an app you just opened yourself.
       </p>
+      {#if listed && !view.known}
+        <div class="banner warn" role="alert">
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" /></svg>
+          <div>
+            <strong>We do not recognise {view.destination}.</strong> Anyone can register an app under any name, and
+            this address is not one of the clients this server knows. Approve only if you started this from a tool you
+            trust, and you can tell where it sends you.
+          </div>
+        </div>
+      {/if}
 
       {#if failure !== null}
         <div class="banner bad" role="alert">
@@ -64,13 +84,13 @@
         </ul>
       </div>
       <p class="help">
-        After you choose, this page sends you to <code>{view.destination}</code>. Access lasts 90 days and you can
+        After you choose, this page sends you to <code>{view.destination}</code>. Access lasts 30 days and you can
         revoke it any time under API tokens.
       </p>
 
       <div class="actions">
         <button class="text" type="button" disabled={sending} onclick={() => decide(false)}>Deny</button>
-        <button class="filled" type="button" disabled={sending} onclick={() => decide(true)}>{sending ? 'Working' : 'Approve'}</button>
+        <button class="filled" type="button" disabled={sending || !listed} onclick={() => decide(true)}>{sending ? 'Working' : 'Approve'}</button>
       </div>
     {/if}
   </div>
@@ -193,6 +213,13 @@
   }
   .banner svg {
     flex: none;
+  }
+  .banner.warn {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .origin {
+    overflow-wrap: anywhere;
   }
   .banner.bad {
     background: var(--md-sys-color-error-container);

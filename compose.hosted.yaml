@@ -79,6 +79,9 @@ services:
       SBSCORE_QUOTA_IMPORT_PAGES_PER_DAY: ${SBSCORE_QUOTA_IMPORT_PAGES_PER_DAY:-}
       SBSCORE_QUOTA_IMPORT_MB_PER_DAY: ${SBSCORE_QUOTA_IMPORT_MB_PER_DAY:-}
       SBSCORE_QUOTA_MAX_STREAMS: ${SBSCORE_QUOTA_MAX_STREAMS:-}
+      # Redirect hosts the MCP consent page treats as known clients (comma-separated; `*.x.com` for subdomains).
+      # Empty means the built-in list (claude.ai and loopback); anything else gets a visible warning (SIB2-207).
+      SBSCORE_MCP_KNOWN_HOSTS: ${SBSCORE_MCP_KNOWN_HOSTS:-}
       # Test hook for the smoke test only (compose.hosted-smoke.yaml). Empty means GitHub itself.
       SBSCORE_GITHUB_BASE_URL: ${SBSCORE_GITHUB_BASE_URL:-}
     volumes:
