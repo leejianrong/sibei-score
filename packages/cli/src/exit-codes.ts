@@ -40,17 +40,15 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  * `tests/arch/exit-code-kinds.test.ts` now reads the server's kinds out of its own source and fails
  * for any that is neither mapped above 1 nor named here. Naming a kind here is the act of deciding.
  *
- * Several of these arguably deserve a better number (`no-such-import` is a not-found;
- * `job-not-retryable` is the same class as `no-source-to-reparse`). Moving one changes what a script
- * sees, which ADR-0008 forbids doing in passing, so they are recorded as they behave today.
+ * SIB2-114 moved three off this list: `no-such-import` and `no-such-import-image` are not-found (5) and
+ * `job-not-retryable` is validation (2), the class its audio sibling and `no-source-to-reparse` were
+ * already in. A deliberate ADR-0008 contract change: a script that branched on 1 for these could only
+ * be reading "something unanticipated", which is what 1 means; 5 and 2 say what happened.
  */
 export const USAGE_KINDS: readonly string[] = [
   'internal',
   'unreadable-document',
   'method-not-allowed',
-  'no-such-import',
-  'no-such-import-image',
-  'job-not-retryable',
   'worker-unavailable',
   // The audio worker's protocol (SIB2-138). A pulling worker, not a person or the CLI, meets these: it
   // branches on them (lease-lost means abandon, invalid-result means do not retry), so none needs an exit
@@ -108,6 +106,7 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'audio-too-large':
     case 'audio-not-uploaded':
     case 'audio-job-not-retryable':
+    case 'job-not-retryable': // an import job that is not failed (SIB2-114), the same class as the audio one
     // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
     case 'invalid-note-events':
     // The device flow (V21a). A code that is not eight letters and digits, a scope that does not exist, and
@@ -119,6 +118,8 @@ export function exitCodeForKind(kind: string): ExitCode {
       return EXIT.validation;
     case 'no-such-score':
     case 'no-such-audio-job':
+    case 'no-such-import': // SIB2-114: a job id the caller does not own is the same answer as one that is not there
+    case 'no-such-import-image':
     case 'no-such-route':
     case 'not-found': // an unrouted /v1/auth/ path (V20a), the same fact as `no-such-route`
     case 'no-such-token': // V21a: another user's token and a missing one are the same answer

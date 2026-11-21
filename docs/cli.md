@@ -114,7 +114,9 @@ reuses the retained images, V14e) and lands the result as a **new** draft, print
 original chart and any corrections on it are left untouched. `--engine` picks the recogniser —
 `heuristic` on a small host, `oemer` where the RAM is there — and without it the worker keeps its own
 default (host-appropriate). Like `import` it needs a server with a worker and waits for the job. A
-chart with no scan behind it (hand-authored or duplicated) has nothing to re-run and fails with exit 2.
+chart with no scan behind it (hand-authored or duplicated) has nothing to re-run and fails with exit 2. An
+import id the server does not know (or an image index past the end) is exit 5, and retrying an import job
+that has not failed is exit 2.
 
 ```sh
 sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -> a fresh draft id
@@ -292,6 +294,7 @@ A contract — branch on these rather than parsing prose:
 | `6` | no server reachable |
 | `7` | refused (a guard rejected it) |
 | `8` | already exists |
+| `9` | rate limited or over quota (back off and retry later) |
 
 ## Offline
 
