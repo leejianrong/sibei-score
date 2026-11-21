@@ -81,6 +81,7 @@
                 <span>Revoking stops it working immediately.</span>
               {:else}
                 <span>Created {formatDay(token.createdAt)}</span>
+                <span>{token.lastUsedAt === null ? 'Never used' : `Last used ${formatDay(token.lastUsedAt)}`}</span>
                 <span>Expires {formatDay(token.expiresAt)}</span>
               {/if}
             </div>
