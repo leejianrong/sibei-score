@@ -170,7 +170,7 @@ codec round trip of tuplets and ties.
 Each page was recreated, as far as the page allows, through `sbscore` against a local `serve` on a
 throwaway data directory, exported through the real PDF path (`export --font jazz`) and compared with the
 original by eye. Transcriptions stay outside the repository (ADR-0036); only features and card refs are
-recorded here. Cards are filed under SIB2-E12 (SIB2-160 to SIB2-192).
+recorded here. Cards are filed under SIB2-E12 (SIB2-160 to SIB2-193).
 
 | Page | What was recreated | Result |
 |---|---|---|
@@ -213,7 +213,7 @@ What got in the way, each a card:
 - `barline set <id> 2` fails; usage says `<bar>` but only `bar2` works (SIB2-189).
 - No raster or SVG export, so the agent cannot look at its result without an outside tool (SIB2-190).
 - A chord typo (`E07` for `Eo7`) only shows as a `!` flag in `show`; reading flags back is the only
-  signal, and there is no `sbscore check` that lists every flagged object at once.
+  signal, and there is no verb that lists every flagged object at once (SIB2-193).
 
 ### Ranking after the recreate pass
 
