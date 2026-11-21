@@ -1,0 +1,38 @@
+# The local smoke test for the hosted stack (V24): `bash scripts/smoke-hosted.sh`. An override of
+# compose.hosted.yaml, never used on a VM.
+#
+#     docker compose -f compose.hosted.yaml -f compose.hosted-smoke.yaml up -d --build --scale worker=0
+#
+# What it changes, and nothing else:
+#   - Caddy listens on loopback ports (HTTP_BIND/HTTP_PORT in the environment) and serves plain http
+#     (SITE_ADDRESS=http://), so there is no certificate to obtain and nothing to reach the internet for.
+#   - A fake GitHub runs as a service, built from the API image, and the API's GitHub endpoints point at it.
+#     It is also published to loopback so the smoke driver can follow the browser's redirect to it.
+#   - The OMR worker is not started (`--scale worker=0`): its image bakes ML weights and takes minutes to build,
+#     and nothing in the smoke path imports.
+services:
+  api:
+    environment:
+      SBSCORE_GITHUB_BASE_URL: http://fake-github:9000
+    depends_on:
+      fake-github:
+        condition: service_started
+  fake-github:
+    build: .
+    image: ${API_IMAGE:-sibei-score-api:local}
+    command: ["pnpm", "exec", "tsx", "scripts/fake-github.ts"]
+    environment:
+      SBSCORE_GITHUB_CLIENT_ID: ${SBSCORE_GITHUB_CLIENT_ID}
+      SBSCORE_GITHUB_CLIENT_SECRET: ${SBSCORE_GITHUB_CLIENT_SECRET}
+      FAKE_GITHUB_LOGIN: ${FAKE_GITHUB_LOGIN:-smoketest}
+      # Inside its container it must listen on the bridge for the API (and the loopback publish) to reach it.
+      FAKE_GITHUB_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:${FAKE_GITHUB_PORT:-19000}:9000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9000/user').then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - edge

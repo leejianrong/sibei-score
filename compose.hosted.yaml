@@ -1,0 +1,154 @@
+# The hosted deployment (V24, ADR-0034): Caddy, the API, the OMR worker, Postgres and Redis on one VM.
+#
+#     cp deploy/hosted.env.example .env      # then fill it in; see docs/deploy-hosted.md
+#     docker compose -f compose.hosted.yaml up -d --build
+#
+# **Only Caddy publishes ports.** The API, Postgres, Redis and the worker have no `ports:` at all, so the
+# only way to reach the API is through Caddy (TLS, body cap, forwarded address). Two networks make that
+# structural rather than a firewall rule:
+#
+#   edge     Caddy and the API. Has outbound access (the API calls GitHub to sign people in).
+#   backend  the API, Postgres, Redis and the worker. `internal: true`: no route to the internet at all, so
+#            a compromised database or worker container has no way out and nothing on the internet has a
+#            way in. The worker needs none: its weights are baked into the image (ADR-0024).
+#
+# This is not the local compose file (`compose.yaml`: SQLite, loopback only, no auth). Nothing here changes
+# what `docker compose up` does with that one.
+#
+# Required variables (compose refuses to start without them, by name): see `deploy/hosted.env.example`.
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    # The one place a port is published. HTTP_BIND is 0.0.0.0 on a VM and 127.0.0.1 for the local smoke
+    # test; 80 is needed for the ACME challenge and the http-to-https redirect.
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS to your domain, e.g. sibei.example.com}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.invalid}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates and the ACME account. Losing this volume means re-issuing, which is rate-limited.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - edge
+
+  api:
+    build: .
+    image: ${API_IMAGE:-sibei-score-api:local}
+    restart: unless-stopped
+    # No `ports:`. Caddy reaches it as `api:8080` on `edge`.
+    environment:
+      SBSCORE_PUBLIC_URL: ${SBSCORE_PUBLIC_URL:?set SBSCORE_PUBLIC_URL, e.g. https://sibei.example.com}
+      SBSCORE_GITHUB_CLIENT_ID: ${SBSCORE_GITHUB_CLIENT_ID:?set SBSCORE_GITHUB_CLIENT_ID}
+      # Environment only, never a flag: a flag lands in `ps`.
+      SBSCORE_GITHUB_CLIENT_SECRET: ${SBSCORE_GITHUB_CLIENT_SECRET:?set SBSCORE_GITHUB_CLIENT_SECRET}
+      # The audio worker's bearer tokens, comma-separated (ADR-0034 audio worker protocol). The API keeps only
+      # their SHA-256. Unused until the audio endpoints are deployed; set it now so the secret is in place.
+      SBSCORE_WORKER_TOKENS: ${SBSCORE_WORKER_TOKENS:-}
+      # The application role, not the superuser: row-level security does not bind a superuser, and the
+      # API refuses to start as one (ADR-0034 decision 2).
+      SBSCORE_DATABASE_URL: postgres://sibei_app:${SIBEI_APP_PASSWORD:?set SIBEI_APP_PASSWORD}@postgres:5432/sibei
+      SBSCORE_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+      SBSCORE_WORKER_URL: http://worker:8000
+      # Caddy fronts the API, so the client address for rate limiting is the one Caddy appended.
+      SBSCORE_TRUST_PROXY: "1"
+      SBSCORE_BLOBS: /data/blobs
+      SBSCORE_HOST: 0.0.0.0
+      # Everything below is optional; the defaults are in packages/api/src/limits/limits.ts.
+      SBSCORE_LIMIT_IP_PER_MIN: ${SBSCORE_LIMIT_IP_PER_MIN:-}
+      SBSCORE_LIMIT_AUTH_IP_PER_MIN: ${SBSCORE_LIMIT_AUTH_IP_PER_MIN:-}
+      SBSCORE_LIMIT_USER_READ_PER_MIN: ${SBSCORE_LIMIT_USER_READ_PER_MIN:-}
+      SBSCORE_LIMIT_USER_WRITE_PER_MIN: ${SBSCORE_LIMIT_USER_WRITE_PER_MIN:-}
+      SBSCORE_LIMIT_USER_EXPORT_PER_MIN: ${SBSCORE_LIMIT_USER_EXPORT_PER_MIN:-}
+      SBSCORE_LIMIT_USER_IMPORT_PER_HOUR: ${SBSCORE_LIMIT_USER_IMPORT_PER_HOUR:-}
+      SBSCORE_QUOTA_MAX_SCORES: ${SBSCORE_QUOTA_MAX_SCORES:-}
+      SBSCORE_QUOTA_IMPORT_PAGES_PER_DAY: ${SBSCORE_QUOTA_IMPORT_PAGES_PER_DAY:-}
+      SBSCORE_QUOTA_IMPORT_MB_PER_DAY: ${SBSCORE_QUOTA_IMPORT_MB_PER_DAY:-}
+      SBSCORE_QUOTA_MAX_STREAMS: ${SBSCORE_QUOTA_MAX_STREAMS:-}
+      # Test hook for the smoke test only (compose.hosted-smoke.yaml). Empty means GitHub itself.
+      SBSCORE_GITHUB_BASE_URL: ${SBSCORE_GITHUB_BASE_URL:-}
+    volumes:
+      # Import scans and the export cache (ADR-0034 decision 6: a volume at first). Postgres holds the rest.
+      # Mounted at /data, not /data/blobs: a new named volume copies the ownership of the image's /data (the
+      # `node` user's), where a mount one level down would be created root-owned and unwritable.
+      - api-blobs:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # The image's own HEALTHCHECK probes /v1/health. The schema migrates when the API opens the database,
+    # so a healthy API is a migrated one.
+    networks:
+      - edge
+      - backend
+
+  # The OMR worker (ADR-0034 decision 10): the bespoke engine, ~300 MB, CPU. Always on, private.
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SIBEI_OMR_ENGINE: ${SIBEI_OMR_ENGINE:-bespoke}
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      # The superuser. Used by the init script to create the application role and by backups; never by the API.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      SIBEI_APP_PASSWORD: ${SIBEI_APP_PASSWORD:?set SIBEI_APP_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty data directory: creates the `sibei_app` role and the `sibei` database it owns.
+      - ./deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Over TCP (-h), not the unix socket: during first-time init Postgres runs a temporary server that listens
+      # on the socket only, and a socket check would call it healthy before the role and database exist.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d sibei"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Pub/sub and counters only; nothing here is the source of truth, so persistence is best effort.
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--appendfsync", "everysec"]
+    environment:
+      # Read by redis-cli in the healthcheck, so the password is not on its command line.
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
+volumes:
+  caddy-data:
+  caddy-config:
+  api-blobs:
+  pgdata:
+  redisdata:
+
+networks:
+  edge:
+  backend:
+    internal: true
