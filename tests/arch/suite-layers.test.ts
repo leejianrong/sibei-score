@@ -42,7 +42,7 @@ function directoriesOf(project: { include: string[] }): string[] {
 describe('the suite layers', () => {
   it('are the three the config declares', () => {
     // `postgres` (V19) is declared always but matches no file without `SBSCORE_TEST_DATABASE_URL`.
-    expect(configuredProjects().map((project) => project.name)).toEqual(['fast', 'infra', 'postgres']);
+    expect(configuredProjects().map((project) => project.name)).toEqual(['fast', 'infra', 'postgres', 'redis', 's3']);
   });
 
   it('cover every test directory, so none can go silently unrun', () => {
