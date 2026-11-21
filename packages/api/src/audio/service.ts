@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { QuotaError } from '../limits/errors.js';
+import { audioCapFor } from './quota.js';
+import type { AudioQuotaConfig } from './quota.js';
 import { isPresigning } from '../blob/blob-store.js';
 import type { ManagedBlobStore } from '../blob/blob-store.js';
 import type { AudioJob, AudioJobId, AudioJobReader, AudioJobStore } from '../store/audio-jobs.js';
@@ -100,6 +103,8 @@ export interface AudioUsage {
   periodEnd: string;
   /** Audio-seconds transcribed in the period. */
   seconds: number;
+  /** This user's allowance for the period in audio-seconds, or `null` when they have none (SIB2-140). */
+  capSeconds: number | null;
   /** How many jobs that was. */
   jobs: number;
 }
@@ -121,6 +126,8 @@ export interface AudioServiceOptions {
    */
   ledger?: BlobLedger;
   limits?: Partial<AudioLimits>;
+  /** The audio-second allowance (SIB2-140). Absent means no cap. */
+  quota?: AudioQuotaConfig;
   /** How long a presigned upload URL lives, seconds. */
   uploadUrlTtlSeconds?: number;
   /** Called after a job becomes `queued` or is requeued, so a future in-process dispatcher can wake. */
@@ -145,6 +152,33 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       headers: { 'Content-Type': job.contentType },
       viaApi: true,
     };
+  }
+
+  /**
+   * Refuse a new job when the period's allowance is used up (SIB2-140). What counts is the ledger (finished
+   * work) plus the declared length of jobs still in flight, so a burst of uploads cannot overshoot the cap
+   * before any of them has finished. A job with no declared length reserves nothing; the ledger catches it
+   * when it completes, and the *next* job is the one refused. The refusal says how much, until when, and
+   * what to do about it.
+   */
+  async function enforceAllowance(owner: Owner): Promise<void> {
+    const cap = options.quota === undefined ? null : audioCapFor(options.quota, owner);
+    if (cap === null) return;
+    const period = usagePeriod(now());
+    const [used, listed] = await Promise.all([jobs.usageSince(owner, period.start), jobs.list(owner)]);
+    const reserved = listed
+      .filter((job) => job.status === 'awaiting-upload' || job.status === 'queued' || job.status === 'running')
+      .reduce((sum, job) => sum + (job.declaredDurationSeconds ?? 0), 0);
+    if (used.seconds + reserved < cap) return;
+    const minutes = (seconds: number) => `${Math.round((seconds / 60) * 10) / 10} minutes`;
+    throw new QuotaError(
+      'audio-seconds',
+      cap,
+      `You have used your ${minutes(cap)} of audio transcription for this period` +
+        (reserved > 0 ? ` (${minutes(used.seconds)} done, ${minutes(reserved)} still waiting in your queue)` : '') +
+        `. It renews on ${period.end.slice(0, 10)}. Until then you can delete jobs you no longer need, or ask the operator for a higher allowance.`,
+      Math.max(1, Math.ceil((Date.parse(period.end) - now().getTime()) / 1000)),
+    );
   }
 
   return {
@@ -183,6 +217,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       if (duration !== undefined && duration !== null && (typeof duration !== 'number' || !(duration > 0) || !Number.isFinite(duration))) {
         return { ok: false, kind: 'validation', message: 'durationSeconds must be a positive number' };
       }
+      await enforceAllowance(owner);
       const job = await jobs.create(owner, {
         audioKey: `audio:${randomUUID()}`,
         contentType,
@@ -235,7 +270,8 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
     async usage(owner) {
       const period = usagePeriod(now());
       const used = await jobs.usageSince(owner, period.start);
-      return { periodStart: period.start, periodEnd: period.end, seconds: used.seconds, jobs: used.jobs };
+      const cap = options.quota === undefined ? null : audioCapFor(options.quota, owner);
+      return { periodStart: period.start, periodEnd: period.end, seconds: used.seconds, capSeconds: cap, jobs: used.jobs };
     },
 
     async remove(owner, id) {

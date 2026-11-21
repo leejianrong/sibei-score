@@ -3,6 +3,7 @@ import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { ManagedBlobStore } from '../blob/blob-store.js';
 import { createAudioService } from '../audio/service.js';
+import type { AudioQuotaConfig } from '../audio/quota.js';
 import { createAudioWorkerService } from '../audio/worker-service.js';
 import type { AudioResultImporter, AudioWorkerOptions } from '../audio/worker-service.js';
 import { workerRoute } from './worker-routes.js';
@@ -88,6 +89,11 @@ export interface ApiOptions {
    * A port, left empty until that service exists on main; without it a job succeeds with its result stored.
    */
   audioImporter?: AudioResultImporter;
+  /**
+   * The audio-second allowance (SIB2-140): a free-tier cap per period and per-user overrides, as
+   * configuration. Absent means no cap. Refuses the next job with `403 quota-exceeded`, naming the limit.
+   */
+  audioQuota?: AudioQuotaConfig;
   /** Upload limits for audio; the defaults are `DEFAULT_AUDIO_LIMITS`. Configuration, not code. */
   audioLimits?: Partial<AudioLimits>;
   /** How long a presigned audio upload URL lives, seconds (default 900). */
@@ -369,6 +375,7 @@ export function createApi(options: ApiOptions): Api {
     blobs,
     ledger,
     ...(options.audioWorker?.now === undefined ? {} : { now: options.audioWorker.now }),
+    ...(options.audioQuota === undefined ? {} : { quota: options.audioQuota }),
     ...(options.audioLimits === undefined ? {} : { limits: options.audioLimits }),
     ...(options.audioUploadTtlSeconds === undefined ? {} : { uploadUrlTtlSeconds: options.audioUploadTtlSeconds }),
   });

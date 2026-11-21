@@ -646,7 +646,8 @@ async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: s
       io.out(
         json
           ? JSON.stringify({ usage })
-          : `${Math.round(usage.seconds * 10) / 10} audio seconds in ${usage.jobs} ${usage.jobs === 1 ? 'job' : 'jobs'} this month (${usage.periodStart.slice(0, 10)} to ${usage.periodEnd.slice(0, 10)})`,
+          : `${Math.round(usage.seconds * 10) / 10} audio seconds in ${usage.jobs} ${usage.jobs === 1 ? 'job' : 'jobs'} this month (${usage.periodStart.slice(0, 10)} to ${usage.periodEnd.slice(0, 10)})` +
+            (usage.capSeconds === null ? '' : `, of ${usage.capSeconds} allowed`),
       );
       return EXIT.ok;
     }

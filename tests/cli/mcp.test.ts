@@ -17,7 +17,9 @@ let h: Hosted;
 const savedToken = process.env.SBSCORE_TOKEN;
 
 beforeEach(async () => {
-  h = await startHosted();
+  // A pinned score-store clock: `updatedAt` is second-granular and is also embedded in the tool results' text,
+  // so two runs straddling a tick would differ. Pinning it keeps the full-equality assertion honest.
+  h = await startHosted({ now: () => new Date('2026-01-01T00:00:00Z') });
 });
 afterEach(async () => {
   await h.close();
@@ -44,10 +46,6 @@ const script: { method: string; params?: unknown }[] = [
   { method: 'tools/call', params: { name: 'list_scores' } },
 ];
 
-/** What differs by nature, not by transport: the clock and the identity of the owner. */
-function normalise(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value), (key, v) => (key === 'updatedAt' ? '<time>' : v));
-}
 
 async function overHttp(token: string): Promise<unknown[]> {
   const results: unknown[] = [];
@@ -76,7 +74,7 @@ async function overStdio(token: string, lines: string[] = script.map((s, i) => J
 }
 
 describe('sbscore mcp', () => {
-  it('gives the same tool results as /mcp, byte for byte once the clock is set aside', async () => {
+  it('gives the same tool results as /mcp, byte for byte', async () => {
     const viaMcp = await h.signIn('alice');
     const mcpToken = await h.mintToken(viaMcp.userId, ['mcp:read', 'mcp:write']);
     const viaCli = await h.signIn('bob');
@@ -89,7 +87,7 @@ describe('sbscore mcp', () => {
     expect(stdio.err).toEqual([]);
     const lines = stdio.out.map((line) => JSON.parse(line) as { id: number; result: unknown });
     expect(lines.map((l) => l.id)).toEqual(script.map((_, i) => i + 1));
-    expect(normalise(lines.map((l) => l.result))).toEqual(normalise(http));
+    expect(lines.map((l) => l.result)).toEqual(http);
 
     // Spot-check that the comparison is not comparing two empty things.
     const results = lines.map((l) => l.result) as any[];
