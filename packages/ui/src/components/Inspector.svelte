@@ -351,13 +351,13 @@
           <div class="slur-row">
             <input
               class="grace-pitch"
-              aria-label="Grace note pitch"
+              aria-label="Grace note name"
               placeholder="D5"
               value={gracePitch}
               oninput={(event) => (gracePitch = (event.currentTarget as HTMLInputElement).value)}
             />
             <select
-              aria-label="Grace note value"
+              aria-label="Grace note length"
               value={graceValue}
               onchange={(event) => (graceValue = Number((event.currentTarget as HTMLSelectElement).value) as 8 | 16 | 32)}
             >
