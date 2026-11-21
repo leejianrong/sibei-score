@@ -90,7 +90,13 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
     ...bar,
     items: bar.items.map((item) =>
       item.kind === 'note'
-        ? { ...item, pitch: transposePitch(item.pitch, interval, key, item.spellingPinned) }
+        ? {
+            ...item,
+            pitch: transposePitch(item.pitch, interval, key, item.spellingPinned),
+            ...(item.graces === undefined
+              ? {}
+              : { graces: item.graces.map((grace) => ({ ...grace, pitch: transposePitch(grace.pitch, interval, key, false) })) }),
+          }
         : item,
     ),
     chords: bar.chords.map((chord) => ({

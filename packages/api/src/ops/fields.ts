@@ -45,6 +45,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'slur.rm': [],
   'ottava.set': ['to', 'shift', 'id'],
   'ottava.rm': [],
+  'grace.add': ['pitch', 'value', 'slashed', 'accidental', 'id'],
+  'grace.rm': [],
   'bar.add': ['count', 'ids'],
   'bar.rm': [],
 };

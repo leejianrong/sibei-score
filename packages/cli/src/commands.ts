@@ -126,6 +126,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore ending rm  <id> <bar>
   sbscore fermata set <id> <address>      a fermata over a note or rest
   sbscore fermata rm  <id> <address>
+  sbscore grace add <id> <address> --pitch D5 [--dur 8|16|32] [--slash] [--accidental auto|show|hide|paren]
+              a grace note before the note at <address> (--slash: an acciaccatura); it takes no bar time
+  sbscore grace rm  <id> <grace-id|address>   one grace by its id (show prints it), or all on a note
   sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]   bracket --over items from <address>: --notes in the time of --in
   sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
@@ -307,6 +310,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return repeat(flags, client, io, json);
     case 'fermata':
       return fermata(flags, client, io, json);
+    case 'grace':
+      return grace(flags, client, io, json);
     case 'tuplet':
       return tuplet(flags, client, io, json);
     case 'slur':
@@ -1162,6 +1167,28 @@ async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Pro
     return submit(flags, client, io, json, id, [{ type: `fermata.${sub}`, target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'fermata takes set or rm');
+}
+
+/**
+ * `sbscore grace add|rm` (SIB2-185): grace notes before a note. `add` takes the principal note's address and a
+ * `--pitch`; `--dur` is the flag value (8, 16 or 32; the server judges it) and `--slash` makes it an acciaccatura.
+ * `rm` takes a grace id, or a note address to clear every grace on it.
+ */
+async function grace(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `grace ${sub}`);
+  const target = requiredPositional(flags, 3, sub === 'rm' ? 'a grace id or note address' : 'a note address', `grace ${sub}`);
+  if (sub === 'add') {
+    const payload: Record<string, unknown> = { pitch: required(flags, 'pitch', 'grace add'), ...accidentalOf(flags) };
+    const dur = flags.options.get('dur');
+    if (dur !== undefined) payload.value = Number(dur);
+    if (flags.switches.has('slash')) payload.slashed = true;
+    return submit(flags, client, io, json, id, [{ type: 'grace.add', target, payload } as unknown as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'grace.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'grace takes add or rm');
 }
 
 /**

@@ -175,6 +175,8 @@ sbscore text set <id> <address> --text "(unis.)" [--until bar8]   # a text direc
 sbscore text rm  <id> <address|annotation-id>
 sbscore fermata set <id> <address>                               # a fermata over a note or rest
 sbscore fermata rm  <id> <address>
+sbscore grace add <id> <address> --pitch D5 [--dur 8|16|32] [--slash]   # a grace note before a note
+sbscore grace rm  <id> <grace-id|address>                        # one grace by id, or all on a note
 sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from one note to a later one
 sbscore slur rm  <id> <slur-id|from>
 sbscore ottava set <id> <from> <to> --up|--down                  # an 8va (--up) or 8vb (--down) line over a run
@@ -205,6 +207,18 @@ off (refused where there is none). It draws above the staff and above the note's
 head, and the chord band rises to clear it. `show` marks it `^` after the duration (`c5/4^`, `r/4^`), and
 MusicXML carries `<fermata type="upright"/>` and reads it back. In the browser, select a note or rest and tick
 Fermata. It has no playback length. Charts written before fermatas need no migration.
+
+**Grace notes** are small notes played just before a principal note: `sbscore grace add <id> bar4.n2 --pitch D5
+--dur 16 --slash` (`--slash` makes it an acciaccatura, the stem struck through; without it an appoggiatura;
+`--dur` is 8, 16 or 32 and only sets flags and beams; up to 8 per note). Adding another to the same note
+appends it, so they read in the order added; two or more share one beam. A grace belongs to its note: it is
+not a bar item, takes no time and never touches the bar's metric validity, and it follows the note through
+`note set`, transpose and parts, and goes with it on `note rm`. `show` prints a `grace` line under the bar
+(`bar2   grace  n3: d5/8s grace-1`), and `grace rm` takes that id, or a note's address to clear all its graces.
+A grace's accidental follows the key and any earlier grace in its group, not the rest of the bar. MusicXML
+carries `<grace slash="yes"/>` notes with no duration before the principal, read back too (a grace before a rest
+or with no note after it is dropped with a warning). In the browser, select a note: the inspector has a Grace
+notes section. Charts written before grace notes need no migration (an optional field, absent when none).
 
 **Articulations** are staccato, accent and marcato on a note: `--artic staccato,accent` on `note add` or `note
 set` (the list replaces the note's marks; `--artic none` clears them; omitting it leaves them alone). They draw

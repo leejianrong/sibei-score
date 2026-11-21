@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, articulationsChart, everyGlyphChart, longFormChart, nastyChart, marksChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, articulationsChart, everyGlyphChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -71,6 +71,12 @@ describe('rendered SVG', () => {
     // SIB2-183: fermatas over a low note, a high one, a rest and a whole note, with the chord band
     // lifted to clear them. Articulations (SIB2-179) join this fixture.
     snapshotScore(marksChart(), 'marks');
+  });
+
+  it('matches the committed snapshot for the grace-notes chart', () => {
+    // SIB2-185: slashed and unslashed single graces, accidentals, a beamed group of three, and graces on
+    // ledger-line notes, each in the room spacing left before its principal note.
+    snapshotScore(graceNotesChart(), 'grace-notes');
   });
 
   it('matches the committed snapshot for the articulations chart', () => {

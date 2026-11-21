@@ -47,3 +47,22 @@ export function resolveBarAccidentals(bar: Bar, key: KeySignature): Map<string, 
   }
   return result;
 }
+
+/**
+ * Accidentals for one note's grace notes, in order (SIB2-185). A grace draws an accidental where it departs from the
+ * key signature or from an earlier grace on the same line or space of the same group. It does not read the bar's
+ * state and does not change it: the principal note resolves its own accidental as if the graces were not there, so
+ * a grace sharp before a sharp principal draws both, which is the safe reading.
+ */
+export function graceAccidentals(note: Note, key: KeySignature): (Alter | null)[] {
+  const fromKey = keySignatureAccidentals(key);
+  const seen = new Map<string, Alter>();
+  return (note.graces ?? []).map((grace) => {
+    const at = `${grace.pitch.step}${grace.pitch.octave}`;
+    const established = seen.get(at) ?? fromKey.get(grace.pitch.step) ?? 0;
+    seen.set(at, grace.pitch.alter);
+    if (grace.accidental === 'hide') return null;
+    if (grace.accidental === 'show' || grace.accidental === 'parens') return grace.pitch.alter;
+    return grace.pitch.alter === established ? null : grace.pitch.alter;
+  });
+}

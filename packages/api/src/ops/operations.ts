@@ -3,6 +3,7 @@ import type {
   Articulation,
   Duration,
   EndBarline,
+  GraceValue,
   EndingRole,
   Id,
   KeySignature,
@@ -269,6 +270,27 @@ export type OttavaRmPayload = Record<string, never>;
 export type FermataSetPayload = Record<string, never>;
 export type FermataRmPayload = Record<string, never>;
 
+/**
+ * A grace note before the target note (SIB2-185). The target is the principal note it belongs to (`bar2.n3`,
+ * `note-7`); the new grace is appended after any it already has, so graces read in the order they were added. It
+ * takes no time: it is not a bar item and never reaches the bar's metric validity (ADR-0013). `slashed` is an
+ * acciaccatura, unslashed an appoggiatura; `value` (8, 16 or 32) sets its flags and beams.
+ */
+export interface GraceAddPayload {
+  pitch: string | { step: string; alter: number; octave: number };
+  value?: GraceValue;
+  slashed?: boolean;
+  accidental?: AccidentalDisplay;
+  /** *Recorded.* The id the applier assigned. */
+  id?: Id;
+}
+
+/**
+ * Remove grace notes: the target is one grace's id (`grace-2`, which `show` prints) or a note's address, which
+ * clears every grace on that note. A target with none is refused so a typo does not read as success.
+ */
+export type GraceRmPayload = Record<string, never>;
+
 /** A line-break override on a bar (SIB2-174). `after` is the default: end the line after this bar. */
 export interface BreakSetPayload {
   kind?: 'after' | 'join';
@@ -348,6 +370,8 @@ export type Operation =
   | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
   | { type: 'ottava.set'; target: string; payload: OttavaSetPayload }
   | { type: 'ottava.rm'; target: string; payload?: OttavaRmPayload }
+  | { type: 'grace.add'; target: string; payload: GraceAddPayload }
+  | { type: 'grace.rm'; target: string; payload?: GraceRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
   | { type: 'bar.rm'; target: string };
 
@@ -381,6 +405,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'slur.rm',
   'ottava.set',
   'ottava.rm',
+  'grace.add',
+  'grace.rm',
   'bar.add',
   'bar.rm',
 ];

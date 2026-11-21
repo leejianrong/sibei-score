@@ -1,4 +1,4 @@
-import type { Bar, BarMetrics, ChordStylePreset, Id, KeySignature, Score, TimeSignature } from '@sibei/model';
+import type { Bar, BarMetrics, ChordStylePreset, Id, KeySignature, Note, Score, TimeSignature } from '@sibei/model';
 import {
   TICKS_PER_QUARTER,
   barMetrics,
@@ -8,11 +8,11 @@ import {
   sectionStartingAt,
   tupletOf,
 } from '@sibei/model';
-import { resolveBarAccidentals } from './accidentals.js';
+import { graceAccidentals, resolveBarAccidentals } from './accidentals.js';
 import { planSystems } from './grid.js';
 import { buildFurniture, footerReserve } from './furniture.js';
 import type { LayoutFurniture } from './furniture.js';
-import type { LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
+import type { GraceItem, LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
 import { ottavaShifts, planOttavas } from './ottava.js';
 import type { PageSpec, PageSpecInput } from './page.js';
 import { resolvePageSpec } from './page.js';
@@ -414,6 +414,9 @@ function buildBarItems(
         flagged: item.review.flagged,
         ...(item.fermata === true ? { fermata: true } : {}),
         ...(item.articulations === undefined ? {} : { articulations: item.articulations }),
+        ...(item.graces === undefined || item.graces.length === 0
+          ? {}
+          : { graces: graceItems(item, score.meta.key) }),
       });
     } else {
       items.push({
@@ -479,6 +482,18 @@ function buildBarItems(
   items.push({ kind: 'endBarline', position: 'end', barline: bar.endBarline });
 
   return items;
+}
+
+function graceItems(note: Note, key: KeySignature): GraceItem[] {
+  const glyphs = graceAccidentals(note, key);
+  return (note.graces ?? []).map((grace, index) => ({
+    graceId: grace.id,
+    pitch: grace.pitch,
+    value: grace.value,
+    slashed: grace.slashed,
+    accidental: grace.accidental,
+    accidentalGlyph: glyphs[index] ?? null,
+  }));
 }
 
 /** The onset at or before this one, which is what a chord symbol sits above. */
