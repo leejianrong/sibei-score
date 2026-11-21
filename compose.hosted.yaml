@@ -18,7 +18,7 @@
 # Required variables (compose refuses to start without them, by name): see `deploy/hosted.env.example`.
 services:
   caddy:
-    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     restart: unless-stopped
     # The one place a port is published. HTTP_BIND is 0.0.0.0 on a VM and 127.0.0.1 for the local smoke
     # test; 80 is needed for the ACME challenge and the http-to-https redirect.
