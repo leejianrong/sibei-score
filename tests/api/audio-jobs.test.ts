@@ -12,14 +12,16 @@ import { openSqliteStore } from '@sibei/api/sqlite';
 let api: Api;
 let base: string;
 let blobs: ReturnType<typeof memoryBlobStore>;
+let audioJobs: ReturnType<typeof memoryAudioJobStore>;
 const store = () => openSqliteStore({ filename: ':memory:' });
 
 beforeEach(async () => {
   blobs = memoryBlobStore();
+  audioJobs = memoryAudioJobStore();
   api = createApi({
     store: store(),
     blobs,
-    audioJobs: memoryAudioJobStore(),
+    audioJobs,
     audioLimits: { maxBytes: 1000 },
     logger: silentLogger,
   });
@@ -93,6 +95,32 @@ describe('audio jobs without a worker', () => {
     expect(retry.status).toBe(409);
     expect(retry.body!.error.kind).toBe('audio-job-not-retryable');
     expect((await call('POST', '/v1/audio/jobs/nope/retry')).status).toBe(404);
+  });
+
+  it('refuses Retry once the audio is deleted, and allows it while the audio is still held (SIB2-200)', async () => {
+    const failHard = async () => {
+      const created = await declare();
+      const id = created.body!.job.id as string;
+      await call('PUT', created.body!.upload.url, undefined, Buffer.alloc(8, 1));
+      await call('POST', `/v1/audio/jobs/${id}/uploaded`);
+      const claimed = await audioJobs.claim(60);
+      await audioJobs.fail(id, claimed!.leaseToken!, { kind: 'engine-error', message: 'boom', retryable: false, maxAttempts: 3 });
+      return id;
+    };
+    // Audio gone: refused, non-retryable, says to upload again.
+    const gone = await failHard();
+    const key = (await audioJobs.get('local', gone))!.audioKey;
+    await blobs.delete(key);
+    const refused = await call('POST', `/v1/audio/jobs/${gone}/retry`);
+    expect(refused.status).toBe(409);
+    expect(refused.body!.error.kind).toBe('audio-gone');
+    expect(refused.body!.error.message).toMatch(/upload the recording again/);
+    expect((await call('GET', `/v1/audio/jobs/${gone}`)).body!.job.status).toBe('failed');
+    // Audio held (nothing deleted it): Retry requeues.
+    const held = await failHard();
+    const ok = await call('POST', `/v1/audio/jobs/${held}/retry`);
+    expect(ok.status).toBe(200);
+    expect(ok.body!.job.status).toBe('queued');
   });
 
   it('deletes a job and its audio, and answers 404 for one that is not there', async () => {

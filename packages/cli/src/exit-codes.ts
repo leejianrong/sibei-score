@@ -106,6 +106,7 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'audio-too-large':
     case 'audio-not-uploaded':
     case 'audio-job-not-retryable':
+    case 'audio-gone': // retry refused, the audio is deleted: re-upload (SIB2-200); validation like its sibling
     case 'job-not-retryable': // an import job that is not failed (SIB2-114), the same class as the audio one
     // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
     case 'invalid-note-events':

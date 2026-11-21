@@ -87,8 +87,12 @@ export interface AudioService {
   receive(owner: Owner, id: AudioJobId, bytes: Buffer): Promise<AudioJob | null>;
   /** The client says it has uploaded: check the store, then queue the job. */
   confirm(owner: Owner, id: AudioJobId): Promise<ConfirmAudioResult>;
-  /** Requeue a failed job (Q80); `null` if missing, not this owner's, or not failed. */
-  retry(owner: Owner, id: AudioJobId): Promise<AudioJob | null>;
+  /**
+   * Requeue a failed job (Q80); `null` if missing, not this owner's, or not failed. `audio-gone` when the
+   * audio object was already deleted (decision 16: it goes when a job ends) — a worker would claim the job
+   * and fail on missing audio, so the person has to upload again.
+   */
+  retry(owner: Owner, id: AudioJobId): Promise<AudioJob | null | { kind: 'audio-gone'; message: string }>;
   /** What this owner has had transcribed this period (a calendar month, UTC), from the ledger. */
   usage(owner: Owner): Promise<AudioUsage>;
   /** Remove a job and its audio. `false` if it is missing or not this owner's. */
@@ -255,6 +259,10 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
     },
 
     async retry(owner, id) {
+      const existing = await jobs.get(owner, id);
+      if (existing !== null && existing.status === 'failed' && (await blobs.stat(existing.audioKey)) === null) {
+        return { kind: 'audio-gone', message: 'the audio for this job was deleted when it failed; upload the recording again' };
+      }
       const job = await jobs.retry(owner, id);
       if (job !== null) options.onQueued?.();
       return job;
