@@ -211,7 +211,7 @@ What got in the way, each a card:
 - `batch --ops` takes only inline JSON; 88 operations were a 10 KB argument (SIB2-187).
 - An unknown payload field (`tuplet` on `note.add`) is accepted and ignored (SIB2-188).
 - `barline set <id> 2` fails; usage says `<bar>` but only `bar2` works (SIB2-189).
-- No raster or SVG export, so the agent cannot look at its result without an outside tool (SIB2-190).
+- No raster or SVG export, so the agent cannot look at its result without an outside tool: SVG closed by SIB2-190 (`export --svg`, one file per page, the browser's own markup); PNG is deliberately not built, since no rasteriser ships in a product bundle (ADR-0031).
 - A chord typo (`E07` for `Eo7`) only shows as a `!` flag in `show`; reading flags back is the only
   signal, and there is no verb that lists every flagged object at once (SIB2-193).
 
