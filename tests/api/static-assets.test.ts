@@ -83,6 +83,20 @@ describe('with a UI bundle', () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
+  it('forbids framing and restricts scripts on a page, an API answer and a 404 alike (SIB2-206)', async () => {
+    await serveWith(BUNDLE);
+    for (const path of ['/', '/v1/health', '/nope']) {
+      const response = await fetch(`${base}${path}`);
+      await response.text();
+      const csp = response.headers.get('content-security-policy') ?? '';
+      expect(csp, path).toContain("frame-ancestors 'none'");
+      expect(csp, path).toContain("script-src 'self'");
+      expect(csp, path).not.toContain("script-src 'self' 'unsafe");
+      expect(response.headers.get('x-frame-options'), path).toBe('DENY');
+      expect(response.headers.get('referrer-policy'), path).toBe('strict-origin-when-cross-origin');
+    }
+  });
+
   it('404s a path the bundle has no file for, rather than serving the index', async () => {
     // No SPA fallback: the browser routes on the hash, so a real path miss is a genuine 404.
     await serveWith(BUNDLE);

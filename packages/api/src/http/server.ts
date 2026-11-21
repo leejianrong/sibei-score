@@ -45,6 +45,7 @@ import { problem, problemForUnknown } from './problems.js';
 import type { Problem } from './problems.js';
 import { pathOf, route, send, sendJson } from './routes.js';
 import type { ImportService } from './routes.js';
+import { setSecurityHeaders } from './security-headers.js';
 import type { AssetSource } from './static.js';
 import { consoleLogger } from './log.js';
 import type { Logger } from './log.js';
@@ -440,8 +441,10 @@ export function createApi(options: ApiOptions): Api {
   });
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<number> {
+    // Framing, sniffing and script-source policy on every response, refusals included (SIB2-206).
+    setSecurityHeaders(response);
     // The guards run *before* routing, so an unrouted path cannot become a way past them.
-    const host = checkHost(request, hostedHosts);
+    const host =checkHost(request, hostedHosts);
     if (!host.ok) return send(response, problem(403, 'foreign-host', host.reason));
 
     const origin = checkOrigin(request, hostedHosts);
