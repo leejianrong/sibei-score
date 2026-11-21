@@ -2,6 +2,8 @@ export * from './aaba-chart.js';
 export * from './articulations-chart.js';
 export * from './beam-rules-charts.js';
 export * from './builder.js';
+export * from './crowded-chords-chart.js';
+export * from './dense-spacing-chart.js';
 export * from './long-form-chart.js';
 export * from './nasty-chart.js';
 export * from './registry.js';
