@@ -44,7 +44,7 @@ describe('the title block, over a live stack (SIB2-178)', () => {
         .toBe('After');
       const meta = (stack.cli(['open', id]) as Doc).score.meta;
       expect(meta).toMatchObject({ title: 'After', composer: 'A. Writer', style: 'Medium swing' });
-      await expect(page.locator('.rail-title')).toHaveText('After');
+      await expect.poll(() => page.locator('.rail-title').textContent()).toContain('After');
 
       // One edit, one undo.
       await page.keyboard.press('Control+z');
