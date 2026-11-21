@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { createApi, memoryBlobStore } from '@sibei/api';
-import type { Api, AuthStore, JobStore, ScoreStore } from '@sibei/api';
+import type { Api, AuthStore, JobStore, ScoreStore, TokenScope } from '@sibei/api';
 import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 
 /**
@@ -35,6 +35,8 @@ export interface Hosted {
   base: string;
   /** `sb_session=…` for a freshly created user: the cookie a signed-in browser sends. */
   signIn(login: string): Promise<{ cookie: string; userId: string }>;
+  /** A live `sbs_` token for this user with exactly these scopes — what the OAuth or device flow ends in. */
+  mintToken(userId: string, scopes: readonly TokenScope[]): Promise<string>;
   request(path: string, options?: RequestOptions): Promise<Reply>;
   close(): Promise<void>;
 }
@@ -95,6 +97,18 @@ export async function startHosted(): Promise<Hosted> {
       const token = randomBytes(24).toString('base64url');
       await auth.createSession(createHash('sha256').update(token).digest('hex'), user.id, '2999-01-01T00:00:00.000Z');
       return { cookie: `sb_session=${token}`, userId: user.id };
+    },
+    async mintToken(userId, scopes) {
+      const token = `sbs_${randomBytes(24).toString('base64url')}`;
+      await auth.createToken({
+        id: `tok_${++counter}`,
+        tokenHash: createHash('sha256').update(token).digest('hex'),
+        userId,
+        name: 'test',
+        scopes,
+        expiresAt: '2999-01-01T00:00:00.000Z',
+      });
+      return token;
     },
     async close() {
       await api.close();

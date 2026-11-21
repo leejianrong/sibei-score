@@ -8,6 +8,7 @@ import { createJobBus } from '../events/job-bus.js';
 import { createHostedAuth } from '../auth/hosted.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createExporter } from '../export/export.js';
+import { createMcpEndpoint } from '../mcp/endpoint.js';
 import { createJobRunner } from '../imports/runner.js';
 import type { JobRunner } from '../imports/runner.js';
 import { imageFormatOf } from '../imports/upload.js';
@@ -242,6 +243,20 @@ export function createApi(options: ApiOptions): Api {
     streams: jobStreams,
   };
 
+  // The MCP endpoint (V22a): hosted only, since its credentials are the OAuth tokens hosted mode issues. It is
+  // handed the same narrowed services the routes get — a reader, the applier, the exporter — and nothing wider.
+  const mcp =
+    hosted === undefined
+      ? undefined
+      : createMcpEndpoint({
+          reader: store,
+          applier,
+          exporter,
+          authenticate,
+          resourceMetadataUrl: new URL('/.well-known/oauth-protected-resource', hosted.mcpResource).toString(),
+          onError: (message, error) => logger.error(message, error),
+        });
+
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
     void handle(request, response)
@@ -283,6 +298,18 @@ export function createApi(options: ApiOptions): Api {
         return await hosted.handle(request, response);
       } catch (error) {
         logger.error('an auth request failed', error);
+        if (response.headersSent) return 500;
+        return send(response, problemForUnknown(error));
+      }
+    }
+
+    // The MCP endpoint judges its own bearer token (audience, then per-tool scope), so it comes before the
+    // generic principal and scope checks below, whose method-based `read`/`write` rule is not its rule.
+    if (mcp !== undefined && pathOf(request) === '/mcp') {
+      try {
+        return await mcp.handle(request, response);
+      } catch (error) {
+        logger.error('an MCP request failed', error);
         if (response.headersSent) return 500;
         return send(response, problemForUnknown(error));
       }
