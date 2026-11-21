@@ -20,6 +20,7 @@ const base: BarStructure = {
   endBarline: 'single',
   ending: null,
   texts: [],
+  lineBreak: 'none',
 };
 
 const edits = (over: Partial<StructureEdits> = {}): StructureEdits => ({
@@ -28,6 +29,7 @@ const edits = (over: Partial<StructureEdits> = {}): StructureEdits => ({
   startBarline: base.startBarline,
   endBarline: base.endBarline,
   ending: base.ending,
+  lineBreak: base.lineBreak,
   ...over,
 });
 
@@ -96,5 +98,19 @@ describe('structureOps', () => {
       edits({ letter: 'A', startBarline: 'repeat-start', endBarline: 'repeat-end', ending: { numbers: [1], role: 'start-stop' } }),
     );
     expect(ops.map((op) => op.type)).toEqual(['section.set', 'barline.set', 'ending.set']);
+  });
+});
+
+describe('structureOps: the line break (SIB2-174)', () => {
+  it('sets, changes and clears the override, after any section op', () => {
+    expect(structureOps(base, edits({ lineBreak: 'after' }))).toEqual([
+      { type: 'break.set', target: 'bar7', payload: { kind: 'after' } },
+    ]);
+    const joined: BarStructure = { ...base, lineBreak: 'after' };
+    expect(structureOps(joined, edits({ lineBreak: 'none' }))).toEqual([{ type: 'break.rm', target: 'bar7' }]);
+    expect(structureOps(base, edits({ letter: 'A', lineBreak: 'join' })).map((o) => o.type)).toEqual([
+      'section.set',
+      'break.set',
+    ]);
   });
 });

@@ -59,7 +59,7 @@ export function scoreToMusicXml(score: Score): string {
     elem(
       'part',
       { id: 'P1' },
-      score.bars.map((bar, index) => measure(score, bar, index === 0)),
+      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1])),
     ),
   ]);
   return serialize(root, { prolog: PROLOG });
@@ -82,8 +82,12 @@ function identification(score: Score): XmlElement {
 // A measure
 // ---------------------------------------------------------------------------
 
-function measure(score: Score, bar: Bar, isFirst: boolean): XmlElement {
+function measure(score: Score, bar: Bar, isFirst: boolean, previous: Bar | undefined): XmlElement {
   const children: (XmlElement | null)[] = [];
+
+  // A line ends after the previous bar (SIB2-174), so this measure opens a new system. `join` and the
+  // bars-per-line setting have no MusicXML form and are named lossy cases.
+  if (previous?.lineBreak === 'after') children.push(elem('print', { 'new-system': 'yes' }));
 
   if (isFirst) children.push(attributes(score));
 

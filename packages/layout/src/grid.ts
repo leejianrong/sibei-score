@@ -2,8 +2,9 @@ import type { Bar, Score } from '@sibei/model';
 import { gridBars, pickupBar, startsSection } from '@sibei/model';
 
 /**
- * The four-bar grid (ADR-0015). Four bars per line by default; a section boundary
- * breaks the line even mid-grid, so an 11-bar section lays out 4 / 4 / 3. A pickup
+ * The four-bar grid (ADR-0015). Four bars per line by default (`meta.barsPerSystem` changes the
+ * count); a section boundary breaks the line even mid-grid, so an 11-bar section lays out 4 / 4 / 3.
+ * A bar's `lineBreak` overrides both: `after` ends the line, `join` lets a section share one. A pickup
  * sits before bar 1 on the first line and consumes no slot.
  */
 
@@ -21,9 +22,14 @@ export function planSystems(score: Score): PlannedSystem[] {
   const rows: Bar[][] = [];
   let current: Bar[] = [];
 
+  const perSystem = score.meta.barsPerSystem ?? BARS_PER_SYSTEM;
   for (const bar of gridBars(score)) {
-    const wouldBreakForSection = current.length > 0 && startsSection(score, bar.number);
-    if (current.length === BARS_PER_SYSTEM || wouldBreakForSection) {
+    // A section forces a break unless that bar was told to `join` the line (SIB2-174); a bar marked
+    // `after` ends its line wherever it falls.
+    const wouldBreakForSection =
+      current.length > 0 && startsSection(score, bar.number) && bar.lineBreak !== 'join';
+    const previousEndsLine = current[current.length - 1]?.lineBreak === 'after';
+    if (current.length >= perSystem || wouldBreakForSection || previousEndsLine) {
       rows.push(current);
       current = [];
     }

@@ -38,6 +38,15 @@ export interface ProjectionOptions {
 export function projectScore(score: Score, options: ProjectionOptions = {}): string {
   const perRow = options.barsPerRow ?? BARS_PER_ROW;
   const lines: string[] = [header(score)];
+  // Line-breaking overrides (SIB2-174). The rows below are four-bar groups whatever the printed lines are,
+  // so a chart that breaks elsewhere says so once, with the bars an agent would pass to `break`.
+  const breaks = score.bars.filter((bar) => bar.lineBreak !== undefined);
+  if (score.meta.barsPerSystem !== undefined || breaks.length > 0) {
+    const parts: string[] = [];
+    if (score.meta.barsPerSystem !== undefined) parts.push(`${score.meta.barsPerSystem} bars per line`);
+    for (const bar of breaks) parts.push(`${bar.lineBreak === 'after' ? 'break after' : 'join at'} bar${bar.number}`);
+    lines.push(`  lines: ${parts.join(', ')}`);
+  }
   if (score.meta.signaturePolicy !== undefined) {
     lines.push(`  clef and key: ${score.meta.signaturePolicy === 'first' ? 'first system only' : 'first system of each page'}`);
   }

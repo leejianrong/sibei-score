@@ -3,6 +3,9 @@ import {
   DEFAULT_KEY,
   DEFAULT_TIME,
   FOOTER_PAGES,
+  LINE_BREAKS,
+  MAX_BARS_PER_SYSTEM,
+  MIN_BARS_PER_SYSTEM,
   SIGNATURE_POLICIES,
   MAX_FOOTER_LENGTH,
   SCHEMA_VERSION,
@@ -57,6 +60,7 @@ import type {
   NoteAddPayload,
   BarAddPayload,
   BarlineSetPayload,
+  BreakSetPayload,
   EndingSetPayload,
   LoggedOperation,
   NoteSetPayload,
@@ -169,6 +173,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setEnding(score, operation.target, operation.payload);
     case 'ending.rm':
       return removeEnding(score, operation.target);
+    case 'break.set':
+      return setBreak(score, operation.target, operation.payload ?? {});
+    case 'break.rm':
+      return removeBreak(score, operation.target);
     case 'bar.add':
       return addBars(score, operation.target, operation.payload ?? {});
     case 'bar.rm':
@@ -277,7 +285,8 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const footer = nextFooter(score, payload);
   const policy = nextSignaturePolicy(score, payload);
   const chordStyle = nextChordStyle(score, payload);
-  const { footer: _footer, signaturePolicy: _policy, chordStyle: _style, ...rest } = score.meta;
+  const perSystem = nextBarsPerSystem(score, payload);
+  const { footer: _footer, signaturePolicy: _policy, chordStyle: _style, barsPerSystem: _bars, ...rest } = score.meta;
   const next: Score = {
     ...score,
     meta: {
@@ -290,6 +299,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       ...(footer === undefined ? {} : { footer }),
       ...(policy === undefined ? {} : { signaturePolicy: policy }),
       ...(chordStyle === undefined ? {} : { chordStyle }),
+      ...(perSystem === undefined ? {} : { barsPerSystem: perSystem }),
     },
   };
 
@@ -316,6 +326,20 @@ function nextSignaturePolicy(score: Score, payload: MetaSetPayload): SignaturePo
     });
   }
   return asked === 'every' ? undefined : asked;
+}
+
+/** Bars per line after a `meta.set` (SIB2-174): 1 to 8; 4, the grid, is stored as absent. */
+function nextBarsPerSystem(score: Score, payload: MetaSetPayload): number | undefined {
+  const asked = payload.barsPerSystem;
+  if (asked === undefined) return score.meta.barsPerSystem;
+  if (asked === null || asked === 4) return undefined;
+  if (!Number.isInteger(asked) || asked < MIN_BARS_PER_SYSTEM || asked > MAX_BARS_PER_SYSTEM) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `barsPerSystem must be a whole number from ${MIN_BARS_PER_SYSTEM} to ${MAX_BARS_PER_SYSTEM}, not ${JSON.stringify(asked)}`,
+    });
+  }
+  return asked;
 }
 
 /** The chord style after a `meta.set` (SIB2-163): untouched unless named; `standard` or null clears it. */
@@ -765,6 +789,55 @@ function removeEnding(score: Score, target: string): Applied {
   return {
     score: mapBar(score, bar.id, (b) => ({ ...b, ending: null })),
     operation: { type: 'ending.rm', target },
+    changed: [bar.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// break.set, break.rm (SIB2-174)
+// ---------------------------------------------------------------------------
+
+/**
+ * Override the four-bar grid on one bar: `after` ends the line after it, `join` lets a bar that begins a
+ * section share the previous line. Whole-bar, like the barline and ending ops. `join` on a bar that
+ * begins no section would do nothing, so it is refused rather than stored as a silent no-op.
+ */
+function setBreak(score: Score, target: string, payload: BreakSetPayload): Applied {
+  const bar = resolveBar(score, target);
+  const kind = payload.kind ?? 'after';
+  if (!LINE_BREAKS.includes(kind)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a line break is ${LINE_BREAKS.join(' or ')}, not ${JSON.stringify(kind)}`,
+    });
+  }
+  if (kind === 'join' && sectionStartingAt(score, bar.number) === null) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar ${bar.number} begins no section, so there is no forced break for it to join across`,
+    });
+  }
+  return {
+    score: mapBar(score, bar.id, (b) => ({ ...b, lineBreak: kind })),
+    operation: { type: 'break.set', target, payload },
+    changed: [bar.id],
+  };
+}
+
+function removeBreak(score: Score, target: string): Applied {
+  const bar = resolveBar(score, target);
+  if (bar.lineBreak === undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar ${bar.number} has no line-break override, so there is nothing to remove`,
+    });
+  }
+  return {
+    score: mapBar(score, bar.id, (b) => {
+      const { lineBreak: _gone, ...rest } = b;
+      return rest;
+    }),
+    operation: { type: 'break.rm', target },
     changed: [bar.id],
   };
 }

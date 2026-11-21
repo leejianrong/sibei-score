@@ -161,6 +161,15 @@ class PartReader {
       bars.push(bar);
     });
 
+    // `<print new-system="yes"/>` on a measure ends the line before it, which is our `lineBreak: 'after'`
+    // on the bar just above (SIB2-174). A file that breaks every line therefore keeps its own breaks.
+    measures.forEach((measure, index) => {
+      const previous = bars[index - 1];
+      if (index > 0 && previous !== undefined && this.startsNewSystem(measure)) {
+        bars[index - 1] = { ...previous, lineBreak: 'after' };
+      }
+    });
+
     return { bars, sections, key: this.key, time: this.time };
   }
 
@@ -415,6 +424,10 @@ class PartReader {
       }
     }
     return null;
+  }
+
+  private startsNewSystem(measure: XmlElement): boolean {
+    return childElements(measure, 'print').some((print) => attr(print, 'new-system') === 'yes');
   }
 
   private rehearsalOf(direction: XmlElement): string | null {

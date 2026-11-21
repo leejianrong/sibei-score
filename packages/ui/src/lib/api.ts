@@ -465,6 +465,8 @@ export interface MetaSetPayload {
   footerPages?: 'first' | 'last' | 'all';
   /** Where the clef and key signature are drawn (SIB2-173). */
   signaturePolicy?: 'every' | 'first' | 'page';
+  /** Bars to a line (SIB2-174); null restores the four-bar grid. */
+  barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163); `standard` clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
 }
@@ -483,6 +485,8 @@ export type Operation =
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
   | { type: 'ending.rm'; target: string }
+  | { type: 'break.set'; target: string; payload: { kind: 'after' | 'join' } }
+  | { type: 'break.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };

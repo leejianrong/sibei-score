@@ -1,6 +1,6 @@
 <script lang="ts" module>
   import type { EndBarline, EndingRole, StartBarline } from '@sibei/model';
-  import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
+  import type { BarStructure, LineBreakChoice, StructureEdits } from '../lib/structure-edits.js';
 
   /** The model's ending roles, worn as words a reader recognises (the approved V7c labels). */
   const ROLE_OPTIONS: { value: 'none' | EndingRole; label: string }[] = [
@@ -9,6 +9,12 @@
     { value: 'start', label: 'Start' },
     { value: 'continue', label: 'Mid' },
     { value: 'stop', label: 'End' },
+  ];
+
+  const BREAK_OPTIONS: { value: LineBreakChoice; label: string }[] = [
+    { value: 'none', label: 'Grid' },
+    { value: 'after', label: 'Ends line' },
+    { value: 'join', label: 'Joins line' },
   ];
 
   const START_OPTIONS: { value: StartBarline; label: string }[] = [
@@ -62,6 +68,7 @@
   let start = $state(untrack(() => bar.startBarline));
   let end = $state(untrack(() => bar.endBarline));
   let role = $state<'none' | EndingRole>(untrack(() => bar.ending?.role ?? 'none'));
+  let lineBreak = $state<LineBreakChoice>(untrack(() => bar.lineBreak));
   let numbersInput = $state(untrack(() => (bar.ending === null ? '1' : bar.ending.numbers.join(', '))));
   let numbersError = $state<string | null>(null);
   let textBeat = $state('1');
@@ -90,7 +97,7 @@
       ending = { numbers, role };
     }
     numbersError = null;
-    onsave({ letter: letter.trim(), name: name.trim(), startBarline: start, endBarline: end, ending });
+    onsave({ letter: letter.trim(), name: name.trim(), startBarline: start, endBarline: end, ending, lineBreak });
   }
 </script>
 
@@ -133,6 +140,22 @@
       {:else if bar.letter === '' && bar.name === ''}
         <p class="note">Type a letter to begin a section here — it forces a line break and prints as a rehearsal mark. Clear both to remove it.</p>
       {/if}
+    </div>
+
+    <div class="field">
+      <span class="field-label">Line break</span>
+      <SegmentedControl
+        label="Line break"
+        options={BREAK_OPTIONS.map((o) => o.value)}
+        value={lineBreak}
+        display={(o) => BREAK_OPTIONS.find((x) => x.value === o)?.label ?? String(o)}
+        fill
+        onselect={(chosen) => (lineBreak = chosen)}
+      />
+      <p class="note">
+        <b>Ends line</b> breaks the line after this bar, even short of the grid. <b>Joins line</b> lets a bar that begins a section
+        share the previous line instead of starting a new one — it needs a rehearsal letter or name above.
+      </p>
     </div>
 
     <div class="field">

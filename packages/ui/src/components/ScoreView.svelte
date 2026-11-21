@@ -165,6 +165,12 @@
         (footerDraft !== '' && footerPagesDraft !== (score.meta.footer?.pages ?? 'all'))),
   );
 
+  async function handleBarsPerSystem(count: number): Promise<void> {
+    if (score === null || count === (score.meta.barsPerSystem ?? 4)) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { barsPerSystem: count === 4 ? null : count } }]);
+  }
+
   async function handleSignaturePolicy(policy: 'every' | 'first' | 'page'): Promise<void> {
     if (score === null || policy === (score.meta.signaturePolicy ?? 'every')) return;
     deselect();
@@ -342,6 +348,7 @@
       startBarline: bar.startBarline,
       endBarline: bar.endBarline,
       ending: bar.ending,
+      lineBreak: bar.lineBreak ?? 'none',
       texts: [...bar.annotations]
         .sort((a, b) => a.onset - b.onset)
         .map((a) => ({ id: a.id, beat: beatOfOnset(a.onset, score!.meta.time), text: a.text })),
@@ -825,6 +832,22 @@
           Changes the chart's concert key — the melody and chords move together. A logged, undoable
           edit, not a view: the version bumps.
         </p>
+      </div>
+
+      <div class="group control-row">
+        <h3>Bars per line</h3>
+        <select
+          class="part-select"
+          aria-label="Bars per line"
+          value={score.meta.barsPerSystem ?? 4}
+          disabled={saving}
+          onchange={(event) => void handleBarsPerSystem(Number((event.currentTarget as HTMLSelectElement).value))}
+        >
+          {#each [1, 2, 3, 4, 5, 6, 7, 8] as count (count)}
+            <option value={count}>{count}{count === 4 ? ' (the grid)' : ''}</option>
+          {/each}
+        </select>
+        <p class="control-note">Where one line should end instead, click a bar and set its line break. A logged, undoable edit (<code>meta set --bars-per-system</code>, <code>break set</code>).</p>
       </div>
 
       <div class="group control-row">

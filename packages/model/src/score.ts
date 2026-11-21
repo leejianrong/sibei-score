@@ -195,7 +195,20 @@ export interface Bar {
   endBarline: EndBarline;
   ending: Ending | null;
   review: Review;
+  /**
+   * An override of the four-bar grid's line breaking (SIB2-174). `after`: the line ends after this bar,
+   * even short of the grid. `join`: this bar continues the previous line even though it begins a section,
+   * which would otherwise force a break. Optional-and-absent, so no stored document changes (ADR-0028).
+   */
+  lineBreak?: LineBreak;
 }
+
+export type LineBreak = 'after' | 'join';
+
+export const LINE_BREAKS: readonly LineBreak[] = ['after', 'join'];
+
+export const MIN_BARS_PER_SYSTEM = 1;
+export const MAX_BARS_PER_SYSTEM = 8;
 
 // ---------------------------------------------------------------------------
 // Structure and the score itself
@@ -232,6 +245,8 @@ export interface ScoreMeta {
    * before. Optional-and-absent, like `footer`, so no stored document changes and `SCHEMA_VERSION` stays.
    */
   signaturePolicy?: SignaturePolicy;
+  /** Bars to a line (SIB2-174), 1 to 8. Absent means the four-bar grid (ADR-0015); 4 is stored as absent. */
+  barsPerSystem?: number;
   /**
    * The chord symbology the score prints in (SIB2-163): `-7` vs `m7` vs `MI7`, `Δ` vs `maj7`. Absent
    * means `standard`, the style every surface drew before — optional rather than backfilled, so no
