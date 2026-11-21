@@ -7,6 +7,7 @@ import {
   approveDevice,
   formatDay,
   formatTypedCode,
+  prefillOf,
   hashOf,
   isCompleteCode,
   listApiTokens,
@@ -152,5 +153,14 @@ describe('listing and revoking tokens', () => {
   it('reports a 404 on revoke (somebody else\'s, or already gone) as an API refusal the page can show', async () => {
     stub(404, { error: { kind: 'no-such-token', message: 'you have no token "x"' } });
     await expect(revokeApiToken('x')).rejects.toMatchObject({ status: 404, kind: 'no-such-token' });
+  });
+});
+
+describe('prefillOf (the approval link a CLI asked for)', () => {
+  it('reads known scopes and a name, and ignores everything else', () => {
+    expect(prefillOf('#/device?scopes=read&name=ci')).toEqual({ name: 'ci', scopes: ['read'] });
+    expect(prefillOf('#/device?scopes=write,read,admin')).toEqual({ scopes: ['read', 'write'] });
+    expect(prefillOf('#/device?scopes=admin')).toEqual({});
+    expect(prefillOf('#/device')).toEqual({});
   });
 });

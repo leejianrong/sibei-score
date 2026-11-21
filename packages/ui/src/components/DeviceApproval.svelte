@@ -14,13 +14,15 @@
    * Material 3, tokens only (`m3.css`), in one typeface throughout.
    */
   import { approveDevice } from '../lib/api.js';
-  import { formatTypedCode, isCompleteCode, outcomeOfFailure, SCOPE_CHOICES, toggleScope } from '../lib/devices.js';
+  import { formatTypedCode, isCompleteCode, outcomeOfFailure, prefillOf, SCOPE_CHOICES, toggleScope } from '../lib/devices.js';
   import type { Outcome, ScopeName } from '../lib/devices.js';
   import { hashOf, LIBRARY, TOKENS } from '../lib/routing.js';
 
   let code = $state('');
-  let name = $state('sbscore CLI');
-  let scopes = $state<ScopeName[]>(['read', 'write']);
+  // What the CLI asked for in the link, if anything; the person can change all of it.
+  const asked = prefillOf(window.location.hash);
+  let name = $state(asked.name ?? 'sbscore CLI');
+  let scopes = $state<ScopeName[]>(asked.scopes ?? ['read', 'write']);
   let sending = $state(false);
   let outcome = $state<Outcome | null>(null);
   let touched = $state(false);

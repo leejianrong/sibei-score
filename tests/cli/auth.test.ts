@@ -146,6 +146,19 @@ describe('sbscore auth login: the device flow', () => {
     expect(sleeps).toEqual([5000]);
   });
 
+  it('passes --scopes and --name on in the approval link, and the approver\'s choice is what the token gets', async () => {
+    const cookie = await aBrowser();
+    const done = await login(cookie, ['--scopes', 'read', '--name', 'ci'], { name: 'chosen', scopes: ['read', 'write'] });
+    expect(done.code).toBe(EXIT.ok);
+    expect(done.out).toContain('http://127.0.0.1/#/device?scopes=read&name=ci');
+    expect(done.out).toContain('scopes read, write');
+  });
+
+  it('refuses a scope it does not know before starting anything', async () => {
+    const done = await sbscore(['auth', 'login', '--scopes', 'admin']);
+    expect(done.code).toBe(EXIT.usage);
+  });
+
   it('never prints the token it was given, in either output mode', async () => {
     const cookie = await aBrowser();
     const done = await login(cookie);

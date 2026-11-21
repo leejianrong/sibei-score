@@ -20,6 +20,7 @@
     getImport,
     listScores,
     OfflineError,
+    SIGN_IN_PATH,
     submitImport,
     submitNoteEvents,
     isNoteEventsFile,
@@ -27,6 +28,7 @@
   import { UNTITLED } from '@sibei/model';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
+  import { rememberReturn } from '../lib/session.js';
   import { displayKey, relativeTime } from '../lib/format.js';
   import { AUDIO, hashOf } from '../lib/routing.js';
 
@@ -37,7 +39,7 @@
   const { onReachable }: Props = $props();
 
   let charts = $state<ScoreListing[] | null>(null);
-  let failure = $state<'offline' | 'error' | null>(null);
+  let failure = $state<'offline' | 'signed-out' | 'error' | null>(null);
   let message = $state('');
   let query = $state('');
 
@@ -63,6 +65,14 @@
 
   const shown = $derived(filtered(charts ?? [], query));
 
+  function rememberHere(): void {
+    try {
+      rememberReturn(window.location.hash, window.sessionStorage);
+    } catch {
+      // sessionStorage can be blocked; the person lands in the library afterwards
+    }
+  }
+
   async function load(): Promise<void> {
     try {
       charts = await listScores();
@@ -70,7 +80,8 @@
       onReachable(true);
     } catch (error) {
       charts = [];
-      failure = error instanceof OfflineError ? 'offline' : 'error';
+      failure =
+        error instanceof OfflineError ? 'offline' : error instanceof ApiError && error.status === 401 ? 'signed-out' : 'error';
       message = error instanceof Error ? error.message : String(error);
       onReachable(false);
     }
@@ -224,9 +235,17 @@
          cannot draw is the one a reader most needs — an empty library and an unreachable one
          look identical, and only one of them is fixed by typing a command. -->
     <div class="state">
-      <h2>{failure === 'offline' ? 'No answer from the server.' : 'The server refused that.'}</h2>
+      <h2>
+        {failure === 'offline'
+          ? 'No answer from the server.'
+          : failure === 'signed-out'
+            ? 'You have been signed out.'
+            : 'The server refused that.'}
+      </h2>
       <p>
-        {#if failure === 'offline'}
+        {#if failure === 'signed-out'}
+          Sign in again to see your charts. <a href={SIGN_IN_PATH} onclick={rememberHere}>Sign in with GitHub</a>
+        {:else if failure === 'offline'}
           Nothing is listening where this page expects the API. Start it, then reload — the
           browser and the terminal are two clients of the same one (ADR-0002).
         {:else}
