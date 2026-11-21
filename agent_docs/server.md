@@ -90,7 +90,7 @@ load-bearing in the layout engine rather than incidental.
 
 **The verb set is deliberately short** — `score.create`, `meta.set`, `note.add|set|rm`,
 `rest.add|rm`, `chord.set|rm` (V5), `transpose` (V6), and the V7 structure verbs `section.set|rm`,
-`barline.set`, `ending.set|rm`. `tie` and `tuplet` each still belong to a later slice. The
+`barline.set`, `ending.set|rm`, `tuplet.set|rm` (SIB2-166: bracket a run of items and re-lay it; any member address removes it). `tie` still belongs to a later slice. The
 structure verbs all target a **whole-bar address** (`bar5`): `section.set` and `ending.set` are
 upserts, the same upsert-at-a-place shape as `chord.set`; `barline.set` sets a bar's opening and/or
 closing barline. There is no `repeat` op — a repeat is a `repeat-start`/`repeat-end` pair of
