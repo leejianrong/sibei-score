@@ -202,7 +202,7 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     // anyway (Q39). One put across two exports is what proves the second one never rendered.
     expect(blobs.puts).toHaveLength(1);
     expect(blobs.gets).toHaveLength(2);
-    expect(blobs.puts[0]).toMatch(/^export:score-1:v2:[0-9a-f]{16}:concert:a4:normal:pdf$/);
+    expect(blobs.puts[0]).toMatch(/^export:local:score-1:v2:[0-9a-f]{16}:concert:a4:normal:pdf$/);
   });
 
   it('produces a different artefact after an edit, with no invalidation call anywhere', async () => {
@@ -216,8 +216,8 @@ describe('the cache, keyed by (score version, format, instrument) — Q81', () =
     // Nothing was told to invalidate. The version moved, so the key moved, so the second export
     // missed and rendered — which is the whole of Q81's mechanism.
     expect(blobs.puts).toHaveLength(2);
-    expect(blobs.puts[0]).toMatch(/^export:score-1:v2:/);
-    expect(blobs.puts[1]).toMatch(/^export:score-1:v3:/);
+    expect(blobs.puts[0]).toMatch(/^export:local:score-1:v2:/);
+    expect(blobs.puts[1]).toMatch(/^export:local:score-1:v3:/);
   });
 
   it('goes back to the old artefact when the score goes back to the old version', async () => {
