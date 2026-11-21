@@ -6,6 +6,7 @@ import type {
   Id,
   KeySignature,
   Score,
+  SpannerPlacement,
   StartBarline,
   TieRole,
   TimeSignature,
@@ -216,6 +217,25 @@ export interface TupletSetPayload {
 /** Remove the tuplet that holds the target item: the members go back to their written length, later items follow. */
 export type TupletRmPayload = Record<string, never>;
 
+/**
+ * A slur from the target note to `to` (SIB2-167). The target is the note it starts on, `to` the note it ends
+ * on, each any note address (`bar1.n2`, `note-7`); `to` must come later in reading order, in this bar or a
+ * later one. Stored as a `Spanner` (ADR-0041), so it names the two notes by id and follows them.
+ *
+ * Setting the same pair again is an upsert: it keeps the slur's id and changes only `placement`. A slur
+ * between two notes that is already there is not stacked twice. `placement` absent on a new slur means by
+ * stem direction; `auto` on an existing one clears a choice.
+ */
+export interface SlurSetPayload {
+  to: string;
+  placement?: SpannerPlacement | 'auto';
+  /** *Recorded.* The id of the slur this set landed on — the existing one, or the one created. */
+  id?: Id;
+}
+
+/** Remove a slur, named by its id (`slur-2`, which `show` prints) or by the note it starts on. */
+export type SlurRmPayload = Record<string, never>;
+
 /** A line-break override on a bar (SIB2-174). `after` is the default: end the line after this bar. */
 export interface BreakSetPayload {
   kind?: 'after' | 'join';
@@ -289,6 +309,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string; payload?: TupletRmPayload }
   | { type: 'break.set'; target: string; payload?: BreakSetPayload }
   | { type: 'break.rm'; target: string; payload?: BreakRmPayload }
+  | { type: 'slur.set'; target: string; payload: SlurSetPayload }
+  | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
   | { type: 'bar.rm'; target: string };
 
@@ -316,6 +338,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'tuplet.rm',
   'break.set',
   'break.rm',
+  'slur.set',
+  'slur.rm',
   'bar.add',
   'bar.rm',
 ];
