@@ -70,7 +70,7 @@ note-17        a stable id (survives edits)
 Onsets only: **a beat with nothing on it is an error that lists the bar's real onsets**, never a
 snap to the nearest note. `sbscore show <id>` prints the addresses the CLI accepts for a chart, so
 you never have to guess one. Whole-bar verbs (`section`, `barline`, `repeat`, `ending`) take a bare
-bar address like `bar12`.
+bar like `12` or `bar12`.
 
 ## Charts
 
@@ -78,9 +78,11 @@ bar address like `bar12`.
 sbscore new [--title T] [--composer C] [--key K] [--time 4/4] [--bars N] [--pickup] [--id ID]
 sbscore list                                 # every chart: id, title, composer, key, version
 sbscore open <id>                            # the full document, as JSON
+sbscore check <id> [--json] [--strict]       # list every flagged object: address, kind, reasons (--strict exits 2 if any)
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
+sbscore import --note-events FILE            # a NoteEvents v1 file (audio engine) into a draft (ADR-0040)
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
@@ -97,6 +99,15 @@ and prints the new chart's id. **Every parse is a draft** (ADR-0019): open it, f
 to 4/4 and never detects sections (ADR-0021), so the four-bar layout is wrong until you add them
 (ADR-0015). An image with no staff fails with exit 2 and creates nothing (ADR-0018). The source images
 are kept forever (ADR-0019), so a chart can be re-parsed later by a better engine.
+
+`import --note-events FILE` takes the audio engine's **NoteEvents v1** JSON (ADR-0040) instead of an
+image, and needs **no worker**. The seconds are quantized to bars (using the file's beat grid if it has
+one), the key is guessed, and the result is a draft like any other: notes the transcriber was unsure of
+are flagged `!` (with their confidence, `c5/4!41`), and **bar 1 is flagged when the file marks no
+downbeats**, because then where the bars start is a guess. The engine's warnings are printed under the
+success line and kept on the import record. Voice and bass only (one melody staff, ADR-0021). A file that
+is not valid v1, has a `schema_version` other than 1, or names another instrument is refused with
+exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.
 
 `reparse` is that re-parse: it re-runs OMR on the scans an import kept (no new upload — the server
 reuses the retained images, V14e) and lands the result as a **new** draft, printing its id; the
@@ -145,6 +156,8 @@ sbscore ending rm  <id> <bar>
 sbscore undo <id>                            # revert the last edit — or the last batch, as one unit
 sbscore redo <id>                            # reapply the last undone edit
 sbscore batch <id> --ops '[{"type":"note.add", ...}]'           # many operations as one atomic unit
+sbscore batch <id> --ops @ops.json                              # the same, read from a file
+cat ops.json | sbscore batch <id> --ops -                       # or from stdin
 ```
 
 Undo and redo replay the append-only op log rather than mutating it (ADR-0003), so a `batch` — and
@@ -164,6 +177,21 @@ and `--font`, which are page choices. `--for` exports a transposing instrument's
 reads, transposed). Without `-o` the file is written to the working directory, named after the
 chart's title — *Body and Soul* becomes `./Body and Soul.pdf`; `-o` takes a file path, or a directory
 to put that name in.
+
+## Audio
+
+```sh
+sbscore audio submit take.wav [--instrument piano]   # uploads, queues, prints the job id
+sbscore audio list                                   # your audio jobs, newest first
+sbscore audio show <id>                              # status, progress, the reason if it failed
+sbscore audio retry <id>                             # requeue a failed job
+sbscore audio rm <id>                                # delete the job and its audio
+```
+
+A recording becomes a job that a separate transcription worker picks up, so `submit` returns at once and the
+job waits `queued` until a worker takes it. Nothing else is affected while no worker is running. On a hosted
+server the file goes straight to object storage by a presigned URL; locally it goes through the API. The
+browser's equivalent is the Audio page (`#/audio`, "Transcribe audio" in the library).
 
 ## Concurrency
 

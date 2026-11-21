@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, memoryBlobLedger, silentLogger } from '@sibei/api';
-import type { Api, AuthStore, BlobLedger, JobStore, ManagedBlobStore, ScoreStore } from '@sibei/api';
+import type { Api, AudioJobStore, AuthStore, BlobLedger, JobStore, ManagedBlobStore, ScoreStore } from '@sibei/api';
 import { openDirectoryBlobStore } from '@sibei/api';
-import { openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
+import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import { startFakeGitHub } from '../fixtures/fake-github.js';
 import type { FakeGitHub, FakeProfile } from '../fixtures/fake-github.js';
 
@@ -25,6 +25,7 @@ const BOB: FakeProfile = { id: 2002, login: 'bob', name: null };
 let github: FakeGitHub;
 let store: ScoreStore;
 let jobs: JobStore;
+let audioJobs: AudioJobStore;
 let auth: AuthStore;
 let ledger: BlobLedger;
 let blobs: ManagedBlobStore;
@@ -36,6 +37,7 @@ beforeEach(async () => {
   github = await startFakeGitHub({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
   store = openSqliteStore({ filename: ':memory:' });
   jobs = openSqliteJobStore({ filename: ':memory:' });
+  audioJobs = openSqliteAudioJobStore({ filename: ':memory:' });
   auth = openSqliteAuthStore({ filename: ':memory:' });
   ledger = openSqliteBlobLedger({ filename: ':memory:' });
   directory = mkdtempSync(join(tmpdir(), 'sibei-account-'));
@@ -43,6 +45,7 @@ beforeEach(async () => {
   api = createApi({
     store,
     jobs,
+    audioJobs,
     blobs,
     blobLedger: ledger,
     logger: silentLogger,
@@ -63,7 +66,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await api.close();
-  await Promise.all([store.close(), jobs.close(), auth.close(), ledger.close(), github.close()]);
+  await Promise.all([store.close(), jobs.close(), audioJobs.close(), auth.close(), ledger.close(), github.close()]);
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -74,8 +77,8 @@ interface Reply {
   headers: Record<string, string | string[] | undefined>;
 }
 
-function raw(path: string, options: { method?: string; cookie?: string; body?: unknown } = {}): Promise<Reply> {
-  const payload = options.body === undefined ? undefined : JSON.stringify(options.body);
+function raw(path: string, options: { method?: string; cookie?: string; body?: unknown; raw?: Buffer; type?: string } = {}): Promise<Reply> {
+  const payload = options.raw ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       {
@@ -87,7 +90,7 @@ function raw(path: string, options: { method?: string; cookie?: string; body?: u
         headers: {
           ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
           // Explicit: Node's client sends no length for a DELETE, and the server then reads the body as a request.
-          ...(payload === undefined ? {} : { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) }),
+          ...(payload === undefined ? {} : { 'content-type': options.type ?? 'application/json', 'content-length': String(Buffer.byteLength(payload)) }),
         },
       },
       (res) => {
@@ -129,6 +132,17 @@ async function populate(who: { cookie: string; id: string }, scoreId: string, sc
   await blobs.put(key, Buffer.from(scan));
   await ledger.record(who.id, key, 'import-source');
   await jobs.create(who.id, [key]);
+  // an audio upload, through the real routes: declare, put the bytes, confirm (it stays queued, so the audio
+  // object is still on the volume when the account goes)
+  const declared = await raw('/v1/audio/jobs', {
+    method: 'POST',
+    cookie: who.cookie,
+    body: { filename: `${scan}.mp3`, contentType: 'audio/mpeg', sizeBytes: 4 },
+  });
+  expect(declared.status).toBe(201);
+  const job = JSON.parse(declared.body).job as { id: string };
+  expect((await raw(`/v1/audio/jobs/${job.id}/content`, { method: 'PUT', cookie: who.cookie, raw: Buffer.from('mp3!'), type: 'audio/mpeg' })).status).toBeLessThan(300);
+  expect((await raw(`/v1/audio/jobs/${job.id}/uploaded`, { method: 'POST', cookie: who.cookie, body: {} })).status).toBe(200);
   return [key];
 }
 
@@ -140,14 +154,14 @@ describe('deleting an account', () => {
     const bob = await signIn(BOB);
     await populate(alice, 'alice-chart', 'alice-scan');
     await populate(bob, 'bob-chart', 'bob-scan');
-    const bobFiles = 2; // his export and his scan
-    expect(blobFiles()).toBe(4);
-    expect((await ledger.list(alice.id)).length).toBe(2);
+    const bobFiles = 3; // his export, his scan and his audio
+    expect(blobFiles()).toBe(6);
+    expect((await ledger.list(alice.id)).length).toBe(3);
 
     const refused = await raw('/v1/auth/account', { method: 'DELETE', cookie: alice.cookie, body: { confirm: 'not-alice' } });
     expect(refused.status).toBe(422);
     expect(JSON.parse(refused.body).error.kind).toBe('confirmation-mismatch');
-    expect(blobFiles()).toBe(4);
+    expect(blobFiles()).toBe(6);
 
     const deleted = await raw('/v1/auth/account', { method: 'DELETE', cookie: alice.cookie, body: { confirm: 'Alice' } });
     expect(deleted.status).toBe(204);
@@ -157,6 +171,7 @@ describe('deleting an account', () => {
     // nothing addressed by her id remains, in any store
     expect(await store.list(alice.id)).toEqual([]);
     expect(await jobs.list(alice.id)).toEqual([]);
+    expect(await audioJobs.list(alice.id)).toEqual([]);
     expect(await ledger.list(alice.id)).toEqual([]);
     expect(await auth.getUser(alice.id)).toBeNull();
     expect(await auth.listTokens(alice.id)).toEqual([]);
@@ -171,8 +186,9 @@ describe('deleting an account', () => {
     // Bob has all of his
     expect(JSON.parse((await raw('/v1/scores', { cookie: bob.cookie })).body).scores).toHaveLength(1);
     expect(await jobs.list(bob.id)).toHaveLength(1);
+    expect(await audioJobs.list(bob.id)).toHaveLength(1);
     expect(await blobs.get(`import-source:${encodeURIComponent(bob.id)}:bob-scan`)).not.toBeNull();
-    expect((await ledger.list(bob.id)).length).toBe(2);
+    expect((await ledger.list(bob.id)).length).toBe(3);
   });
 
   it('is cookie-only: no session, no deletion', async () => {

@@ -87,6 +87,13 @@ export interface Client {
    */
   importImages(images: ImportImage[]): Promise<ImportJobWire>;
   /**
+   * Import a NoteEvents v1 document (ADR-0040) as a draft. The file's bytes go up unchanged — the server
+   * is the validator — and the job is polled like an image import. A malformed, unknown-major or
+   * unsupported-instrument file is refused before any job exists, as a `CliError` carrying the server's
+   * kind and message.
+   */
+  importNoteEvents(document: Buffer): Promise<ImportJobWire>;
+  /**
    * Re-parse an imported chart (V14e): re-run OMR on its retained source images into a *new* draft,
    * with no re-upload. `POST /v1/scores/:id/reparse` enqueues a fresh job over the same scans (the
    * server reuses the existing blob keys), and this polls it to a terminal status like `importImages`
@@ -94,6 +101,17 @@ export interface Client {
    * recogniser to use (`oemer`/`heuristic`); omitted, the worker keeps its default.
    */
   reparse(id: string, engine?: string): Promise<ImportJobWire>;
+  /**
+   * Audio jobs (SIB2-137): declare an upload, put the bytes where the server says (a presigned bucket URL
+   * hosted, this API's own route locally), confirm, and return the queued job. It does **not** wait: a
+   * transcription takes minutes on someone else's GPU, so the job id is the receipt and `audioShow` is how
+   * you look again.
+   */
+  audioSubmit(upload: AudioUpload): Promise<AudioJobWire>;
+  audioList(): Promise<{ jobs: AudioJobWire[] }>;
+  audioShow(id: string): Promise<{ job: AudioJobWire }>;
+  audioRetry(id: string): Promise<{ job: AudioJobWire }>;
+  audioRemove(id: string): Promise<void>;
   health(): Promise<{ status: string; api: string }>;
   /** Who this server says is asking (V20b). `local` has no accounts; `hosted` names the user, or is a 401. */
   me(): Promise<MeWire>;
@@ -101,6 +119,33 @@ export interface Client {
   startDevice(): Promise<DeviceStartWire>;
   /** One poll. Pending and slow-down are answers, not failures; a token is returned exactly once. */
   pollDevice(deviceCode: string): Promise<DevicePollWire>;
+}
+
+/** What `audioSubmit` uploads. */
+export interface AudioUpload {
+  filename: string;
+  bytes: Buffer;
+  contentType: string;
+  instrument?: string;
+  durationSeconds?: number;
+}
+
+/** An audio job as the server sends it to its owner (no lease token, no raw result in listings). */
+export interface AudioJobWire {
+  id: string;
+  status: 'awaiting-upload' | 'queued' | 'running' | 'succeeded' | 'failed';
+  filename: string | null;
+  contentType: string;
+  sizeBytes: number;
+  instrument: string | null;
+  attempts: number;
+  diagnosticKind: string | null;
+  diagnostic: string | null;
+  progress: { stage: string; fraction: number } | null;
+  durationSeconds: number | null;
+  scoreId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** `GET /v1/me`. */
@@ -220,12 +265,13 @@ export interface ClientOptions {
 export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: ClientOptions = {}): Client {
   const authorization: Record<string, string> = options.token === undefined ? {} : { authorization: `Bearer ${options.token}` };
 
-  async function send(method: string, path: string, body?: unknown): Promise<Response> {
+  async function send(method: string, path: string, body?: unknown, rawJson?: Buffer): Promise<Response> {
+    const payload = rawJson !== undefined ? new Uint8Array(rawJson) : body === undefined ? undefined : JSON.stringify(body);
     try {
       return await fetch(`${baseUrl}${path}`, {
         method,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        headers: { ...authorization, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        ...(payload === undefined ? {} : { body: payload }),
+        headers: { ...authorization, ...(payload === undefined ? {} : { 'content-type': 'application/json' }) },
       });
     } catch (error) {
       // The one failure a file-editing CLI would not have had. Say what to do about it.
@@ -356,11 +402,56 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
 
       return await pollJob(job);
     },
+    async importNoteEvents(document: Buffer): Promise<ImportJobWire> {
+      const response = await send('POST', '/v1/imports', undefined, document);
+      const text = await response.text();
+      if (!response.ok) fail(response.status, text);
+      return await pollJob((safeParse(text) as { job: ImportJobWire }).job);
+    },
     async reparse(id: string, engine?: string): Promise<ImportJobWire> {
       const body = engine === undefined ? {} : { engine };
       const started = (await call<{ job: ImportJobWire }>('POST', `/v1/scores/${encodeURIComponent(id)}/reparse`, body)).job;
       return await pollJob(started);
     },
+    async audioSubmit(upload: AudioUpload): Promise<AudioJobWire> {
+      const declared = await call<{ job: AudioJobWire; upload: { url: string; method: string; headers: Record<string, string>; viaApi: boolean } }>(
+        'POST',
+        '/v1/audio/jobs',
+        {
+          filename: upload.filename,
+          contentType: upload.contentType,
+          sizeBytes: upload.bytes.length,
+          ...(upload.instrument === undefined ? {} : { instrument: upload.instrument }),
+          ...(upload.durationSeconds === undefined ? {} : { durationSeconds: upload.durationSeconds }),
+        },
+      );
+      const target = declared.upload;
+      // A presigned URL is the bucket's: the token must not follow it there. Only this API's own route
+      // carries the credential (the token is for the server that issued it, V21).
+      const own = target.viaApi;
+      let response: Response;
+      try {
+        response = await fetch(own ? `${baseUrl}${target.url}` : target.url, {
+          method: target.method,
+          headers: { ...(own ? authorization : {}), ...target.headers },
+          body: new Uint8Array(upload.bytes),
+        });
+      } catch (error) {
+        throw new CliError(EXIT.noServer, 'no-server', `cannot reach ${own ? `the sbscore server at ${baseUrl}` : 'the upload target'}.`, {
+          detail: error instanceof Error ? error.message : undefined,
+        });
+      }
+      if (!response.ok) {
+        const text = await response.text();
+        if (own) fail(response.status, text);
+        throw new CliError(EXIT.usage, 'upload-failed', `the upload target refused the audio (${response.status})`);
+      }
+      return (await call<{ job: AudioJobWire }>('POST', `/v1/audio/jobs/${encodeURIComponent(declared.job.id)}/uploaded`)).job;
+    },
+    audioList: () => call('GET', '/v1/audio/jobs'),
+    audioShow: (id) => call('GET', `/v1/audio/jobs/${encodeURIComponent(id)}`),
+    audioRetry: (id) => call('POST', `/v1/audio/jobs/${encodeURIComponent(id)}/retry`),
+    audioRemove: (id) => call('DELETE', `/v1/audio/jobs/${encodeURIComponent(id)}`),
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that
       // have to agree about what a default is, and the query is the export cache's key (Q81).

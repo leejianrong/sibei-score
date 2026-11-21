@@ -16,6 +16,7 @@ const COVERED: Record<string, string> = {
   scores: 'ScoreLibrary.deleteAll',
   operations: 'cascade from scores',
   import_jobs: 'JobStore.deleteAll',
+  audio_jobs: 'AudioJobStore.deleteAll (returns the audio keys, deleted with the blobs)',
   blob_refs: 'BlobLedger.forgetAll, after the blobs it names are deleted',
   identities: 'cascade from users (AuthStore.deleteUser)',
   sessions: 'cascade from users',

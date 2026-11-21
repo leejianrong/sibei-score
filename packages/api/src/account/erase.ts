@@ -1,5 +1,6 @@
 import type { BlobStore, ManagedBlobStore } from '../blob/blob-store.js';
 import type { BlobLedger } from '../store/blob-ledger.js';
+import type { AudioJobStore } from '../store/audio-jobs.js';
 import type { JobStore } from '../store/jobs.js';
 import type { Owner, ScoreLibrary } from '../store/repository.js';
 
@@ -26,6 +27,8 @@ export interface OwnerEraser {
 export interface OwnerEraserOptions {
   library: ScoreLibrary;
   jobs: Pick<JobStore, 'deleteAll' | 'list'>;
+  /** Audio jobs and their uploaded audio (ADR-0034 decisions 11 and 16). */
+  audio: Pick<AudioJobStore, 'deleteAll'>;
   blobs: BlobStore;
   ledger: BlobLedger;
 }
@@ -35,7 +38,7 @@ export function isManaged(store: BlobStore): store is ManagedBlobStore {
 }
 
 export function createOwnerEraser(options: OwnerEraserOptions): OwnerEraser {
-  const { library, jobs, blobs, ledger } = options;
+  const { library, jobs, audio, blobs, ledger } = options;
   return {
     async erase(owner) {
       if (!isManaged(blobs)) throw new Error('account deletion needs a blob store that can delete');
@@ -43,9 +46,10 @@ export function createOwnerEraser(options: OwnerEraserOptions): OwnerEraser {
       const held = await ledger.list(owner);
       const jobCount = (await jobs.list(owner)).length;
       const sourceKeys = await jobs.deleteAll(owner);
+      const audioKeys = await audio.deleteAll(owner);
       const scores = await library.deleteAll(owner);
 
-      const keys = new Set([...held.map((ref) => ref.key), ...sourceKeys]);
+      const keys = new Set([...held.map((ref) => ref.key), ...sourceKeys, ...audioKeys]);
       for (const key of keys) await blobs.delete(key);
       await ledger.forgetAll(owner);
       return { scores, jobs: jobCount, blobs: keys.size };

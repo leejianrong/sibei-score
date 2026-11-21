@@ -117,10 +117,11 @@ export interface JobWriter {
   /**
    * `running` → `succeeded`, storing the recognised objects and the score the import landed (V11).
    * The runner maps the objects onto a `Score` and lands it through the applier *before* completing,
-   * so a succeeded job always names the score it produced (V10's `scoreId: null` is gone). No-op
+   * so a succeeded job always names the score it produced (V10's `scoreId: null` is gone). `diagnostic` is
+   * normally absent; a NoteEvents import (ADR-0040) records the audio engine's warnings there. No-op
    * (returns `null`) if not running.
    */
-  complete(id: JobId, result: OmrDocument[], scoreId: Id): Promise<ImportJob | null>;
+  complete(id: JobId, result: OmrDocument[], scoreId: Id, diagnostic?: string | null): Promise<ImportJob | null>;
   /** `running` → `failed`, storing the diagnostic. No-op (returns `null`) if not running. */
   fail(id: JobId, diagnostic: string): Promise<ImportJob | null>;
   /**

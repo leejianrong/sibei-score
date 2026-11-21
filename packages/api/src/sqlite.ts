@@ -20,6 +20,8 @@ export { openSqliteStore } from './store/sqlite-store.js';
 export type { SqliteStoreOptions } from './store/sqlite-store.js';
 export { openSqliteJobStore } from './store/sqlite-jobs.js';
 export type { SqliteJobStoreOptions } from './store/sqlite-jobs.js';
+export { openSqliteAudioJobStore } from './store/sqlite-audio-jobs.js';
+export type { SqliteAudioJobStoreOptions } from './store/sqlite-audio-jobs.js';
 export { openSqliteAuthStore } from './store/sqlite-auth.js';
 export type { SqliteAuthStoreOptions } from './store/sqlite-auth.js';
 export { TABLE_SCHEMA_VERSION } from './store/sqlite-schema.js';

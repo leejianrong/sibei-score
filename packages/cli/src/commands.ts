@@ -1,7 +1,7 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { Readable } from 'node:stream';
-import { displayTitle, projectScore } from '@sibei/model';
+import { displayTitle, flaggedObjects, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -15,7 +15,7 @@ import { optionalNumber, parseDuration, parseFlags, required, requiredPositional
 import type { Flags } from './args.js';
 import { auth } from './auth.js';
 import { CliError, DEFAULT_BASE_URL, createClient } from './client.js';
-import type { Client, ExportQuery, UndoWire } from './client.js';
+import type { AudioJobWire, Client, ExportQuery, UndoWire } from './client.js';
 import { credentialsPath as defaultCredentialsPath, isReadableByOthers, resolveToken } from './credentials.js';
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
@@ -82,13 +82,18 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore list
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
+  sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
   sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
+  sbscore import --note-events FILE        a NoteEvents v1 file from the audio engine into a draft (no worker needed)
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
               (produces a NEW draft — the original and its corrections survive; no re-upload)
+  sbscore audio submit <file> [--instrument piano]   upload audio to be transcribed; prints the job id
+  sbscore audio list|show <id>|retry <id>|rm <id>    look at, requeue or delete an audio job
+              (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
@@ -105,7 +110,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
-  sbscore batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
   sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
@@ -119,6 +124,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore auth token                       print the token, bare, so $(sbscore auth token) is a token
   sbscore auth logout                      forget the credential for this server
 
+Where a verb takes <bar>, write 12 or bar12.
 Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
@@ -232,6 +238,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return open(flags, client, io);
     case 'show':
       return show(flags, client, io, json);
+    case 'check':
+      return check(flags, client, io, json);
     case 'export':
       return exportScore(flags, client, io, json, options.cwd ?? process.cwd());
     case 'rm':
@@ -242,6 +250,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return importChart(flags, client, io, json, options.cwd ?? process.cwd());
     case 'reparse':
       return reparse(flags, client, io, json);
+    case 'audio':
+      return audio(flags, client, io, json, options.cwd ?? process.cwd());
     case 'meta':
       return meta(flags, client, io, json);
     case 'note':
@@ -261,7 +271,7 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
-      return batch(flags, client, io, json);
+      return batch(flags, client, io, json, options.readStdin ?? readAllStdin);
     case 'undo':
       return move('undo', flags, client, io, json);
     case 'redo':
@@ -333,6 +343,29 @@ async function show(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const text = projectScore(record.score);
   io.out(json ? JSON.stringify({ version: record.version, projection: text }) : text);
   return EXIT.ok;
+}
+
+/**
+ * `sbscore check <id> [--strict]` (SIB2-193): every flagged object — an unparsed chord, a
+ * low-confidence note, a bar that does not fill the meter — with an address a verb accepts and the
+ * reasons, so an agent need not scan `show` for `!`. Exit 0 whatever is found, unless `--strict`,
+ * which exits 2 (the chart is not clean) when anything is flagged. It lists; it fixes nothing.
+ */
+async function check(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'check');
+  const record = await client.read(id);
+  const flagged = flaggedObjects(record.score);
+  if (json) {
+    io.out(JSON.stringify({ version: record.version, flagged }));
+  } else if (flagged.length === 0) {
+    io.out('nothing flagged');
+  } else {
+    for (const f of flagged) {
+      const what = f.text === null ? f.kind : `${f.kind} ${JSON.stringify(f.text)}`;
+      io.out(`${f.address}  ${what}  ${f.reasons.join(', ')}`);
+    }
+  }
+  return flagged.length > 0 && flags.switches.has('strict') ? EXIT.validation : EXIT.ok;
 }
 
 /**
@@ -459,6 +492,7 @@ async function importChart(
   cwd: string,
 ): Promise<ExitCode> {
   const paths = flags.positional.slice(1);
+  if (flags.switches.has('note-events')) return importNoteEvents(paths, client, io, json, cwd);
   if (paths.length === 0) {
     throw new CliError(EXIT.usage, 'usage', 'import needs at least one image file: `sbscore import chart.png`');
   }
@@ -495,6 +529,35 @@ async function importChart(
 }
 
 /**
+ * `sbscore import --note-events FILE` — a NoteEvents v1 document from the audio engine becomes a draft
+ * (ADR-0040). Needs no OMR worker. The bytes go up unchanged and the server validates; a refused file is
+ * exit 2 (validation) and creates nothing. The draft's barring and doubtful notes are flagged for review.
+ */
+async function importNoteEvents(paths: string[], client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
+  if (paths.length !== 1) {
+    throw new CliError(EXIT.usage, 'usage', 'import --note-events takes exactly one file: `sbscore import --note-events take1.json`');
+  }
+  const path = paths[0]!;
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+  const job = await client.importNoteEvents(bytes);
+  if (job.status === 'failed') {
+    throw new CliError(EXIT.validation, 'import-failed', `import failed: ${job.diagnostic ?? 'unknown error'}`);
+  }
+  io.out(
+    json
+      ? JSON.stringify(job)
+      : `imported NoteEvents to ${job.scoreId} — a draft: open it, check the flagged bars and notes, set key/meter/sections` +
+          (job.diagnostic === null ? '' : `\n${job.diagnostic}`),
+  );
+  return EXIT.ok;
+}
+
+/**
  * `sbscore reparse <id> [--engine oemer|heuristic]` — re-run OMR on an imported chart's retained
  * source images into a **new** draft (V14e, ADR-0019). Nothing is re-uploaded: the server reuses the
  * scans the original import kept. The new draft is the safe choice — the original chart and any
@@ -516,6 +579,96 @@ async function reparse(flags: Flags, client: Client, io: Io, json: boolean): Pro
       : `re-parsed ${id} to a new draft ${job.scoreId} — open it, check the flagged bars, set key/meter/sections`,
   );
   return EXIT.ok;
+}
+
+/**
+ * `sbscore audio submit|list|show|retry|rm` (SIB2-137). An audio job is the second kind of durable job
+ * beside import (ADR-0001): `submit` uploads the file and returns at once with the job id, because the
+ * transcription runs on a separate worker and can take minutes. Everything after that is a read of the
+ * job (`show`), a requeue of a failed one (`retry`) or a delete (`rm`, which removes the audio too).
+ */
+async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
+  const sub = flags.positional[1];
+  const line = (job: AudioJobWire) =>
+    `${job.id}  ${job.status}${job.progress === null ? '' : ` ${Math.round(job.progress.fraction * 100)}% (${job.progress.stage})`}  ${job.filename ?? '-'}`;
+
+  switch (sub) {
+    case 'submit': {
+      const path = flags.positional[2];
+      if (path === undefined) throw new CliError(EXIT.usage, 'usage', 'audio submit needs a file: `sbscore audio submit take.wav`');
+      let bytes: Buffer;
+      try {
+        bytes = readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
+      } catch (error) {
+        throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
+      const instrument = flags.options.get('instrument');
+      const job = await client.audioSubmit({
+        filename: basename(path),
+        bytes,
+        contentType: audioContentTypeOf(path),
+        ...(instrument === undefined ? {} : { instrument }),
+      });
+      io.out(json ? JSON.stringify({ job }) : `${job.id}\n(queued — check it with \`sbscore audio show ${job.id}\`)`);
+      return EXIT.ok;
+    }
+    case 'list': {
+      const { jobs } = await client.audioList();
+      io.out(json ? JSON.stringify({ jobs }) : jobs.length === 0 ? 'no audio jobs' : jobs.map(line).join('\n'));
+      return EXIT.ok;
+    }
+    case 'show': {
+      const { job } = await client.audioShow(requiredPositional(flags, 2, 'an audio job id', 'audio show'));
+      io.out(
+        json
+          ? JSON.stringify({ job })
+          : [
+              line(job),
+              ...(job.diagnostic === null ? [] : [`failed: ${job.diagnostic}${job.diagnosticKind === null ? '' : ` (${job.diagnosticKind})`}`]),
+              ...(job.scoreId === null ? [] : [`score: ${job.scoreId}`]),
+              ...(job.durationSeconds === null ? [] : [`audio seconds: ${job.durationSeconds}`]),
+            ].join('\n'),
+      );
+      return EXIT.ok;
+    }
+    case 'retry': {
+      const { job } = await client.audioRetry(requiredPositional(flags, 2, 'an audio job id', 'audio retry'));
+      io.out(json ? JSON.stringify({ job }) : line(job));
+      return EXIT.ok;
+    }
+    case 'rm': {
+      const id = requiredPositional(flags, 2, 'an audio job id', 'audio rm');
+      await client.audioRemove(id);
+      io.out(json ? JSON.stringify({ removed: id }) : `removed ${id}`);
+      return EXIT.ok;
+    }
+    default:
+      throw new CliError(EXIT.usage, 'usage', 'audio needs submit, list, show, retry or rm');
+  }
+}
+
+/** The media type for an audio file, from its extension. The server checks the declared type against an allow-list. */
+function audioContentTypeOf(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case '.wav':
+      return 'audio/wav';
+    case '.mp3':
+      return 'audio/mpeg';
+    case '.m4a':
+    case '.mp4':
+      return 'audio/mp4';
+    case '.aac':
+      return 'audio/aac';
+    case '.flac':
+      return 'audio/flac';
+    case '.ogg':
+    case '.oga':
+      return 'audio/ogg';
+    case '.webm':
+      return 'audio/webm';
+    default:
+      return 'application/octet-stream';
+  }
 }
 
 /** The media type for a part, from its extension. The server detects the real format from content. */
@@ -644,6 +797,11 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
   return submit(flags, client, io, json, id, [{ type: 'transpose', payload: { to } } as Operation]);
 }
 
+/** A bare number names a bar as `bar12` does (SIB2-189); anything else passes through for the server to judge. */
+function barTarget(raw: string): string {
+  return /^\d+$/.test(raw) ? `bar${raw}` : raw;
+}
+
 /**
  * `sbscore section set <id> <bar> [--letter A] [--name Bridge]` and `section rm <id> <bar>`
  * (V7, ADR-0021). The address is a whole bar — `bar5`, `bar17` — because a section attaches to the
@@ -658,7 +816,7 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
 async function section(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `section ${sub}`);
-  const target = requiredPositional(flags, 3, 'a bar address like bar5', `section ${sub}`);
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 5 or bar5', `section ${sub}`));
 
   if (sub === 'set') {
     const payload: SectionSetPayload = {};
@@ -684,7 +842,7 @@ async function barline(flags: Flags, client: Client, io: Io, json: boolean): Pro
   const sub = flags.positional[1] ?? '';
   if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'barline takes set');
   const id = requiredPositional(flags, 2, 'a score id', 'barline set');
-  const target = requiredPositional(flags, 3, 'a bar address like bar11', 'barline set');
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 11 or bar11', 'barline set'));
 
   const payload: BarlineSetPayload = {};
   const start = flags.options.get('start');
@@ -706,8 +864,8 @@ async function repeat(flags: Flags, client: Client, io: Io, json: boolean): Prom
   const sub = flags.positional[1] ?? '';
   if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'repeat takes set');
   const id = requiredPositional(flags, 2, 'a score id', 'repeat set');
-  const from = requiredPositional(flags, 3, 'a start bar like bar12', 'repeat set');
-  const to = requiredPositional(flags, 4, 'an end bar like bar19', 'repeat set');
+  const from = barTarget(requiredPositional(flags, 3, 'a start bar like 12 or bar12', 'repeat set'));
+  const to = barTarget(requiredPositional(flags, 4, 'an end bar like 19 or bar19', 'repeat set'));
 
   return submit(flags, client, io, json, id, [
     { type: 'barline.set', target: from, payload: { start: 'repeat-start' } } as Operation,
@@ -724,7 +882,7 @@ async function repeat(flags: Flags, client: Client, io: Io, json: boolean): Prom
 async function ending(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `ending ${sub}`);
-  const target = requiredPositional(flags, 3, 'a bar address like bar12', `ending ${sub}`);
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 12 or bar12', `ending ${sub}`));
 
   if (sub === 'set') {
     const numbers = parseEndingNumbers(required(flags, 'numbers', 'ending set'));
@@ -751,9 +909,26 @@ function parseEndingNumbers(raw: string): number[] {
  * `batch` is the whole of what a document-patch endpoint would have bought, without the
  * whole-document read or the structural risk (ADR-0008). One invalid operation applies none of them.
  */
-async function batch(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+async function batch(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  readStdin: () => Promise<string>,
+): Promise<ExitCode> {
   const id = requiredPositional(flags, 1, 'a score id', 'batch');
-  const raw = required(flags, 'ops', 'batch');
+  // `--ops @file` and `--ops -` (stdin) keep a long chart out of argv (SIB2-187).
+  const given = required(flags, 'ops', 'batch');
+  let raw = given;
+  if (given === '-') {
+    raw = await readStdin();
+  } else if (given.startsWith('@')) {
+    try {
+      raw = readFileSync(given.slice(1), 'utf8');
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', `--ops: cannot read ${given.slice(1)}`);
+    }
+  }
   let operations: Operation[];
   try {
     const parsed: unknown = JSON.parse(raw);

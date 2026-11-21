@@ -50,6 +50,29 @@ not measuring what it claims. The `real` row is the hand-labelled control set
 (`tests/fixtures/eval/real/`, see its README) — the gap between it and `clean` is the
 synthetic→real gap every training decision has to respect.
 
+## The NoteEvents-import rows (ADR-0040)
+
+`pnpm eval` also prints a second table, and `pnpm eval --engine note-events` prints only it (no worker, no
+images). It scores the **audio-import quantizer**, not a recogniser: each seed's ground-truth score is
+rendered to NoteEvents at a named jitter level (`packages/synth/src/note-events.ts`), imported through the
+real mapper (`mapNoteEventsToScore`), and compared with the score it came from using the same alignment
+metrics, plus **barAcc** (the fraction of bars reproduced exactly, bar for bar).
+
+| Level | Timing damage |
+|---|---|
+| `clean` | exact onsets, notes sounding 92% of their length |
+| `light` | onsets sigma 12 ms |
+| `medium` | onsets sigma 30 ms, 20 ms late on average (soft attacks) |
+| `heavy` | sigma 50 ms, 30 ms late, 4% of notes split in two, 2% missed |
+| `unmarked` | `medium`, with no downbeat flags, as the real transcriber reports (bar 1 is a guess) |
+
+A `(seed, level)` pair always renders the same document, so a row is reproducible and a change in it is a
+change in the importer. Reference run at the time it landed (6 charts, 8 bars, diatonic melodies in five
+keys): clean 0.965 noteF1 / 0.875 barAcc, light 0.965, medium 0.809, heavy 0.519. The jitter rows are the
+baseline to beat, not a pass mark. Two known costs are visible in `clean`: a true sixteenth rest after a long
+note is read as legato, and a sustained note is tied where the grid forces it. Audio rendering is the audio
+repo's; the corpus here needs none.
+
 ## Performance metrics (speed + RAM)
 
 Accuracy is only half of what decides the v0.3 engine swap. ADR-0031 makes **peak RAM** a

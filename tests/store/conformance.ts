@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AuthStore, BlobLedger, JobStore, ScoreStore } from '@sibei/api';
+import type { AudioJobStore, AuthStore, BlobLedger, JobStore, ScoreStore } from '@sibei/api';
 import type { MigrationResult, Score } from '@sibei/model';
 import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
 
@@ -19,6 +19,7 @@ import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
 export interface Harness {
   store: ScoreStore;
   jobs: JobStore;
+  audio: AudioJobStore;
   auth: AuthStore;
   ledger: BlobLedger;
   close(): Promise<void>;
@@ -330,6 +331,15 @@ export function jobStoreConformance(label: string, open: OpenHarness): void {
       expect(done?.result).toEqual(result);
       expect((await jobs.get('alice', job.id))?.result).toEqual(result);
       expect(await jobs.complete(job.id, [], 'score-2')).toBeNull(); // terminal: cannot move twice
+    });
+
+    it('can record a diagnostic on a succeeded job (NoteEvents warnings, ADR-0040)', async () => {
+      const { jobs } = await fresh();
+      const job = await jobs.create('alice', ['a'], 'note-events');
+      await jobs.claim();
+      const done = await jobs.complete(job.id, [], 'score-1', 'silent_input: no audible signal');
+      expect(done).toMatchObject({ status: 'succeeded', engine: 'note-events', diagnostic: 'silent_input: no audible signal' });
+      expect((await jobs.get('alice', job.id))?.diagnostic).toBe('silent_input: no audible signal');
     });
 
     it('fails only a running job, with a diagnostic', async () => {
@@ -673,6 +683,101 @@ export function authStoreConformance(label: string, open: OpenHarness): void {
 }
 
 /**
+ * The audio-job store's contract (SIB2-137): the user-facing half — create, confirm the upload, list,
+ * show, retry, delete. The worker half (lease, heartbeat, complete) joins in SIB2-138.
+ */
+export function audioJobStoreConformance(label: string, open: OpenHarness): void {
+  const open_: Harness[] = [];
+  afterEach(async () => {
+    while (open_.length > 0) await open_.pop()?.close();
+  });
+  async function fresh(options?: OpenOptions): Promise<Harness> {
+    const harness = await open(options);
+    open_.push(harness);
+    return harness;
+  }
+  const upload = (name = 'take1.wav') => ({
+    audioKey: `audio:${name}`,
+    contentType: 'audio/wav',
+    filename: name,
+    sizeBytes: 1000,
+    instrument: null,
+    declaredDurationSeconds: 12.5,
+  });
+
+  describe(`${label}: the audio job store`, () => {
+    it('records an awaiting-upload job carrying what the client declared, with no lease and no result', async () => {
+      const { audio } = await fresh();
+      const job = await audio.create('alice', { ...upload(), instrument: 'piano' });
+      expect(job).toMatchObject({
+        owner: 'alice',
+        status: 'awaiting-upload',
+        audioKey: 'audio:take1.wav',
+        contentType: 'audio/wav',
+        filename: 'take1.wav',
+        sizeBytes: 1000,
+        instrument: 'piano',
+        declaredDurationSeconds: 12.5,
+        attempts: 0,
+        diagnostic: null,
+        diagnosticKind: null,
+        progress: null,
+        durationSeconds: null,
+        result: null,
+        scoreId: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        version: 1,
+      });
+      expect(job.id).toBeTruthy();
+    });
+
+    it('lists an owner\'s jobs newest first, without results or lease tokens, and never another owner\'s', async () => {
+      const { audio } = await fresh({ now: ticking() });
+      const first = await audio.create('alice', upload('a.wav'));
+      const second = await audio.create('alice', upload('b.wav'));
+      await audio.create('bob', upload('c.wav'));
+      const listed = await audio.list('alice');
+      expect(listed.map((job) => job.id)).toEqual([second.id, first.id]);
+      for (const summary of listed) {
+        expect(summary).not.toHaveProperty('result');
+        expect(summary).not.toHaveProperty('leaseToken');
+      }
+      expect(await audio.get('bob', first.id)).toBeNull();
+      expect((await audio.get('alice', first.id))?.id).toBe(first.id);
+    });
+
+    it('moves awaiting-upload to queued once, replacing the declared size with the confirmed one', async () => {
+      const { audio } = await fresh();
+      const job = await audio.create('alice', upload());
+      expect(await audio.markUploaded('bob', job.id, 5)).toBeNull();
+      const queued = await audio.markUploaded('alice', job.id, 4321);
+      expect(queued).toMatchObject({ status: 'queued', sizeBytes: 4321, version: 2 });
+      expect(await audio.markUploaded('alice', job.id, 99)).toBeNull();
+      expect((await audio.get('alice', job.id))?.sizeBytes).toBe(4321);
+    });
+
+    it('only retries a failed job, and only for its owner', async () => {
+      const { audio } = await fresh();
+      const job = await audio.create('alice', upload());
+      expect(await audio.retry('alice', job.id)).toBeNull(); // awaiting-upload, not failed
+      await audio.markUploaded('alice', job.id, 10);
+      expect(await audio.retry('alice', job.id)).toBeNull(); // queued, not failed
+      expect(await audio.retry('bob', 'nope')).toBeNull();
+    });
+
+    it('deletes a job for its owner only, handing back the row', async () => {
+      const { audio } = await fresh();
+      const job = await audio.create('alice', upload());
+      expect(await audio.delete('bob', job.id)).toBeNull();
+      expect((await audio.delete('alice', job.id))?.audioKey).toBe('audio:take1.wav');
+      expect(await audio.get('alice', job.id)).toBeNull();
+      expect(await audio.delete('alice', job.id)).toBeNull();
+    });
+  });
+}
+
+/**
  * Account erasure and the blob ledger (V25): the store-level halves of `DELETE /v1/auth/account`. Each
  * adapter must delete exactly one owner's data and leave every other owner's whole.
  */
@@ -710,6 +815,18 @@ export function accountErasureConformance(label: string, open: OpenHarness): voi
       expect(await jobs.list('alice')).toEqual([]);
       expect((await jobs.get('bob', bobs.id))?.imageKeys).toEqual(['b1']);
       expect(await jobs.deleteAll('alice')).toEqual([]);
+    });
+
+    it("deletes an owner's audio jobs and hands back their audio keys, and only theirs", async () => {
+      const { audio } = await fresh();
+      const job = { contentType: 'audio/mpeg', filename: null, sizeBytes: 10, instrument: null, declaredDurationSeconds: null };
+      await audio.create('alice', { ...job, audioKey: 'audio:a1' });
+      await audio.create('alice', { ...job, audioKey: 'audio:a2' });
+      const bobs = await audio.create('bob', { ...job, audioKey: 'audio:b1' });
+      expect((await audio.deleteAll('alice')).sort()).toEqual(['audio:a1', 'audio:a2']);
+      expect(await audio.list('alice')).toEqual([]);
+      expect((await audio.get('bob', bobs.id))?.audioKey).toBe('audio:b1');
+      expect(await audio.deleteAll('alice')).toEqual([]);
     });
 
     it('deletes a user with their identities, sessions and tokens, and answers false the second time', async () => {

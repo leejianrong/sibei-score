@@ -10,6 +10,8 @@ export { openPostgresStore } from './store/postgres-store.js';
 export type { PostgresStoreOptions } from './store/postgres-store.js';
 export { openPostgresJobStore } from './store/postgres-jobs.js';
 export type { PostgresJobStoreOptions } from './store/postgres-jobs.js';
+export { openPostgresAudioJobStore } from './store/postgres-audio-jobs.js';
+export type { PostgresAudioJobStoreOptions } from './store/postgres-audio-jobs.js';
 export { openPostgresAuthStore } from './store/postgres-auth.js';
 export type { PostgresAuthStoreOptions } from './store/postgres-auth.js';
 export { POSTGRES_TABLE_SCHEMA_VERSION } from './store/postgres-schema.js';

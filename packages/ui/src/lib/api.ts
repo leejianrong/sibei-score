@@ -137,6 +137,76 @@ export async function deleteAccount(confirm: string): Promise<void> {
   await sendBody('DELETE', `${V1}/auth/account`, { confirm });
 }
 
+/**
+ * An audio job as `GET /v1/audio/jobs` serves it (SIB2-137). The wire shape, restated here for the
+ * reason `ScoreListing` is: a browser bundle has no business resolving `@sibei/api`.
+ */
+export interface AudioJobView {
+  id: string;
+  status: 'awaiting-upload' | 'queued' | 'running' | 'succeeded' | 'failed';
+  filename: string | null;
+  contentType: string;
+  sizeBytes: number;
+  instrument: string | null;
+  attempts: number;
+  diagnosticKind: string | null;
+  diagnostic: string | null;
+  progress: { stage: string; fraction: number } | null;
+  durationSeconds: number | null;
+  scoreId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AudioUploadTarget {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  viaApi: boolean;
+}
+
+export async function listAudioJobs(): Promise<AudioJobView[]> {
+  return (await getJson<{ jobs: AudioJobView[] }>(`${V1}/audio/jobs`)).jobs;
+}
+
+/**
+ * Declare the upload, put the bytes where the server says (a presigned bucket URL when hosted, this API's
+ * own route locally — the bytes never cross the API in the first case), and confirm. Returns the queued job.
+ * A presigned URL is the bucket's, so it gets no credentials; only our own route carries the session.
+ */
+export async function submitAudio(file: File, instrument: string | null): Promise<AudioJobView> {
+  const declared = await postJson<{ job: AudioJobView; upload: AudioUploadTarget }>(`${V1}/audio/jobs`, {
+    filename: file.name,
+    contentType: file.type,
+    sizeBytes: file.size,
+    ...(instrument === null ? {} : { instrument }),
+  });
+  let response: Response;
+  try {
+    response = await fetch(declared.upload.url, {
+      method: declared.upload.method,
+      headers: declared.upload.headers,
+      body: file,
+      credentials: declared.upload.viaApi ? 'same-origin' : 'omit',
+    });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) {
+    if (declared.upload.viaApi) throw await failureFrom(response);
+    throw new ApiError(response.status, 'upload-failed', 'The upload was refused. Try again.', undefined);
+  }
+  return (await postJson<{ job: AudioJobView }>(`${V1}/audio/jobs/${encodeURIComponent(declared.job.id)}/uploaded`, {})).job;
+}
+
+export async function retryAudio(id: string): Promise<AudioJobView> {
+  return (await postJson<{ job: AudioJobView }>(`${V1}/audio/jobs/${encodeURIComponent(id)}/retry`, {})).job;
+}
+
+export async function deleteAudio(id: string): Promise<void> {
+  await sendNoBody('DELETE', `${V1}/audio/jobs/${encodeURIComponent(id)}`);
+}
+
 export async function listApiTokens(): Promise<ApiTokenView[]> {
   return (await getJson<{ tokens: ApiTokenView[] }>(`${V1}/auth/tokens`)).tokens;
 }
@@ -255,6 +325,32 @@ export async function submitImport(files: readonly File[]): Promise<ImportJobVie
   }
   if (!response.ok) throw await failureFrom(response);
   return ((await response.json()) as { job: ImportJobView }).job;
+}
+
+/**
+ * Import a NoteEvents v1 file from the audio engine (ADR-0040) — the same affordance as a photo, a
+ * different file. The bytes go up as `application/json` and the server validates them; a malformed,
+ * unknown-version or unsupported-instrument file is a 422 whose message surfaces as the import error.
+ * No OMR worker is involved, so this works on a server started without one.
+ */
+export async function submitNoteEvents(file: File): Promise<ImportJobView> {
+  let response: Response;
+  try {
+    response = await fetch(`${V1}/imports`, {
+      method: 'POST',
+      body: file,
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+    });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) throw await failureFrom(response);
+  return ((await response.json()) as { job: ImportJobView }).job;
+}
+
+/** A chosen file is a NoteEvents document rather than a scan: by extension or media type, never by content. */
+export function isNoteEventsFile(file: File): boolean {
+  return file.type === 'application/json' || file.name.toLowerCase().endsWith('.json');
 }
 
 export async function getImport(id: Id): Promise<ImportJobView> {

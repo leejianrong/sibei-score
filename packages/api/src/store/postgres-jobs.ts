@@ -141,14 +141,14 @@ export async function openPostgresJobStore(options: PostgresJobStoreOptions): Pr
       });
     },
 
-    async complete(id, result: OmrDocument[], scoreId): Promise<ImportJob | null> {
+    async complete(id, result: OmrDocument[], scoreId, diagnostic = null): Promise<ImportJob | null> {
       return asSystem(pool, async (client) => {
         const updated = await client.query<JobRow>(
           `UPDATE import_jobs
-              SET status = 'succeeded', result = $1, score_id = $2, diagnostic = NULL, version = version + 1, updated_at = $3
-            WHERE id = $4 AND status = 'running'
+              SET status = 'succeeded', result = $1, score_id = $2, diagnostic = $3, version = version + 1, updated_at = $4
+            WHERE id = $5 AND status = 'running'
             RETURNING *`,
-          [JSON.stringify(result), scoreId, timestamp(now), id],
+          [JSON.stringify(result), scoreId, diagnostic, timestamp(now), id],
         );
         return updated.rows[0] === undefined ? null : toJob(updated.rows[0]);
       });

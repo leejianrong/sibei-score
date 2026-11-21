@@ -1,5 +1,5 @@
-import { openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
-import { accountErasureConformance, authStoreConformance, jobStoreConformance, storeConformance } from './conformance.js';
+import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
+import { accountErasureConformance, audioJobStoreConformance, authStoreConformance, jobStoreConformance, storeConformance } from './conformance.js';
 import type { OpenHarness } from './conformance.js';
 
 /**
@@ -15,17 +15,20 @@ const open: OpenHarness = async (options = {}) => {
     ...(options.migrate === undefined ? {} : { migrate: options.migrate }),
   });
   const jobs = openSqliteJobStore({ filename: ':memory:', ...(options.now === undefined ? {} : { now: options.now }) });
+  const audio = openSqliteAudioJobStore({ filename: ':memory:', ...(options.now === undefined ? {} : { now: options.now }) });
   const auth = openSqliteAuthStore({ filename: ':memory:', ...(options.now === undefined ? {} : { now: options.now }) });
   const ledger = openSqliteBlobLedger({ filename: ':memory:', ...(options.now === undefined ? {} : { now: options.now }) });
   return {
     store,
     jobs,
+    audio,
     auth,
     ledger,
     async close() {
       await ledger.close();
       await store.close();
       await jobs.close();
+      await audio.close();
       await auth.close();
     },
   };
@@ -33,5 +36,6 @@ const open: OpenHarness = async (options = {}) => {
 
 storeConformance('sqlite', open);
 jobStoreConformance('sqlite', open);
+audioJobStoreConformance('sqlite', open);
 authStoreConformance('sqlite', open);
 accountErasureConformance('sqlite', open);

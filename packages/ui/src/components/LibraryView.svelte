@@ -21,12 +21,14 @@
     listScores,
     OfflineError,
     submitImport,
+    submitNoteEvents,
+    isNoteEventsFile,
   } from '../lib/api.js';
   import { UNTITLED } from '@sibei/model';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { displayKey, relativeTime } from '../lib/format.js';
-  import { hashOf } from '../lib/routing.js';
+  import { AUDIO, hashOf } from '../lib/routing.js';
 
   interface Props {
     onReachable: (reachable: boolean) => void;
@@ -131,9 +133,13 @@
     if (files.length === 0 || importing) return;
     importing = true;
     actionError = null;
-    importNote = `Recognising ${files.length === 1 ? 'the page' : `${files.length} pages`}… this can take a minute.`;
+    // A single .json is an audio engine's NoteEvents (ADR-0040): quick, and no recogniser involved.
+    const noteEvents = files.length === 1 && isNoteEventsFile(files[0]!);
+    importNote = noteEvents
+      ? 'Reading the NoteEvents file…'
+      : `Recognising ${files.length === 1 ? 'the page' : `${files.length} pages`}… this can take a minute.`;
     try {
-      let job: ImportJobView = await submitImport(files);
+      let job: ImportJobView = noteEvents ? await submitNoteEvents(files[0]!) : await submitImport(files);
       while (job.status === 'queued' || job.status === 'running') {
         await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
         job = await getImport(job.id);
@@ -171,12 +177,12 @@
 </script>
 
 <section class="library">
-  <!-- One hidden picker, driven by every Import button below. `accept` hints images; the server is
+  <!-- One hidden picker, driven by every Import button below. `accept` hints images and a NoteEvents .json (ADR-0040); the server is
        the real judge and decodes the bytes to validate them (ADR-0029). `multiple` is Q26. -->
   <input
     class="file-picker"
     type="file"
-    accept="image/png,image/jpeg"
+    accept="image/png,image/jpeg,application/json,.json"
     multiple
     bind:this={fileInput}
     onchange={onFilesChosen}
@@ -202,6 +208,7 @@
           </svg>
           {importing ? 'Importing…' : 'Import a photo'}
         </button>
+        <a class="import-btn" href={hashOf(AUDIO)}>Transcribe audio</a>
       {/if}
     </div>
   </div>
