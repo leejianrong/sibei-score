@@ -39,17 +39,15 @@
     }
   }
 
-  // The item the person pressed is replaced by the question, so focus moves with it rather than to the
-  // body (which would read as leaving the menu and close it).
+  // The item stays put under the question, so focus never falls to the body (which reads as leaving the menu).
   async function ask(): Promise<void> {
     confirming = true;
     await Promise.resolve();
     cancel?.focus();
   }
 
-  async function back(): Promise<void> {
+  function back(): void {
     confirming = false;
-    await Promise.resolve();
     everywhere?.focus();
   }
 
@@ -132,6 +130,7 @@
       >
         Sign out
       </button>
+      <button class="item" type="button" role="menuitem" bind:this={everywhere} onclick={ask}>Sign out everywhere</button>
       {#if confirming}
         <div class="ask" role="group" aria-label="Confirm sign out everywhere">
           <p>Ends every session of this account, in every browser. API tokens keep working.</p>
@@ -149,8 +148,6 @@
             </button>
           </div>
         </div>
-      {:else}
-        <button class="item" type="button" role="menuitem" bind:this={everywhere} onclick={ask}>Sign out everywhere</button>
       {/if}
     </div>
   {/if}
