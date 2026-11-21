@@ -86,6 +86,25 @@ describe('the limits', () => {
     expect(refused?.retryAfterSeconds).toBeGreaterThan(0);
   });
 
+  it('caps device-code starts per address and overall, and no other auth route', async () => {
+    const config = {
+      ...tight,
+      authIp: { limit: 100, windowMs: 60_000 },
+      ip: { limit: 100, windowMs: 60_000 },
+      deviceStartIp: { limit: 2, windowMs: 600_000 },
+      deviceStart: { limit: 3, windowMs: 600_000 },
+    };
+    const limits = createLimits({ config });
+    const start = (ip: string) => fakeRequest('POST', '/v1/auth/device', {}, ip);
+    expect(await limits.gateAddress(start('203.0.113.9'))).toBeNull();
+    expect(await limits.gateAddress(start('203.0.113.9'))).toBeNull();
+    expect(await limits.gateAddress(start('203.0.113.9'))).toMatchObject({ scope: 'auth-ip', limit: 2 });
+    expect(await limits.gateAddress(start('198.51.100.1'))).toBeNull();
+    expect(await limits.gateAddress(start('198.51.100.2'))).toMatchObject({ scope: 'ip', limit: 3 });
+    // Polling and approving are not starts.
+    expect(await limits.gateAddress(fakeRequest('POST', '/v1/auth/device/token'))).toBeNull();
+  });
+
   it('limits a user by class, per user', async () => {
     const limits = createLimits({ config: tight });
     const write = fakeRequest('POST', '/v1/scores/x/ops');
