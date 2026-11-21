@@ -828,7 +828,7 @@
             <option value="last">Last page</option>
           </select>
           <button type="button" class="transpose-btn" disabled={saving || !footerDirty} onclick={handleFooterSave}>
-            {saving ? 'Working…' : 'Save'}
+            {saving ? 'Working…' : 'Set footer'}
           </button>
         </div>
         <p class="control-note">
