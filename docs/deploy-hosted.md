@@ -36,7 +36,7 @@ $EDITOR .env        # fill every REQUIRED value; generate passwords with: openss
 
 The three GitHub settings are mandatory together (hosted mode is selected by configuration, and the API
 refuses a partial set): `SBSCORE_PUBLIC_URL`, `SBSCORE_GITHUB_CLIENT_ID`, `SBSCORE_GITHUB_CLIENT_SECRET`.
-`SBSCORE_WORKER_TOKENS` holds the bearer tokens the audio transcription worker will authenticate with
+`SBSCORE_AUDIO_WORKER_TOKENS` holds the bearer tokens the audio transcription worker will authenticate with
 (`openssl rand -hex 32`, comma-separated); it has no effect until the audio endpoints are deployed.
 
 ```sh
@@ -97,7 +97,7 @@ docker compose -f compose.hosted.yaml exec postgres psql -U postgres -c 'DROP DA
 | See logs | `docker compose -f compose.hosted.yaml logs -f api` (the API logs method, path, status and duration, never bodies, cookies or tokens; Caddy redacts credentials in its access log by default) |
 | Tune limits and quotas | set the `SBSCORE_LIMIT_*` / `SBSCORE_QUOTA_*` variables in `.env` (listed, commented out, in the template) and `up -d` again |
 | Rotate the GitHub client secret | change it in GitHub and `.env`, then `up -d`; sessions survive (they are ours, not GitHub's) |
-| Rotate a worker token | replace it in `SBSCORE_WORKER_TOKENS` and in the worker's config, then `up -d` |
+| Rotate a worker token | replace it in `SBSCORE_AUDIO_WORKER_TOKENS` and in the worker's config, then `up -d` |
 | Add a second API replica | not yet: the API runs as one replica. Redis already carries the change bus and the rate-limit counters, so it is a configuration change when the time comes |
 
 The compose file restarts every service on failure (`unless-stopped`) and gives each a health check. For an
