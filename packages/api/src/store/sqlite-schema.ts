@@ -113,6 +113,18 @@ CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, crea
 -- The runner claims the oldest queued job across all owners; this index is that claim's scan.
 CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
 
+-- The blob ledger (V25, ADR-0034 decisions 11 and 16): which account owns which stored blob, so account
+-- deletion and the sweep can find them (a blob key is hashed by every BlobStore and cannot be listed by
+-- owner). Additive and idempotent, so it needed no table-schema bump.
+CREATE TABLE IF NOT EXISTS blob_refs (
+  owner       TEXT NOT NULL,
+  key         TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  PRIMARY KEY (owner, key)
+);
+CREATE INDEX IF NOT EXISTS blob_refs_kind_recorded ON blob_refs (kind, recorded_at);
+
 -- Identity (table schema version 6, V20, ADR-0034). Purely additive: three new tables and no change to
 -- any existing one, so a v5 library opens, gains them, and keeps every row it had. A user's id is what
 -- becomes \`owner\` on the rows they create; the local library's owner stays the literal 'local' and has

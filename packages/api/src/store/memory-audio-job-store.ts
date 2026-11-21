@@ -79,6 +79,16 @@ export function memoryAudioJobStore(options: MemoryAudioJobStoreOptions = {}): A
       jobs.delete(id);
       return structuredClone(job);
     },
+    async deleteAll(owner) {
+      const keys: { id: string; audioKey: string }[] = [];
+      for (const [jobId, row] of usage) if (row.owner === owner) usage.delete(jobId);
+      for (const [id, job] of jobs) {
+        if (job.owner !== owner) continue;
+        keys.push({ id, audioKey: job.audioKey });
+        jobs.delete(id);
+      }
+      return keys;
+    },
     async claim(leaseSeconds) {
       const queued = [...jobs.values()]
         .filter((job) => job.status === 'queued')

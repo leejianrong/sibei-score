@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AudioJobStore, AuthStore, JobStore, ScoreStore } from '@sibei/api';
+import type { AudioJobStore, AuthStore, BlobLedger, JobStore, ScoreStore } from '@sibei/api';
 import type { MigrationResult, Score } from '@sibei/model';
 import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
 
@@ -21,6 +21,7 @@ export interface Harness {
   jobs: JobStore;
   audio: AudioJobStore;
   auth: AuthStore;
+  ledger: BlobLedger;
   close(): Promise<void>;
 }
 
@@ -904,6 +905,118 @@ export function audioJobStoreConformance(label: string, open: OpenHarness): void
       expect(await audio.rejectResult(job.id, 'invalid-result', 'again')).toBeNull(); // no longer succeeded
       expect((await audio.getById(job.id))?.status).toBe('failed');
       expect(await audio.getById('nope')).toBeNull();
+    });
+  });
+}
+
+/**
+ * Account erasure and the blob ledger (V25): the store-level halves of `DELETE /v1/auth/account`. Each
+ * adapter must delete exactly one owner's data and leave every other owner's whole.
+ */
+export function accountErasureConformance(label: string, open: OpenHarness): void {
+  const open_: Harness[] = [];
+  afterEach(async () => {
+    while (open_.length > 0) await open_.pop()?.close();
+  });
+  async function fresh(options?: OpenOptions): Promise<Harness> {
+    const harness = await open(options);
+    open_.push(harness);
+    return harness;
+  }
+
+  describe(`${label}: account erasure (V25)`, () => {
+    it('deletes every score and op log an owner has, and only theirs', async () => {
+      const { store } = await fresh();
+      await insert(store, 'alice', aScore('one'));
+      await insert(store, 'alice', aScore('two'));
+      await insert(store, 'bob', aScore('one'));
+      expect(await store.deleteAll('alice')).toBe(2);
+      expect(await store.list('alice')).toEqual([]);
+      expect(await store.operations('alice', 'one')).toEqual([]);
+      expect((await store.list('bob')).map((row) => row.id)).toEqual(['one']);
+      expect(await store.operations('bob', 'one')).toHaveLength(1);
+      expect(await store.deleteAll('alice')).toBe(0);
+    });
+
+    it("deletes an owner's jobs and hands back their image keys, and only theirs", async () => {
+      const { jobs } = await fresh();
+      await jobs.create('alice', ['a1', 'a2']);
+      await jobs.create('alice', ['a3']);
+      const bobs = await jobs.create('bob', ['b1']);
+      expect((await jobs.deleteAll('alice')).sort()).toEqual(['a1', 'a2', 'a3']);
+      expect(await jobs.list('alice')).toEqual([]);
+      expect((await jobs.get('bob', bobs.id))?.imageKeys).toEqual(['b1']);
+      expect(await jobs.deleteAll('alice')).toEqual([]);
+    });
+
+    it("deletes an owner's audio jobs and hands back their audio keys, and only theirs", async () => {
+      const { audio } = await fresh();
+      const job = { contentType: 'audio/mpeg', filename: null, sizeBytes: 10, instrument: null, declaredDurationSeconds: null };
+      await audio.create('alice', { ...job, audioKey: 'audio:a1' });
+      await audio.create('alice', { ...job, audioKey: 'audio:a2' });
+      const bobs = await audio.create('bob', { ...job, audioKey: 'audio:b1' });
+      expect((await audio.deleteAll('alice')).map((job) => job.audioKey).sort()).toEqual(['audio:a1', 'audio:a2']);
+      expect(await audio.list('alice')).toEqual([]);
+      expect((await audio.get('bob', bobs.id))?.audioKey).toBe('audio:b1');
+      expect(await audio.deleteAll('alice')).toEqual([]);
+    });
+
+    it("deletes an owner's metering ledger with their audio jobs", async () => {
+      const { audio } = await fresh();
+      await audio.recordUsage('alice', 'job-a', 30);
+      await audio.recordUsage('bob', 'job-b', 60);
+      await audio.deleteAll('alice');
+      expect((await audio.usageSince('alice', '1970-01-01T00:00:00Z')).seconds).toBe(0);
+      expect((await audio.usageSince('bob', '1970-01-01T00:00:00Z')).seconds).toBe(60);
+    });
+
+    it('deletes a user with their identities, sessions and tokens, and answers false the second time', async () => {
+      const { auth } = await fresh();
+      const alice = await auth.signIn({ provider: 'github', subject: '1', login: 'alice', name: null });
+      const bob = await auth.signIn({ provider: 'github', subject: '2', login: 'bob', name: null });
+      await auth.createSession('alice-session', alice.id, '2099-01-01T00:00:00Z');
+      await auth.createSession('bob-session', bob.id, '2099-01-01T00:00:00Z');
+      await auth.createToken({ id: 'tok_a', tokenHash: 'ha', userId: alice.id, name: 'x', scopes: ['read'], expiresAt: '2099-01-01T00:00:00Z' });
+      expect(await auth.deleteUser(alice.id)).toBe(true);
+      expect(await auth.getUser(alice.id)).toBeNull();
+      expect(await auth.findSession('alice-session', '2026-01-01T00:00:00Z')).toBeNull();
+      expect(await auth.findToken('ha', '2026-01-01T00:00:00Z')).toBeNull();
+      expect(await auth.listTokens(alice.id)).toEqual([]);
+      expect(await auth.findSession('bob-session', '2026-01-01T00:00:00Z')).not.toBeNull();
+      expect(await auth.deleteUser(alice.id)).toBe(false);
+      // signing in again with the same GitHub identity is a *new* user, not the old one back
+      expect((await auth.signIn({ provider: 'github', subject: '1', login: 'alice', name: null })).id).not.toBe(alice.id);
+    });
+
+    it('records blobs per owner, idempotently, and forgets them', async () => {
+      const { ledger } = await fresh({ now: ticking() });
+      await ledger.record('alice', 'k1', 'export');
+      await ledger.record('alice', 'k1', 'export');
+      await ledger.record('alice', 'k2', 'import-source');
+      await ledger.record('bob', 'k1', 'export');
+      expect((await ledger.list('alice')).map((ref) => [ref.key, ref.kind])).toEqual([
+        ['k1', 'export'],
+        ['k2', 'import-source'],
+      ]);
+      await ledger.forget('alice', 'k1');
+      expect((await ledger.list('alice')).map((ref) => ref.key)).toEqual(['k2']);
+      await ledger.forgetAll('alice');
+      expect(await ledger.list('alice')).toEqual([]);
+      expect((await ledger.list('bob')).map((ref) => ref.key)).toEqual(['k1']);
+    });
+
+    it('finds blobs of a kind older than a cutoff, across owners, oldest first', async () => {
+      const { ledger } = await fresh({ now: ticking('2026-08-01T00:00:00Z') });
+      await ledger.record('alice', 'old', 'export'); // :00
+      await ledger.record('bob', 'other-kind', 'import-source'); // :01
+      await ledger.record('bob', 'mid', 'export'); // :02
+      await ledger.record('alice', 'new', 'export'); // :03
+      const found = await ledger.olderThan('export', '2026-08-01T00:00:03Z', 10);
+      expect(found.map((ref) => [ref.owner, ref.key])).toEqual([
+        ['alice', 'old'],
+        ['bob', 'mid'],
+      ]);
+      expect(await ledger.olderThan('export', '2026-08-01T00:00:03Z', 1)).toHaveLength(1);
     });
   });
 }

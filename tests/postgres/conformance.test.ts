@@ -1,5 +1,5 @@
-import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
-import { audioJobStoreConformance, authStoreConformance, jobStoreConformance, storeConformance } from '../store/conformance.js';
+import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresBlobLedger, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
+import { accountErasureConformance, audioJobStoreConformance, authStoreConformance, jobStoreConformance, storeConformance } from '../store/conformance.js';
 import type { OpenHarness } from '../store/conformance.js';
 import { provisionDatabase, quiet } from './support.js';
 
@@ -21,12 +21,15 @@ const open: OpenHarness = async (options = {}) => {
   const jobs = await openPostgresJobStore({ connectionString: database.url, onError: quiet, ...clock });
   const audio = await openPostgresAudioJobStore({ connectionString: database.url, onError: quiet, ...clock });
   const auth = await openPostgresAuthStore({ connectionString: database.url, onError: quiet, ...clock });
+  const ledger = await openPostgresBlobLedger({ connectionString: database.url, onError: quiet, ...clock });
   return {
     store,
     jobs,
     audio,
     auth,
+    ledger,
     async close() {
+      await ledger.close();
       await store.close();
       await jobs.close();
       await audio.close();
@@ -40,3 +43,4 @@ storeConformance('postgres', open);
 jobStoreConformance('postgres', open);
 audioJobStoreConformance('postgres', open);
 authStoreConformance('postgres', open);
+accountErasureConformance('postgres', open);

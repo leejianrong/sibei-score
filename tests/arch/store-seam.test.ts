@@ -33,6 +33,9 @@ const SQLITE_IMPLEMENTATION = [
   // The fourth (V20): identity — users, identities, hashed sessions. Its own file and connection for the
   // reason the job store is: a session is not a score. See its header.
   'packages/api/src/store/sqlite-auth.ts',
+  // The fifth (V25): the blob ledger — which account owns which blob. Its own port and connection, like the job
+  // and identity stores; its table is created by `sqlite-schema.ts`.
+  'packages/api/src/store/sqlite-blobs.ts',
   // The fifth (SIB2-137): audio jobs, the second kind of durable job. Its own file for the reason the
   // import-job store is.
   'packages/api/src/store/sqlite-audio-jobs.ts',
@@ -49,6 +52,7 @@ const POSTGRES_IMPLEMENTATION = [
   'packages/api/src/store/postgres-store.ts',
   'packages/api/src/store/postgres-jobs.ts',
   'packages/api/src/store/postgres-auth.ts',
+  'packages/api/src/store/postgres-blobs.ts',
   'packages/api/src/store/postgres-audio-jobs.ts',
 ];
 

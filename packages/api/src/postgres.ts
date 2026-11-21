@@ -15,3 +15,5 @@ export type { PostgresAudioJobStoreOptions } from './store/postgres-audio-jobs.j
 export { openPostgresAuthStore } from './store/postgres-auth.js';
 export type { PostgresAuthStoreOptions } from './store/postgres-auth.js';
 export { POSTGRES_TABLE_SCHEMA_VERSION } from './store/postgres-schema.js';
+export { openPostgresBlobLedger } from './store/postgres-blobs.js';
+export type { PostgresBlobLedgerOptions } from './store/postgres-blobs.js';

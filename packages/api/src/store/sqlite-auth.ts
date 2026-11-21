@@ -73,6 +73,7 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
       `SELECT user_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?`,
     ),
     deleteSession: db.prepare(`DELETE FROM sessions WHERE token_hash = ?`),
+    deleteUser: db.prepare(`DELETE FROM users WHERE id = ?`),
     purge: db.prepare(`DELETE FROM sessions WHERE expires_at <= ?`),
 
     insertDevice: db.prepare(
@@ -174,6 +175,10 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
     async findSession(tokenHash, at): Promise<Session | null> {
       const row = statements.session.get(tokenHash, at);
       return row === undefined ? null : { userId: row.user_id, expiresAt: row.expires_at };
+    },
+    async deleteUser(id) {
+      // identities, sessions, device_codes, api_tokens and oauth_codes all cascade from users.
+      return statements.deleteUser.run(id).changes === 1;
     },
     async deleteSession(tokenHash) {
       return statements.deleteSession.run(tokenHash).changes === 1;

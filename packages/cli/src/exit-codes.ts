@@ -115,6 +115,8 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'invalid-code':
     case 'invalid-scopes':
     case 'expired-code':
+    // Account deletion (V25): the login typed back did not match. Readable, not fulfilled, fix and retry.
+    case 'confirmation-mismatch':
       return EXIT.validation;
     case 'no-such-score':
     case 'no-such-audio-job':

@@ -116,6 +116,11 @@ export interface AudioJobWriter {
    * its blob) or `null`. A worker holding a lease on it learns at its next heartbeat (`cancelled`).
    */
   delete(owner: Owner, id: AudioJobId): Promise<AudioJob | null>;
+  /**
+   * Delete every audio job this owner has and return each one's id and audio key (V25, account deletion), so
+   * the caller can delete the audio and result objects too. Not a request-path operation.
+   */
+  deleteAll(owner: Owner): Promise<{ id: AudioJobId; audioKey: BlobKey }[]>;
 }
 
 /**

@@ -191,6 +191,10 @@ function publishMove<T extends { moved: boolean; scoreId: Id; version: number }>
 /** The same, for the one mutation that is not an operation (ADR-0003). */
 export function publishingLibrary(library: ScoreLibrary, publisher: ChangePublisher): ScoreLibrary {
   return {
+    // A whole account going (V25) takes every open view with it, but each is behind a session that is
+    // about to end too, so there is no one to tell; a pass-through is the honest wiring.
+    deleteAll: (owner) => library.deleteAll(owner),
+
     async delete(owner, id) {
       const deleted = await library.delete(owner, id);
       // Only on a real deletion. A 404 is not an event.

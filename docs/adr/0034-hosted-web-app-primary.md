@@ -326,6 +326,24 @@ exponential back-off; `complete` and `fail` are safe to retry.
 - Whether Postgres backups need a stated retention beyond "nightly, best effort".
 - Rate-limit and quota numbers (set conservatively, tune with real use).
 
+## Amendment (V25a, 2026-11): how account deletion is built
+
+Decision 11 as implemented. `DELETE /v1/auth/account` takes the **session cookie only** (a leaked API token
+must not be able to destroy the account it was minted for, so there is deliberately no `sbscore account
+delete`: the one capability Q79 gives no CLI twin) and a body `{ "confirm": "<your login>" }`. It erases, in
+order: the account's jobs, scores (op logs by cascade), every blob, the blob-ledger rows, and last the
+identity (users, identities, sessions, device codes, tokens, OAuth codes). The identity goes last so a failure
+part-way leaves the person signed in and able to press the button again; every step is idempotent.
+
+A blob key is hashed into a filename or object name by every `BlobStore`, so the store cannot be asked what an
+account holds. A **blob ledger** (`blob_refs`: owner, key, kind, first-recorded time) is the index: every
+writer of a blob for an account records it (import scans and the export cache now; audio objects when that
+slice lands). Import-scan and export keys are owner-scoped so two accounts never share a blob. The same
+ledger is what the orphan/expired-blob sweep (V25b) and audio retention (decision 16) query by kind and age.
+Residual: a *running* import that finishes after its job row was deleted lands a score for an account that no
+longer exists; the sweep removes such orphans. A new table holding account data must be named in
+`tests/arch/account-erasure-coverage.test.ts` and reached by one of the deletes above.
+
 ### Amendment: the join as built (SIB2-E10)
 
 The import hook is `createAudioResultImporter` and is wired by default in `createApi`. Differences from the text

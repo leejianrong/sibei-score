@@ -127,9 +127,13 @@ export function exportBlobKey(
   id: Id,
   record: Pick<ScoreRecord, 'score' | 'version'>,
   request: ExportRequest,
+  owner?: Owner,
 ): BlobKey {
   return [
     'export',
+    // The owner scopes the key (V25), so two accounts' artefacts are never the same blob and deleting one
+    // account's cannot cost the other a cache hit. Omitted only by the callers that predate tenancy.
+    ...(owner === undefined ? [] : [encodeURIComponent(owner)]),
     encodeURIComponent(id),
     `v${String(record.version)}`,
     documentDigest(record.score),
@@ -144,13 +148,21 @@ function documentDigest(score: Score): string {
   return createHash('sha256').update(JSON.stringify(score), 'utf8').digest('hex').slice(0, 16);
 }
 
-export function createExporter(reader: ScoreReader, blobs: BlobStore): Exporter {
+/**
+ * `onStore` is told each time an artefact is written to the cache, so the caller can record the blob
+ * against its owner (the blob ledger, V25) and account deletion can find it.
+ */
+export function createExporter(
+  reader: ScoreReader,
+  blobs: BlobStore,
+  onStore?: (owner: Owner, key: BlobKey) => Promise<void>,
+): Exporter {
   return {
     async export(owner, id, request) {
       const record = await reader.get(owner, id);
       if (record === null) return { ok: false, reason: 'no-such-score' };
 
-      const key = exportBlobKey(id, record, request);
+      const key = exportBlobKey(id, record, request, owner);
       const describe = (bytes: Buffer, cached: boolean): ExportOutcome => ({
         ok: true,
         artefact: {
@@ -170,6 +182,7 @@ export function createExporter(reader: ScoreReader, blobs: BlobStore): Exporter 
       // just before rendering, and never persisted (ADR-0016). `concert` returns it untouched.
       const bytes = await render(writtenPart(record.score, request.instrument), request);
       await blobs.put(key, bytes);
+      await onStore?.(owner, key);
       return describe(bytes, false);
     },
   };

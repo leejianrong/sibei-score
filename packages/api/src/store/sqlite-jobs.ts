@@ -107,6 +107,8 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
         WHERE owner = ? AND id = ? AND status = 'failed'
       RETURNING *`,
     ),
+    keysOf: db.prepare<[Owner], { image_keys: string }>(`SELECT image_keys FROM import_jobs WHERE owner = ?`),
+    deleteAll: db.prepare(`DELETE FROM import_jobs WHERE owner = ?`),
     recover: db.prepare<[string, string]>(
       `UPDATE import_jobs
           SET status = 'failed', diagnostic = ?, version = version + 1, updated_at = ?
@@ -166,6 +168,12 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
 
     async recover(diagnostic) {
       return statements.recover.run(diagnostic, timestamp(now)).changes;
+    },
+
+    async deleteAll(owner) {
+      const keys = statements.keysOf.all(owner).flatMap((row) => JSON.parse(row.image_keys) as BlobKey[]);
+      statements.deleteAll.run(owner);
+      return keys;
     },
 
     async close() {

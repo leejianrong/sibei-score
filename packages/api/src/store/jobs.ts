@@ -136,6 +136,11 @@ export interface JobWriter {
    * crashes the worker looping forever. Returns how many it recovered.
    */
   recover(diagnostic: string): Promise<number>;
+  /**
+   * Delete every job this owner has and return the blob keys of their source images (V25, account
+   * deletion), so the caller can delete the blobs too. Not a request-path operation.
+   */
+  deleteAll(owner: Owner): Promise<BlobKey[]>;
 }
 
 export interface JobStore extends JobReader, JobWriter {

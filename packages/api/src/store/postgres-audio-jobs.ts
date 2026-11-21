@@ -131,6 +131,15 @@ export async function openPostgresAudioJobStore(options: PostgresAudioJobStoreOp
       });
     },
 
+    async deleteAll(owner): Promise<{ id: string; audioKey: string }[]> {
+      return asOwner(pool, owner, async (client) => {
+        // The metering ledger is the account's too: nothing addressed by its id may outlive it (V25).
+        await client.query(`DELETE FROM audio_usage WHERE owner = $1`, [owner]);
+        const result = await client.query<{ id: string; audio_key: string }>(`DELETE FROM audio_jobs WHERE owner = $1 RETURNING id, audio_key`, [owner]);
+        return result.rows.map((row) => ({ id: row.id, audioKey: row.audio_key }));
+      });
+    },
+
     async claim(leaseSeconds): Promise<AudioJob | null> {
       const at = now();
       return asSystem(pool, async (client) => {

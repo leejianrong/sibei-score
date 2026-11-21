@@ -25,3 +25,5 @@ export type { SqliteAudioJobStoreOptions } from './store/sqlite-audio-jobs.js';
 export { openSqliteAuthStore } from './store/sqlite-auth.js';
 export type { SqliteAuthStoreOptions } from './store/sqlite-auth.js';
 export { TABLE_SCHEMA_VERSION } from './store/sqlite-schema.js';
+export { openSqliteBlobLedger } from './store/sqlite-blobs.js';
+export type { SqliteBlobLedgerOptions } from './store/sqlite-blobs.js';

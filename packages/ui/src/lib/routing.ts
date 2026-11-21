@@ -15,6 +15,8 @@ export type Route =
   | { view: 'device' }
   /** The caller's API tokens, to look at and revoke (V21b). */
   | { view: 'tokens' }
+  /** The account page, with deletion (V25). */
+  | { view: 'account' }
   /** Audio to be transcribed (SIB2-137): upload, watch, retry, delete. */
   | { view: 'audio' }
   /**
@@ -26,6 +28,7 @@ export type Route =
 export const LIBRARY: Route = { view: 'library' };
 export const DEVICE: Route = { view: 'device' };
 export const TOKENS: Route = { view: 'tokens' };
+export const ACCOUNT: Route = { view: 'account' };
 export const AUDIO: Route = { view: 'audio' };
 
 export function routeOf(hash: string): Route {
@@ -35,6 +38,7 @@ export function routeOf(hash: string): Route {
   }
   if (path === 'device' || path.startsWith('device?')) return DEVICE;
   if (path === 'tokens') return TOKENS;
+  if (path === 'account') return ACCOUNT;
   if (path === 'audio') return AUDIO;
   const id = /^score\/(.+)$/.exec(path)?.[1];
   return id === undefined || id === '' ? LIBRARY : { view: 'score', id: decodeURIComponent(id) };
@@ -48,6 +52,8 @@ export function hashOf(route: Route): string {
       return '#/device';
     case 'tokens':
       return '#/tokens';
+    case 'account':
+      return '#/account';
     case 'audio':
       return '#/audio';
     case 'authorize':

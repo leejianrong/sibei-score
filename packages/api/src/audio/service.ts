@@ -5,6 +5,7 @@ import type { AudioQuotaConfig } from './quota.js';
 import { isPresigning } from '../blob/blob-store.js';
 import type { ManagedBlobStore } from '../blob/blob-store.js';
 import type { AudioJob, AudioJobId, AudioJobReader, AudioJobStore } from '../store/audio-jobs.js';
+import type { BlobLedger } from '../store/blob-ledger.js';
 import type { Owner } from '../store/repository.js';
 
 /**
@@ -119,6 +120,11 @@ export function usagePeriod(at: Date): { start: string; end: string } {
 export interface AudioServiceOptions {
   jobs: AudioJobStore;
   blobs: ManagedBlobStore;
+  /**
+   * Records each audio object against its owner (V25), so account deletion and the sweep can find it. The
+   * key is recorded when the job is created, before any bytes exist: deleting an absent object is not an error.
+   */
+  ledger?: BlobLedger;
   limits?: Partial<AudioLimits>;
   /** The audio-second allowance (SIB2-140). Absent means no cap. */
   quota?: AudioQuotaConfig;
@@ -220,6 +226,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
         instrument,
         declaredDurationSeconds: typeof duration === 'number' ? duration : null,
       });
+      await options.ledger?.record(owner, job.audioKey, 'audio');
       return { ok: true, job, upload: target(job) };
     },
 
@@ -272,6 +279,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       if (removed === null) return false;
       // The audio goes with the job (decision 16). A blob that was never uploaded is not an error.
       await blobs.delete(removed.audioKey);
+      await options.ledger?.forget(owner, removed.audioKey);
       await blobs.delete(`audio-result:${removed.id}`);
       return true;
     },

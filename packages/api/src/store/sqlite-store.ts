@@ -85,6 +85,7 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
         WHERE owner = @owner AND id = @id AND version = @version`,
     ),
     delete: db.prepare(`DELETE FROM scores WHERE owner = ? AND id = ?`),
+    deleteAll: db.prepare(`DELETE FROM scores WHERE owner = ?`),
 
     // The log. Append-only: there is no UPDATE and no DELETE against it, because rewriting
     // history is exactly what undo-by-replay must never be able to do (ADR-0003). Rows go only
@@ -236,6 +237,11 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
 
     async delete(owner, id) {
       return statements.delete.run(owner, id).changes === 1;
+    },
+
+    async deleteAll(owner) {
+      // The op log goes by cascade (operations.FOREIGN KEY ... ON DELETE CASCADE).
+      return statements.deleteAll.run(owner).changes;
     },
 
     async close() {

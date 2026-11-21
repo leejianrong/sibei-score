@@ -5,6 +5,7 @@ import type { Problem } from '../http/problems.js';
 import { pathOf, queryOf, send, sendJson } from '../http/routes.js';
 import type { AuthStore, ProviderProfile } from '../store/auth.js';
 import { timestamp } from '../store/store-shared.js';
+import { createAccountRoutes } from './account.js';
 import { createDeviceRoutes, TOKEN_PREFIX } from './device.js';
 import { createOAuthRoutes } from './oauth.js';
 import { hashToken, pkceChallenge, randomToken, readCookie, sameSecret, serializeCookie } from './secrets.js';
@@ -75,6 +76,11 @@ export interface HostedAuthOptions {
   publicUrl: string;
   github: GitHubOptions;
   sessionTtlMs?: number;
+  /**
+   * Erases everything a user owns except the identity (scores, jobs, blobs), for account deletion (V25).
+   * Supplied by `server.ts`, which holds the stores; without it `DELETE /v1/auth/account` is not routed.
+   */
+  eraseData?: (owner: string) => Promise<unknown>;
   now?: () => Date;
   /** Where an upstream failure is reported — the message only, never a body, a code or a token. */
   onError?: (message: string, error: unknown) => void;
@@ -151,6 +157,16 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     // The browser page that takes the code is V21b's; the address is fixed here so the CLI can print it.
     verificationUri: `${publicUrl.origin}/#/device`,
   });
+
+  const account =
+    options.eraseData === undefined
+      ? undefined
+      : createAccountRoutes({
+          auth,
+          sessionUser,
+          eraseData: options.eraseData,
+          clearSessionCookie: () => serializeCookie(SESSION_COOKIE, '', { path: '/', maxAge: 0, secure }),
+        });
 
   const oauth = createOAuthRoutes({ auth, now, origin: publicUrl.origin, sessionUser });
 
@@ -314,7 +330,10 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
       if (path === '/v1/auth/logout') {
         return method === 'POST' ? logout(request, response) : notAllowed(response, 'POST');
       }
-      const handled = (await device.handle(request, response)) ?? (await oauth.handle(request, response));
+      const handled =
+        (await account?.handle(request, response)) ??
+        (await device.handle(request, response)) ??
+        (await oauth.handle(request, response));
       if (handled !== null) return handled;
       return send(response, notFound());
     },

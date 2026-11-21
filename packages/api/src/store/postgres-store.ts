@@ -218,6 +218,13 @@ export async function openPostgresStore(options: PostgresStoreOptions): Promise<
       });
     },
 
+    async deleteAll(owner): Promise<number> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query(`DELETE FROM scores WHERE owner = $1`, [owner]);
+        return result.rowCount ?? 0;
+      });
+    },
+
     async close(): Promise<void> {
       await closeHandle(handle);
     },

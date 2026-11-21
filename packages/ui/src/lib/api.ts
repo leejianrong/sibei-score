@@ -130,6 +130,14 @@ export async function decideAuthorization(params: Record<string, string>, approv
 }
 
 /**
+ * Delete the signed-in account and everything it owns (V25). The login is typed back as confirmation and
+ * the server checks it; the session cookie is what authorises it (a token cannot).
+ */
+export async function deleteAccount(confirm: string): Promise<void> {
+  await sendBody('DELETE', `${V1}/auth/account`, { confirm });
+}
+
+/**
  * An audio job as `GET /v1/audio/jobs` serves it (SIB2-137). The wire shape, restated here for the
  * reason `ScoreListing` is: a browser bundle has no business resolving `@sibei/api`.
  */

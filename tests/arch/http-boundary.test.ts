@@ -138,6 +138,8 @@ describe('the routes cannot write (ADR-0003)', () => {
       'packages/api/src/auth/device.ts',
       // The OAuth server for MCP (V22a) mints the same tokens from the same store, built by `hosted.ts` too.
       'packages/api/src/auth/oauth.ts',
+      // Account deletion (V25): cookie-only, deletes the identity last; built by `hosted.ts` as the others are.
+      'packages/api/src/auth/account.ts',
       'packages/api/src/store/auth.ts',
       'packages/api/src/store/sqlite-auth.ts',
       'packages/api/src/store/postgres-auth.ts',

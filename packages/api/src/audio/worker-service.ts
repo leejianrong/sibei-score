@@ -106,7 +106,8 @@ export interface AudioWorkerService {
   stopSweeper(): void;
 }
 
-const resultKey = (id: AudioJobId): string => `audio-result:${id}`;
+/** The blob key a job's NoteEvents result is uploaded under. Exported so account deletion can remove it. */
+export const resultKey = (id: AudioJobId): string => `audio-result:${id}`;
 
 export function createAudioWorkerService(options: {
   jobs: AudioJobStore;

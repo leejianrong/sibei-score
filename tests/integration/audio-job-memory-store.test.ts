@@ -9,7 +9,7 @@ import type { OpenHarness } from '../store/conformance.js';
  */
 const open: OpenHarness = async (options = {}) => {
   const audio = memoryAudioJobStore(options.now === undefined ? {} : { now: options.now });
-  return { audio, store: undefined as never, jobs: undefined as never, auth: undefined as never, close: () => audio.close() };
+  return { audio, store: undefined as never, jobs: undefined as never, auth: undefined as never, ledger: undefined as never, close: () => audio.close() };
 };
 
 audioJobStoreConformance('memory', open);

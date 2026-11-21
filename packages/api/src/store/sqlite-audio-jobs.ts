@@ -76,6 +76,8 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
         WHERE owner = ? AND id = ? AND status = 'failed' RETURNING *`,
     ),
     delete: db.prepare<[string, string], AudioJobRow>(`DELETE FROM audio_jobs WHERE owner = ? AND id = ? RETURNING *`),
+    deleteUsage: db.prepare<[string]>(`DELETE FROM audio_usage WHERE owner = ?`),
+    deleteAll: db.prepare<[string], { id: string; audio_key: string }>(`DELETE FROM audio_jobs WHERE owner = ? RETURNING id, audio_key`),
 
     // The ledger (SIB2-139). INSERT OR IGNORE on the job id is the idempotency.
     recordUsage: db.prepare<[string, string, number, string]>(
@@ -168,6 +170,11 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
     async delete(owner, id) {
       const row = statements.delete.get(owner, id);
       return row === undefined ? null : toAudioJob(row);
+    },
+    async deleteAll(owner) {
+      // The metering ledger is the account's too: nothing addressed by its id may outlive it (V25).
+      statements.deleteUsage.run(owner);
+      return statements.deleteAll.all(owner).map((row) => ({ id: row.id, audioKey: row.audio_key }));
     },
     async claim(leaseSeconds) {
       const at = now();
