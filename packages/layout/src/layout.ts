@@ -12,7 +12,7 @@ import { resolveBarAccidentals } from './accidentals.js';
 import { planSystems } from './grid.js';
 import { buildFurniture, footerReserve } from './furniture.js';
 import type { LayoutFurniture } from './furniture.js';
-import type { LayoutBarItem, LayoutText, LayoutTie } from './items.js';
+import type { LayoutBarItem, LayoutSlur, LayoutText, LayoutTie } from './items.js';
 import type { PageSpec, PageSpecInput } from './page.js';
 import { resolvePageSpec } from './page.js';
 import type { AllocatedBar, BarPrefix } from './widths.js';
@@ -60,6 +60,8 @@ export interface LayoutSystem {
   staveY: number;
   bars: LayoutBar[];
   ties: LayoutTie[];
+  /** The slurs on this system, a half-slur where one crosses a system break (SIB2-168). */
+  slurs: LayoutSlur[];
 }
 
 export interface LayoutPage {
@@ -102,6 +104,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
     }
   });
   const tiesBySystem = planTies(score, systemOfNote);
+  const slursBySystem = planSlurs(score, systemOfNote);
 
   // Which systems draw the clef and key signature (SIB2-173). Widths depend on it, pagination does not
   // (a system's height comes from its notes, never its width), so for the `page` policy the systems are
@@ -118,7 +121,10 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         {
           bars,
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
-          hasRehearsalMark: bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null),
+          hasRehearsalMark:
+            bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null) ||
+            // The tempo mark takes the same band as a rehearsal letter (SIB2-177).
+            (index === 0 && score.meta.tempo !== undefined),
         },
         spec,
       );
@@ -136,6 +142,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         staveY: 0,
         bars: allocated.map((entry) => buildBar(score, entry)),
         ties: tiesBySystem.get(index) ?? [],
+        slurs: slursBySystem.get(index) ?? [],
       };
     });
 
@@ -314,6 +321,10 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
     items.push({ kind: 'rehearsalMark', sectionId: section.id, text: section.letter });
   }
 
+  if (score.meta.tempo !== undefined && bar.id === score.bars[0]?.id) {
+    items.push({ kind: 'tempo', unit: score.meta.tempo.unit, bpm: score.meta.tempo.bpm });
+  }
+
   if (bar.ending !== null) {
     items.push({ kind: 'ending', numbers: bar.ending.numbers, role: bar.ending.role });
   }
@@ -437,5 +448,37 @@ function planTies(score: Score, systemOfNote: Map<Id, number>): Map<number, Layo
 
   // A dangling tie start has nothing to tie to. It is a defect in the score, not
   // something to draw; flagging it belongs with the import review flags (V11).
+  return bySystem;
+}
+
+// ---------------------------------------------------------------------------
+// Slurs
+// ---------------------------------------------------------------------------
+
+/**
+ * Slurs name their two notes (a `Spanner`), so unlike a tie there is nothing to pair up: each is
+ * placed on the system its start note is on, and one that ends on a later system becomes two
+ * half-slurs, as a tie does. A slur whose note has gone (a stale id) is not drawn.
+ */
+function planSlurs(score: Score, systemOfNote: Map<Id, number>): Map<number, LayoutSlur[]> {
+  const bySystem = new Map<number, LayoutSlur[]>();
+  const push = (system: number, slur: LayoutSlur): void => {
+    const list = bySystem.get(system);
+    if (list === undefined) bySystem.set(system, [slur]);
+    else list.push(slur);
+  };
+  for (const spanner of score.spanners ?? []) {
+    if (spanner.kind !== 'slur') continue;
+    const from = systemOfNote.get(spanner.startId);
+    const to = systemOfNote.get(spanner.endId);
+    if (from === undefined || to === undefined) continue;
+    const placement = spanner.placement === undefined ? {} : { placement: spanner.placement };
+    if (from === to) {
+      push(from, { id: spanner.id, fromNoteId: spanner.startId, toNoteId: spanner.endId, ...placement });
+    } else {
+      push(from, { id: spanner.id, fromNoteId: spanner.startId, toNoteId: null, ...placement });
+      push(to, { id: spanner.id, fromNoteId: null, toNoteId: spanner.endId, ...placement });
+    }
+  }
   return bySystem;
 }

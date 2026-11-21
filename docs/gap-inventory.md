@@ -98,7 +98,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F20 | Fermata | M | M | M | M | M | M | M | M | |
 | F21 | Ottava line | M | M | M | M | M | M | M | M | |
 | F22 | Dashed continuation line | M | M | M | M | M | M | M | M | |
-| F23 | Metronome mark | P | S | P | P | M | S | M | S | Style text can hold `q=278`; no note glyph, no placement |
+| F23 | Metronome mark | S | S | S | S | S | S | S | S | Closed by SIB2-177: `meta.tempo`, `meta set --tempo 4=120`, drawn above the first bar, `<sound tempo>` in MusicXML, a rail control |
 | F24 | Extra title-block fields | M | M | M | M | P | M | M | M | `meta` has title, composer, style only |
 | F25 | Empty staves at page bottom | M | M | M | M | - | M | M | M | |
 | F26 | Parenthesised accidentals | S | S | S | S | S | S | S | M | Closed by SIB2-182: the `parens` display, `--accidental paren`, the inspector control, MusicXML `parentheses="yes"` |

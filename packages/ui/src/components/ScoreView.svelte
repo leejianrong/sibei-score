@@ -51,6 +51,8 @@
   import type { ChordBox } from '../lib/chord-hit.js';
   import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
   import { renderScorePages } from '../lib/render.js';
+  import { removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
+  import type { SlurChoice } from '../lib/slur-edits.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
   import ChordInspector from './ChordInspector.svelte';
@@ -215,6 +217,35 @@
     ]);
   }
 
+  // The tempo mark (SIB2-177): a beat unit and a number, saved as a `meta.set`, re-seeded from the chart.
+  let tempoUnit = $state('4');
+  let tempoBpm = $state('');
+  $effect(() => {
+    const tempo = score?.meta.tempo;
+    tempoUnit = tempo === undefined ? '4' : `${tempo.unit.value}${tempo.unit.dots === 1 ? '.' : ''}`;
+    tempoBpm = tempo === undefined ? '' : String(tempo.bpm);
+  });
+  async function handleTempoSave(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([
+      {
+        type: 'meta.set',
+        payload: {
+          tempo: {
+            unit: { value: Number(tempoUnit.replace('.', '')), dots: tempoUnit.endsWith('.') ? 1 : 0 },
+            bpm: Number(tempoBpm),
+          },
+        },
+      },
+    ]);
+  }
+  async function handleTempoRemove(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { tempo: null } }]);
+  }
+
   async function handleChordStyle(event: Event): Promise<void> {
     if (score === null) return;
     const chosen = (event.currentTarget as HTMLSelectElement).value as 'standard' | 'dash' | 'words' | 'real-book';
@@ -227,6 +258,10 @@
   // leaves it holding a stale copy of what it is inspecting.
   let selectedId = $state<Id | null>(null);
   let selectedPage = $state<number | null>(null);
+  // The second note of a slur (SIB2-168): shift-click beside the selected note. Like the selection it is
+  // only an id and a page, its box and the slurs it would join looked up fresh from the render and model.
+  let rangeId = $state<Id | null>(null);
+  let rangePage = $state<number | null>(null);
   let conflict = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
@@ -327,6 +362,27 @@
       }
     }
     return false;
+  }
+
+  const rangeOverlay = $derived.by(() => {
+    if (rangeId === null || rangePage === null) return null;
+    const page = pages[rangePage];
+    if (page === undefined) return null;
+    const box = boxFor(pageItemBoxes(page.layout, musicFont), rangeId);
+    return box === null ? null : { pageIndex: rangePage, box };
+  });
+
+  /** The slur the two selected notes would make, or null when the pair is not two notes. */
+  const pendingSlur = $derived.by(() => {
+    if (score === null || selectedId === null || rangeId === null) return null;
+    return slurOp(score, selectedId, rangeId, 'auto') === null ? null : { with: rangeId };
+  });
+  const slursHere = $derived(score === null || selectedId === null ? [] : slursOnNote(score, selectedId));
+
+  async function handleSlur(placement: SlurChoice): Promise<void> {
+    if (score === null || selectedId === null || rangeId === null) return;
+    const operation = slurOp(score, selectedId, rangeId, placement);
+    if (operation !== null) await runOps([operation]);
   }
 
   const selectionOverlay = $derived.by(() => {
@@ -486,6 +542,8 @@
   function deselect(): void {
     selectedId = null;
     selectedPage = null;
+    rangeId = null;
+    rangePage = null;
     chordSel = null;
     barSel = null;
     conflict = false;
@@ -498,7 +556,7 @@
    * deselect — clicking white space is how the mockup's "Deselect" affordance behaves without a
    * second control for it.
    */
-  function handleSheetClick(pageIndex: number, point: Point): void {
+  function handleSheetClick(pageIndex: number, point: Point, extend = false): void {
     // A part view is read-only: its notes are written pitches, and an edit there would be submitted
     // against the concert score at the wrong pitch. So a click does nothing until you are on concert.
     if (saving || !editable) return;
@@ -524,7 +582,15 @@
     }
 
     const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    // Shift-click a second note while one is selected: the other end of a slur (SIB2-168).
+    if (extend && hit !== null && selectedId !== null && hit.id !== selectedId) {
+      rangeId = hit.id;
+      rangePage = pageIndex;
+      return;
+    }
     if (hit !== null) {
+      rangeId = null;
+      rangePage = null;
       chordSel = null;
       barSel = null;
       selectedId = hit.id;
@@ -954,6 +1020,39 @@
       </div>
 
       <div class="group control-row">
+        <h3>Tempo</h3>
+        <div class="transpose-row">
+          <select class="key-select" aria-label="Tempo beat unit" bind:value={tempoUnit}>
+            <option value="4">quarter =</option>
+            <option value="4.">dotted quarter =</option>
+            <option value="2">half =</option>
+            <option value="8">eighth =</option>
+            <option value="1">whole =</option>
+          </select>
+          <input
+            class="key-select"
+            type="number"
+            min="20"
+            max="400"
+            aria-label="Beats per minute"
+            bind:value={tempoBpm}
+          />
+        </div>
+        <div class="transpose-row">
+          <button type="button" class="transpose-btn" disabled={saving || tempoBpm === ''} onclick={handleTempoSave}>
+            {saving ? 'Working…' : 'Set tempo'}
+          </button>
+          <button type="button" class="transpose-btn" disabled={saving || score.meta.tempo === undefined} onclick={handleTempoRemove}>
+            Remove
+          </button>
+        </div>
+        <p class="control-note">
+          A metronome mark above the first bar; notation only, nothing plays. A logged, undoable edit
+          (<code>meta set --tempo</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
         <h3>Chord symbols</h3>
         <select
           class="key-select"
@@ -1105,6 +1204,10 @@
               {conflict}
               {saving}
               error={saveError}
+              pendingSlur={pendingSlur}
+              slurs={slursHere}
+              onslur={(placement) => void handleSlur(placement)}
+              onrmslur={(id) => void runOps([removeSlurOp(id)])}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}
@@ -1215,6 +1318,7 @@
           <SheetStack
             {pages}
             selection={selectionOverlay}
+            rangeSelection={rangeOverlay}
             chordSelection={chordOverlay}
             barSelection={barOverlay}
             addHint={hoverSlot}

@@ -53,6 +53,13 @@ export interface RehearsalMarkItem {
   text: string;
 }
 
+/** The tempo mark (SIB2-177): on the score's first bar only, above the staff, after any rehearsal box. */
+export interface TempoItem {
+  kind: 'tempo';
+  unit: { value: number; dots: number };
+  bpm: number;
+}
+
 export interface NoteItem {
   kind: 'note';
   noteId: Id;
@@ -143,6 +150,7 @@ export type LayoutBarItem =
   | TimeSignatureItem
   | BarNumberItem
   | RehearsalMarkItem
+  | TempoItem
   | NoteItem
   | RestItem
   | ChordSymbolItem
@@ -164,6 +172,7 @@ export const LAYOUT_BAR_ITEM_KINDS: readonly LayoutBarItemKind[] = [
   'timeSignature',
   'barNumber',
   'rehearsalMark',
+  'tempo',
   'note',
   'rest',
   'chordSymbol',
@@ -195,4 +204,16 @@ export interface LayoutText {
 export interface LayoutTie {
   fromNoteId: Id | null;
   toNoteId: Id | null;
+}
+
+/**
+ * A slur between two notes (SIB2-167/168). Like a tie, a null endpoint means it continues past this
+ * system's edge, so a slur that crosses a system break is two of these, one on each side. `placement`
+ * is the score's choice; absent, the engraver decides from the stems under the curve.
+ */
+export interface LayoutSlur {
+  id: Id;
+  fromNoteId: Id | null;
+  toNoteId: Id | null;
+  placement?: 'above' | 'below';
 }

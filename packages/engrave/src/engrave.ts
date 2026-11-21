@@ -45,6 +45,7 @@ import type { SvgElement } from './svg.js';
 import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
+import { slur } from './slurs.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -55,6 +56,7 @@ import {
   rehearsalMark,
   text,
 } from './text.js';
+import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
 /**
@@ -234,6 +236,25 @@ export function engraveSystem(
     if (curve !== null) children.push(curve);
   }
 
+  // Slurs go over everything else in the system: they bridge notes, so they need every note's extent.
+  for (const layoutSlur of system.slurs) {
+    const from = layoutSlur.fromNoteId === null ? null : (anchors.get(layoutSlur.fromNoteId) ?? null);
+    const to = layoutSlur.toNoteId === null ? null : (anchors.get(layoutSlur.toNoteId) ?? null);
+    const lowest = Math.min(from?.x ?? musicLeft, to?.x ?? musicLeft);
+    const highest = Math.max(from?.x ?? system.x + system.width, to?.x ?? system.x + system.width);
+    const under = [...anchors.values()].filter((end) => end.x >= lowest && end.x <= highest);
+    const curve = slur(font, {
+      from,
+      to,
+      under,
+      placement: layoutSlur.placement,
+      systemLeft: musicLeft,
+      systemRight: system.x + system.width,
+      ceiling: bands.chordBaseline,
+    });
+    if (curve !== null) children.push(curve);
+  }
+
   return children;
 }
 
@@ -279,6 +300,7 @@ function engraveBar(
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
+  let rehearsalRight: number | null = null;
 
   for (const item of bar.items) {
     switch (item.kind) {
@@ -314,8 +336,25 @@ function engraveBar(
         );
         break;
 
+      case 'tempo': {
+        hasRehearsalMark = true;
+        // After the clef, key and time signature, and clear of a rehearsal box on the same bar.
+        const afterBox = rehearsalRight === null ? 0 : rehearsalRight - bar.x + units(1);
+        before.push(
+          ...tempoMark(
+            font,
+            item,
+            bar.x + Math.max(bar.prefixWidth + units(0.5), afterBox),
+            bands.top,
+            options.rehearsalFontSize,
+          ),
+        );
+        break;
+      }
+
       case 'rehearsalMark':
         hasRehearsalMark = true;
+        rehearsalRight = bar.x + options.rehearsalFontSize * (0.72 * item.text.length + 0.8);
         before.push(
           // The top of the band, not a baseline: the box's own padding is the adapter's
           // to allow for, and layout reserved the band from `bands.top` down.
@@ -411,6 +450,8 @@ function engraveBar(
         noteheadWidth: font.width(note.glyph),
         y: positionY(note.position, staveY),
         stem: note.stem?.direction ?? null,
+        stemTipY: note.stem?.endY ?? null,
+        stemX: note.stem?.centre ?? null,
       });
     }
     // A note or rest the recogniser was unsure of gets a stripe down its column (ADR-0019),

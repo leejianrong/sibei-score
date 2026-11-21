@@ -473,6 +473,8 @@ export interface MetaSetPayload {
   barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163); `standard` clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
+  /** The tempo mark (SIB2-177); null removes it. */
+  tempo?: { unit: { value: number; dots: number }; bpm: number } | null;
 }
 
 export type Operation =
@@ -493,6 +495,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string }
   | { type: 'break.set'; target: string; payload: { kind: 'after' | 'join' } }
   | { type: 'break.rm'; target: string }
+  | { type: 'slur.set'; target: string; payload: { to: string; placement?: 'above' | 'below' } }
+  | { type: 'slur.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };

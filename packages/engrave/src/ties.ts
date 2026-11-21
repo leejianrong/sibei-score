@@ -37,6 +37,10 @@ export interface TieEnd {
   /** Centre of the notehead, vertically. */
   y: number;
   stem: StemDirection | null;
+  /** Where the stem's free end is (after beaming), or null with no stem. A slur on the stem side clears it. */
+  stemTipY?: number | null;
+  /** The stem's centre x, or null with no stem. */
+  stemX?: number | null;
 }
 
 export interface TieSpec {
