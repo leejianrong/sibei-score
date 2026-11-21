@@ -21,7 +21,7 @@ sit on an `internal` Docker network with no route to the internet (`compose.host
 | A domain | Its A (and AAAA) record must point at the VM **before** the first start, or Caddy cannot get a certificate and will retry against Let's Encrypt's rate limits. |
 | Open ports | 80 and 443 from the internet (80 is the certificate challenge and the http-to-https redirect). Nothing else. |
 | A GitHub OAuth App | https://github.com/settings/developers, "New OAuth App". Homepage `https://<domain>`, callback `https://<domain>/v1/auth/github/callback`. Keep the client id and generate a client secret. |
-| Docker | Docker Engine with the compose plugin. |
+| Docker | Docker Engine with the compose plugin, version 2.23 or newer (the Redis password is delivered as a generated config). |
 | Somewhere to ship backups | An [rclone](https://rclone.org) remote (S3, B2, another box). A dump that only lives on the VM is not a backup. |
 
 ## First deploy
@@ -103,6 +103,15 @@ docker compose -f compose.hosted.yaml exec postgres psql -U postgres -c 'DROP DA
 The compose file restarts every service on failure (`unless-stopped`) and gives each a health check. For an
 external monitor, probe `https://<domain>/v1/health`.
 
+## HSTS
+
+Caddy sends `Strict-Transport-Security: max-age=31536000; includeSubDomains`. `includeSubDomains` means a
+browser that has seen the site refuses plain http on **every subdomain** of your domain for a year, so do not
+host an http-only service on a sibling subdomain. It is deliberately **not** `preload`: submitting the domain to
+the browser preload list is a one-way door that takes months to undo, and it needs `includeSubDomains` plus a
+`max-age` of a year or more. If you want it later, add `preload` to the header in `deploy/Caddyfile` and submit
+the domain at hstspreload.org once you are sure every subdomain is https.
+
 ## What this does not do yet
 
 - **No CI-built images.** The VM builds the API and worker images itself. Pushing prebuilt images to a
@@ -113,6 +122,8 @@ external monitor, probe `https://<domain>/v1/health`.
   behind the `photo-import` compose profile, so it is neither built nor started. Audio and NoteEvents `.json`
   import work. To enable it later (V26): build a worker image with weights, set `SBSCORE_PHOTO_IMPORT=on`,
   and `docker compose -f compose.hosted.yaml --profile photo-import up -d --build`.
+- **The API image is not slim.** It carries dev dependencies and a build toolchain and runs from source
+  (tracked as a follow-up card). Base images are pinned by version and digest; Dependabot proposes bumps.
 - **Off-box backup needs a destination you choose** (`BACKUP_REMOTE`).
 
 ## The local smoke test
