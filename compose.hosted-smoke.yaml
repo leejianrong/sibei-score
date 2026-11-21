@@ -1,15 +1,15 @@
 # The local smoke test for the hosted stack (V24): `bash scripts/smoke-hosted.sh`. An override of
 # compose.hosted.yaml, never used on a VM.
 #
-#     docker compose -f compose.hosted.yaml -f compose.hosted-smoke.yaml up -d --build --scale worker=0
+#     docker compose -f compose.hosted.yaml -f compose.hosted-smoke.yaml up -d --build
 #
 # What it changes, and nothing else:
 #   - Caddy listens on loopback ports (HTTP_BIND/HTTP_PORT in the environment) and serves plain http
 #     (SITE_ADDRESS=http://), so there is no certificate to obtain and nothing to reach the internet for.
 #   - A fake GitHub runs as a service, built from the API image, and the API's GitHub endpoints point at it.
 #     It is also published to loopback so the smoke driver can follow the browser's redirect to it.
-#   - The OMR worker is not started (`--scale worker=0`): its image bakes ML weights and takes minutes to build,
-#     and nothing in the smoke path imports.
+#   - The OMR worker is not started: it is behind the `photo-import` profile, and photo import is off by
+#     default in hosted mode (SIB2-201), which the smoke test checks.
 services:
   api:
     environment:

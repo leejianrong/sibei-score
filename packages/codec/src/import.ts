@@ -13,7 +13,7 @@
  * document is not the place to be strict — the model stores and flags, it does not reject.
  */
 
-import { makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
+import { makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
 import type {
   Alter,
   BarItem,
@@ -169,6 +169,7 @@ class PartReader {
     const items: BarItem[] = [];
     const tuplets: Tuplet[] = [];
     const chords: { id: string; onset: number; text: string }[] = [];
+    const annotations: { id: string; onset: number; text: string }[] = [];
 
     let cursor = 0;
     let openTuplet: OpenTuplet | null = null;
@@ -224,6 +225,15 @@ class PartReader {
         }
 
         case 'direction': {
+          const words = this.wordsOf(child);
+          if (words !== null) {
+            const offset = childText(child, 'offset');
+            annotations.push({
+              id: this.id('annotation'),
+              onset: cursor + (offset === null ? 0 : this.scale(Number(offset))),
+              text: words,
+            });
+          }
           const letter = this.rehearsalOf(child);
           if (letter !== null && !sections.some((s) => s.startBar === number)) {
             sections.push(makeSection({ id: this.id('section'), startBar: number, letter }));
@@ -260,6 +270,7 @@ class PartReader {
       items,
       tuplets,
       chords: chords.map((c) => makeChord(c)),
+      annotations: annotations.map((a) => makeAnnotation(a)),
       startBarline,
       endBarline,
       ending,
@@ -392,6 +403,18 @@ class PartReader {
     const bassText =
       bass === null ? '' : `/${childText(bass, 'bass-step') ?? ''}${alterMark(Number(childText(bass, 'bass-alter') ?? 0))}`;
     return `${rootText}${KIND_SUFFIX[kindValue] ?? ''}${bassText}`;
+  }
+
+  /** The text of a `<words>` direction (a cue, a tempo, "unis."), or null when it is some other kind. */
+  private wordsOf(direction: XmlElement): string | null {
+    for (const type of childElements(direction, 'direction-type')) {
+      const words = firstChild(type, 'words');
+      if (words !== null) {
+        const text = textContent(words).trim();
+        if (text !== '') return text;
+      }
+    }
+    return null;
   }
 
   private rehearsalOf(direction: XmlElement): string | null {

@@ -6,6 +6,7 @@ import {
   MAX_FOOTER_LENGTH,
   SCHEMA_VERSION,
   makeBar,
+  makeAnnotation,
   makeChord,
   makeNote,
   makeRest,
@@ -13,6 +14,7 @@ import {
   makeSection,
   nextId,
   noReview,
+  parseAddress,
   parsePitch,
   resolveAddress,
   resolveBar,
@@ -24,6 +26,7 @@ import {
 } from '@sibei/model';
 import type {
   AccidentalDisplay,
+  Annotation,
   Bar,
   BarItem,
   Chord,
@@ -47,6 +50,7 @@ import { OperationError } from './errors.js';
 import { isControlOperation } from './operations.js';
 import type {
   ChordSetPayload,
+  TextSetPayload,
   MetaSetPayload,
   NoteAddPayload,
   BarAddPayload,
@@ -147,6 +151,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setChord(score, operation.target, operation.payload);
     case 'chord.rm':
       return removeChord(score, operation.target);
+    case 'text.set':
+      return setText(score, operation.target, operation.payload);
+    case 'text.rm':
+      return removeText(score, operation.target);
     case 'transpose':
       return transpose(score, operation.payload);
     case 'section.set':
@@ -504,6 +512,70 @@ function removeChord(score: Score, target: string): Applied {
     })),
     operation: { type: 'chord.rm', target },
     changed: [chord.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// text.set, text.rm (SIB2-169)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upsert the text direction at a beat. A direction is an `Annotation`, the free text the model
+ * already has beside chords; one per beat, so setting again edits it in place and keeps its id.
+ * Written by hand it is never flagged — only an import's guesses are.
+ */
+function setText(score: Score, target: string, payload: TextSetPayload): Applied {
+  const position = resolvePosition(score, target);
+  if (typeof payload.text !== 'string' || payload.text.trim() === '') {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'a text direction needs non-empty text; remove it with text rm instead',
+    });
+  }
+  const text = payload.text.trim();
+  const existing = position.bar.annotations.find((annotation) => annotation.onset === position.onset);
+  const id = existing?.id ?? payload.id ?? nextId(score, 'annotation');
+  const annotation = makeAnnotation({ id, onset: position.onset, text });
+  return {
+    score: mapBar(score, position.bar.id, (bar) => ({
+      ...bar,
+      annotations: [...bar.annotations.filter((other) => other.id !== id), annotation].sort(
+        (a, b) => a.onset - b.onset,
+      ),
+    })),
+    operation: { type: 'text.set', target, payload: { ...payload, text, id } },
+    changed: [id],
+  };
+}
+
+/** Remove a direction by its id (`annotation-3`, which `show` prints) or by the beat it sits on. */
+function removeText(score: Score, target: string): Applied {
+  const address = parseAddress(target);
+  let found: { bar: Bar; annotation: Annotation } | null = null;
+  if (address.form === 'id') {
+    for (const bar of score.bars) {
+      const annotation = bar.annotations.find((candidate) => candidate.id === address.id);
+      if (annotation !== undefined) found = { bar, annotation };
+    }
+  } else if (address.form === 'beat') {
+    const position = resolvePosition(score, address);
+    const annotation = position.bar.annotations.find((candidate) => candidate.onset === position.onset);
+    if (annotation !== undefined) found = { bar: position.bar, annotation };
+  }
+  if (found === null) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `there is no text direction at ${target}; name one by its id or its bar and beat, as in bar4.beat1`,
+    });
+  }
+  const { bar: owner, annotation } = found;
+  return {
+    score: mapBar(score, owner.id, (bar) => ({
+      ...bar,
+      annotations: bar.annotations.filter((other) => other.id !== annotation.id),
+    })),
+    operation: { type: 'text.rm', target },
+    changed: [annotation.id],
   };
 }
 

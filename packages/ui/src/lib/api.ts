@@ -91,6 +91,8 @@ export class OfflineError extends Error {
 export interface Me {
   mode: 'local' | 'hosted';
   user?: { id: string; login: string; name: string | null };
+  /** Present, and `false`, only when this service takes no photos (SIB2-201). Absent means yes. */
+  photoImport?: boolean;
 }
 
 export async function getMe(): Promise<Me> {
@@ -471,6 +473,8 @@ export type Operation =
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
+  | { type: 'text.set'; target: string; payload: { text: string } }
+  | { type: 'text.rm'; target: string }
   | { type: 'transpose'; payload: TransposePayload }
   | { type: 'section.set'; target: string; payload: SectionSetPayload }
   | { type: 'section.rm'; target: string }

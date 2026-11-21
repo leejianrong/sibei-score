@@ -107,6 +107,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore rest rm  <id> <address>
   sbscore chord set <id> <address> --text F#m7b5 [--spell]
   sbscore chord rm  <id> <address>
+  sbscore text set <id> <address> --text '(unis.)'   a text direction above the staff, at a beat
+  sbscore text rm  <id> <address|annotation-id>
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore bar add <id> [--after <bar>] [--count N]   add empty bars (default: at the end); later bars renumber
   sbscore bar rm  <id> <bar>               remove an empty bar; later bars renumber
@@ -271,6 +273,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return rest(flags, client, io, json);
     case 'chord':
       return chord(flags, client, io, json);
+    case 'text':
+      return text(flags, client, io, json);
     case 'transpose':
       return transpose(flags, client, io, json);
     case 'bar':
@@ -828,6 +832,27 @@ async function chord(flags: Flags, client: Client, io: Io, json: boolean): Promi
     return submit(flags, client, io, json, id, [{ type: 'chord.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'chord takes set or rm');
+}
+
+/**
+ * `sbscore text set <id> bar4.beat1 --text '(unis.)'` and `text rm <id> bar4.beat1` (SIB2-169): a text
+ * direction above the staff — a cue, a tempo, "unis.". Like `chord set` it is an upsert at a beat, and
+ * the text goes through untouched. `rm` takes the beat or the `annotation-N` id `show` prints. Not
+ * `--spell`: free text has no spelling.
+ */
+async function text(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `text ${sub}`);
+  const target = requiredPositional(flags, 3, 'an address', `text ${sub}`);
+
+  if (sub === 'set') {
+    const payload = { text: required(flags, 'text', 'text set') };
+    return submit(flags, client, io, json, id, [{ type: 'text.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'text.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'text takes set or rm');
 }
 
 /**

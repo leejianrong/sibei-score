@@ -58,7 +58,7 @@
   import StructureInspector from './StructureInspector.svelte';
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
-  import { sectionStartingAt } from '@sibei/model';
+  import { beatOfOnset, sectionStartingAt } from '@sibei/model';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
@@ -336,6 +336,9 @@
       startBarline: bar.startBarline,
       endBarline: bar.endBarline,
       ending: bar.ending,
+      texts: [...bar.annotations]
+        .sort((a, b) => a.onset - b.onset)
+        .map((a) => ({ id: a.id, beat: beatOfOnset(a.onset, score!.meta.time), text: a.text })),
     };
   });
 
@@ -1011,6 +1014,9 @@
               onsave={handleStructureSave}
               onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
               onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
+              onsettext={(beat, text) =>
+                void runOps([{ type: 'text.set', target: `${barStructure!.addr}.beat${beat}`, payload: { text } }])}
+              onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
               ondeselect={deselect}
               onreload={handleReload}
             />

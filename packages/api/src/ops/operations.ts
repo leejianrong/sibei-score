@@ -63,6 +63,17 @@ export interface MetaSetPayload {
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book' | null;
 }
 
+/**
+ * A text direction above the staff (SIB2-169): a cue, a tempo, "unis.". Stored as an `Annotation` — the
+ * model's free text at a beat, which import already creates — so it lives in the chord band and the
+ * layout and engraver already draw it. An upsert at a place, like `chord.set`.
+ */
+export interface TextSetPayload {
+  text: string;
+  /** *Recorded.* The id the applier assigned (an existing direction at that beat keeps its own). */
+  id?: Id;
+}
+
 export interface NoteAddPayload {
   /** A compact spec (`Eb5`) or the structure. */
   pitch: string | { step: string; alter: number; octave: number };
@@ -232,6 +243,8 @@ export type Operation =
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
+  | { type: 'text.set'; target: string; payload: TextSetPayload }
+  | { type: 'text.rm'; target: string }
   | { type: 'transpose'; payload: TransposePayload }
   | { type: 'section.set'; target: string; payload: SectionSetPayload }
   | { type: 'section.rm'; target: string; payload?: SectionRmPayload }
@@ -253,6 +266,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'rest.rm',
   'chord.set',
   'chord.rm',
+  'text.set',
+  'text.rm',
   'transpose',
   'section.set',
   'section.rm',

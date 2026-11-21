@@ -1,6 +1,6 @@
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
-import { orderedItems } from './address.js';
+import { formatBeat, orderedItems } from './address.js';
 import { barReview, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from './review.js';
 import type { Bar, BarItem, Confidence, Review, Score, TimeSignature } from './score.js';
 
@@ -104,6 +104,8 @@ function rowFor(bars: Bar[], score: Score, label?: string): string[] {
     // An empty bar prints no melody line. The chord grid above already shows that it exists, and a
     // blank 32-bar chart would otherwise be 32 lines of nothing — which is the opposite of compact.
     if (melody !== null) lines.push(`   ${melody}`);
+    const directions = textLine(bar, score.meta.time);
+    if (directions !== null) lines.push(`   ${directions}`);
   }
   return lines;
 }
@@ -151,6 +153,21 @@ function cell(bar: Bar, time: TimeSignature): string {
     for (let offset = 0; offset < text.length; offset += 1) slots[at + offset] = text[offset] ?? ' ';
   }
   return `|${slots.join('')}`;
+}
+
+/**
+ * `bar4 text  beat1 "(unis.)" annotation-3` — the text directions in a bar (SIB2-169), each with the
+ * beat a `text set` accepts and the id `text rm` accepts. Only printed for a bar that has any.
+ */
+function textLine(bar: Bar, time: TimeSignature): string | null {
+  if (bar.annotations.length === 0) return null;
+  const parts = [...bar.annotations]
+    .sort((a, b) => a.onset - b.onset)
+    .map((note) => {
+      const flag = flagSuffix(note.review, note.confidence);
+      return `beat${formatBeat(beatOfOnset(note.onset, time))} ${JSON.stringify(note.text)}${flag === '' ? '' : ` ${flag}`} ${note.id}`;
+    });
+  return `${`bar${bar.number}`.padEnd(7)}text  ${parts.join('  ')}`;
 }
 
 /** `bar2  n1 gb5/2  n2 f5/4 !`, or null when the bar holds nothing. */

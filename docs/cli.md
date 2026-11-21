@@ -147,6 +147,8 @@ sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
 sbscore chord set <id> <address> --text "F#m7b5" [--spell]      # upsert a chord symbol
 sbscore chord rm  <id> <address>
+sbscore text set <id> <address> --text "(unis.)"                # a text direction above the staff
+sbscore text rm  <id> <address|annotation-id>
 ```
 
 Durations are a note value and a dot per dot: `--dur 4`, `--dur 4.` (dotted quarter), `--dur 2..` —
@@ -154,6 +156,12 @@ the same spelling `show` prints. `--spell` pins the current enharmonic spelling 
 later transpose leaves it alone (ADR-0017); `--unspell` releases it. Chord text is parsed by the
 grammar in `packages/music`; whether the grammar can read it is the server's call, so `--text` takes
 whatever you write.
+
+A **text direction** — a cue, a tempo, "unis.", "solo on form" — is free text above the staff at a beat:
+`sbscore text set <id> bar4.beat1 --text '(unis.)'`. It is an upsert (one per beat), it prints in the chord
+band beside any chord at that beat, and `show` lists it under its bar with the beat and an `annotation-N`
+id, which `text rm` takes as well as the beat. MusicXML carries it as `<words>`. In the browser, select a
+bar: the Structure panel has a Text directions field.
 
 ## Transpose, structure
 

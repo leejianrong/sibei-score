@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, memoryBlobLedger, silentLogger } from '@sibei/api';
-import type { Api, AudioJobStore, AuthStore, BlobLedger, JobStore, ManagedBlobStore, ScoreStore } from '@sibei/api';
+import type { Api, AudioJobStore, AuthStore, BlobLedger, JobStore, ManagedBlobStore, ScoreStore, WorkerClient } from '@sibei/api';
+import { OMR_SCHEMA_VERSION } from '@sibei/model';
+import type { OmrDocument } from '@sibei/model';
 import { openDirectoryBlobStore } from '@sibei/api';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import { startFakeGitHub } from '../fixtures/fake-github.js';
@@ -32,6 +34,9 @@ let blobs: ManagedBlobStore;
 let directory: string;
 let api: Api;
 let port: number;
+/** The stub OMR worker's behaviour, swappable per test (SIB2-202). The default never answers a photo. */
+let recognize: () => Promise<OmrDocument> = () => Promise.reject(new Error('no photo in this test'));
+const worker: WorkerClient = { recognize: () => recognize() };
 
 beforeEach(async () => {
   github = await startFakeGitHub({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
@@ -48,6 +53,7 @@ beforeEach(async () => {
     audioJobs,
     blobs,
     blobLedger: ledger,
+    worker,
     logger: silentLogger,
     hosted: {
       auth,
@@ -205,7 +211,53 @@ describe('deleting an account', () => {
     expect((await raw('/v1/auth/account', { method: 'DELETE', cookie: alice.cookie, body: { confirm: 'alice' } })).status).toBe(401);
   });
 
+  it('refuses to land an import that finishes after its account was deleted (SIB2-202)', async () => {
+    const alice = await signIn(ALICE);
+    let release!: () => void;
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    recognize = async () => {
+      started();
+      await new Promise<void>((resolve) => (release = resolve));
+      return aDocument();
+    };
+    const submitted = await raw('/v1/imports', { method: 'POST', cookie: alice.cookie, raw: A_PNG, type: 'image/png' });
+    expect(submitted.status).toBe(202);
+    await running;
+
+    expect((await raw('/v1/auth/account', { method: 'DELETE', cookie: alice.cookie, body: { confirm: 'alice' } })).status).toBe(204);
+    release();
+    // let the runner finish; the landing must have been refused, so no score exists for her id
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await store.list(alice.id)).toEqual([]);
+    expect(await jobs.list(alice.id)).toEqual([]);
+  });
+
   it('works against the in-memory ledger too (the default when none is supplied)', async () => {
     expect(await memoryBlobLedger().list('x')).toEqual([]);
   });
 });
+
+const A_PNG = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.from('0000000d49484452', 'hex'),
+  Buffer.from('0000064c000008e8', 'hex'), // 1612 x 2280
+  Buffer.alloc(9),
+]);
+
+/** One staff and one note: enough for the mapper to produce a real score. */
+function aDocument(): OmrDocument {
+  return {
+    schemaVersion: OMR_SCHEMA_VERSION,
+    source: { engine: 'oemer', engineVersion: '0.1.8', imagePath: 'page-1', imageWidth: 1612, imageHeight: 2280, provider: 'CPUExecutionProvider', wallClockSeconds: 1 },
+    staves: [{ index: 0, track: 0, group: 0, xLeft: 100, xRight: 1000, yUpper: 100, yLower: 164, yCenter: 132, unitSize: 16 }],
+    zones: [],
+    noteheads: [
+      { id: 0, bbox: [291, 120, 309, 136], track: 0, group: 0, noteGroupId: null, staffLinePos: null, pitch: null, hasDot: false, stemUp: true, invalid: false, label: 'QUARTER' },
+    ],
+    noteGroups: [],
+    barlines: [],
+    rests: [],
+    bandTokens: [],
+  };
+}

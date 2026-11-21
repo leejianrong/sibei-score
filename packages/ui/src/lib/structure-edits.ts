@@ -26,6 +26,8 @@ export interface BarStructure {
   startBarline: StartBarline;
   endBarline: EndBarline;
   ending: { numbers: number[]; role: EndingRole } | null;
+  /** The text directions in this bar (SIB2-169), listed so each can be removed; added one at a time. */
+  texts: { id: string; beat: number; text: string }[];
 }
 
 /** What Save asks for. Empty letter *and* name means "no section here". */
