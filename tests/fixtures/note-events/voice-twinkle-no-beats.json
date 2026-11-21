@@ -23,7 +23,7 @@
     {
       "id": "n2",
       "onset_s": 0.613,
-      "offset_s": 1.189,
+      "offset_s": 1.22,
       "pitch": 60,
       "confidence": 0.9,
       "velocity": 80
@@ -31,7 +31,7 @@
     {
       "id": "n3",
       "onset_s": 1.257,
-      "offset_s": 1.788,
+      "offset_s": 1.851,
       "pitch": 67,
       "confidence": 0.9,
       "velocity": 80
@@ -39,7 +39,7 @@
     {
       "id": "n4",
       "onset_s": 1.878,
-      "offset_s": 2.379,
+      "offset_s": 2.473,
       "pitch": 67,
       "confidence": 0.9,
       "velocity": 80
@@ -47,7 +47,7 @@
     {
       "id": "n5",
       "onset_s": 2.483,
-      "offset_s": 2.977,
+      "offset_s": 3.102,
       "pitch": 69,
       "confidence": 0.9,
       "velocity": 80
@@ -55,7 +55,7 @@
     {
       "id": "n6",
       "onset_s": 3.108,
-      "offset_s": 3.557,
+      "offset_s": 3.714,
       "pitch": 69,
       "confidence": 0.9,
       "velocity": 80
@@ -63,7 +63,7 @@
     {
       "id": "n7",
       "onset_s": 3.748,
-      "offset_s": 4.756,
+      "offset_s": 4.944,
       "pitch": 67,
       "confidence": 0.9,
       "velocity": 80
@@ -71,7 +71,7 @@
     {
       "id": "n8",
       "onset_s": 4.992,
-      "offset_s": 5.351,
+      "offset_s": 5.601,
       "pitch": 65,
       "confidence": 0.9,
       "velocity": 80
@@ -79,7 +79,7 @@
     {
       "id": "n9",
       "onset_s": 5.614,
-      "offset_s": 5.944,
+      "offset_s": 6.225,
       "pitch": 65,
       "confidence": 0.9,
       "velocity": 80
@@ -87,7 +87,7 @@
     {
       "id": "n10",
       "onset_s": 6.246,
-      "offset_s": 6.53,
+      "offset_s": 6.842,
       "pitch": 64,
       "confidence": 0.9,
       "velocity": 80
@@ -95,7 +95,7 @@
     {
       "id": "n11",
       "onset_s": 6.855,
-      "offset_s": 7.121,
+      "offset_s": 7.465,
       "pitch": 64,
       "confidence": 0.9,
       "velocity": 80
@@ -103,7 +103,7 @@
     {
       "id": "n12",
       "onset_s": 7.508,
-      "offset_s": 7.725,
+      "offset_s": 8.1,
       "pitch": 62,
       "confidence": 0.9,
       "velocity": 80
@@ -111,7 +111,7 @@
     {
       "id": "n13",
       "onset_s": 8.137,
-      "offset_s": 8.322,
+      "offset_s": 8.729,
       "pitch": 62,
       "confidence": 0.9,
       "velocity": 80
@@ -119,7 +119,7 @@
     {
       "id": "n14",
       "onset_s": 8.754,
-      "offset_s": 9.507,
+      "offset_s": 9.945,
       "pitch": 60,
       "confidence": 0.9,
       "velocity": 80

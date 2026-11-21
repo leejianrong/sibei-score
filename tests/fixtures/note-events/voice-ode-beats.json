@@ -88,7 +88,7 @@
     {
       "id": "n2",
       "onset_s": 0.505,
-      "offset_s": 0.96,
+      "offset_s": 0.985,
       "pitch": 64,
       "confidence": 0.93,
       "velocity": 80
@@ -96,7 +96,7 @@
     {
       "id": "n3",
       "onset_s": 1.007,
-      "offset_s": 1.428,
+      "offset_s": 1.478,
       "pitch": 65,
       "confidence": 0.93,
       "velocity": 80
@@ -104,7 +104,7 @@
     {
       "id": "n4",
       "onset_s": 1.487,
-      "offset_s": 1.908,
+      "offset_s": 1.983,
       "pitch": 67,
       "confidence": 0.93,
       "velocity": 80
@@ -112,7 +112,7 @@
     {
       "id": "n5",
       "onset_s": 2.008,
-      "offset_s": 2.382,
+      "offset_s": 2.482,
       "pitch": 67,
       "confidence": 0.93,
       "velocity": 80
@@ -120,7 +120,7 @@
     {
       "id": "n6",
       "onset_s": 2.51,
-      "offset_s": 2.847,
+      "offset_s": 2.972,
       "pitch": 65,
       "confidence": 0.93,
       "velocity": 80
@@ -128,7 +128,7 @@
     {
       "id": "n7",
       "onset_s": 3.012,
-      "offset_s": 3.319,
+      "offset_s": 3.469,
       "pitch": 64,
       "confidence": 0.93,
       "velocity": 80
@@ -136,7 +136,7 @@
     {
       "id": "n8",
       "onset_s": 3.503,
-      "offset_s": 3.795,
+      "offset_s": 3.97,
       "pitch": 62,
       "confidence": 0.93,
       "velocity": 80
@@ -144,7 +144,7 @@
     {
       "id": "n9",
       "onset_s": 3.988,
-      "offset_s": 4.281,
+      "offset_s": 4.481,
       "pitch": 60,
       "confidence": 0.93,
       "velocity": 80
@@ -152,7 +152,7 @@
     {
       "id": "n10",
       "onset_s": 4.515,
-      "offset_s": 4.757,
+      "offset_s": 4.982,
       "pitch": 60,
       "confidence": 0.93,
       "velocity": 80
@@ -160,7 +160,7 @@
     {
       "id": "n11",
       "onset_s": 4.984,
-      "offset_s": 5.224,
+      "offset_s": 5.474,
       "pitch": 62,
       "confidence": 0.93,
       "velocity": 80
@@ -168,7 +168,7 @@
     {
       "id": "n12",
       "onset_s": 5.509,
-      "offset_s": 5.697,
+      "offset_s": 5.972,
       "pitch": 64,
       "confidence": 0.93,
       "velocity": 80
@@ -176,7 +176,7 @@
     {
       "id": "n13",
       "onset_s": 5.991,
-      "offset_s": 6.41,
+      "offset_s": 6.71,
       "pitch": 64,
       "confidence": 0.93,
       "velocity": 80
@@ -184,7 +184,7 @@
     {
       "id": "n14",
       "onset_s": 6.767,
-      "offset_s": 6.817,
+      "offset_s": 6.995,
       "pitch": 62,
       "confidence": 0.93,
       "velocity": 80
@@ -192,7 +192,7 @@
     {
       "id": "n15",
       "onset_s": 6.997,
-      "offset_s": 7.599,
+      "offset_s": 7.949,
       "pitch": 62,
       "confidence": 0.93,
       "velocity": 80
