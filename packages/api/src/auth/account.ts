@@ -43,14 +43,16 @@ export function createAccountRoutes(options: AccountRoutesOptions): AccountRoute
         return send(response, problem(405, 'method-not-allowed', 'try DELETE'));
       }
 
+      // The body is read before anything is answered, so a refusal never leaves it half-consumed on a
+      // kept-alive connection (which the server would then try to parse as the next request).
+      const body = await readJsonBody(request, response);
+      if (body === MALFORMED) return 400;
+
       const userId = await options.sessionUser(request);
       const user = userId === null ? null : await options.auth.getUser(userId);
       if (userId === null || user === null) {
         return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
       }
-
-      const body = await readJsonBody(request, response);
-      if (body === MALFORMED) return 400;
       const confirm = typeof body === 'object' && body !== null ? (body as Record<string, unknown>).confirm : undefined;
       if (typeof confirm !== 'string' || confirm.trim().toLowerCase() !== user.login.toLowerCase()) {
         return send(

@@ -498,3 +498,15 @@ not here yet: the quotas are scores held, import pages and bytes per day, and op
 wraps the in-process change and job buses so a publish is delivered locally first, then on a Redis channel;
 every process ignores its own echo. Pub/sub is at-most-once, which the bus's design absorbs (events are
 nudges; the stream's first frame is a catch-up). `pnpm test:redis` runs `tests/redis/` on a throwaway Redis.
+
+## Account deletion and the blob ledger (V25a)
+
+`DELETE /v1/auth/account` (`auth/account.ts`, cookie-only) calls `eraseData` then `AuthStore.deleteUser`.
+`eraseData` is `createOwnerEraser` (`account/erase.ts`), composed in `server.ts` from the library, the job
+store, the blob store and the **blob ledger** (`store/blob-ledger.ts`; SQLite, Postgres and in-memory
+adapters, one conformance suite in `tests/store/conformance.ts`). Anything that writes a blob for an
+account must `ledger.record(owner, key, kind)`; the exporter takes an `onStore` hook for it and
+`imports.submit` records `import-source` keys, both owner-scoped. `ScoreLibrary.deleteAll`,
+`JobStore.deleteAll` (returns the image keys) and `AuthStore.deleteUser` are the store halves. The audio
+slice must record its objects in the ledger and add its job table to `JobStore.deleteAll` (or name it in the
+arch coverage test and delete it itself).

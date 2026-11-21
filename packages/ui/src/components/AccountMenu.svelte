@@ -15,10 +15,11 @@
   interface Props {
     account: Account;
     onTokens: () => void;
+    onAccount: () => void;
     onSignOut: () => void;
   }
 
-  const { account, onTokens, onSignOut }: Props = $props();
+  const { account, onTokens, onAccount, onSignOut }: Props = $props();
 
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
@@ -88,6 +89,17 @@
         }}
       >
         API tokens
+      </button>
+      <button
+        class="item"
+        type="button"
+        role="menuitem"
+        onclick={() => {
+          close(false);
+          onAccount();
+        }}
+      >
+        Account
       </button>
       <button
         class="item"

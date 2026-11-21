@@ -11,6 +11,7 @@
    */
   import { onMount } from 'svelte';
   import AccountMenu from './components/AccountMenu.svelte';
+  import AccountSettings from './components/AccountSettings.svelte';
   import DeviceApproval from './components/DeviceApproval.svelte';
   import LibraryView from './components/LibraryView.svelte';
   import McpConsent from './components/McpConsent.svelte';
@@ -20,7 +21,7 @@
   import TokenList from './components/TokenList.svelte';
   import TopBar from './components/TopBar.svelte';
   import { onSessionEnded, signOut } from './lib/api.js';
-  import { hashOf, LIBRARY, routeOf, TOKENS } from './lib/routing.js';
+  import { ACCOUNT, hashOf, LIBRARY, routeOf, TOKENS } from './lib/routing.js';
   import type { Route } from './lib/routing.js';
   import { afterUnauthenticated, CHECKING, loadSession, takeReturn } from './lib/session.js';
   import type { Session } from './lib/session.js';
@@ -31,9 +32,11 @@
       ? 'Approve a device'
       : r.view === 'tokens'
         ? 'API tokens'
-        : r.view === 'authorize'
-          ? 'Connect an app'
-          : null;
+        : r.view === 'account'
+          ? 'Account'
+          : r.view === 'authorize'
+            ? 'Connect an app'
+            : null;
 
   let route = $state(routeOf(window.location.hash));
   let title = $state<string | null>(titleOf(routeOf(window.location.hash)));
@@ -76,6 +79,12 @@
     return stop;
   });
 
+  /** The account is gone, and with it the session: back to the gate, on the library. */
+  function deleted(): void {
+    session = { phase: 'signed-out' };
+    window.location.hash = hashOf(LIBRARY);
+  }
+
   async function leave(): Promise<void> {
     try {
       await signOut();
@@ -90,7 +99,7 @@
 <TopBar {route} {title} {reachable} onLibrary={() => (window.location.hash = hashOf(LIBRARY))}>
   {#snippet account()}
     {#if session.phase === 'signed-in'}
-      <AccountMenu account={session.account} onTokens={() => (window.location.hash = hashOf(TOKENS))} onSignOut={leave} />
+      <AccountMenu account={session.account} onTokens={() => (window.location.hash = hashOf(TOKENS))} onAccount={() => (window.location.hash = hashOf(ACCOUNT))} onSignOut={leave} />
     {/if}
   {/snippet}
 </TopBar>
@@ -105,9 +114,9 @@
   <main>
     {#if route.view === 'library'}
       <LibraryView onReachable={(ok) => (reachable = ok)} />
-    {:else if route.view === 'device' || route.view === 'tokens' || route.view === 'authorize'}
+    {:else if route.view === 'device' || route.view === 'tokens' || route.view === 'account' || route.view === 'authorize'}
       {#if session.phase === 'signed-in' || session.phase === 'ended'}
-        {#if route.view === 'device'}<DeviceApproval />{:else if route.view === 'authorize'}<McpConsent params={route.params} />{:else}<TokenList />{/if}
+        {#if route.view === 'device'}<DeviceApproval />{:else if route.view === 'account' && session.phase === 'signed-in'}<AccountSettings account={session.account} onDeleted={deleted} />{:else if route.view === 'account'}{:else if route.view === 'authorize'}<McpConsent params={route.params} />{:else}<TokenList />{/if}
       {:else}
         <!-- A local install has no accounts, so it has nothing to approve and no tokens to list. -->
         <section class="local">

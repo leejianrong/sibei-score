@@ -3,9 +3,9 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { consoleLogger, createApi, createHttpWorkerClient, createLimits, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
 import type { Api, AssetSource, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
-import { openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
-import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
-import type { AuthStore, JobStore, ScoreStore } from '@sibei/api';
+import { openPostgresAuthStore, openPostgresBlobLedger, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
+import { openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
+import type { AuthStore, BlobLedger, JobStore, ScoreStore } from '@sibei/api';
 import type { Flags } from './args.js';
 import { optionalPort } from './args.js';
 import { CliError } from './client.js';
@@ -339,6 +339,8 @@ export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): S3BlobSto
 interface OpenedStores {
   store: ScoreStore;
   jobStore: JobStore;
+  /** Which account owns which blob (V25). */
+  blobLedger: BlobLedger;
   /** Only opened in hosted mode (V20); local mode has no users. */
   authStore?: AuthStore;
 }
@@ -358,6 +360,7 @@ async function openStores(
     return {
       store: openSqliteStore({ filename }),
       jobStore: openSqliteJobStore({ filename }),
+      blobLedger: openSqliteBlobLedger({ filename }),
       ...(hosted ? { authStore: openSqliteAuthStore({ filename }) } : {}),
     };
   }
@@ -365,8 +368,9 @@ async function openStores(
   try {
     const store = await openPostgresStore({ connectionString: databaseUrl, allowRlsBypass });
     const jobStore = await openPostgresJobStore({ connectionString: databaseUrl, allowRlsBypass });
+    const blobLedger = await openPostgresBlobLedger({ connectionString: databaseUrl, allowRlsBypass });
     const authStore = hosted ? await openPostgresAuthStore({ connectionString: databaseUrl, allowRlsBypass }) : undefined;
-    return { store, jobStore, ...(authStore === undefined ? {} : { authStore }) };
+    return { store, jobStore, blobLedger, ...(authStore === undefined ? {} : { authStore }) };
   } catch (error) {
     // Never echo the error's own text wholesale: a connection failure can carry the URL, and with it the
     // password. The operator gets the cause in words and where it was aimed, redacted.
@@ -492,7 +496,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           onError: (message, error) => consoleLogger.error(message, error),
         });
 
-  const { store, jobStore, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
+  const { store, jobStore, blobLedger, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
   let api: Api;
   try {
     api = createApi({
@@ -501,6 +505,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       ...(allowedHosts.length === 0 ? {} : { allowedHosts }),
       store,
       jobs: jobStore,
+      blobLedger,
       ...(hostedConfig === undefined || authStore === undefined
         ? {}
         : {
@@ -516,7 +521,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     });
   } catch (error) {
     // A refused configuration (a plain-http public URL, say) is a usage error, not a crash.
-    await Promise.all([jobStore.close(), store.close(), authStore?.close(), redis?.close()]);
+    await Promise.all([jobStore.close(), store.close(), blobLedger.close(), authStore?.close(), redis?.close()]);
     throw new CliError(EXIT.usage, 'bad-hosted-config', error instanceof Error ? error.message : String(error));
   }
   const bound = await api.listen(port, bindHost);
@@ -561,7 +566,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     // drained would cut off whatever it was still flushing.
     void api
       .close()
-      .then(() => Promise.all([jobStore.close(), store.close(), authStore?.close(), redis?.close()]))
+      .then(() => Promise.all([jobStore.close(), store.close(), blobLedger.close(), authStore?.close(), redis?.close()]))
       .then(() => {
         process.exit(EXIT.ok);
       });

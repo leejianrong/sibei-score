@@ -156,3 +156,9 @@ export { memoryRateLimiter } from './limits/rate-limiter.js';
 export type { RateLimiter, RateVerdict } from './limits/rate-limiter.js';
 export { QuotaError } from './limits/errors.js';
 export type { QuotaName } from './limits/errors.js';
+
+// Account deletion and the blob ledger (V25). The SQLite and Postgres ledgers are on their adapter subpaths.
+export { createOwnerEraser } from './account/erase.js';
+export type { OwnerEraser, OwnerEraserOptions } from './account/erase.js';
+export { memoryBlobLedger } from './store/blob-ledger.js';
+export type { BlobLedger, BlobRef } from './store/blob-ledger.js';

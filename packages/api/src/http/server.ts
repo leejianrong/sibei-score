@@ -149,18 +149,6 @@ export function createApi(options: ApiOptions): Api {
   if (options.hosted !== undefined && options.authenticate !== undefined) {
     throw new Error('`hosted` supplies its own authenticator; pass one or the other, not both');
   }
-  const hosted =
-    options.hosted === undefined
-      ? undefined
-      : createHostedAuth({
-          onError: (message, error) => logger.error(message, error),
-          ...options.hosted,
-        });
-  const authenticate = hosted?.authenticate ?? options.authenticate ?? resolveLocalPrincipal;
-  const hostedHosts = new Set<string>([
-    ...(hosted?.hosts ?? []),
-    ...(options.allowedHosts ?? []).map((host) => host.trim().toLowerCase()).filter((host) => host !== ''),
-  ]);
   const limits = options.limits;
 
   // The change bus (V4a). This file is the only one holding both halves of it, exactly as it is the
@@ -193,13 +181,33 @@ export function createApi(options: ApiOptions): Api {
 
   // Narrowed on the way in: the exporter is handed the store as a `ScoreReader`, so the export
   // path is a read by construction and not by intention (ADR-0003).
-  const exporter = createExporter(store, blobs);
+  const exporter = createExporter(store, blobs, (owner, key) => ledger.record(owner, key, 'export'));
 
   // The import pipeline (V10). Its own change bus and streams, the sibling of the score ones — a job
   // moving is announced the same way a score moving is (ADR-0001's "subscribe"). The job store and
   // streams exist whether or not a worker was configured, so imports can always be *inspected*; the
   // runner, and therefore the ability to *submit*, exists only when a worker was.
   const jobs = options.jobs ?? memoryJobStore();
+
+  // Who owns which blob (V25), and the eraser that uses it. Declared before `hosted` because account
+  // deletion needs both, and after the stores it empties.
+  const ledger = options.blobLedger ?? memoryBlobLedger();
+  const eraser = createOwnerEraser({ library: store, jobs, blobs, ledger });
+
+  const hosted =
+    options.hosted === undefined
+      ? undefined
+      : createHostedAuth({
+          onError: (message, error) => logger.error(message, error),
+          // Account deletion (V25): content first, then the identity inside the auth module.
+          eraseData: (owner) => eraser.erase(owner),
+          ...options.hosted,
+        });
+  const authenticate = hosted?.authenticate ?? options.authenticate ?? resolveLocalPrincipal;
+  const hostedHosts = new Set<string>([
+    ...(hosted?.hosts ?? []),
+    ...(options.allowedHosts ?? []).map((host) => host.trim().toLowerCase()).filter((host) => host !== ''),
+  ]);
   const jobBus = options.jobBus ?? createJobBus({ onError: (error) => logger.error('a job subscriber failed', error) });
   const jobStreams = createJobStreams({
     subscriber: jobBus,
@@ -234,8 +242,11 @@ export function createApi(options: ApiOptions): Api {
       // re-parse and side-by-side correction (ADR-0019): nothing here or elsewhere deletes them.
       const keys: string[] = [];
       for (const image of images) {
-        const key = `import-source:${createHash('sha256').update(image).digest('hex')}`;
+        // Scoped by owner (V25): content-addressed *within* an account, so identical rescans still dedupe,
+        // but two accounts never share a blob and deleting one cannot take the other's scan.
+        const key = `import-source:${encodeURIComponent(owner)}:${createHash('sha256').update(image).digest('hex')}`;
         await blobs.put(key, image);
+        await ledger.record(owner, key, 'import-source');
         keys.push(key);
       }
       const job = await jobs.create(owner, keys);

@@ -195,7 +195,7 @@ describe('the mutating paths announce what they did', () => {
     const heard: ChangeEvent[] = [];
     bus.subscribe('local', 'score-1', (event) => heard.push(event));
 
-    const library: ScoreLibrary = { delete: (_owner, id) => Promise.resolve(id === 'score-1') };
+    const library: ScoreLibrary = { delete: (_owner, id) => Promise.resolve(id === 'score-1'), deleteAll: () => Promise.resolve(0) };
     const publishing = publishingLibrary(library, bus);
 
     expect(await publishing.delete('local', 'score-1')).toBe(true);
