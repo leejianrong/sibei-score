@@ -114,6 +114,7 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'foreign-host':
     case 'unauthenticated':
     case 'insufficient-scope': // V21a: a token that lacks the scope for what it asked to do
+    case 'wrong-audience': // V22a: an MCP token presented at the /v1/ API
       return EXIT.refused;
     default:
       return EXIT.usage;
