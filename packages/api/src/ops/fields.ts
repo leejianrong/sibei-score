@@ -37,6 +37,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'ending.rm': [],
   'break.set': ['kind'],
   'break.rm': [],
+  'slur.set': ['to', 'placement', 'id'],
+  'slur.rm': [],
   'bar.add': ['count', 'ids'],
   'bar.rm': [],
 };

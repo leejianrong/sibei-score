@@ -84,9 +84,32 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
 
   if (grid.length === 0 && pickup === undefined) lines.push('  (no bars)');
 
+  const slurs = slurLines(score);
+  if (slurs.length > 0) lines.push('', ...slurs);
+
   lines.push('');
   lines.push(...legend(score));
   return lines.join('\n');
+}
+
+/**
+ * `slur  bar1.n2 -> bar2.n3 below slur-1` — one line per slur (SIB2-167), the endpoints as the addresses
+ * `slur set` accepts and the id `slur rm` accepts. Placement is printed only when it was chosen.
+ */
+function slurLines(score: Score): string[] {
+  const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur');
+  if (spanners.length === 0) return [];
+  const addressOf = (id: string): string => {
+    for (const bar of score.bars) {
+      const at = orderedItems(bar).findIndex((item) => item.id === id);
+      if (at >= 0) return `bar${bar.number}.n${at + 1}`;
+    }
+    return id;
+  };
+  return spanners.map(
+    (slur) =>
+      `slur  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)}${slur.placement === undefined ? '' : ` ${slur.placement}`} ${slur.id}`,
+  );
 }
 
 function header(score: Score): string {
