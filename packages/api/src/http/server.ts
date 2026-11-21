@@ -269,6 +269,13 @@ export function createApi(options: ApiOptions): Api {
     const origin = checkOrigin(request, hostedHosts);
     if (!origin.ok) return send(response, problem(403, 'foreign-origin', origin.reason));
 
+    // OAuth discovery metadata (V22a). Public by nature — a client reads it before it has any credential —
+    // and it reads no store, so answering it here, ahead of the session check, opens nothing.
+    if (hosted !== undefined && pathOf(request).startsWith('/.well-known/')) {
+      const answered = hosted.handleWellKnown(request, response);
+      if (answered !== null) return answered;
+    }
+
     // Signing in cannot require being signed in, so the auth routes answer without a session. They are
     // behind the guards above, like everything.
     if (hosted !== undefined && pathOf(request).startsWith('/v1/auth/')) {
@@ -291,6 +298,15 @@ export function createApi(options: ApiOptions): Api {
 
     // A token carries the scopes it was minted with (V21a). Reads need `read`, anything that changes state
     // needs `write`; a session or the local principal has no `scopes` and is not limited.
+    //
+    // A token of the MCP family (V22a) is for `/mcp` alone and is refused here by name rather than by the
+    // coincidence that it lacks `read`: the audience check is the point, and it should say so.
+    if (principal.scopes !== undefined && !principal.scopes.some((scope) => scope === 'read' || scope === 'write')) {
+      return send(
+        response,
+        problem(403, 'wrong-audience', 'this token was issued for the MCP endpoint and cannot be used on the API'),
+      );
+    }
     if (principal.scopes !== undefined) {
       const needed = isStateChanging(request.method) ? 'write' : 'read';
       if (!principal.scopes.includes(needed)) {

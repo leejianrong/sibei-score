@@ -36,8 +36,8 @@ function scratchFile(): string {
 }
 
 describe('table schema version 6', () => {
-  it('has moved on to the version that adds API tokens (V21a), which is additive over identity', () => {
-    expect(TABLE_SCHEMA_VERSION).toBe(7);
+  it('has moved on to the version that adds OAuth codes (V22a), which is additive over identity', () => {
+    expect(TABLE_SCHEMA_VERSION).toBe(8);
   });
 
   it('takes a v5 library to v6 without losing a score or a log row, and then signs somebody in', async () => {
@@ -114,6 +114,33 @@ describe('table schema version 7 (V21a)', () => {
         expiresAt: '2999-01-01T00:00:00Z',
       });
       expect(await second.findToken('th', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
+    } finally {
+      await second.close();
+    }
+  });
+});
+
+describe('table schema version 8 (V22a)', () => {
+  it('takes a v7 library to v8 keeping every token, and then records an authorisation code', async () => {
+    const filename = scratchFile();
+    const first = openSqliteAuthStore({ filename });
+    const user = await first.signIn({ provider: 'github', subject: '1', login: 'a', name: null });
+    await first.createToken({ id: 'tok_1', tokenHash: 'th', userId: user.id, name: 'laptop', scopes: ['read'], expiresAt: '2999-01-01T00:00:00Z' });
+    await first.close();
+
+    const raw = new SqliteDatabase(filename);
+    raw.exec('DROP TABLE oauth_codes;');
+    raw.pragma('user_version = 7');
+    raw.close();
+
+    const second = openSqliteAuthStore({ filename });
+    try {
+      expect(await second.findToken('th', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
+      await second.createAuthCode({
+        codeHash: 'c', clientId: 'sbc_x', userId: user.id, redirectUri: 'http://127.0.0.1/cb', codeChallenge: 'x',
+        scopes: ['mcp:read'], name: 'agent', expiresAt: '2999-01-01T00:00:00Z',
+      });
+      expect(await second.consumeAuthCode('c', '2026-10-01T00:00:00Z')).toMatchObject({ userId: user.id });
     } finally {
       await second.close();
     }
