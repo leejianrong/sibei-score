@@ -77,7 +77,7 @@ describe('break.set join', () => {
   });
 
   it('refuses a break kind it does not know', () => {
-    expect(() => run([create, { type: 'break.set', target: 'bar3', payload: { kind: 'before' } } as Operation])).toThrow(
+    expect(() => run([create, { type: 'break.set', target: 'bar3', payload: { kind: 'before' } } as unknown as Operation])).toThrow(
       OperationError,
     );
   });
