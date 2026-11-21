@@ -1,4 +1,5 @@
 import {
+  CHORD_STYLE_PRESETS,
   DEFAULT_KEY,
   DEFAULT_TIME,
   FOOTER_PAGES,
@@ -33,6 +34,7 @@ import type {
   EndBarline,
   Ending,
   EndingRole,
+  ChordStylePreset,
   Id,
   KeySignature,
   Note,
@@ -271,7 +273,8 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const key = payload.key === undefined ? score.meta.key : validKey(payload.key);
 
   const footer = nextFooter(score, payload);
-  const { footer: _previous, ...rest } = score.meta;
+  const chordStyle = nextChordStyle(score, payload);
+  const { footer: _previous, chordStyle: _previousStyle, ...rest } = score.meta;
   const next: Score = {
     ...score,
     meta: {
@@ -282,6 +285,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       key,
       time,
       ...(footer === undefined ? {} : { footer }),
+      ...(chordStyle === undefined ? {} : { chordStyle }),
     },
   };
 
@@ -295,6 +299,20 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     operation: { type: 'meta.set', payload },
     changed: [score.id],
   };
+}
+
+/** The chord style after a `meta.set` (SIB2-163): untouched unless named; `standard` or null clears it. */
+function nextChordStyle(score: Score, payload: MetaSetPayload): ChordStylePreset | undefined {
+  const named = payload.chordStyle;
+  if (named === undefined) return score.meta.chordStyle;
+  if (named === null || named === 'standard') return undefined;
+  if (!CHORD_STYLE_PRESETS.includes(named)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `chordStyle must be ${CHORD_STYLE_PRESETS.join(', ')}, not ${JSON.stringify(named)}`,
+    });
+  }
+  return named;
 }
 
 /**

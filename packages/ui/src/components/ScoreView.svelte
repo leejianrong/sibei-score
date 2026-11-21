@@ -176,6 +176,13 @@
     ]);
   }
 
+  async function handleChordStyle(event: Event): Promise<void> {
+    if (score === null) return;
+    const chosen = (event.currentTarget as HTMLSelectElement).value as 'standard' | 'dash' | 'words' | 'real-book';
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { chordStyle: chosen } }]);
+  }
+
   // Selection (V4c). The id is the whole of it — everything the inspector shows is looked up
   // fresh from the current render each time, never cached at selection time, so a reload never
   // leaves it holding a stale copy of what it is inspecting.
@@ -837,6 +844,26 @@
         <p class="control-note">
           A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
           (<code>meta set --footer</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
+        <h3>Chord symbols</h3>
+        <select
+          class="key-select"
+          aria-label="Print chords as"
+          disabled={saving}
+          value={score?.meta.chordStyle ?? 'standard'}
+          onchange={handleChordStyle}
+        >
+          <option value="standard">Δ · m7 · ø (standard)</option>
+          <option value="dash">Δ · -7 · -7♭5</option>
+          <option value="words">maj7 · min7 · m7♭5</option>
+          <option value="real-book">MA7 · MI7 · MI7♭5</option>
+        </select>
+        <p class="control-note">
+          How this chart prints its chords; the chord text is unchanged. A logged, undoable edit
+          (<code>meta set --chord-style</code>).
         </p>
       </div>
 

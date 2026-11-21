@@ -1,5 +1,6 @@
 import type { LayoutText, LayoutTextRole } from '@sibei/layout';
 import { formatAlter } from '@sibei/model';
+import type { ChordStylePreset } from '@sibei/model';
 import { parseChord } from '@sibei/music';
 import type { Alteration, Chord, ChordStructure, Root } from '@sibei/music';
 import type { SvgElement } from './svg.js';
@@ -137,9 +138,9 @@ const SHARP = '♯';
 const FLAT = '♭';
 
 /** How a major seventh is marked: the `Δ` glyph, or the word spelled `maj` / `ma` / `M`. */
-export type MajorSeventhGlyph = 'delta' | 'maj' | 'ma' | 'M';
+export type MajorSeventhGlyph = 'delta' | 'maj' | 'ma' | 'M' | 'MA';
 /** How a minor triad is marked. */
-export type MinorGlyph = 'm' | 'min' | 'dash';
+export type MinorGlyph = 'm' | 'min' | 'dash' | 'MI';
 /** A half-diminished chord as the `ø` glyph, or spelled out as an ordinary `m7♭5`. */
 export type HalfDiminishedGlyph = 'circle' | 'spell';
 /** A diminished triad as the `°` glyph, or the word `dim`. */
@@ -194,6 +195,42 @@ export const CANONICAL_CHORD_STYLE: ChordStyle = {
   triangleScale: 1,
   slash: 'stacked',
 };
+
+/**
+ * The named chord symbologies a score can choose (SIB2-163), by the name stored in `meta.chordStyle`
+ * (the model owns the list, `CHORD_STYLE_PRESETS`). `standard` is `CANONICAL_CHORD_STYLE`, so a score
+ * that never chose one renders byte-identically (ADR-0014/0015).
+ */
+export const CHORD_STYLE_PRESET_STYLES: Record<ChordStylePreset, ChordStyle> = {
+  standard: CANONICAL_CHORD_STYLE,
+  /** `G-7`, `Cø` spelled `G-7♭5`, `CΔ7` — the dash minor of many printed fake books. */
+  dash: { ...CANONICAL_CHORD_STYLE, minor: 'dash', halfDiminished: 'spell', parenthesizeAlterations: false },
+  /** `Gmin7`, `Cmaj7`, `G7` words, `m7♭5`, `dim`, `aug` — nothing but letters and numbers. */
+  words: {
+    ...CANONICAL_CHORD_STYLE,
+    majorSeventh: 'maj',
+    minor: 'min',
+    halfDiminished: 'spell',
+    diminished: 'dim',
+    augmented: 'aug',
+    parenthesizeAlterations: false,
+  },
+  /** `CMA7`, `GMI7`, `GMI7♭5` — the capitalised words of the Real Book. */
+  'real-book': {
+    ...CANONICAL_CHORD_STYLE,
+    majorSeventh: 'MA',
+    minor: 'MI',
+    halfDiminished: 'spell',
+    diminished: 'dim',
+    augmented: 'aug',
+    parenthesizeAlterations: false,
+  },
+};
+
+/** The `ChordStyle` a stored preset name draws; an unknown or absent name is the canonical style. */
+export function chordStyleForPreset(name: string | undefined): ChordStyle {
+  return name === undefined ? CANONICAL_CHORD_STYLE : (CHORD_STYLE_PRESET_STYLES as Record<string, ChordStyle>)[name] ?? CANONICAL_CHORD_STYLE;
+}
 
 export interface ChordSpec {
   text: string;
@@ -394,7 +431,7 @@ function styledAccidental(ascii: string, mode: AccidentalGlyph): string {
 }
 
 function minorMarker(style: ChordStyle): string {
-  return style.minor === 'min' ? 'min' : style.minor === 'dash' ? '-' : 'm';
+  return style.minor === 'min' ? 'min' : style.minor === 'dash' ? '-' : style.minor === 'MI' ? 'MI' : 'm';
 }
 
 function augmentedMarker(style: ChordStyle): string {
@@ -406,7 +443,7 @@ function diminishedMarker(style: ChordStyle): string {
 }
 
 function majorSeventhWord(glyph: MajorSeventhGlyph): string {
-  return glyph === 'maj' ? 'maj' : glyph === 'ma' ? 'ma' : 'M';
+  return glyph === 'maj' ? 'maj' : glyph === 'ma' ? 'ma' : glyph === 'MA' ? 'MA' : 'M';
 }
 
 /** The superscript number: the extension or seventh, a sixth, the `alt` shorthand, a suspension. */

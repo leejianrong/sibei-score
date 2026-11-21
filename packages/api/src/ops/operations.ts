@@ -59,6 +59,8 @@ export interface MetaSetPayload {
   footer?: string | null;
   /** Which pages carry it: `first`, `last` or `all` (the default). Needs a footer, new or existing. */
   footerPages?: 'first' | 'last' | 'all';
+  /** The chord symbology (SIB2-163): `standard`, `dash`, `words` or `real-book`. `standard` or null clears it. */
+  chordStyle?: 'standard' | 'dash' | 'words' | 'real-book' | null;
 }
 
 /**
