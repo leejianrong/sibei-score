@@ -18,3 +18,21 @@ out
 *.db-wal
 *.db-shm
 blobs/
+
+# Secrets and operator data (SIB2-205). The Dockerfile does `COPY . .`, the hosted runbook puts `.env` and
+# `backups/` in this directory, and a layer is forever (and the runbook pushes images to registries).
+# Nothing below is needed to build the image. tests/arch/dockerignore.test.ts holds this list.
+.env
+.env.*
+**/.env
+**/.env.*
+backups/
+**/backups/
+deploy/
+tools/runpod/
+*.pem
+*.key
+*.age
+*.sql
+*.sql.gz
+.claude/
