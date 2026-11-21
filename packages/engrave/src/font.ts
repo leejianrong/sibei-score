@@ -68,6 +68,12 @@ export type MusicGlyphName =
   | 'gClef'
   | 'repeatDot'
   | 'fermataAbove'
+  | 'articStaccatoAbove'
+  | 'articStaccatoBelow'
+  | 'articAccentAbove'
+  | 'articAccentBelow'
+  | 'articMarcatoAbove'
+  | 'articMarcatoBelow'
   | `timeSig${Digit}`
   | `tuplet${Digit}`;
 

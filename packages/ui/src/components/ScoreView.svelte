@@ -328,6 +328,7 @@
         // The pin is not a layout property (it changes no ink), so it is read from the model note.
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
+        articulations: item.articulations ?? [],
       };
     }
     return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };

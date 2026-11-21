@@ -360,6 +360,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,
         ...(item.fermata === true ? { fermata: true } : {}),
+        ...(item.articulations === undefined ? {} : { articulations: item.articulations }),
       });
     } else {
       items.push({

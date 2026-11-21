@@ -45,6 +45,9 @@ export const FERMATA_BASE = 15;
 export const FERMATA_GAP = 10;
 export const FERMATA_HEIGHT = 15;
 
+/** Room one articulation mark takes beside a notehead: its glyph plus the gap (SIB2-179), shared with the engraver. */
+export const ARTICULATION_BAND = 12;
+
 export interface SystemVertical {
   /** Units from the top of the system to the top staff line. */
   aboveStaff: number;
@@ -76,8 +79,15 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
       const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
       const below = (BOTTOM_LINE - index) * STEP_UNITS + NOTEHEAD_UNITS;
       inkAbove = Math.max(inkAbove, above + (stemUp ? STEM_UNITS : 0));
+      // Marks sit on the notehead side, away from the stem, and each takes a band of room (SIB2-179).
+      if (item.articulations !== undefined && item.articulations.length > 0) {
+        const room = ARTICULATION_BAND * item.articulations.length;
+        if (stemUp) inkBelow = Math.max(inkBelow, below + room);
+        else inkAbove = Math.max(inkAbove, above + room);
+      }
       if (item.fermata === true) {
-        const reach = above + (stemUp ? STEM_UNITS : 0);
+        const marks = (item.articulations?.length ?? 0) * ARTICULATION_BAND;
+        const reach = above + (stemUp ? STEM_UNITS : marks);
         inkAbove = Math.max(inkAbove, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
       }
       inkBelow = Math.max(inkBelow, below + (stemUp ? 0 : STEM_UNITS));

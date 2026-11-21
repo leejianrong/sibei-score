@@ -16,8 +16,8 @@
    * one that owns the conflict recovery rule (ADR-0003): reload, never retry with the server's
    * number wearing a disguise.
    */
-  import { parsePitch } from '@sibei/model';
-  import type { AccidentalDisplay, Dots, Duration, Id, NoteValue, Spanner, TieRole } from '@sibei/model';
+  import { ARTICULATIONS, parsePitch } from '@sibei/model';
+  import type { AccidentalDisplay, Articulation, Dots, Duration, Id, NoteValue, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
 
@@ -32,6 +32,8 @@
     spellingPinned: boolean;
     /** Whether a fermata sits over this note (SIB2-183). */
     fermata: boolean;
+    /** Staccato, accent and marcato marks on this note (SIB2-179). */
+    articulations: readonly Articulation[];
   }
 
   export interface RestSelection {
@@ -54,6 +56,7 @@
     duration: Duration;
     accidental: AccidentalDisplay;
     spellingPinned: boolean;
+    articulations: Articulation[];
   }
 
   export interface RestEdits {
@@ -135,7 +138,12 @@
     untrack(() => (selection.kind === 'note' ? selection.accidental : 'auto')),
   );
   let spellingPinned = $state(untrack(() => (selection.kind === 'note' ? selection.spellingPinned : false)));
+  let marks = $state<Articulation[]>(untrack(() => (selection.kind === 'note' ? [...selection.articulations] : [])));
   let pitchError = $state<string | null>(null);
+
+  function toggleMark(mark: Articulation): void {
+    marks = marks.includes(mark) ? marks.filter((m) => m !== mark) : ARTICULATIONS.filter((m) => m === mark || marks.includes(m));
+  }
   let slurPlacement = $state<'auto' | 'above' | 'below'>('auto');
 
   const tieHint = $derived(selection.kind === 'note' ? hintFor(selection.tie) : null);
@@ -161,7 +169,7 @@
       return;
     }
     pitchError = null;
-    onsave({ pitch: pitchInput, duration, accidental, spellingPinned });
+    onsave({ pitch: pitchInput, duration, accidental, spellingPinned, articulations: marks });
   }
 </script>
 
@@ -230,6 +238,17 @@
           display={(option) => (option === 'parens' ? '(♯)' : option.charAt(0).toUpperCase() + option.slice(1))}
           onselect={(chosen) => (accidental = chosen)}
         />
+      </div>
+
+      <div class="field">
+        <span class="field-label">Articulation</span>
+        <div class="dots" role="group" aria-label="Articulation">
+          {#each ARTICULATIONS as mark (mark)}
+            <button type="button" class="mark" aria-pressed={marks.includes(mark)} onclick={() => toggleMark(mark)}>
+              {mark.charAt(0).toUpperCase() + mark.slice(1)}
+            </button>
+          {/each}
+        </div>
       </div>
 
       <label class="pin">
@@ -449,6 +468,11 @@
   .slur-row .btn {
     flex: none;
     padding: 4px 8px;
+  }
+
+  .dots button.mark {
+    width: auto;
+    padding: 0 8px;
   }
 
   .inspector-actions {

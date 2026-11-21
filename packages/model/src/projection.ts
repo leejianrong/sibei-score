@@ -24,6 +24,9 @@ import type { Bar, BarItem, Confidence, Review, Score, Tempo, TimeSignature } fr
  * test that walks every printed address back through the resolver.
  */
 
+/** How `show` prints each mark, after a colon. */
+const ARTICULATION_SHORT = { staccato: 'stac', accent: 'acc', marcato: 'mar' } as const;
+
 /** Bars per row. The printed layout's grid (ADR-0015). */
 const BARS_PER_ROW = 4;
 
@@ -238,7 +241,9 @@ function describe(item: BarItem, bar: Bar): string {
   const flag = flagSuffix(item.review, item.confidence);
   // `^` is a fermata (SIB2-183), after the tie so `c5/4~^` reads as a held, tied note.
   const hold = item.fermata === true ? '^' : '';
-  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${hold}${flag === '' ? '' : ` ${flag}`}`;
+  // Articulations print after the tie as `:stac:acc:mar` (SIB2-179): `.` is taken by dotted durations.
+  const marks = item.kind === 'note' ? (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('') : '';
+  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${marks}${hold}${flag === '' ? '' : ` ${flag}`}`;
 }
 
 /** A band symbol (chord or quoted annotation) with its review flag and, on imports, its confidence. */

@@ -155,6 +155,7 @@ sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -
 ```sh
 sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
 sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
+                [--artic staccato,accent,marcato|none]                        # marks by the notehead; none clears
 sbscore note rm  <id> <address>
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
@@ -185,6 +186,16 @@ off (refused where there is none). It draws above the staff and above the note's
 head, and the chord band rises to clear it. `show` marks it `^` after the duration (`c5/4^`, `r/4^`), and
 MusicXML carries `<fermata type="upright"/>` and reads it back. In the browser, select a note or rest and tick
 Fermata. It has no playback length. Charts written before fermatas need no migration.
+
+**Articulations** are staccato, accent and marcato on a note: `--artic staccato,accent` on `note add` or `note
+set` (the list replaces the note's marks; `--artic none` clears them; omitting it leaves them alone). They draw
+on the notehead side, away from the stem (below an up stem, above a down stem), stacked staccato nearest, with
+a staccato dot moved into the next space when it would land on a staff line, and the chord band rises to
+clear them. `show` prints them after the duration as `:stac:acc:mar` (`c5/4:stac`). MusicXML carries
+`<staccato/>`, `<accent/>` and `<strong-accent/>` (our marcato) in `<articulations>`; any other articulation in
+a file is dropped with a warning. Jazz articulations (fall, doit, scoop) are not modelled. In the browser,
+select a note and toggle Staccato, Accent and Marcato, then Save. Charts written before articulations need no
+migration.
 
 A **slur** runs from one note to a later one, in the same bar or another: `sbscore slur set <id> bar1.n2
 bar2.n3`. It is stored as a `spanner` (a kind and the ids of its two notes, so it follows them), setting the

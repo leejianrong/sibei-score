@@ -13,7 +13,7 @@
  * document is not the place to be strict — the model stores and flags, it does not reject.
  */
 
-import { MAX_TEMPO, MIN_TEMPO, makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
+import { ARTICULATIONS, MAX_TEMPO, MIN_TEMPO, makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
 import type {
   Alter,
   BarItem,
@@ -23,6 +23,7 @@ import type {
   Mode,
   NoteValue,
   Score,
+  Articulation,
   Section,
   Spanner,
   Step,
@@ -225,6 +226,10 @@ class PartReader {
           const parsed = this.readNote(child, cursor);
           const notations = firstChild(child, 'notations');
           if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
+          if (notations !== null && parsed.item.kind === 'note') {
+            const marks = this.readArticulations(notations);
+            if (marks.length > 0) parsed.item.articulations = marks;
+          }
           items.push(parsed.item);
           this.readSlurs(child, parsed.item);
           openTuplet = this.trackTuplet(openTuplet, tuplets, parsed);
@@ -300,6 +305,20 @@ class PartReader {
       endBarline,
       ending,
     });
+  }
+
+  /** `<articulations>` in `<notations>`: staccato, accent and the strong accent (our marcato); others are noted and dropped. */
+  private readArticulations(notations: XmlElement): Articulation[] {
+    const found = new Set<Articulation>();
+    for (const group of childElements(notations, 'articulations')) {
+      for (const mark of childElements(group)) {
+        if (mark.name === 'staccato') found.add('staccato');
+        else if (mark.name === 'accent') found.add('accent');
+        else if (mark.name === 'strong-accent') found.add('marcato');
+        else this.note(`the articulation <${mark.name}> was dropped: only staccato, accent and marcato are kept`);
+      }
+    }
+    return ARTICULATIONS.filter((mark) => found.has(mark));
   }
 
   /** `<notations><slur type number placement/>` on a note: open it, or close it into a spanner. */

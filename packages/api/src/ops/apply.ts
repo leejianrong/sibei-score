@@ -1,4 +1,5 @@
 import {
+  ARTICULATIONS,
   CHORD_STYLE_PRESETS,
   DEFAULT_KEY,
   DEFAULT_TIME,
@@ -39,6 +40,7 @@ import {
 import type {
   AccidentalDisplay,
   Annotation,
+  Articulation,
   Bar,
   BarItem,
   Chord,
@@ -461,6 +463,8 @@ function addNote(score: Score, target: string, payload: NoteAddPayload): Applied
     ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
     ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   });
+  const marks = payload.articulations === undefined ? [] : validArticulations(payload.articulations);
+  if (marks.length > 0) note.articulations = marks;
 
   return {
     score: withItemAdded(score, position.bar.id, note),
@@ -528,6 +532,12 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
     ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
     ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   };
+
+  if (payload.articulations !== undefined) {
+    const marks = validArticulations(payload.articulations);
+    if (marks.length > 0) updated.articulations = marks;
+    else delete updated.articulations;
+  }
 
   return {
     score: mapBar(score, resolved.bar.id, (bar) => ({
@@ -1350,6 +1360,25 @@ const TIE_ROLES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 
 // These three used to be spread through raw, so `accidental: "cautionary"` was stored and answered
 // 200 (KAN-606). The lists are the model's own union members, quoted so a refusal says what works.
+/** The marks, checked, deduplicated and put in stacking order so one set of marks is one document (SIB2-179). */
+function validArticulations(value: unknown): Articulation[] {
+  if (!Array.isArray(value)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `articulations is a list of ${ARTICULATIONS.join(', ')}; an empty list clears them`,
+    });
+  }
+  for (const mark of value) {
+    if (!ARTICULATIONS.includes(mark as Articulation)) {
+      throw new OperationError({
+        kind: 'validation',
+        detail: `${JSON.stringify(mark)} is not an articulation; use ${ARTICULATIONS.join(', ')}`,
+      });
+    }
+  }
+  return ARTICULATIONS.filter((mark) => value.includes(mark));
+}
+
 function validAccidental(value: unknown): AccidentalDisplay {
   if (!ACCIDENTAL_DISPLAYS.includes(value as AccidentalDisplay)) {
     throw new OperationError({

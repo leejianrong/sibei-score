@@ -1,5 +1,6 @@
 import type {
   AccidentalDisplay,
+  Articulation,
   Duration,
   EndBarline,
   EndingRole,
@@ -88,6 +89,8 @@ export interface NoteAddPayload {
   accidental?: AccidentalDisplay;
   tie?: TieRole;
   spellingPinned?: boolean;
+  /** Staccato, accent and marcato marks (SIB2-179). */
+  articulations?: Articulation[];
   /** *Recorded.* The id the applier assigned. */
   id?: Id;
 }
@@ -98,6 +101,8 @@ export interface NoteSetPayload {
   accidental?: AccidentalDisplay;
   tie?: TieRole;
   spellingPinned?: boolean;
+  /** Replaces the note's marks (SIB2-179); an empty list clears them. */
+  articulations?: Articulation[];
 }
 
 export interface RestAddPayload {

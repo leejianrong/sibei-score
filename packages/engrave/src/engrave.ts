@@ -7,7 +7,7 @@ import type {
   NoteItem,
   RestItem,
 } from '@sibei/layout';
-import { LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
+import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
 import type { Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
 import { furnitureText } from './furniture.js';
@@ -46,7 +46,7 @@ import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
 import { slur } from './slurs.js';
-import { fermata } from './marks.js';
+import { articulations, fermata } from './marks.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -480,6 +480,18 @@ function engraveBar(
     // sized from the notehead's own box rather than a measurement (ADR-0015).
     if (entry.item.flagged) shading.push(flaggedItemShade(note.x, font.width(note.glyph), staveY));
     ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
+    if (entry.item.kind === 'note' && entry.item.articulations !== undefined && entry.item.articulations.length > 0) {
+      ink.push(
+        ...articulations(font, {
+          x: note.x,
+          width: font.width(note.glyph),
+          y: positionY(note.position, staveY),
+          staveY,
+          stem: note.stem?.direction ?? stemDirection(note.position),
+          marks: entry.item.articulations,
+        }),
+      );
+    }
     if (entry.item.fermata === true) {
       const headTop = positionY(note.position, staveY) - units(0.5);
       const up = note.stem !== null && note.stem.direction === 'up';
@@ -488,7 +500,12 @@ function engraveBar(
           x: note.x,
           width: font.width(note.glyph),
           staveY,
-          inkTopY: entry.item.kind === 'rest' ? null : up && note.stem !== null ? Math.min(headTop, note.stem.endY) : headTop,
+          inkTopY:
+            entry.item.kind === 'rest'
+              ? null
+              : (up && note.stem !== null ? Math.min(headTop, note.stem.endY) : headTop) -
+                // Marks over a down-stemmed head push the fermata up past them (SIB2-179).
+                (up ? 0 : (entry.item.articulations?.length ?? 0) * ARTICULATION_BAND),
         }),
       );
     }
