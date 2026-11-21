@@ -208,6 +208,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       if (removed === null) return false;
       // The audio goes with the job (decision 16). A blob that was never uploaded is not an error.
       await blobs.delete(removed.audioKey);
+      await blobs.delete(`audio-result:${removed.id}`);
       return true;
     },
   };

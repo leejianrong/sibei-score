@@ -52,6 +52,12 @@ export const USAGE_KINDS: readonly string[] = [
   'no-such-import-image',
   'job-not-retryable',
   'worker-unavailable',
+  // The audio worker's protocol (SIB2-138). A pulling worker, not a person or the CLI, meets these: it
+  // branches on them (lease-lost means abandon, invalid-result means do not retry), so none needs an exit
+  // code of its own.
+  'lease-lost',
+  'bad-request',
+  'invalid-result',
   // The browser's GitHub sign-in redirect flow (V20a, `/v1/auth/github/*`). A person's browser
   // meets these, not a CLI verb; `sbscore auth` (V21) will authenticate by device flow and token.
   'invalid-state',
@@ -120,6 +126,7 @@ export function exitCodeForKind(kind: string): ExitCode {
       return EXIT.exists;
     case 'foreign-origin':
     case 'foreign-host':
+    case 'forbidden': // SIB2-138: a user credential on the worker routes, or a worker credential anywhere else
     case 'unauthenticated':
     case 'insufficient-scope': // V21a: a token that lacks the scope for what it asked to do
     case 'wrong-audience': // V22a: an MCP token presented at the /v1/ API
