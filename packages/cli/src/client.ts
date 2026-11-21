@@ -225,6 +225,8 @@ export interface ExportQuery {
   pagenumberformat?: string;
   /** `yes` or `no`: whether page 1 is numbered. */
   pagenumberfirst?: string;
+  /** `no` leaves bar numbers off the PDF (SIB2-191). */
+  barnumbers?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */

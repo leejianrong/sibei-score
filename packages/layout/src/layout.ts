@@ -140,7 +140,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         belowStaff: vertical.belowStaff,
         chordBaselineOffset: vertical.chordBaselineOffset,
         staveY: 0,
-        bars: allocated.map((entry) => buildBar(score, entry)),
+        bars: allocated.map((entry) => buildBar(score, entry, spec.barNumbers)),
         ties: tiesBySystem.get(index) ?? [],
         slurs: slursBySystem.get(index) ?? [],
       };
@@ -287,7 +287,7 @@ function hasMark(section: { letter: string | null; name: string | null } | null)
   return section !== null && (section.letter != null || (section.name != null && section.name !== ''));
 }
 
-function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
+function buildBar(score: Score, entry: AllocatedBar, barNumbers: boolean): LayoutBar {
   const { bar } = entry;
   return {
     barId: bar.id,
@@ -298,11 +298,11 @@ function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
     prefix: entry.prefix,
     prefixWidth: entry.prefixWidth,
     metrics: barMetrics(bar, score.meta.time),
-    items: buildBarItems(score, bar, entry),
+    items: buildBarItems(score, bar, entry, barNumbers),
   };
 }
 
-function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarItem[] {
+function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar, barNumbers: boolean): LayoutBarItem[] {
   const time = score.meta.time;
   const items: LayoutBarItem[] = [];
 
@@ -317,7 +317,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
   }
 
   // Bar numbers head each system, by convention not on bar 1 and never on a pickup.
-  if (entry.headsSystem && bar.number > 1) {
+  if (barNumbers && entry.headsSystem && bar.number > 1) {
     items.push({ kind: 'barNumber', text: String(bar.number) });
   }
 

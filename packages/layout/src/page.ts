@@ -31,6 +31,8 @@ export interface PageSpecInput {
   paper?: Paper;
   /** Page numbers (SIB2-171). Absent or null: none, so a default render is unchanged. */
   pageNumbers?: PageNumberSettings | null;
+  /** Draw a bar number at each system start (SIB2-191). Absent means yes, as before; false leaves them out. */
+  barNumbers?: boolean;
   /** Points per layout unit. Smaller means a smaller staff and more systems per page. */
   pointsPerUnit?: number;
   margin?: Partial<Margins>;
@@ -63,6 +65,7 @@ export interface PageSpecInput {
 export interface PageSpec {
   paper: Paper;
   pageNumbers: PageNumberSettings | null;
+  barNumbers: boolean;
   pointsPerUnit: number;
   /** Paper size in points, as the PDF page will be. */
   widthPt: number;
@@ -108,6 +111,7 @@ export function resolvePageSpec(input: PageSpecInput = {}): PageSpec {
   return {
     paper,
     pageNumbers: input.pageNumbers ?? null,
+    barNumbers: input.barNumbers ?? true,
     pointsPerUnit,
     widthPt: size.widthPt,
     heightPt: size.heightPt,

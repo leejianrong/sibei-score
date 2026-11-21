@@ -198,7 +198,7 @@ and voice (SIB2-151).
 - Slash chords draw inline, not stacked (SIB2-164); parenthesised alterations and alternates draw as
   flagged plain text (SIB2-160, SIB2-161).
 - A whole-bar rest sits at the left of its bar rather than centred (SIB2-192).
-- Bar numbers print at each system start where the originals have none (SIB2-191).
+- Bar numbers print at each system start where the originals have none: closed by SIB2-191 (`export --no-bar-numbers`, a rail tick).
 - The intro bar is alone on its line; the original shares a line with the first section (SIB2-174).
 
 ### How agent-friendly the CLI was

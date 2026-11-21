@@ -276,7 +276,7 @@ the browser's multi-edit actions — undoes as a single step. In the browser, ct
 sbscore export <id> [--pdf | --musicxml] [-o PATH]
                     [--paper a4|letter] [--font normal|jazz]
                     [--page-numbers[=top-right]] [--page-number-format n|page|of]
-                    [--page-number-first yes|no]
+                    [--page-number-first yes|no] [--no-bar-numbers]
                     [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
 ```
 
@@ -292,6 +292,10 @@ unchanged. Bare, it is top-right; name a place with `--page-numbers=bottom-cente
 with `left`, `center` or `right`). `--page-number-format` is `n` (`2`), `page` (`Page 2`) or `of`
 (`Page 2 of 3`), and `--page-number-first no` leaves page 1 bare. These are page choices, so MusicXML
 ignores them. The browser's Export rail has the same controls.
+
+`--no-bar-numbers` leaves the bar number off the head of each line in the PDF (they are drawn by default, on
+every line but the first, and never on a pickup). Nothing else moves. It is a page choice like paper, not stored
+in the chart, so MusicXML ignores it; the rail's Bar numbers tick drives the preview the same way.
 
 ## Audio
 

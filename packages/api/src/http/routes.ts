@@ -7,6 +7,7 @@ import {
   EXPORT_PAGE_NUMBER_FORMATS,
   EXPORT_PAGE_NUMBER_POSITIONS,
   EXPORT_PAPERS,
+  parseExportBarNumbers,
   parseExportFont,
   parseExportFormat,
   parseExportInstrument,
@@ -691,12 +692,16 @@ async function exportScore(
     return send(response, unsupported('pagenumberfirst', query.get('pagenumberfirst'), ['yes', 'no']));
   }
 
+  const barNumbers = parseExportBarNumbers(query.get('barnumbers'));
+  if (barNumbers === null) return send(response, unsupported('barnumbers', query.get('barnumbers'), ['yes', 'no']));
+
   const outcome = await context.exporter.export(context.owner, scoreId, {
     format,
     instrument,
     paper,
     font,
     pageNumbers: position === null ? null : { position, format: numberFormat, first: numberFirst },
+    barNumbers,
   });
   if (!outcome.ok) return send(response, noSuchScore(scoreId));
   return sendArtefact(response, outcome.artefact);
