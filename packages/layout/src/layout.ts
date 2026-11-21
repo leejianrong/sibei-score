@@ -1,4 +1,4 @@
-import type { Bar, BarMetrics, Id, KeySignature, Score, TimeSignature } from '@sibei/model';
+import type { Bar, BarMetrics, ChordStylePreset, Id, KeySignature, Score, TimeSignature } from '@sibei/model';
 import {
   TICKS_PER_QUARTER,
   barMetrics,
@@ -81,6 +81,8 @@ export interface LayoutResult {
   ticksPerQuarter: number;
   key: KeySignature;
   time: TimeSignature;
+  /** The score's chosen chord symbology (SIB2-163), carried for the engraver; absent is `standard`. */
+  chordStyle?: ChordStylePreset;
   pages: LayoutPage[];
   systemCount: number;
 }
@@ -135,6 +137,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
     ticksPerQuarter: TICKS_PER_QUARTER,
     key: score.meta.key,
     time: score.meta.time,
+    ...(score.meta.chordStyle === undefined ? {} : { chordStyle: score.meta.chordStyle }),
     pages: paginate(score, built, spec),
     systemCount: built.length,
   };

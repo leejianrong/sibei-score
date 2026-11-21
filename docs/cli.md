@@ -87,6 +87,7 @@ sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans i
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
                       [--footer TEXT] [--footer-pages first|last|all]
+                      [--chord-style standard|dash|words|real-book]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
@@ -98,6 +99,12 @@ sheet, wrapped to fit between the margins (write `\n` for a line break; an empty
 removes it). `--footer-pages` picks `first`, `last` or `all` pages (the default). It is part of the
 chart, so it is a logged, undoable edit and shows in `show`; MusicXML carries the text as `<rights>`
 but not the page choice.
+
+`--chord-style` chooses how the chart prints its chords, in the PDF and the browser alike (one render
+path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`), `dash` (`Δ7`, `-7`,
+`-7♭5`), `words` (`maj7`, `min7`, `min7♭5`, `dim`, `aug`) or `real-book` (`MA7`, `MI7`, `MI7♭5`). It is
+a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
+carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
 
 `import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
 stack); without one it is a 503 and every other feature still works (Q80). It takes several files as

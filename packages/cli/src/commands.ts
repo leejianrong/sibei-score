@@ -99,6 +99,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
+              [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
   sbscore note rm  <id> <address>
@@ -746,11 +747,13 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   if (footer !== undefined) payload.footer = footer === '' ? null : footer.replace(/\\n/g, '\n');
   const footerPages = flags.options.get('footer-pages');
   if (footerPages !== undefined) payload.footerPages = footerPages as 'first' | 'last' | 'all';
+  const chordStyle = flags.options.get('chord-style');
+  if (chordStyle !== undefined) payload.chordStyle = chordStyle as NonNullable<MetaSetPayload['chordStyle']>;
   if (Object.keys(payload).length === 0) {
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages',
+      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --chord-style',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
