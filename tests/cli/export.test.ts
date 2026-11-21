@@ -289,3 +289,41 @@ describe('sbscore export --musicxml (V8d)', () => {
     expect(result.code).toBe(EXIT.usage);
   });
 });
+
+describe('sbscore export --svg (SIB2-190)', () => {
+  it('writes one SVG per page into a directory, named after the chart', async () => {
+    await aChart();
+    const directory = mkdtempSync(join(work, 'pages-'));
+    const result = await sbscore('export', 'soul', '--svg', '-o', directory);
+    expect(result.code).toBe(EXIT.ok);
+    expect(readdirSync(directory)).toEqual(['Body and Soul - page 1.svg']);
+    expect(readFileSync(join(directory, 'Body and Soul - page 1.svg'), 'utf8').startsWith('<svg')).toBe(true);
+    expect(result.out).toContain('Body and Soul - page 1.svg');
+  });
+
+  it('writes a single page to the file it was told to', async () => {
+    await aChart();
+    const result = await sbscore('export', 'soul', '--svg', '-o', 'page.svg');
+    expect(result.code).toBe(EXIT.ok);
+    expect(readdirSync(work)).toContain('page.svg');
+  });
+
+  it('refuses --png with a pointer to --svg, and --svg with --pdf', async () => {
+    await aChart();
+    const png = await sbscore('export', 'soul', '--png');
+    expect(png.code).toBe(EXIT.usage);
+    expect(png.err).toContain('--svg');
+    expect((await sbscore('export', 'soul', '--svg', '--pdf')).code).toBe(EXIT.usage);
+  });
+
+  it('is refused for a chart of several pages when -o names a file, before anything is written', async () => {
+    // 80 empty bars is twenty lines, which is more than one page holds.
+    await sbscore('new', '--id', 'long', '--title', 'Long', '--bars', '80');
+    const result = await sbscore('export', 'long', '--svg', '-o', 'one.svg');
+    expect(result.code).toBe(EXIT.usage);
+    expect(readdirSync(work)).not.toContain('one.svg');
+    const directory = mkdtempSync(join(work, 'pages-'));
+    expect((await sbscore('export', 'long', '--svg', '-o', directory)).code).toBe(EXIT.ok);
+    expect(readdirSync(directory).sort().slice(0, 2)).toEqual(['Long - page 1.svg', 'Long - page 2.svg']);
+  });
+});

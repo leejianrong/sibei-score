@@ -225,6 +225,8 @@ export interface ExportQuery {
   pagenumberformat?: string;
   /** `yes` or `no`: whether page 1 is numbered. */
   pagenumberfirst?: string;
+  /** Which page an `svg` export is, from 1 (SIB2-190). */
+  page?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */
@@ -237,6 +239,8 @@ export interface Download {
    */
   filename: string;
   contentType: string;
+  /** How many pages the chart has, off `x-sibei-pages`: sent with an SVG export, which is one page at a time. */
+  pages?: number;
 }
 
 export interface ScoreListingWire {
@@ -365,6 +369,7 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
       bytes: Buffer.from(await response.arrayBuffer()),
       filename: filenameFrom(response.headers.get('content-disposition')),
       contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+      ...pagesFrom(response.headers.get('x-sibei-pages')),
     };
   }
 
@@ -482,6 +487,11 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
       return download(`/v1/scores/${encodeURIComponent(id)}/export${suffix}`);
     },
   };
+}
+
+/** The `x-sibei-pages` count as an optional field, only when it is a plain positive number. */
+function pagesFrom(header: string | null): { pages?: number } {
+  return header !== null && /^[1-9]\d{0,3}$/.test(header) ? { pages: Number(header) } : {};
 }
 
 /** `attachment; filename="Body and Soul.pdf"` -> `Body and Soul.pdf`, or nothing at all. */

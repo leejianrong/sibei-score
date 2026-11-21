@@ -7,10 +7,11 @@ import {
   PAGE_NUMBER_POSITIONS,
   PAPER_SIZES,
 } from '@sibei/layout';
-import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
+import { layout } from '@sibei/layout';
+import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, PageSpecInput, Paper } from '@sibei/layout';
 import type { Id, Score } from '@sibei/model';
 import { scoreToMusicXml } from '@sibei/codec';
-import { renderScoreToPdf } from '@sibei/pdf';
+import { renderScoreToPdf, renderScoreToSvg } from '@sibei/pdf';
 import type { BlobKey, BlobStore } from '../blob/blob-store.js';
 import type { Owner, ScoreReader, ScoreRecord } from '../store/repository.js';
 import { PART_INSTRUMENTS, partLabel, writtenPart } from '@sibei/music';
@@ -30,7 +31,7 @@ import type { PartInstrument } from '@sibei/music';
  * edit, the same distinction ADR-0028's migration write-back turns on.
  */
 
-export const EXPORT_FORMATS = ['pdf', 'musicxml'] as const;
+export const EXPORT_FORMATS = ['pdf', 'musicxml', 'svg'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /**
@@ -72,6 +73,11 @@ export interface ExportRequest {
   font: MusicFontName;
   /** Page numbers on the PDF (SIB2-171). Absent or null: none, as before. A render choice, not part of the score. */
   pageNumbers?: PageNumberSettings | null;
+  /**
+   * Which page an `svg` export is, 1-based; absent is page 1. An SVG is one page (the browser's own markup), so a
+   * chart of several is fetched a page at a time and the artefact says how many there are (SIB2-190).
+   */
+  page?: number;
 }
 
 export interface Artefact {
@@ -85,11 +91,14 @@ export interface Artefact {
   cached: boolean;
   /** The score version the artefact was rendered from, which is the first part of its key. */
   version: number;
+  /** How many pages the chart has under this request's page settings: set for `svg`, which is one page at a time. */
+  pages?: number;
 }
 
 export type ExportOutcome =
   | { ok: true; artefact: Artefact }
-  | { ok: false; reason: 'no-such-score' };
+  | { ok: false; reason: 'no-such-score' }
+  | { ok: false; reason: 'no-such-page'; pages: number };
 
 export interface Exporter {
   export(owner: Owner, id: Id, request: ExportRequest): Promise<ExportOutcome>;
@@ -100,6 +109,8 @@ const CONTENT_TYPES: Record<ExportFormat, string> = {
   // The registered type for uncompressed MusicXML (a `.musicxml` file), which is what MuseScore and
   // the like sniff for. `application/xml` would open too, but this is the one the format owns.
   musicxml: 'application/vnd.recordare.musicxml+xml',
+  // The browser's own page markup, byte for byte (SIB2-190): `layout` + `engrave`, the one render path.
+  svg: 'image/svg+xml',
 };
 
 /**
@@ -150,7 +161,9 @@ export function exportBlobKey(
     request.format,
     // The last component, and absent when there are none, so every key made before page numbers existed is
     // still the key for the same bytes. A PDF's page numbers change them; MusicXML ignores them.
-    ...(request.format === 'pdf' && request.pageNumbers
+    // Which page an SVG is. Only an SVG has one, and it is last, so no PDF or MusicXML key changes.
+    ...(request.format === 'svg' ? [`page-${String(request.page ?? 1)}`] : []),
+    ...(request.format !== 'musicxml' && request.pageNumbers
       ? [`pn-${request.pageNumbers.position}-${request.pageNumbers.format}-${request.pageNumbers.first ? 'first' : 'skip'}`]
       : []),
   ].join(':');
@@ -175,29 +188,45 @@ export function createExporter(
       if (record === null) return { ok: false, reason: 'no-such-score' };
 
       const key = exportBlobKey(id, record, request, owner);
-      const describe = (bytes: Buffer, cached: boolean): ExportOutcome => ({
+      const describe = (bytes: Buffer, cached: boolean, pages?: number): ExportOutcome => ({
         ok: true,
         artefact: {
           key,
           contentType: CONTENT_TYPES[request.format],
-          filename: downloadName(record.score, request.format, request.instrument),
+          filename: downloadName(record.score, request.format, request.instrument, request.page),
           bytes,
           cached,
           version: record.version,
+          ...(pages === undefined ? {} : { pages }),
         },
       });
 
+      const part = writtenPart(record.score, request.instrument);
+      // An SVG is one page, so say how many there are and refuse one that is not there, hit or miss.
+      const pages = request.format === 'svg' ? svgPageCount(part, request) : undefined;
+      if (pages !== undefined && (request.page ?? 1) > pages) return { ok: false, reason: 'no-such-page', pages };
+
       const hit = await blobs.get(key);
-      if (hit !== null) return describe(hit, true);
+      if (hit !== null) return describe(hit, true, pages);
 
       // The one place a part is produced: the stored concert score is turned into its written view
       // just before rendering, and never persisted (ADR-0016). `concert` returns it untouched.
-      const bytes = await render(writtenPart(record.score, request.instrument), request);
+      const bytes = await render(part, request);
       await blobs.put(key, bytes);
       await onStore?.(owner, key);
-      return describe(bytes, false);
+      return describe(bytes, false, pages);
     },
   };
+}
+
+/** The page choices an export carries, as the layout takes them. Nothing here decides anything about the page. */
+function pageSpecOf(request: ExportRequest): PageSpecInput {
+  return { paper: request.paper, pageNumbers: request.pageNumbers ?? null };
+}
+
+/** How many pages the chart has under this request, from `layout` alone (a cache hit renders nothing). */
+function svgPageCount(score: Score, request: ExportRequest): number {
+  return layout(score, pageSpecOf(request)).pages.length;
 }
 
 function render(score: Score, request: ExportRequest): Promise<Buffer> {
@@ -206,7 +235,13 @@ function render(score: Score, request: ExportRequest): Promise<Buffer> {
       // The page spec and the render options, straight through. Nothing here decides anything
       // about the page — that is `layout`'s, and the seam only holds while the API stays a
       // conduit for the choice rather than a second opinion about it (ADR-0014).
-      return renderScoreToPdf(score, { paper: request.paper, pageNumbers: request.pageNumbers ?? null }, { font: request.font });
+      return renderScoreToPdf(score, pageSpecOf(request), { font: request.font });
+    case 'svg': {
+      // The same `layout` + `engrave` the browser composes (ADR-0014/0015), so this is its SVG, byte for byte.
+      const page = renderScoreToSvg(score, pageSpecOf(request), { font: request.font })[(request.page ?? 1) - 1];
+      if (page === undefined) throw new Error(`no page ${String(request.page)} to render`);
+      return Promise.resolve(Buffer.from(page.svg, 'utf8'));
+    }
     case 'musicxml':
       // A codec at the edge (ADR-0004), not a render: MusicXML is text off the score, so paper and
       // font do not enter into it. `writtenPart` already applied above, so a part exports transposed.
@@ -227,7 +262,7 @@ function exhaustive(format: never): never {
  * `Content-Disposition` header: a title holding a quote or a newline would otherwise be a way for
  * whoever named the chart to write a header of their own.
  */
-function downloadName(score: Score, format: ExportFormat, instrument: ExportInstrument): string {
+function downloadName(score: Score, format: ExportFormat, instrument: ExportInstrument, page?: number): string {
   const stem = score.meta.title
     .replace(/[^A-Za-z0-9 _-]+/g, ' ')
     .trim()
@@ -236,7 +271,9 @@ function downloadName(score: Score, format: ExportFormat, instrument: ExportInst
   // A part names its instrument, because a folder full of `Body and Soul.pdf` is useless the moment
   // you export more than one. The concert score keeps the bare title.
   const part = instrument === 'concert' ? '' : ` - ${partLabel(instrument)}`;
-  return `${stem === '' ? 'score' : stem}${part}.${format}`;
+  // An SVG is one page of several, so its name says which (`Body and Soul - page 2.svg`).
+  const which = format === 'svg' ? ` - page ${String(page ?? 1)}` : '';
+  return `${stem === '' ? 'score' : stem}${part}${which}.${format}`;
 }
 
 /** The query value, or null when it is not a format this build can produce. */
@@ -263,6 +300,15 @@ export function parseExportPaper(raw: string | null): Paper | null {
 export function parseExportFont(raw: string | null): MusicFontName | null {
   if (raw === null || raw === '') return DEFAULT_FONT;
   return EXPORT_FONTS.find((font) => font === raw) ?? null;
+}
+
+/**
+ * `page=N` (SIB2-190): which page an `svg` export is. 1 unless named; a positive whole number or null
+ * (a 422). A page past the end is the exporter's to judge, since only it knows how many there are.
+ */
+export function parseExportPage(raw: string | null): number | null {
+  if (raw === null || raw === '') return 1;
+  return /^[1-9]\d{0,3}$/.test(raw) ? Number(raw) : null;
 }
 
 export const EXPORT_PAGE_NUMBER_POSITIONS = PAGE_NUMBER_POSITIONS;

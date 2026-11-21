@@ -8,6 +8,7 @@ import {
   EXPORT_PAGE_NUMBER_POSITIONS,
   EXPORT_PAPERS,
   parseExportFont,
+  parseExportPage,
   parseExportFormat,
   parseExportInstrument,
   parseExportPageNumberFirst,
@@ -691,14 +692,27 @@ async function exportScore(
     return send(response, unsupported('pagenumberfirst', query.get('pagenumberfirst'), ['yes', 'no']));
   }
 
+  // Which page an SVG is (SIB2-190). Only an SVG has one; for the others it is accepted and ignored.
+  const page = parseExportPage(query.get('page'));
+  if (page === null) return send(response, unsupported('page', query.get('page'), ['a page number from 1']));
+
   const outcome = await context.exporter.export(context.owner, scoreId, {
     format,
     instrument,
     paper,
     font,
     pageNumbers: position === null ? null : { position, format: numberFormat, first: numberFirst },
+    ...(format === 'svg' ? { page } : {}),
   });
-  if (!outcome.ok) return send(response, noSuchScore(scoreId));
+  if (!outcome.ok) {
+    if (outcome.reason === 'no-such-page') {
+      return send(
+        response,
+        unsupported('page', String(page), [outcome.pages === 1 ? 'page 1 (the chart has one page)' : `pages 1 to ${String(outcome.pages)}`]),
+      );
+    }
+    return send(response, noSuchScore(scoreId));
+  }
   return sendArtefact(response, outcome.artefact);
 }
 
@@ -724,6 +738,8 @@ function sendArtefact(response: ServerResponse, artefact: Artefact): number {
     // Sanitised at the source, because the stem is the chart's title and a title is user text.
     'content-disposition': `attachment; filename="${artefact.filename}"`,
     'x-content-type-options': 'nosniff',
+    // How many pages an SVG export has, so a client can fetch them all (SIB2-190).
+    ...(artefact.pages === undefined ? {} : { 'x-sibei-pages': artefact.pages }),
   });
   response.end(artefact.bytes);
   return 200;

@@ -1,5 +1,5 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname } from 'node:path';
+import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
 import { displayTitle, flaggedObjects, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
@@ -83,7 +83,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
   sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
-  sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
+  sbscore export <id> [--pdf|--musicxml|--svg] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--page-numbers[=top-right|…]] [--page-number-format n|page|of] [--page-number-first yes|no]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
@@ -152,6 +152,8 @@ Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
 
 Export:  --pdf (the default) or --musicxml. MusicXML is a codec at the edges (ADR-0004);
   it is lossy in known ways and ignores --paper, --font and --page-numbers, which are page choices.
+  --svg writes each page as an SVG, the same markup the browser draws, one file per page ("Title - page 2.svg"):
+  give -o a directory for a chart of several pages. There is no --png: rasterise the SVG with your own tool.
   --page-numbers prints a number on each PDF page (off by default): bare it is top-right, or name a
   place — top|bottom with left|center|right, as top-center. --page-number-format is n (2), page
   (Page 2) or of (Page 2 of 3); --page-number-first no leaves page 1 bare.
@@ -436,11 +438,21 @@ async function exportScore(
   // `--pdf` (the default) or `--musicxml` (V8d), never both. Only what was asked for goes on the
   // query, so the server stays the one place that decides what a default is — but a chosen format is
   // sent, and it also fixes the fallback filename's extension below.
-  if (flags.switches.has('pdf') && flags.switches.has('musicxml')) {
-    throw new CliError(EXIT.usage, 'usage', 'choose one of --pdf or --musicxml, not both');
+  if (flags.switches.has('png')) {
+    // A rasteriser is a native binding, and none ships in the CLI or the server (ADR-0031 keeps resvg a
+    // build-time tool). SVG is the browser's own markup, so any image tool can turn it into a PNG.
+    throw new CliError(
+      EXIT.usage,
+      'usage',
+      'there is no --png: this build ships no rasteriser. Use --svg (the browser\'s own SVG, one file per page) and convert it, e.g. rsvg-convert -z 2 page.svg -o page.png',
+    );
   }
-  const format = flags.switches.has('musicxml') ? 'musicxml' : 'pdf';
-  if (flags.switches.has('pdf') || flags.switches.has('musicxml')) query.format = format;
+  const chosen = ['pdf', 'musicxml', 'svg'].filter((name) => flags.switches.has(name));
+  if (chosen.length > 1) {
+    throw new CliError(EXIT.usage, 'usage', 'choose one of --pdf, --musicxml or --svg, not several');
+  }
+  const format = chosen[0] ?? 'pdf';
+  if (chosen.length === 1) query.format = format;
   const paper = flags.options.get('paper');
   if (paper !== undefined) query.paper = paper;
   const font = flags.options.get('font');
@@ -457,6 +469,8 @@ async function exportScore(
   if (numberFormat !== undefined) query.pagenumberformat = numberFormat;
   const numberFirst = flags.options.get('page-number-first');
   if (numberFirst !== undefined) query.pagenumberfirst = numberFirst;
+
+  if (format === 'svg') return exportSvgPages(flags, client, io, json, cwd, id, query);
 
   const artefact = await client.exportScore(id, query);
   const path = outputPathFor({
@@ -491,6 +505,62 @@ async function exportScore(
           contentType: artefact.contentType,
         })
       : `wrote ${path}  ${artefact.bytes.length} bytes`,
+  );
+  return EXIT.ok;
+}
+
+/**
+ * `export --svg` (SIB2-190): one SVG file per page. The server sends a page at a time and says how many there
+ * are, so this asks for page 1, reads the count and fetches the rest. A name for a single file with several pages
+ * to write would clobber itself, so that is refused before anything is written.
+ */
+async function exportSvgPages(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  cwd: string,
+  id: string,
+  query: ExportQuery,
+): Promise<ExitCode> {
+  const first = await client.exportScore(id, { ...query, page: '1' });
+  const pages = first.pages ?? 1;
+  const out = flags.options.get('out');
+  const namesADirectory = out !== undefined && (out.endsWith('/') || isDirectory(resolve(cwd, out)));
+  if (pages > 1 && out !== undefined && !namesADirectory) {
+    throw new CliError(
+      EXIT.usage,
+      'output',
+      `this chart has ${pages} pages, one SVG each: -o must name a directory (end it with /), not the file ${out}`,
+    );
+  }
+
+  const written: { page: number; path: string; bytes: number }[] = [];
+  for (let page = 1; page <= pages; page += 1) {
+    const artefact = page === 1 ? first : await client.exportScore(id, { ...query, page: String(page) });
+    const path = outputPathFor({
+      out,
+      suggested: artefact.filename,
+      fallback: fallbackName(id, 'svg').replace(/\.svg$/, ` - page ${page}.svg`),
+      cwd,
+      isDirectory,
+    });
+    try {
+      writeFileSync(path, artefact.bytes);
+    } catch (error) {
+      throw new CliError(
+        EXIT.usage,
+        'output',
+        `cannot write ${path}: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+    }
+    written.push({ page, path, bytes: artefact.bytes.length });
+  }
+
+  io.out(
+    json
+      ? JSON.stringify({ scoreId: id, pages: written, contentType: first.contentType })
+      : written.map((file) => `wrote ${file.path}  ${file.bytes} bytes`).join('\n'),
   );
   return EXIT.ok;
 }

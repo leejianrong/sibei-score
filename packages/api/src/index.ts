@@ -84,6 +84,7 @@ export {
   createExporter,
   exportBlobKey,
   parseExportFont,
+  parseExportPage,
   parseExportFormat,
   parseExportInstrument,
   parseExportPaper,

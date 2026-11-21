@@ -248,7 +248,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
       required: ['id'],
       properties: {
         id: ID,
-        format: { type: 'string', enum: [...EXPORT_FORMATS], default: 'pdf' },
+        format: { type: 'string', enum: EXPORT_FORMATS.filter((format) => format !== 'svg'), default: 'pdf' },
         instrument: { type: 'string', enum: [...EXPORT_INSTRUMENTS], default: 'concert' },
         paper: { type: 'string', enum: [...EXPORT_PAPERS] },
         font: { type: 'string', enum: [...EXPORT_FONTS] },
