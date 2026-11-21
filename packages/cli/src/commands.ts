@@ -102,7 +102,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
-  sbscore batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
   sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
@@ -258,7 +258,7 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
-      return batch(flags, client, io, json);
+      return batch(flags, client, io, json, options.readStdin ?? readAllStdin);
     case 'undo':
       return move('undo', flags, client, io, json);
     case 'redo':
@@ -748,9 +748,26 @@ function parseEndingNumbers(raw: string): number[] {
  * `batch` is the whole of what a document-patch endpoint would have bought, without the
  * whole-document read or the structural risk (ADR-0008). One invalid operation applies none of them.
  */
-async function batch(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+async function batch(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  readStdin: () => Promise<string>,
+): Promise<ExitCode> {
   const id = requiredPositional(flags, 1, 'a score id', 'batch');
-  const raw = required(flags, 'ops', 'batch');
+  // `--ops @file` and `--ops -` (stdin) keep a long chart out of argv (SIB2-187).
+  const given = required(flags, 'ops', 'batch');
+  let raw = given;
+  if (given === '-') {
+    raw = await readStdin();
+  } else if (given.startsWith('@')) {
+    try {
+      raw = readFileSync(given.slice(1), 'utf8');
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', `--ops: cannot read ${given.slice(1)}`);
+    }
+  }
   let operations: Operation[];
   try {
     const parsed: unknown = JSON.parse(raw);
