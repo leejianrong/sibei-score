@@ -116,6 +116,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore auth token                       print the token, bare, so $(sbscore auth token) is a token
   sbscore auth logout                      forget the credential for this server
 
+Where a verb takes <bar>, write 12 or bar12.
 Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
@@ -641,6 +642,11 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
   return submit(flags, client, io, json, id, [{ type: 'transpose', payload: { to } } as Operation]);
 }
 
+/** A bare number names a bar as `bar12` does (SIB2-189); anything else passes through for the server to judge. */
+function barTarget(raw: string): string {
+  return /^\d+$/.test(raw) ? `bar${raw}` : raw;
+}
+
 /**
  * `sbscore section set <id> <bar> [--letter A] [--name Bridge]` and `section rm <id> <bar>`
  * (V7, ADR-0021). The address is a whole bar — `bar5`, `bar17` — because a section attaches to the
@@ -655,7 +661,7 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
 async function section(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `section ${sub}`);
-  const target = requiredPositional(flags, 3, 'a bar address like bar5', `section ${sub}`);
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 5 or bar5', `section ${sub}`));
 
   if (sub === 'set') {
     const payload: SectionSetPayload = {};
@@ -681,7 +687,7 @@ async function barline(flags: Flags, client: Client, io: Io, json: boolean): Pro
   const sub = flags.positional[1] ?? '';
   if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'barline takes set');
   const id = requiredPositional(flags, 2, 'a score id', 'barline set');
-  const target = requiredPositional(flags, 3, 'a bar address like bar11', 'barline set');
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 11 or bar11', 'barline set'));
 
   const payload: BarlineSetPayload = {};
   const start = flags.options.get('start');
@@ -703,8 +709,8 @@ async function repeat(flags: Flags, client: Client, io: Io, json: boolean): Prom
   const sub = flags.positional[1] ?? '';
   if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'repeat takes set');
   const id = requiredPositional(flags, 2, 'a score id', 'repeat set');
-  const from = requiredPositional(flags, 3, 'a start bar like bar12', 'repeat set');
-  const to = requiredPositional(flags, 4, 'an end bar like bar19', 'repeat set');
+  const from = barTarget(requiredPositional(flags, 3, 'a start bar like 12 or bar12', 'repeat set'));
+  const to = barTarget(requiredPositional(flags, 4, 'an end bar like 19 or bar19', 'repeat set'));
 
   return submit(flags, client, io, json, id, [
     { type: 'barline.set', target: from, payload: { start: 'repeat-start' } } as Operation,
@@ -721,7 +727,7 @@ async function repeat(flags: Flags, client: Client, io: Io, json: boolean): Prom
 async function ending(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `ending ${sub}`);
-  const target = requiredPositional(flags, 3, 'a bar address like bar12', `ending ${sub}`);
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 12 or bar12', `ending ${sub}`));
 
   if (sub === 'set') {
     const numbers = parseEndingNumbers(required(flags, 'numbers', 'ending set'));
