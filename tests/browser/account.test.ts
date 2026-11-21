@@ -80,7 +80,7 @@ describe('signed in', () => {
       expect(await page.locator('.chip').innerText()).toContain('alice');
       await page.locator('.chip').click();
       expect(await page.locator('.menu .name').innerText()).toBe('Alice A');
-      await page.getByRole('menuitem', { name: 'Sign out' }).click();
+      await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
       await page.waitForSelector('.gate');
       expect(loggedOut).toBe(true);
       expect(await page.locator('.chip').count()).toBe(0);

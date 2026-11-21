@@ -28,6 +28,8 @@
   let root: HTMLDivElement | undefined = $state();
   let chip: HTMLButtonElement | undefined = $state();
   let firstItem: HTMLButtonElement | undefined = $state();
+  let cancel: HTMLButtonElement | undefined = $state();
+  let everywhere: HTMLButtonElement | undefined = $state();
 
   async function toggle(): Promise<void> {
     open = !open;
@@ -35,6 +37,20 @@
       await Promise.resolve();
       firstItem?.focus();
     }
+  }
+
+  // The item the person pressed is replaced by the question, so focus moves with it rather than to the
+  // body (which would read as leaving the menu and close it).
+  async function ask(): Promise<void> {
+    confirming = true;
+    await Promise.resolve();
+    cancel?.focus();
+  }
+
+  async function back(): Promise<void> {
+    confirming = false;
+    await Promise.resolve();
+    everywhere?.focus();
   }
 
   function close(returnFocus: boolean): void {
@@ -120,7 +136,7 @@
         <div class="ask" role="group" aria-label="Confirm sign out everywhere">
           <p>Ends every session of this account, in every browser. API tokens keep working.</p>
           <div class="actions">
-            <button class="text" type="button" onclick={() => (confirming = false)}>Cancel</button>
+            <button class="text" type="button" bind:this={cancel} onclick={back}>Cancel</button>
             <button
               class="text danger"
               type="button"
@@ -134,7 +150,7 @@
           </div>
         </div>
       {:else}
-        <button class="item" type="button" role="menuitem" onclick={() => (confirming = true)}>Sign out everywhere</button>
+        <button class="item" type="button" role="menuitem" bind:this={everywhere} onclick={ask}>Sign out everywhere</button>
       {/if}
     </div>
   {/if}
