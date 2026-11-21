@@ -3,6 +3,7 @@ import type { Id, OmrDocument, Score } from '@sibei/model';
 import { correctChord } from '@sibei/music';
 import type { BlobStore } from '../blob/blob-store.js';
 import type { JobPublisher } from '../events/job-bus.js';
+import { OwnerGoneError } from '../account/landing.js';
 import { OperationError } from '../ops/errors.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
 import type { Owner } from '../store/repository.js';
@@ -193,7 +194,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       if (failed !== null) publisher.publish(failed.owner, { jobId: failed.id, status: 'failed' });
       // Worker failure (Q80) and "no staff detected" (ADR-0018/Q28) are both expected outcomes,
       // recorded as a diagnostic, not surfaced as an API bug. Anything else is unexpected.
-      if (!(error instanceof WorkerError) && !(error instanceof OmrMappingError) && !(error instanceof NoteEventsError)) {
+      if (!(error instanceof WorkerError) && !(error instanceof OmrMappingError) && !(error instanceof NoteEventsError) && !(error instanceof OwnerGoneError)) {
         onError('an import job failed unexpectedly', error);
       }
     }

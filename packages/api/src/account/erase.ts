@@ -14,9 +14,8 @@ import type { Owner, ScoreLibrary } from '../store/repository.js';
  * **Order is the failure story.** The ledger rows go last, so a crash or a store outage part-way leaves
  * the ledger still naming what is left; the identity row is deleted by the caller only after this
  * returns, so the person can sign in and press the button again. Every step is idempotent (deleting what
- * is gone is not an error). The one residual is a *running* import that lands a score after its job row
- * was deleted: an orphan owned by an account that no longer exists, which nothing can reach and the owner
- * sweep removes.
+ * is gone is not an error). A *running* import that would land a score after its owner is gone is refused or
+ * rolled back by `landing.ts` (SIB2-202), and the account route erases once more after the identity row.
  *
  * The blob store must be able to delete (a `ManagedBlobStore`; all three shipped stores are). Given one
  * that cannot, this refuses rather than report a deletion it did not perform.
