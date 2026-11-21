@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Petaluma 1.065: the metrics the engraver
- * anchors to, and the outlines of the 44 glyphs it draws.
+ * anchors to, and the outlines of the 46 glyphs it draws.
  * Petaluma is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * petaluma-1.065, outlines from the OTF, via opentype.js.
  *
@@ -217,6 +217,24 @@ export const PETALUMA = {
       anchors: {},
       path:
         'M58 -159 C63 -159 68 -156 74 -150 C96 -129 116 -107 139 -87 C147 -80 154 -73 161 -66 C188 -87 215 -109 241 -131 C247 -136 252 -139 257 -139 C264 -139 270 -133 275 -124 C285 -107 282 -87 286 -71 C285 -48 278 -32 262 -19 L226 10 C243 29 260 47 279 63 C285 67 287 74 287 88 C284 103 276 122 265 139 C257 153 250 159 243 159 C236 159 228 155 218 146 C208 138 198 130 190 121 C175 105 161 89 147 72 C120 92 92 112 64 130 C60 133 57 134 54 134 C52 134 50 134 47 132 C43 129 37 130 33 124 C30 117 28 107 28 95 C28 64 39 22 56 11 C62 7 68 3 74 -2 C53 -22 31 -43 10 -65 C4 -71 0 -79 0 -86 C0 -93 2 -100 8 -107 C18 -122 33 -134 43 -149 C48 -156 53 -159 58 -159',
+    },
+    accidentalParensLeft: {
+      codepoint: 'U+E26A',
+      advance: 0.52,
+      bBoxSW: [0, -1.08],
+      bBoxNE: [0.5207573964497042, 1.0704330002895404],
+      anchors: {},
+      path:
+        'M74 -270 C79 -270 83 -267 88 -260 C92 -255 95 -248 98 -241 C103 -229 105 -216 105 -204 C105 -184 98 -164 85 -144 C65 -114 50 -81 44 -45 C42 -32 41 -19 41 -7 C41 54 65 106 101 155 C122 182 131 212 130 246 C130 253 132 264 123 267 C115 269 106 266 99 259 C95 255 90 251 86 246 C23 167 0 75 0 -24 L0 -64 C3 -134 19 -199 59 -258 C64 -266 69 -270 74 -270',
+    },
+    accidentalParensRight: {
+      codepoint: 'U+E26B',
+      advance: 0.556,
+      bBoxSW: [-0.0017777777777777779, -1.1],
+      bBoxNE: [0.556, 1.108],
+      anchors: {},
+      path:
+        'M40 -275 C52 -275 59 -257 67 -246 C117 -165 139 -77 139 9 C139 76 128 132 106 186 C91 222 70 253 34 272 C28 276 23 277 18 277 C7 277 0 269 0 254 C-1 243 0 232 0 221 L0 202 C-2 185 5 176 19 165 C73 125 99 68 99 6 C99 -1 99 -7 98 -14 C94 -64 75 -114 44 -156 C31 -174 25 -193 25 -213 C25 -222 26 -230 28 -239 C29 -241 29 -244 29 -247 C29 -260 26 -275 40 -275',
     },
     augmentationDot: {
       codepoint: 'U+E1E7',

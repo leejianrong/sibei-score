@@ -97,8 +97,12 @@ export type Confidence = number | null;
 // Bar contents
 // ---------------------------------------------------------------------------
 
-/** Whether an accidental is drawn. `auto` derives it from the key signature. */
-export type AccidentalDisplay = 'auto' | 'show' | 'hide';
+/**
+ * Whether an accidental is drawn. `auto` derives it from the key signature; `show` always draws it; `hide`
+ * never does; `parens` always draws it in parentheses, a cautionary accidental (SIB2-182). Additive: a value
+ * an older reader does not know is only ever written by a newer op.
+ */
+export type AccidentalDisplay = 'auto' | 'show' | 'hide' | 'parens';
 
 /** A tie may start on a note, end on it, or both when it is mid-chain. */
 export type TieRole = 'none' | 'start' | 'stop' | 'both';

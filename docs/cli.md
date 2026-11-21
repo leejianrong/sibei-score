@@ -113,7 +113,7 @@ path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`)
 a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
 carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
 
-`--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (`4=120`, `4.=60` for a
+`--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (after the pickup, if any; `4=120`, `4.=60` for a
 dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text
 `--style` line, and it is notation only: nothing plays. MusicXML carries it as a `<metronome>` and a
 `<sound tempo>` (in quarter notes a minute) on the first measure, and reads it back. It is a logged, undoable
@@ -153,8 +153,8 @@ sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -
 ## Notes, rests and chords
 
 ```sh
-sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
-sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
+sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
+sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
 sbscore note rm  <id> <address>
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
@@ -215,6 +215,11 @@ sbscore tuplet rm  <id> <address>
 sbscore break set <id> <bar> [--join]                            # end the line after <bar>; --join: a section shares the line
 sbscore break rm  <id> <bar>
 ```
+
+A section's `--letter` and `--name` each draw as a box above the bar the section starts on, the name beside the
+letter (`--letter A --name HEAD` draws both; a name alone draws one box). A name that only repeats the letter is
+not boxed twice. The PDF and the browser draw the same bytes. MusicXML carries the letter as `<rehearsal>`; the
+name has no home there and stays a named lossy case.
 
 `bar add --after bar8` puts new empty bars after bar 8; every later bar's number goes up (and a section
 starting there moves with it), while ids stay. `bar rm` refuses a bar that holds notes, chords, text, an

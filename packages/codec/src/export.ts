@@ -262,13 +262,16 @@ function pitchElement(note: Note): XmlElement {
 
 /**
  * `<accidental>` is emitted only when a note is displaced and its display is not hidden. This is the
- * lossy edge: our three-way `accidental` ('auto'/'show'/'hide') has no MusicXML counterpart, so the
- * round-trip normalises it — the case is named in a test rather than pretended away.
+ * lossy edge: our `accidental` display ('auto'/'show'/'hide') has no MusicXML counterpart, so the
+ * round-trip normalises it (`parens` is the exception: it is `parentheses="yes"` and survives) — the case is named in a test rather than pretended away.
  */
 function accidentalElement(note: Note): XmlElement | null {
-  if (note.accidental === 'hide' || note.pitch.alter === 0) return null;
-  const name = ACCIDENTAL_NAME[note.pitch.alter];
-  return name === undefined ? null : leaf('accidental', name);
+  const parens = note.accidental === 'parens';
+  if (note.accidental === 'hide' || (note.pitch.alter === 0 && !parens)) return null;
+  // A parenthesised accidental is `parentheses="yes"` (SIB2-182), which survives; a cautionary natural
+  // needs its own element since a natural has no alter.
+  const name = note.pitch.alter === 0 ? 'natural' : ACCIDENTAL_NAME[note.pitch.alter];
+  return name === undefined ? null : leaf('accidental', name, parens ? { parentheses: 'yes' } : {});
 }
 
 const ACCIDENTAL_NAME: Record<number, string> = {

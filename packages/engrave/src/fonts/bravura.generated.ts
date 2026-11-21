@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Bravura 1.392: the metrics the engraver
- * anchors to, and the outlines of the 44 glyphs it draws.
+ * anchors to, and the outlines of the 46 glyphs it draws.
  * Bravura is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * bravura-1.392, outlines from the font's own SVG font.
  *
@@ -217,6 +217,24 @@ export const BRAVURA = {
       anchors: {},
       path:
         'M190 -32h10c17 0 35 -2 40 -7c4 -5 7 -23 7 -40c0 -36 -7 -46 -45 -46c-17 0 -33 4 -40 10c-4 3 -5 20 -5 38c-4 14 -21 46 -34 46s-25 -28 -31 -42c-1 -1 -2 -3 -2 -4c0 -16 -2 -33 -8 -38c-6 -7 -22 -10 -37 -10c-17 0 -33 4 -40 10c-3 2 -5 20 -5 38s2 35 5 38 c6 5 25 7 43 7h10c14 5 46 21 46 34c0 7 -36 27 -47 33c-3 0 -6 -1 -10 -1c-17 0 -35 4 -42 10c-3 3 -5 21 -5 39s2 35 5 37c6 5 24 7 41 7c16 0 32 -2 36 -7c5 -4 8 -22 8 -39c4 -14 20 -47 34 -47c12 0 28 36 33 47c0 18 1 36 5 39c5 5 23 7 41 7c41 0 44 -6 44 -47 c0 -16 -2 -31 -7 -36c-10 -8 -29 -10 -41 -10l-6 1h-3c-14 -5 -47 -20 -47 -34c0 -7 36 -27 47 -33z',
+    },
+    accidentalParensLeft: {
+      codepoint: 'U+E26A',
+      advance: 0.564,
+      bBoxSW: [0, -0.992],
+      bBoxNE: [0.564, 0.988],
+      anchors: {},
+      path:
+        'M141 230c0 -3 -1 -4 -2 -5c-56 -51 -79 -115 -79 -225c0 -111 22 -176 79 -227c1 -1 2 -2 2 -4v-15c0 -1 -2 -2 -3 -2c-96 61 -138 148 -138 248c0 97 42 195 140 247c1 0 1 -1 1 -3v-14z',
+    },
+    accidentalParensRight: {
+      codepoint: 'U+E26B',
+      advance: 0.564,
+      bBoxSW: [0, -0.992],
+      bBoxNE: [0.564, 0.988],
+      anchors: {},
+      path:
+        'M0 230v14c0 2 0 3 1 3c98 -52 140 -150 140 -247c0 -100 -42 -187 -138 -248c-1 0 -3 1 -3 2v15c0 2 1 3 2 4c57 51 79 116 79 227c0 110 -23 174 -79 225c-1 1 -2 2 -2 5z',
     },
     augmentationDot: {
       codepoint: 'U+E1E7',

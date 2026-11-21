@@ -17,8 +17,8 @@ export interface TempoSpec {
   bpm: number;
 }
 
-const STEM = units(2.2);
-const NOTE_BASELINE = units(2.2) + units(0.5);
+const STEM = units(1.8);
+const NOTE_BASELINE = STEM + units(0.3);
 
 export function tempoMark(font: MusicFont, spec: TempoSpec, x: number, top: number, size: number): SvgElement[] {
   const out: SvgElement[] = [];
@@ -59,7 +59,7 @@ export function tempoMark(font: MusicFont, spec: TempoSpec, x: number, top: numb
   out.push(
     text({
       text: `= ${spec.bpm}`,
-      x: right + units(0.6),
+      x: right + units(spec.unit.value === 8 ? 1.1 : 0.6),
       y: y + size * 0.3,
       size,
       align: 'left',
