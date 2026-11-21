@@ -100,6 +100,8 @@
   let numberFirst = $state(true);
   // Empty staves to fill the last page (SIB2-181): a render choice, off by default.
   let blankStaves = $state(false);
+  // Bar numbers at each system start (SIB2-191): drawn by default; a render choice like the paper.
+  let barNumbers = $state(true);
   const pageNumbers = $derived<PageNumberSettings | null>(
     numberPosition === 'none' ? null : { position: numberPosition, format: numberFormat, first: numberFirst },
   );
@@ -297,11 +299,11 @@
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
-  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers, blankStaves }));
+  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers, blankStaves, barNumbers }));
   const formatLabel = $derived(FORMATS.find((f) => f.value === format)?.label ?? 'PDF');
 
   // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
@@ -1154,6 +1156,12 @@
         <p class="control-note">For writing in by hand. Off by default; a render choice, not stored in the chart (<code>export --blank-staves</code>).</p>
       </div>
 
+      <div class="group control-row">
+        <h3>Bar numbers</h3>
+        <label class="control-note"><input type="checkbox" bind:checked={barNumbers} /> Number the bar at the head of each line</label>
+        <p class="control-note">Drawn by default. A render choice, not stored in the chart (<code>export --no-bar-numbers</code>).</p>
+      </div>
+
       <div class="group">
         <h3>Part</h3>
         <select
@@ -1190,7 +1198,7 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, barNumbers })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}

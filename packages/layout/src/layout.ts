@@ -153,7 +153,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         belowStaff: vertical.belowStaff,
         chordBaselineOffset: vertical.chordBaselineOffset,
         staveY: 0,
-        bars: allocated.map((entry) => buildBar(score, entry, shifts)),
+        bars: allocated.map((entry) => buildBar(score, entry, shifts, spec.barNumbers)),
         ties: tiesBySystem.get(index) ?? [],
         slurs: slursBySystem.get(index) ?? [],
         ottavas: ottavasBySystem.get(index) ?? [],
@@ -333,7 +333,7 @@ function ottavaField(shift: 'up' | 'down' | undefined): { ottava?: 'up' | 'down'
   return shift === undefined ? {} : { ottava: shift };
 }
 
-function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'down'>): LayoutBar {
+function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'down'>, barNumbers: boolean): LayoutBar {
   const { bar } = entry;
   return {
     barId: bar.id,
@@ -344,11 +344,17 @@ function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'dow
     prefix: entry.prefix,
     prefixWidth: entry.prefixWidth,
     metrics: barMetrics(bar, score.meta.time),
-    items: buildBarItems(score, bar, entry, shifts),
+    items: buildBarItems(score, bar, entry, shifts, barNumbers),
   };
 }
 
-function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar, shifts: Map<Id, 'up' | 'down'>): LayoutBarItem[] {
+function buildBarItems(
+  score: Score,
+  bar: Bar,
+  entry: AllocatedBar,
+  shifts: Map<Id, 'up' | 'down'>,
+  barNumbers: boolean,
+): LayoutBarItem[] {
   const time = score.meta.time;
   const items: LayoutBarItem[] = [];
 
@@ -363,7 +369,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar, shifts: Map<
   }
 
   // Bar numbers head each system, by convention not on bar 1 and never on a pickup.
-  if (entry.headsSystem && bar.number > 1) {
+  if (barNumbers && entry.headsSystem && bar.number > 1) {
     items.push({ kind: 'barNumber', text: String(bar.number) });
   }
 

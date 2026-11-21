@@ -291,7 +291,7 @@ the browser's multi-edit actions — undoes as a single step. In the browser, ct
 sbscore export <id> [--pdf | --musicxml] [-o PATH]
                     [--paper a4|letter] [--font normal|jazz]
                     [--page-numbers[=top-right]] [--page-number-format n|page|of]
-                    [--page-number-first yes|no] [--blank-staves]
+                    [--page-number-first yes|no] [--blank-staves] [--no-bar-numbers]
                     [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
 ```
 
@@ -313,6 +313,10 @@ closing line each) for writing in by hand. It is off by default. Only the room t
 filled, within the margins and above any footer, so a chart that already fills its last page gets none and
 no extra page is ever started. A page choice like paper, not stored in the chart, so MusicXML ignores it, and
 the browser preview shows the same staves (the rail's Blank staves tick). Nothing can be written in them.
+
+`--no-bar-numbers` leaves the bar number off the head of each line in the PDF (they are drawn by default, on
+every line but the first, and never on a pickup). Nothing else moves. It is a page choice like paper, not stored
+in the chart, so MusicXML ignores it; the rail's Bar numbers tick drives the preview the same way.
 
 ## Audio
 

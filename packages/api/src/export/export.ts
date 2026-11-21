@@ -72,6 +72,8 @@ export interface ExportRequest {
   font: MusicFontName;
   /** Page numbers on the PDF (SIB2-171). Absent or null: none, as before. A render choice, not part of the score. */
   pageNumbers?: PageNumberSettings | null;
+  /** Bar numbers at each system start on the PDF (SIB2-191). Absent or true: drawn, as before. */
+  barNumbers?: boolean;
   /** Fill the last PDF page with empty staves (SIB2-181). Absent or false: no, as before. */
   blankStaves?: boolean;
 }
@@ -155,6 +157,8 @@ export function exportBlobKey(
     ...(request.format === 'pdf' && request.pageNumbers
       ? [`pn-${request.pageNumbers.position}-${request.pageNumbers.format}-${request.pageNumbers.first ? 'first' : 'skip'}`]
       : []),
+    // Last, and absent when drawn (the default), so no key made before this option existed changes (SIB2-191).
+    ...(request.format === 'pdf' && request.barNumbers === false ? ['nobn'] : []),
     // Likewise last and absent when off, so no key made before blank staves existed changes (SIB2-181).
     ...(request.format === 'pdf' && request.blankStaves ? ['blank'] : []),
   ].join(':');
@@ -212,7 +216,7 @@ function render(score: Score, request: ExportRequest): Promise<Buffer> {
       // conduit for the choice rather than a second opinion about it (ADR-0014).
       return renderScoreToPdf(
         score,
-        { paper: request.paper, pageNumbers: request.pageNumbers ?? null, blankStaves: request.blankStaves ?? false },
+        { paper: request.paper, pageNumbers: request.pageNumbers ?? null, blankStaves: request.blankStaves ?? false, barNumbers: request.barNumbers ?? true },
         { font: request.font },
       );
     case 'musicxml':
@@ -277,6 +281,12 @@ export function parseExportFont(raw: string | null): MusicFontName | null {
 export function parseExportBlankStaves(raw: string | null): boolean | null {
   if (raw === null || raw === '' || raw === 'no') return false;
   return raw === 'yes' ? true : null;
+}
+
+/** `barnumbers=yes|no` (SIB2-191): yes unless `no` is asked for. Returns null for anything else (a 422). */
+export function parseExportBarNumbers(raw: string | null): boolean | null {
+  if (raw === null || raw === '' || raw === 'yes') return true;
+  return raw === 'no' ? false : null;
 }
 
 export const EXPORT_PAGE_NUMBER_POSITIONS = PAGE_NUMBER_POSITIONS;
