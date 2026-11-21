@@ -28,7 +28,11 @@ export interface BarStructure {
   ending: { numbers: number[]; role: EndingRole } | null;
   /** The text directions in this bar (SIB2-169), listed so each can be removed; added one at a time. */
   texts: { id: string; beat: number; text: string }[];
+  /** The line-break override on this bar (SIB2-174); `none` is the four-bar grid's own call. */
+  lineBreak: LineBreakChoice;
 }
+
+export type LineBreakChoice = 'none' | 'after' | 'join';
 
 /** What Save asks for. Empty letter *and* name means "no section here". */
 export interface StructureEdits {
@@ -37,6 +41,7 @@ export interface StructureEdits {
   startBarline: StartBarline;
   endBarline: EndBarline;
   ending: { numbers: number[]; role: EndingRole } | null;
+  lineBreak: LineBreakChoice;
 }
 
 function endingsEqual(a: StructureEdits['ending'], b: StructureEdits['ending']): boolean {
@@ -72,6 +77,12 @@ export function structureOps(cur: BarStructure, edits: StructureEdits): Operatio
   if (!endingsEqual(edits.ending, cur.ending)) {
     if (edits.ending === null) operations.push({ type: 'ending.rm', target });
     else operations.push({ type: 'ending.set', target, payload: edits.ending });
+  }
+
+  // After the section ops, because a `join` only makes sense on a bar that begins a section.
+  if (edits.lineBreak !== cur.lineBreak) {
+    if (edits.lineBreak === 'none') operations.push({ type: 'break.rm', target });
+    else operations.push({ type: 'break.set', target, payload: { kind: edits.lineBreak } });
   }
 
   return operations;

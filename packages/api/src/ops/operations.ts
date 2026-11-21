@@ -61,6 +61,8 @@ export interface MetaSetPayload {
   footerPages?: 'first' | 'last' | 'all';
   /** Where the clef and key signature are drawn (SIB2-173): `every` system (the default), the `first`, or each `page`'s first. */
   signaturePolicy?: 'every' | 'first' | 'page';
+  /** Bars to a line, 1 to 8 (SIB2-174). Null or 4 restores the four-bar grid. */
+  barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163): `standard`, `dash`, `words` or `real-book`. `standard` or null clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book' | null;
 }
@@ -190,6 +192,12 @@ export interface EndingSetPayload {
 /** Clear a bar's ending bracket. A no-op target (no ending there) is refused. */
 export type EndingRmPayload = Record<string, never>;
 
+/** A line-break override on a bar (SIB2-174). `after` is the default: end the line after this bar. */
+export interface BreakSetPayload {
+  kind?: 'after' | 'join';
+}
+export type BreakRmPayload = Record<string, never>;
+
 /**
  * Create a whole score from a document in one operation (V8c, ADR-0003). "An import is itself one
  * operation, carrying the whole parsed document" — the ADR's own words — and duplicate is exactly
@@ -253,6 +261,8 @@ export type Operation =
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
   | { type: 'ending.rm'; target: string; payload?: EndingRmPayload }
+  | { type: 'break.set'; target: string; payload?: BreakSetPayload }
+  | { type: 'break.rm'; target: string; payload?: BreakRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
   | { type: 'bar.rm'; target: string };
 
@@ -276,6 +286,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'barline.set',
   'ending.set',
   'ending.rm',
+  'break.set',
+  'break.rm',
   'bar.add',
   'bar.rm',
 ];

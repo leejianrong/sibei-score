@@ -98,7 +98,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
-              [--signature-policy every|first|page]
+              [--signature-policy every|first|page] [--bars-per-system N]   bars to a line (1-8, default 4)
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
@@ -119,6 +119,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
+  sbscore break rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
@@ -286,6 +288,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'break':
+      return lineBreak(flags, client, io, json);
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
@@ -754,13 +758,20 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   if (footerPages !== undefined) payload.footerPages = footerPages as 'first' | 'last' | 'all';
   const policy = flags.options.get('signature-policy');
   if (policy !== undefined) payload.signaturePolicy = policy as 'every' | 'first' | 'page';
+  const perSystem = flags.options.get('bars-per-system');
+  if (perSystem !== undefined) {
+    if (perSystem !== '' && !/^\d+$/.test(perSystem)) {
+      throw new CliError(EXIT.usage, 'usage', `--bars-per-system takes a whole number, not ${JSON.stringify(perSystem)}`);
+    }
+    payload.barsPerSystem = perSystem === '' ? null : Number(perSystem);
+  }
   const chordStyle = flags.options.get('chord-style');
   if (chordStyle !== undefined) payload.chordStyle = chordStyle as NonNullable<MetaSetPayload['chordStyle']>;
   if (Object.keys(payload).length === 0) {
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --signature-policy --chord-style',
+      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
@@ -993,6 +1004,26 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
     return submit(flags, client, io, json, id, [{ type: 'ending.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
+}
+
+/**
+ * `sbscore break set <id> <bar> [--join]` and `break rm <id> <bar>` (SIB2-174): override the four-bar
+ * grid. `break set <id> bar6` ends the line after bar 6; `--join` on a bar that begins a section lets it
+ * share the previous line. The server judges whether a join makes sense.
+ */
+async function lineBreak(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `break ${sub}`);
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 6 or bar6', `break ${sub}`));
+
+  if (sub === 'set') {
+    const payload = { kind: flags.switches.has('join') ? 'join' : 'after' } as const;
+    return submit(flags, client, io, json, id, [{ type: 'break.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'break.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'break takes set or rm');
 }
 
 /** `1` or `1,2` → `[1]` / `[1, 2]`. The server normalises order and duplicates; this only reads. */

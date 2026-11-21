@@ -181,11 +181,21 @@ sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|
 sbscore repeat set <id> <startBar> <endBar>                      # a repeat pair around startBar..endBar
 sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
 sbscore ending rm  <id> <bar>
+sbscore break set <id> <bar> [--join]                            # end the line after <bar>; --join: a section shares the line
+sbscore break rm  <id> <bar>
 ```
 
 `bar add --after bar8` puts new empty bars after bar 8; every later bar's number goes up (and a section
 starting there moves with it), while ids stay. `bar rm` refuses a bar that holds notes, chords, text, an
 ending or a section start. Both are undoable.
+
+**Line breaks.** The layout is a four-bar grid with a forced break at each section (ADR-0015). A chart can say
+otherwise: `break set <id> bar6` ends the line after bar 6 (the grid carries on from bar 7); `break set <id>
+bar3 --join` lets a bar that begins a section share the previous line, which is how an intro and section A
+sit on one line; `break rm` returns a bar to the grid. `meta set --bars-per-system N` (1 to 8) changes the
+count for the whole chart. With none of these set nothing changes. `show` lists them on a `lines:` line.
+MusicXML carries a break as `<print new-system="yes"/>` and reads one back; `--join` and the count have no
+MusicXML form. In the browser, click a bar for its line break and use Bars per line in the rail.
 
 ## Undo, redo and batches
 
