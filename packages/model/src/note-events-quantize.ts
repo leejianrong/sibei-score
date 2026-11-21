@@ -31,6 +31,9 @@ import { TICKS_PER_QUARTER, barCapacity } from './duration.js';
 import type { NoteEvents } from './note-events.js';
 import type { TimeSignature } from './score.js';
 
+/** The share of a note's heard length added back before its end snaps (see the quantizer). */
+const ARTICULATION = 0.08;
+
 /** The quantization grid: a sixteenth note. */
 export const GRID_TICKS = TICKS_PER_QUARTER / 4;
 
@@ -150,7 +153,11 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
   const placed: Placed[] = [];
   for (const n of notes) {
     const start = snap(toTicks(n.onset_s));
-    const end = Math.max(snap(toTicks(n.offset_s)), start + GRID_TICKS);
+    // A performed note sounds a little shorter than it is written (decay, breath, the articulation gap),
+    // so the offset is nudged later by a small share of what was heard, at most half a grid step, before
+    // it snaps. Without it a held half note that sounds 92% as long snaps down and leaves a phantom rest.
+    const heard = toTicks(n.offset_s) - toTicks(n.onset_s);
+    const end = Math.max(snap(toTicks(n.offset_s) + Math.min(GRID_TICKS / 2, ARTICULATION * heard)), start + GRID_TICKS);
     const last = placed[placed.length - 1];
     if (last !== undefined && last.start === start) {
       // Monophonic: two notes cannot share a grid point. Keep the more confident (the earlier on a tie).
@@ -169,6 +176,9 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
   for (let i = 0; i + 1 < placed.length; i++) {
     const a = placed[i]!;
     const next = placed[i + 1]!;
+    // A one-step gap after a note that is long next to it is legato, not a rest.
+    const gap = next.start - a.end;
+    if (gap === GRID_TICKS && gap <= 0.15 * (next.start - a.start)) a.end = next.start;
     if (a.end > next.start) {
       if (a.end - next.start > GRID_TICKS) {
         warnings.push({ code: 'overlap', message: `note ${a.id} overlaps ${next.id}; shortened to one line`, timeS: next.t, noteId: a.id });
