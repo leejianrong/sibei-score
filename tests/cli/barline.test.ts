@@ -126,3 +126,21 @@ describe('sbscore ending', () => {
     expect(result.err).toMatch(/pass numbers/);
   });
 });
+
+describe('sbscore check (SIB2-193)', () => {
+  it('lists a flagged chord with its address and reason, and --strict turns it into an exit code', async () => {
+    await sbscore('new', '--id', 'tune', '--bars', '4');
+    await sbscore('chord', 'set', 'tune', 'bar2.beat1', '--text', 'Cmaj7');
+    const clean = await sbscore('check', 'tune', '--strict');
+    expect(clean.code).toBe(EXIT.ok);
+    expect(clean.out).toBe('nothing flagged');
+
+    await sbscore('chord', 'set', 'tune', 'bar3.beat1', '--text', 'Gmi7 C7');
+    const listed = await sbscore('check', 'tune', '--json');
+    expect(listed.code).toBe(EXIT.ok);
+    const { flagged } = JSON.parse(listed.out) as { flagged: { address: string; kind: string; reasons: string[] }[] };
+    expect(flagged).toEqual([expect.objectContaining({ address: 'bar3.beat1', kind: 'chord', reasons: ['unparsed-chord'] })]);
+    expect((await sbscore('check', 'tune')).out).toContain('bar3.beat1  chord "Gmi7 C7"  unparsed-chord');
+    expect((await sbscore('check', 'tune', '--strict')).code).toBe(EXIT.validation);
+  });
+});

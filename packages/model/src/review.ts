@@ -1,5 +1,6 @@
 import { invalidBars, isMetricallyValid } from './metrics.js';
-import type { Bar, Review, Score, TimeSignature } from './score.js';
+import { beatOfOnset } from './duration.js';
+import type { Bar, Review, ReviewReason, Score, TimeSignature } from './score.js';
 
 /**
  * What "needs review" means, in one place, because more than one surface says it.
@@ -140,4 +141,47 @@ function anythingFlagged(score: Score): boolean {
       bar.chords.some((chord) => chord.review.flagged) ||
       bar.annotations.some((annotation) => annotation.review.flagged),
   );
+}
+
+/** One flagged thing in a chart, as `sbscore check` lists it (SIB2-193). */
+export interface FlaggedObject {
+  /** An address the CLI accepts: `bar5` for a whole bar, `bar5.beat2` for something at a beat. */
+  address: string;
+  kind: 'bar' | 'note' | 'rest' | 'chord' | 'annotation';
+  /** The object's own id, where it has one distinct from the address. */
+  id: string | null;
+  /** Chord or annotation text; null otherwise. */
+  text: string | null;
+  reasons: ReviewReason[];
+}
+
+/**
+ * Every flagged object, in bar order. The same sources `anythingFlagged` reads — a bar's derived
+ * review, and the stored review on items, chords and annotations — so `check` and `show`'s `!`
+ * cannot disagree about what is flagged.
+ */
+export function flaggedObjects(score: Score): FlaggedObject[] {
+  const time = score.meta.time;
+  const found: FlaggedObject[] = [];
+  for (const bar of score.bars) {
+    const where = `bar${bar.number}`;
+    const barFlags = barReview(bar, time);
+    if (barFlags.flagged) {
+      found.push({ address: where, kind: 'bar', id: bar.id, text: null, reasons: barFlags.reasons });
+    }
+    const at = (onset: number): string => `${where}.beat${beatOfOnset(onset, time)}`;
+    for (const item of bar.items) {
+      if (!item.review.flagged) continue;
+      found.push({ address: at(item.onset), kind: item.kind, id: item.id, text: null, reasons: item.review.reasons });
+    }
+    for (const chord of bar.chords) {
+      if (!chord.review.flagged) continue;
+      found.push({ address: at(chord.onset), kind: 'chord', id: chord.id, text: chord.text, reasons: chord.review.reasons });
+    }
+    for (const note of bar.annotations) {
+      if (!note.review.flagged) continue;
+      found.push({ address: at(note.onset), kind: 'annotation', id: note.id, text: note.text, reasons: note.review.reasons });
+    }
+  }
+  return found;
 }
