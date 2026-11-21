@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { consoleLogger, createApi, createHttpWorkerClient, createLimits, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
-import type { Api, AssetSource, AudioWorkerOptions, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
+import { consoleLogger, createApi, createHttpWorkerClient, createLimits, parseAudioPlans, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import type { Api, AssetSource, AudioQuotaConfig, AudioWorkerOptions, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import type { AudioJobStore, AuthStore, JobStore, ScoreStore } from '@sibei/api';
@@ -374,6 +374,29 @@ export function resolveAudioWorker(env: NodeJS.ProcessEnv = process.env): AudioW
   };
 }
 
+/**
+ * The audio-second allowance (SIB2-140): `SBSCORE_AUDIO_FREE_SECONDS`, what every user gets per month, and
+ * `SBSCORE_AUDIO_PLANS`, per-user overrides (`usr_abc=unlimited,usr_def=7200`). Unset means no cap, the
+ * local default. Configuration, so changing a limit is an environment edit and a restart, not a release.
+ */
+export function resolveAudioQuota(env: NodeJS.ProcessEnv = process.env): AudioQuotaConfig | undefined {
+  const free = env.SBSCORE_AUDIO_FREE_SECONDS;
+  const plansText = env.SBSCORE_AUDIO_PLANS;
+  if ((free === undefined || free === '') && (plansText === undefined || plansText === '')) return undefined;
+  let freeSeconds: number | null = null;
+  if (free !== undefined && free !== '') {
+    freeSeconds = Number(free);
+    if (!Number.isInteger(freeSeconds) || freeSeconds < 0) {
+      throw new CliError(EXIT.usage, 'bad-audio-quota-config', 'SBSCORE_AUDIO_FREE_SECONDS must be a whole number of seconds (0 or more)');
+    }
+  }
+  try {
+    return { freeSeconds, plans: parseAudioPlans(plansText ?? '') };
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'bad-audio-quota-config', `SBSCORE_AUDIO_PLANS: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /** The two stores, and how to release them, whichever database they sit on. */
 interface OpenedStores {
   store: ScoreStore;
@@ -491,6 +514,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const hostedConfig = resolveHostedConfig(flags);
   const s3Config = resolveS3Config();
   const audioWorker = resolveAudioWorker();
+  const audioQuota = resolveAudioQuota();
 
   // Rate limits and quotas (V23): on in hosted mode, off for a local install (one user on loopback has
   // nobody to be limited against), and overridable either way with SBSCORE_LIMITS=on|off.
@@ -547,6 +571,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       jobs: jobStore,
       audioJobs: audioJobStore,
       ...(audioWorker === undefined ? {} : { audioWorker }),
+      ...(audioQuota === undefined ? {} : { audioQuota }),
       ...(hostedConfig === undefined || authStore === undefined
         ? {}
         : {

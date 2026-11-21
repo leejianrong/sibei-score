@@ -161,6 +161,7 @@ export interface AudioUsageView {
   periodStart: string;
   periodEnd: string;
   seconds: number;
+  capSeconds: number | null;
   jobs: number;
 }
 
