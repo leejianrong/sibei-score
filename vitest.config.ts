@@ -62,6 +62,14 @@ const INFRA = [
 const POSTGRES = ['tests/postgres/**/*.test.ts'];
 const POSTGRES_DATABASE = process.env.SBSCORE_TEST_DATABASE_URL === '' ? undefined : process.env.SBSCORE_TEST_DATABASE_URL;
 
+/**
+ * V23's Redis tests, opt-in the same way: they run only when `SBSCORE_TEST_REDIS_URL` names a server
+ * (`pnpm test:redis` provides one with Docker Compose; CI provides a service container). Cross-process
+ * delivery of the change bus and shared rate-limit counters cannot be shown without a real Redis.
+ */
+const REDIS = ['tests/redis/**/*.test.ts'];
+const REDIS_URL = process.env.SBSCORE_TEST_REDIS_URL === '' ? undefined : process.env.SBSCORE_TEST_REDIS_URL;
+
 /** Runs before every fast-layer test file, and refuses to let one load a compiled module. */
 const FAST_SETUP = ['tests/no-native-bindings.ts'];
 
@@ -89,6 +97,15 @@ export default defineConfig({
           // it matches no file unless a database was named — a plain `pnpm test` on a machine with no
           // Postgres must not go red. See the note above `POSTGRES`.
           exclude: POSTGRES_DATABASE === undefined ? ['**/*'] : [],
+          environment: 'node',
+          testTimeout: TIMEOUT,
+        },
+      },
+      {
+        test: {
+          name: 'redis',
+          include: REDIS,
+          exclude: REDIS_URL === undefined ? ['**/*'] : [],
           environment: 'node',
           testTimeout: TIMEOUT,
         },
