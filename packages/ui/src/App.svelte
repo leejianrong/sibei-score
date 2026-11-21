@@ -21,7 +21,7 @@
   import SignInGate from './components/SignInGate.svelte';
   import TokenList from './components/TokenList.svelte';
   import TopBar from './components/TopBar.svelte';
-  import { onSessionEnded, signOut } from './lib/api.js';
+  import { onSessionEnded, signOut, signOutEverywhere } from './lib/api.js';
   import { ACCOUNT, hashOf, LIBRARY, routeOf, TOKENS } from './lib/routing.js';
   import type { Route } from './lib/routing.js';
   import { afterUnauthenticated, CHECKING, loadSession, takeReturn } from './lib/session.js';
@@ -97,12 +97,21 @@
     }
     session = { phase: 'signed-out' };
   }
+
+  async function leaveEverywhere(): Promise<void> {
+    try {
+      await signOutEverywhere();
+    } catch {
+      // As with leave(): this tab is signed out either way; a refused request leaves the server's say.
+    }
+    session = { phase: 'signed-out' };
+  }
 </script>
 
 <TopBar {route} {title} {reachable} onLibrary={() => (window.location.hash = hashOf(LIBRARY))}>
   {#snippet account()}
     {#if session.phase === 'signed-in'}
-      <AccountMenu account={session.account} onTokens={() => (window.location.hash = hashOf(TOKENS))} onAccount={() => (window.location.hash = hashOf(ACCOUNT))} onSignOut={leave} />
+      <AccountMenu account={session.account} onTokens={() => (window.location.hash = hashOf(TOKENS))} onAccount={() => (window.location.hash = hashOf(ACCOUNT))} onSignOut={leave} onSignOutEverywhere={leaveEverywhere} />
     {/if}
   {/snippet}
 </TopBar>

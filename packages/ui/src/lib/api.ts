@@ -106,6 +106,11 @@ export async function signOut(): Promise<void> {
   await sendNoBody('POST', `${V1}/auth/logout`);
 }
 
+/** End every session of this account (SIB2-223). A cookie call: the server refuses a token here. */
+export async function signOutEverywhere(): Promise<void> {
+  await sendNoBody('POST', `${V1}/auth/logout-all`);
+}
+
 /**
  * API tokens (V21b), the browser's half of what `sbscore auth` does from a terminal. A signed-in browser
  * approves the code a CLI printed, and lists and revokes the tokens that came of it. **The token itself
