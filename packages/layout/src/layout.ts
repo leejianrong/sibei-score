@@ -68,6 +68,8 @@ export interface LayoutSystem {
   /** Units above the top staff line of an 8va line, and below the bottom staff line of an 8vb one. */
   ottavaAboveOffset?: number;
   ottavaBelowOffset?: number;
+  /** An empty ruled staff added to fill the last page (SIB2-181): clef and staff lines, no bars. */
+  blank?: true;
 }
 
 export interface LayoutPage {
@@ -199,6 +201,31 @@ function paginate(score: Score, systems: LayoutSystem[], spec: PageSpec): Layout
     system.staveY = y + system.aboveStaff;
     page.systems.push(system);
     y += system.height + spec.systemGap;
+  }
+
+  // Empty staves to the foot of the last page, when asked (SIB2-181). Only the room the page really has, so a
+  // chart that already fills its last page gets none, and no extra page is ever started for them.
+  if (spec.blankStaves) {
+    const height = spec.aboveStaff + spec.staffHeight + spec.belowStaff;
+    while (y + height <= bottom) {
+      page.systems.push({
+        index: systems.length + page.systems.filter((s) => s.blank === true).length,
+        x: spec.margin.left,
+        y,
+        width: spec.width - spec.margin.left - spec.margin.right,
+        height,
+        aboveStaff: spec.aboveStaff,
+        belowStaff: spec.belowStaff,
+        chordBaselineOffset: 0,
+        staveY: y + spec.aboveStaff,
+        bars: [],
+        ties: [],
+        slurs: [],
+        ottavas: [],
+        blank: true,
+      });
+      y += height + spec.systemGap;
+    }
   }
 
   pages.push(page);

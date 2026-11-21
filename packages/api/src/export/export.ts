@@ -72,6 +72,8 @@ export interface ExportRequest {
   font: MusicFontName;
   /** Page numbers on the PDF (SIB2-171). Absent or null: none, as before. A render choice, not part of the score. */
   pageNumbers?: PageNumberSettings | null;
+  /** Fill the last PDF page with empty staves (SIB2-181). Absent or false: no, as before. */
+  blankStaves?: boolean;
 }
 
 export interface Artefact {
@@ -153,6 +155,8 @@ export function exportBlobKey(
     ...(request.format === 'pdf' && request.pageNumbers
       ? [`pn-${request.pageNumbers.position}-${request.pageNumbers.format}-${request.pageNumbers.first ? 'first' : 'skip'}`]
       : []),
+    // Likewise last and absent when off, so no key made before blank staves existed changes (SIB2-181).
+    ...(request.format === 'pdf' && request.blankStaves ? ['blank'] : []),
   ].join(':');
 }
 
@@ -206,7 +210,11 @@ function render(score: Score, request: ExportRequest): Promise<Buffer> {
       // The page spec and the render options, straight through. Nothing here decides anything
       // about the page — that is `layout`'s, and the seam only holds while the API stays a
       // conduit for the choice rather than a second opinion about it (ADR-0014).
-      return renderScoreToPdf(score, { paper: request.paper, pageNumbers: request.pageNumbers ?? null }, { font: request.font });
+      return renderScoreToPdf(
+        score,
+        { paper: request.paper, pageNumbers: request.pageNumbers ?? null, blankStaves: request.blankStaves ?? false },
+        { font: request.font },
+      );
     case 'musicxml':
       // A codec at the edge (ADR-0004), not a render: MusicXML is text off the score, so paper and
       // font do not enter into it. `writtenPart` already applied above, so a part exports transposed.
@@ -263,6 +271,12 @@ export function parseExportPaper(raw: string | null): Paper | null {
 export function parseExportFont(raw: string | null): MusicFontName | null {
   if (raw === null || raw === '') return DEFAULT_FONT;
   return EXPORT_FONTS.find((font) => font === raw) ?? null;
+}
+
+/** `blankstaves=yes|no` (SIB2-181): no unless asked for. Returns null for anything else (a 422). */
+export function parseExportBlankStaves(raw: string | null): boolean | null {
+  if (raw === null || raw === '' || raw === 'no') return false;
+  return raw === 'yes' ? true : null;
 }
 
 export const EXPORT_PAGE_NUMBER_POSITIONS = PAGE_NUMBER_POSITIONS;

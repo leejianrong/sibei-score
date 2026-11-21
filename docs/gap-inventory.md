@@ -100,7 +100,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F22 | Dashed continuation line | S | S | S | S | S | S | S | S | Closed by SIB2-170: `text set --until bar8`, `Annotation.lineEndBarId`, dashes + hook, `<dashes>` in MusicXML |
 | F23 | Metronome mark | S | S | S | S | S | S | S | S | Closed by SIB2-177: `meta.tempo`, `meta set --tempo 4=120`, drawn above the first bar, `<sound tempo>` in MusicXML, a rail control |
 | F24 | Extra title-block fields | M | M | M | M | P | M | M | M | `meta` has title, composer, style only |
-| F25 | Empty staves at page bottom | M | M | M | M | - | M | M | M | |
+| F25 | Empty staves at page bottom | - | - | S | S | - | S | S | S | Closed by SIB2-181: `export --blank-staves` (a page-spec choice, like page numbers), rail tick, same render in the browser |
 | F26 | Parenthesised accidentals | S | S | S | S | S | S | S | M | Closed by SIB2-182: the `parens` display, `--accidental paren`, the inspector control, MusicXML `parentheses="yes"` |
 | F27 | Grace notes | M | M | M | M | M | M | M | M | |
 | F28 | Multi-staff system | M | M | M | M | M | M | M | M | Single staff and voice by design (ADR-0021); ADR-0039 d3 plans the model |

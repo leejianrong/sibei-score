@@ -85,6 +85,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
   sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--page-numbers[=top-right|…]] [--page-number-format n|page|of] [--page-number-first yes|no]
+              [--blank-staves]   fill the rest of the last PDF page with empty staves
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
@@ -153,7 +154,8 @@ Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
 Export:  --pdf (the default) or --musicxml. MusicXML is a codec at the edges (ADR-0004);
-  it is lossy in known ways and ignores --paper, --font and --page-numbers, which are page choices.
+  it is lossy in known ways and ignores --paper, --font, --page-numbers and --blank-staves, which are page choices.
+  --blank-staves fills the rest of the last PDF page with empty ruled staves to write in (off by default).
   --page-numbers prints a number on each PDF page (off by default): bare it is top-right, or name a
   place — top|bottom with left|center|right, as top-center. --page-number-format is n (2), page
   (Page 2) or of (Page 2 of 3); --page-number-first no leaves page 1 bare.
@@ -461,6 +463,8 @@ async function exportScore(
   if (numberFormat !== undefined) query.pagenumberformat = numberFormat;
   const numberFirst = flags.options.get('page-number-first');
   if (numberFirst !== undefined) query.pagenumberfirst = numberFirst;
+  // Empty staves to fill the last page (SIB2-181): off unless asked for.
+  if (flags.switches.has('blank-staves')) query.blankstaves = 'yes';
 
   const artefact = await client.exportScore(id, query);
   const path = outputPathFor({

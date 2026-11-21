@@ -222,6 +222,11 @@ export function engraveSystem(
     if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY));
   }
   children.push(...barInk);
+  if (system.blank === true && options.staffLines) {
+    // An empty staff for writing in (SIB2-181): a clef and a closing line, nothing else.
+    children.push(clef(font, system.x + units(0.6), system.staveY));
+    children.push(...endBarline(font, 'single', system.x + system.width, system.staveY));
+  }
 
   // Where this system's *music* begins, which is past the clef and key signature rather
   // than at the system's left edge: a half-tie arriving from the previous system runs

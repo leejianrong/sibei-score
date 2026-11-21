@@ -603,6 +603,8 @@ export interface ExportChoice {
   instrument: ExportInstrument;
   /** Page numbers on the PDF (SIB2-171); absent or null is none, and then nothing goes on the query. */
   pageNumbers?: PageNumberSettings | null;
+  /** Fill the last page with empty staves (SIB2-181); absent or false puts nothing on the query. */
+  blankStaves?: boolean;
 }
 
 /** The page-number choices as the query the server reads — empty when there are none, like the CLI sends it. */
@@ -610,6 +612,10 @@ function pageNumberQuery(numbers: PageNumberSettings | null | undefined): string
   if (!numbers) return '';
   const first = numbers.first ? '' : '&pagenumberfirst=no';
   return `&pagenumbers=${numbers.position}&pagenumberformat=${numbers.format}${first}`;
+}
+
+function blankStavesQuery(on: boolean | undefined): string {
+  return on === true ? '&blankstaves=yes' : '';
 }
 
 /** The instrument goes on the query only when it is not the default, the way the CLI sends it. */
@@ -628,14 +634,14 @@ function instrumentQuery(instrument: ExportInstrument): string {
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
   const base = new URLSearchParams({ format: choice.format, paper: choice.paper, font: choice.font });
-  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}`;
+  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}`;
 }
 
 /** The route without an id, which is what the rail prints. A concrete id wraps the column. */
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}`,
+    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}`,
   };
 }
 

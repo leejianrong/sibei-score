@@ -225,6 +225,8 @@ export interface ExportQuery {
   pagenumberformat?: string;
   /** `yes` or `no`: whether page 1 is numbered. */
   pagenumberfirst?: string;
+  /** `yes` fills the last page with empty staves (SIB2-181). */
+  blankstaves?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */
