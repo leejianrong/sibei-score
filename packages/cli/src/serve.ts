@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { consoleLogger, createApi, createBlobSweeper, createHttpWorkerClient, createLimits, parseAudioPlans, limitsFromEnv, writeCapsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import { consoleLogger, createApi, createBlobSweeper, createHttpWorkerClient, createLimits, HOSTED_AUDIO_HOLD, parseAudioPlans, parseWorkerCredential, limitsFromEnv, writeCapsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
 import type { Api, AssetSource, AudioQuotaConfig, AudioWorkerOptions, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresBlobLedger, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
@@ -379,7 +379,7 @@ export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): S3BlobSto
 
 /**
  * The audio worker's credentials (SIB2-138): `SBSCORE_AUDIO_WORKER_TOKENS`, comma-separated, each
- * `sbsw_` followed by at least 32 characters. Environment only — a credential does not belong in argv. With
+ * `sbsw_` followed by at least 32 characters, or `name=sbsw_…` to name it (SEC M2); remove an entry to revoke it. Environment only — a credential does not belong in argv. With
  * none set there is no `/v1/worker/` surface and audio jobs wait `queued`. Lease timing is tunable
  * (`SBSCORE_AUDIO_LEASE_SECONDS`, `SBSCORE_AUDIO_MAX_ATTEMPTS`) and defaults to the protocol's 120 s and 3.
  */
@@ -389,14 +389,17 @@ export function resolveAudioWorker(env: NodeJS.ProcessEnv = process.env): AudioW
     .map((token) => token.trim())
     .filter((token) => token !== '');
   if (raw.length === 0) return undefined;
-  for (const token of raw) {
-    if (!/^sbsw_[A-Za-z0-9_-]{32,}$/.test(token)) {
+  const names = new Set<string>();
+  for (const entry of raw) {
+    const { name, token } = parseWorkerCredential(entry);
+    if (!/^sbsw_[A-Za-z0-9_-]{32,}$/.test(token) || (entry.includes('=') && !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) || names.has(name)) {
       throw new CliError(
         EXIT.usage,
         'bad-audio-worker-config',
-        'every SBSCORE_AUDIO_WORKER_TOKENS entry must be `sbsw_` followed by at least 32 letters, digits, `_` or `-` (try `sbsw_$(openssl rand -hex 24)`)',
+        'every SBSCORE_AUDIO_WORKER_TOKENS entry must be `sbsw_` followed by at least 32 letters, digits, `_` or `-`, optionally as `name=sbsw_…` with a distinct lowercase name (try `sbsw_$(openssl rand -hex 24)`)',
       );
     }
+    names.add(name);
   }
   const number = (name: string): number | undefined => {
     const value = env[name];
@@ -413,6 +416,28 @@ export function resolveAudioWorker(env: NodeJS.ProcessEnv = process.env): AudioW
     tokens: raw,
     ...(leaseSeconds === undefined ? {} : { leaseSeconds }),
     ...(maxAttempts === undefined ? {} : { maxAttempts }),
+  };
+}
+
+/**
+ * Per-user audio jobs in flight and the bytes they hold (SEC H4): `SBSCORE_AUDIO_MAX_INFLIGHT` and
+ * `SBSCORE_AUDIO_MAX_INFLIGHT_MB`. On by default in hosted mode (3 jobs, 300 MB: audio sits on the same disk
+ * as the database); off for a local install unless a variable is set.
+ */
+export function resolveAudioHold(env: NodeJS.ProcessEnv, hosted: boolean): { maxInFlightJobs: number; maxInFlightBytes: number } | undefined {
+  const read = (name: string): number | undefined => {
+    const raw = env[name];
+    if (raw === undefined || raw === '') return undefined;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1) throw new CliError(EXIT.usage, 'bad-audio-quota-config', `${name} must be a whole number of at least 1`);
+    return value;
+  };
+  const jobs = read('SBSCORE_AUDIO_MAX_INFLIGHT');
+  const megabytes = read('SBSCORE_AUDIO_MAX_INFLIGHT_MB');
+  if (!hosted && jobs === undefined && megabytes === undefined) return undefined;
+  return {
+    maxInFlightJobs: jobs ?? HOSTED_AUDIO_HOLD.maxInFlightJobs,
+    maxInFlightBytes: megabytes === undefined ? HOSTED_AUDIO_HOLD.maxInFlightBytes : megabytes * 1024 * 1024,
   };
 }
 
@@ -562,6 +587,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const s3Config = resolveS3Config();
   const audioWorker = resolveAudioWorker();
   const audioQuota = resolveAudioQuota();
+  const audioHold = resolveAudioHold(process.env, hostedConfig !== undefined);
 
   // Rate limits and quotas (V23): on in hosted mode, off for a local install (one user on loopback has
   // nobody to be limited against), and overridable either way with SBSCORE_LIMITS=on|off.
@@ -628,6 +654,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       audioJobs: audioJobStore,
       ...(audioWorker === undefined ? {} : { audioWorker }),
       ...(audioQuota === undefined ? {} : { audioQuota }),
+      ...(audioHold === undefined ? {} : { audioHold }),
       ...(hostedConfig === undefined || authStore === undefined
         ? {}
         : {
@@ -658,6 +685,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       : createBlobSweeper({
           ledger: blobLedger,
           blobs,
+          audioJobs: audioJobStore,
           lifetimes: {
             export: positiveEnv('SBSCORE_SWEEP_EXPORT_DAYS', 7) * 24 * 60 * 60 * 1000,
             audio: positiveEnv('SBSCORE_SWEEP_AUDIO_HOURS', 24) * 60 * 60 * 1000,

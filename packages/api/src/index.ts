@@ -53,7 +53,7 @@ export type {
 export { audioCapFor, parseAudioPlans } from './audio/quota.js';
 export type { AudioQuotaConfig } from './audio/quota.js';
 export { createAudioResultImporter } from './audio/importer.js';
-export { createAudioWorkerService, WORKER_TOKEN_PREFIX } from './audio/worker-service.js';
+export { createAudioWorkerService, parseWorkerCredential, plausibleDuration, WORKER_TOKEN_PREFIX } from './audio/worker-service.js';
 export type {
   AudioResultImporter,
   AudioWorkerOptions,
@@ -61,8 +61,8 @@ export type {
   ClaimedJob,
   WorkerTransfer,
 } from './audio/worker-service.js';
-export { createAudioService, DEFAULT_AUDIO_LIMITS } from './audio/service.js';
-export type { AudioLimits, AudioService, CreateAudioInput, UploadTarget } from './audio/service.js';
+export { createAudioService, DEFAULT_AUDIO_LIMITS, HOSTED_AUDIO_HOLD } from './audio/service.js';
+export type { AudioHoldCaps, AudioLimits, AudioService, CreateAudioInput, UploadTarget } from './audio/service.js';
 export { isPresigning } from './blob/blob-store.js';
 export { openS3BlobStore } from './blob/s3-blob-store.js';
 export type { S3BlobStore, S3BlobStoreOptions } from './blob/s3-blob-store.js';

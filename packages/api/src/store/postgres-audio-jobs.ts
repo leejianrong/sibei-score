@@ -235,6 +235,16 @@ export async function openPostgresAudioJobStore(options: PostgresAudioJobStoreOp
       });
     },
 
+    async deleteStaleUploads(beforeIso): Promise<AudioJob[]> {
+      return asSystem(pool, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `DELETE FROM audio_jobs WHERE status = 'awaiting-upload' AND created_at < $1 RETURNING *`,
+          [beforeIso],
+        );
+        return result.rows.map(toJob);
+      });
+    },
+
     async getById(id): Promise<AudioJob | null> {
       return asSystem(pool, async (client) => {
         const result = await client.query<AudioJobRow>(`SELECT * FROM audio_jobs WHERE id = $1`, [id]);
