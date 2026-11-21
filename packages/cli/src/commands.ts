@@ -98,6 +98,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
+              [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
   sbscore note rm  <id> <address>
@@ -740,8 +741,17 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   if (key !== undefined) payload.key = parseKey(key);
   const time = flags.options.get('time');
   if (time !== undefined) payload.time = parseTime(time);
+  // The page footer (SIB2-172): a literal \n in the text is a line break; an empty --footer removes it.
+  const footer = flags.options.get('footer');
+  if (footer !== undefined) payload.footer = footer === '' ? null : footer.replace(/\\n/g, '\n');
+  const footerPages = flags.options.get('footer-pages');
+  if (footerPages !== undefined) payload.footerPages = footerPages as 'first' | 'last' | 'all';
   if (Object.keys(payload).length === 0) {
-    throw new CliError(EXIT.usage, 'usage', 'meta set needs at least one of --title --composer --style --key --time');
+    throw new CliError(
+      EXIT.usage,
+      'usage',
+      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages',
+    );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
 }
