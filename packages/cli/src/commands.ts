@@ -100,7 +100,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore audio usage                      audio-seconds transcribed this month
               (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
-  sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
+  sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [--style S] [--key K] [--time 4/4]
               [--signature-policy every|first|page] [--bars-per-system N]   bars to a line (1-8, default 4)
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
@@ -876,7 +876,12 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const title = flags.options.get('title');
   if (title !== undefined) payload.title = title;
   const composer = flags.options.get('composer');
-  if (composer !== undefined) payload.composer = composer;
+  // A literal \n is a line break, so a second composer is `--composer 'A\nB'` (SIB2-180).
+  if (composer !== undefined) payload.composer = composer.replace(/\\n/g, '\n');
+  const subtitle = flags.options.get('subtitle');
+  if (subtitle !== undefined) payload.subtitle = subtitle === '' ? null : subtitle;
+  const arranger = flags.options.get('arranger');
+  if (arranger !== undefined) payload.arranger = arranger === '' ? null : arranger;
   const style = flags.options.get('style');
   // An empty --style clears the line, which is nullable rather than merely absent.
   if (style !== undefined) payload.style = style === '' ? null : style;
@@ -906,7 +911,7 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo',
+      'meta set needs at least one of --title --subtitle --composer --arranger --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);

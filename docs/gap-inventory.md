@@ -50,7 +50,7 @@ means "not seen", not "not there". A feature that is only probable is marked `?`
 | F17b | 1st / 2nd endings | | | | x | x | | | | 2 |
 | F18 | N.C. (no chord) | x | | | x | | | | | 2 |
 | F19 | Articulations: staccato, accent | x | x | | | | | | | 2 |
-| F24 | Extra title-block fields: subtitle, arranger, two composers | x | | | x | | | | | 2 |
+| F24 | Extra title-block fields: subtitle, arranger, two composers (supported, SIB2-180) | x | | | x | | | | | 2 |
 | F25 | Empty ruled staves left at the page bottom | | | | | x | | x | | 2 |
 | F26 | Parenthesised (cautionary) accidentals | x | x | | | | | | | 2 |
 | F20 | Fermata | x | | | | ? | | | | 1 |
