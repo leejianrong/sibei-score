@@ -102,6 +102,8 @@ const GLYPHS: readonly string[] = [
   'accidentalNatural',
   'accidentalSharp',
   'accidentalDoubleSharp',
+  'accidentalParensLeft',
+  'accidentalParensRight',
   'augmentationDot',
   'restWhole',
   'restHalf',

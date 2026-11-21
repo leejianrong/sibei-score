@@ -125,7 +125,7 @@
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOT_COUNTS: readonly Dots[] = [0, 1, 2];
-  const ACCIDENTALS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide'];
+  const ACCIDENTALS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide', 'parens'];
 
   // Seeded from the selection once: `ScoreView` mounts a fresh `Inspector` per selection (keyed
   // on its id), so these never need to notice a *different* item arriving — only edits to this
@@ -235,7 +235,7 @@
           label="Accidental display"
           options={ACCIDENTALS}
           value={accidental}
-          display={(option) => option.charAt(0).toUpperCase() + option.slice(1)}
+          display={(option) => (option === 'parens' ? '(♯)' : option.charAt(0).toUpperCase() + option.slice(1))}
           onselect={(chosen) => (accidental = chosen)}
         />
       </div>

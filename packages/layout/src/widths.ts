@@ -72,7 +72,7 @@ export function estimateBarWidth(score: Score, bar: Bar, prefix: BarPrefix): num
       continue;
     }
     const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
-    const drawsAccidental = item.accidental === 'show' || item.pitch.alter !== keyAlter;
+    const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
     notes += NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH;
   }
 

@@ -29,7 +29,7 @@ export function barAccidentalState(key: KeySignature): AccidentalState {
       seen.set(stateKey(note), note.pitch.alter);
 
       if (note.accidental === 'hide') return null;
-      if (note.accidental === 'show') return note.pitch.alter;
+      if (note.accidental === 'show' || note.accidental === 'parens') return note.pitch.alter;
       // The continuation of a tie carries the accidental of the note it came from.
       if (note.tie === 'stop' || note.tie === 'both') return null;
       return note.pitch.alter === established ? null : note.pitch.alter;

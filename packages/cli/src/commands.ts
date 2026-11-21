@@ -102,8 +102,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
-  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell] [--artic staccato,accent,marcato]
-  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell] [--artic staccato,accent,marcato]
+  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
               [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
@@ -810,19 +810,20 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
       pitch: required(flags, 'pitch', 'note add'),
       duration: parseDuration(required(flags, 'dur', 'note add')),
       ...tieOf(flags),
+      ...accidentalOf(flags),
       ...spellOf(flags),
       ...articOf(flags),
     };
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags), ...spellOf(flags), ...articOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags), ...articOf(flags) };
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --spell --artic');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell --artic');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }
@@ -1234,6 +1235,17 @@ function tieOf(flags: Flags): { tie?: string } {
     throw new CliError(EXIT.usage, 'usage', '--tie takes none, start, stop or both');
   }
   return { tie };
+}
+
+/**
+ * `--accidental auto|show|hide|paren` (SIB2-182): whether and how the note's accidental is drawn.
+ * `paren` (or `parens`) is the stored `parens` display, a cautionary accidental in parentheses. Anything
+ * else passes through for the server, which owns the list, to judge.
+ */
+function accidentalOf(flags: Flags): { accidental?: string } {
+  const accidental = flags.options.get('accidental');
+  if (accidental === undefined) return {};
+  return { accidental: accidental === 'paren' ? 'parens' : accidental };
 }
 
 /**
