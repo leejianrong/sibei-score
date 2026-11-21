@@ -7,7 +7,7 @@ import type {
   NoteItem,
   RestItem,
 } from '@sibei/layout';
-import { LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
+import { LAYOUT_BAR_ITEM_KINDS, writtenPitch } from '@sibei/layout';
 import type { Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
 import { furnitureText } from './furniture.js';
@@ -57,6 +57,7 @@ import {
   rehearsalMark,
   text,
 } from './text.js';
+import { ottavaLine } from './ottava.js';
 import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
@@ -254,6 +255,32 @@ export function engraveSystem(
       ceiling: bands.chordBaseline,
     });
     if (curve !== null) children.push(curve);
+  }
+
+  // Ottava lines (SIB2-184): 8va above the staff, 8vb below, at the height layout reserved for them.
+  for (const line of system.ottavas) {
+    const y =
+      line.shift === 'up'
+        ? system.ottavaAboveOffset === undefined
+          ? undefined
+          : system.staveY - system.ottavaAboveOffset
+        : system.ottavaBelowOffset === undefined
+          ? undefined
+          : system.staveY + units(4) + system.ottavaBelowOffset;
+    if (y === undefined) continue;
+    const from = line.fromNoteId === null ? undefined : anchors.get(line.fromNoteId);
+    const to = line.toNoteId === null ? undefined : anchors.get(line.toNoteId);
+    children.push(
+      ...ottavaLine({
+        shift: line.shift,
+        from: from === undefined ? musicLeft : from.x,
+        to: to === undefined ? system.x + system.width : to.x + to.noteheadWidth,
+        y,
+        labelled: line.labelled,
+        hooked: line.toNoteId !== null,
+        size: options.chordFontSize * 0.9,
+      }),
+    );
   }
 
   return children;
@@ -593,7 +620,7 @@ function engraveItem(
   }
 
   const glyph = noteheadFor(item.duration);
-  const position = staffPosition(item.pitch);
+  const position = staffPosition(writtenPitch(item.pitch, item.ottava));
   return {
     item,
     x: entry.x,

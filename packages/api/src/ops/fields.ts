@@ -41,6 +41,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'break.rm': [],
   'slur.set': ['to', 'placement', 'id'],
   'slur.rm': [],
+  'ottava.set': ['to', 'shift', 'id'],
+  'ottava.rm': [],
   'bar.add': ['count', 'ids'],
   'bar.rm': [],
 };

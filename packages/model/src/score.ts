@@ -318,11 +318,22 @@ export interface Spanner {
   endId: Id;
   /** Which side of the staff it is drawn. Absent means by stem direction (see the engraver). */
   placement?: SpannerPlacement;
+  /**
+   * An `ottava` only (SIB2-184): `up` is 8va, the notes sound an octave above what is written, and the line is
+   * drawn above the staff; `down` is 8vb, sounding an octave below what is written, drawn below. The notes keep
+   * their sounding pitch (what every chord, part and MusicXML pitch already means); only the engraver and the
+   * hit test draw them shifted. Optional on the shared shape so ADR-0041's lane takes it unchanged.
+   */
+  octaveShift?: OctaveShift;
 }
 
-export type SpannerKind = 'slur';
+export type OctaveShift = 'up' | 'down';
 
-export const SPANNER_KINDS: readonly SpannerKind[] = ['slur'];
+export const OCTAVE_SHIFTS: readonly OctaveShift[] = ['up', 'down'];
+
+export type SpannerKind = 'slur' | 'ottava';
+
+export const SPANNER_KINDS: readonly SpannerKind[] = ['slur', 'ottava'];
 
 export type SpannerPlacement = 'above' | 'below';
 

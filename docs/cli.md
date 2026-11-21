@@ -164,6 +164,8 @@ sbscore text set <id> <address> --text "(unis.)"                # a text directi
 sbscore text rm  <id> <address|annotation-id>
 sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from one note to a later one
 sbscore slur rm  <id> <slur-id|from>
+sbscore ottava set <id> <from> <to> --up|--down                  # an 8va (--up) or 8vb (--down) line over a run
+sbscore ottava rm  <id> <ottava-id|from>
 ```
 
 Durations are a note value and a dot per dot: `--dur 4`, `--dur 4.` (dotted quarter), `--dur 2..` —
@@ -189,6 +191,19 @@ below a run of up stems, above when mixed) unless `--placement` chose, rises jus
 and stems under it, stays under the chord band, and splits into two halves where it crosses a line break.
 In the browser, select a note, shift-click a second one, and press Add slur in the Selected panel (the same
 panel lists and removes a note's slurs).
+
+An **ottava line** puts a run of notes under an 8va or 8vb: `sbscore ottava set <id> bar1.n2 bar2.n3 --up`
+(8va: the notes are drawn an octave lower than they sound, the line above the staff) or `--down` (8vb: drawn an
+octave higher, the line below). The notes keep their **sounding** pitch in the chart, which is what chords,
+`export --for` parts and MusicXML pitches already mean, so `show` still prints the real pitch and only the
+engraving and the browser's click targets shift. It is a `spanner` of kind `ottava` (the slur's shape plus an
+`octaveShift`), so it follows its notes and a removed end note takes it with it; two lines may not overlap.
+`show` lists it as `ottava  bar1.n2 -> bar2.n3 8va ottava-1`, and `ottava rm` takes that id or the note it
+starts on. The line is dashed, labelled `8va`/`8vb` where it starts, ends in a hook turned toward the notes, sits
+between the notes and the chord row (which rises to make room), and carries over a line break. MusicXML carries
+it as `<octave-shift type="down|up|stop" size="8">` (its `down` is our 8va) and reads it back; a two-octave
+shift is dropped with a warning. Charts written before it need no migration (`spanners` is optional). In the
+browser, select a note, shift-click a second one, and press 8va or 8vb in the Selected panel's Ottava field.
 
 ## Transpose, structure
 

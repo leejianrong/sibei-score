@@ -52,6 +52,7 @@ const PROLOG = [
 /** Serialise a score to a MusicXML `score-partwise` document. Deterministic. */
 export function scoreToMusicXml(score: Score): string {
   const marks = slurMarks(score);
+  const ottavas = ottavaMarks(score);
   const root = elem('score-partwise', { version: '4.0' }, [
     work(score),
     identification(score),
@@ -61,7 +62,7 @@ export function scoreToMusicXml(score: Score): string {
     elem(
       'part',
       { id: 'P1' },
-      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1], marks)),
+      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1], marks, ottavas)),
     ),
   ]);
   return serialize(root, { prolog: PROLOG });
@@ -90,6 +91,7 @@ function measure(
   isFirst: boolean,
   previous: Bar | undefined,
   slurs: SlurMarks,
+  ottavas: OttavaMarks,
 ): XmlElement {
   const children: (XmlElement | null)[] = [];
 
@@ -124,7 +126,7 @@ function measure(
     children.push(words(annotation));
   }
 
-  for (const note of noteElements(bar, slurs)) children.push(note);
+  for (const note of noteElements(bar, slurs, ottavas)) children.push(note);
 
   const right = rightBarline(bar);
   if (right !== null) children.push(right);
@@ -178,10 +180,36 @@ function attributes(score: Score): XmlElement {
 // Notes and rests
 // ---------------------------------------------------------------------------
 
-function noteElements(bar: Bar, slurs: SlurMarks): XmlElement[] {
-  return bar.items.map((item) =>
-    item.kind === 'note' ? noteElement(item, bar, slurs.get(item.id) ?? []) : restElement(item, bar),
-  );
+/** An ottava line's start before, or stop after, one note (SIB2-184): `<octave-shift>` in a `<direction>`. */
+type OttavaMarks = Map<string, { starts: XmlElement[]; stops: XmlElement[] }>;
+
+function ottavaMarks(score: Score): OttavaMarks {
+  const marks: OttavaMarks = new Map();
+  const at = (id: string): { starts: XmlElement[]; stops: XmlElement[] } => {
+    const found = marks.get(id) ?? { starts: [], stops: [] };
+    marks.set(id, found);
+    return found;
+  };
+  for (const line of score.spanners ?? []) {
+    if (line.kind !== 'ottava' || line.octaveShift === undefined) continue;
+    // MusicXML's `down` is a notes-printed-lower line, which is our 8va.
+    const type = line.octaveShift === 'up' ? 'down' : 'up';
+    const direction = (kind: string): XmlElement =>
+      elem('direction', { placement: line.octaveShift === 'up' ? 'above' : 'below' }, [
+        elem('direction-type', {}, [elem('octave-shift', { type: kind, size: 8, number: 1 })]),
+      ]);
+    at(line.startId).starts.push(direction(type));
+    at(line.endId).stops.push(direction('stop'));
+  }
+  return marks;
+}
+
+function noteElements(bar: Bar, slurs: SlurMarks, ottavas: OttavaMarks): XmlElement[] {
+  return bar.items.flatMap((item) => {
+    if (item.kind !== 'note') return [restElement(item, bar)];
+    const lines = ottavas.get(item.id);
+    return [...(lines?.starts ?? []), noteElement(item, bar, slurs.get(item.id) ?? []), ...(lines?.stops ?? [])];
+  });
 }
 
 /** A slur's start or stop on one note, as `<slur type number placement>` wants it. */

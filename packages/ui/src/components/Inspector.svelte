@@ -70,6 +70,10 @@
     slurs?: readonly Spanner[];
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
+    /** Ottava lines (SIB2-184) covering this note, and the controls that add one over the two selected notes. */
+    ottavas?: readonly Spanner[];
+    onottava?: (shift: 'up' | 'down') => void;
+    onrmottava?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
     /** The tuplet holding this item, or null. */
     tuplet?: TupletInfo | null;
@@ -90,6 +94,9 @@
     slurs = [],
     onslur,
     onrmslur,
+    ottavas = [],
+    onottava,
+    onrmottava,
     onsave,
     tuplet = null,
     onsettuplet,
@@ -262,6 +269,27 @@
           <div class="slur-row">
             <span>{slur.id} · {slur.startId} to {slur.endId}</span>
             <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmslur?.(slur.id)}>
+              Remove
+            </button>
+          </div>
+        {/each}
+      </div>
+
+      <div class="field slur-field">
+        <span class="field-label">Ottava</span>
+        {#if pendingSlur !== null}
+          <p class="inspector-note">Put an 8va or 8vb line over the notes from this one to {pendingSlur.with}.</p>
+          <div class="slur-row">
+            <button type="button" class="btn btn-save" disabled={saving} onclick={() => onottava?.('up')}>8va</button>
+            <button type="button" class="btn btn-save" disabled={saving} onclick={() => onottava?.('down')}>8vb</button>
+          </div>
+        {:else}
+          <p class="inspector-note">Shift-click a second note to put an 8va or 8vb line over the run.</p>
+        {/if}
+        {#each ottavas as line (line.id)}
+          <div class="slur-row">
+            <span>{line.id} · {line.octaveShift === 'down' ? '8vb' : '8va'}</span>
+            <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmottava?.(line.id)}>
               Remove
             </button>
           </div>

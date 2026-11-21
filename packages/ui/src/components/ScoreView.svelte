@@ -51,7 +51,7 @@
   import type { ChordBox } from '../lib/chord-hit.js';
   import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
   import { renderScorePages } from '../lib/render.js';
-  import { removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
+  import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
   import type { SlurChoice } from '../lib/slur-edits.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
@@ -378,6 +378,14 @@
     return slurOp(score, selectedId, rangeId, 'auto') === null ? null : { with: rangeId };
   });
   const slursHere = $derived(score === null || selectedId === null ? [] : slursOnNote(score, selectedId));
+
+  // Ottava lines (SIB2-184) share the two-note selection the slur control uses.
+  const ottavasHere = $derived(score === null || selectedId === null ? [] : ottavasOnNote(score, selectedId));
+  async function handleOttava(shift: 'up' | 'down'): Promise<void> {
+    if (score === null || selectedId === null || rangeId === null) return;
+    const operation = ottavaOp(score, selectedId, rangeId, shift);
+    if (operation !== null) await runOps([operation]);
+  }
 
   async function handleSlur(placement: SlurChoice): Promise<void> {
     if (score === null || selectedId === null || rangeId === null) return;
@@ -1208,6 +1216,9 @@
               slurs={slursHere}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
+              ottavas={ottavasHere}
+              onottava={(shift) => void handleOttava(shift)}
+              onrmottava={(id) => void runOps([removeOttavaOp(id)])}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}
