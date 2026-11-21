@@ -11,3 +11,4 @@ export * from './registry.js';
 export * from './simple-charts.js';
 export * from './marks-chart.js';
 export * from './slur-chart.js';
+export * from './title-block-chart.js';

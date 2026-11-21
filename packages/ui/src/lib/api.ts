@@ -491,7 +491,9 @@ export interface EndingSetPayload {
 export interface MetaSetPayload {
   /** The title block (SIB2-178). An empty style (null) removes the line. */
   title?: string;
+  subtitle?: string | null;
   composer?: string;
+  arranger?: string | null;
   style?: string | null;
   footer?: string | null;
   footerPages?: 'first' | 'last' | 'all';

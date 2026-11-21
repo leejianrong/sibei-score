@@ -30,6 +30,12 @@ export interface RenderStyle {
   textFont: string;
 }
 
+/** Opt-in corpus widening for the drawing. Every default is off, so a seed that opts into nothing is unchanged. */
+export interface RenderStyleOptions {
+  /** Probability (0..1) a chart draws its slash chords stacked (Real-Book style) rather than inline. Default 0. */
+  stackedSlash?: number;
+}
+
 /**
  * mulberry32's first output is poorly dispersed for sequential seeds (`makeRng(0)`, `makeRng(1)`, …
  * land in the same half), which would bias a first-draw binary choice like the music face toward one
@@ -53,9 +59,9 @@ export function randomMusicFont(rng: Rng): MusicFontName {
  * structure; the `Chord.text` label is unchanged, and `chordGlyphText` reads back exactly what a
  * given style draws (V17b).
  */
-export function randomChordStyle(rng: Rng): ChordStyle {
+export function randomChordStyle(rng: Rng, options: RenderStyleOptions = {}): ChordStyle {
   warm(rng);
-  return {
+  const style: ChordStyle = {
     majorSeventh: rng.weighted(['delta', 'maj', 'ma', 'M'], [5, 3, 1, 1]),
     minor: rng.weighted(['m', 'min', 'dash'], [6, 2, 1]),
     halfDiminished: rng.weighted(['circle', 'spell'], [3, 1]),
@@ -66,11 +72,15 @@ export function randomChordStyle(rng: Rng): ChordStyle {
     parenthesizeAlterations: rng.bool(0.7),
     stackAlterations: rng.bool(0.5),
     triangleScale: rng.weighted([1, 0.85, 0.75], [3, 1, 1]),
-    // Pinned, not drawn from the rng: the trained Stage-2b weights saw inline slashes, and drawing
-    // here would shift every later sample of every seeded corpus (SIB2-164). Widening the corpus to
-    // stacked slashes is a retraining decision, not this card's.
+    // Pinned by default, not drawn from the rng: the trained Stage-2b weights saw inline slashes, and
+    // drawing here would shift every later sample of every seeded corpus (SIB2-164).
     slash: 'inline',
   };
+  // Opt-in (SIB2-203): the draw comes LAST and only when asked, so every field above, and every seed
+  // that does not opt in, is byte-identical. Stacked slashes change pixels, not the label.
+  const stacked = options.stackedSlash ?? 0;
+  if (stacked > 0 && rng.bool(stacked)) style.slash = 'stacked';
+  return style;
 }
 
 /**
@@ -78,9 +88,9 @@ export function randomChordStyle(rng: Rng): ChordStyle {
  * `Rng`. The symbology is constrained to what the chosen typeface can draw (a handwriting face has no
  * `Δ`), so nothing renders as tofu — the corpus's soundness rests on this (V17a-iii).
  */
-export function randomRenderStyle(rng: Rng): RenderStyle {
+export function randomRenderStyle(rng: Rng, options: RenderStyleOptions = {}): RenderStyle {
   const font = randomMusicFont(rng);
   const face = randomTextFace(rng);
-  const chordStyle = constrainSymbology(face, randomChordStyle(rng));
+  const chordStyle = constrainSymbology(face, randomChordStyle(rng, options));
   return { font, chordStyle, textFont: face.family };
 }

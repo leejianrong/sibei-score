@@ -7,6 +7,8 @@ import type { LimitsConfig, Rate } from './limits.js';
  * naming it; a typo that silently fell back to the default would be a limit nobody meant to leave open.
  *
  *   SBSCORE_LIMIT_IP_PER_MIN            per-IP, all requests            (default 600)
+ *   SBSCORE_LIMIT_GLOBAL_PER_MIN        all callers together           (6000)
+ *   SBSCORE_LIMIT_WORKER_FAIL_IP_PER_MIN per-IP failed worker auth     (30)
  *   SBSCORE_LIMIT_AUTH_IP_PER_MIN       per-IP, /v1/auth/*              (30)
  *   SBSCORE_LIMIT_USER_READ_PER_MIN     per-user reads                  (300)
  *   SBSCORE_LIMIT_USER_WRITE_PER_MIN    per-user writes                 (120)
@@ -34,6 +36,8 @@ export function limitsFromEnv(env: Record<string, string | undefined>): LimitsCo
   const proxy = env.SBSCORE_TRUST_PROXY?.toLowerCase();
   return {
     ip: rate('SBSCORE_LIMIT_IP_PER_MIN', base.ip),
+    global: rate('SBSCORE_LIMIT_GLOBAL_PER_MIN', base.global!),
+    workerFailIp: rate('SBSCORE_LIMIT_WORKER_FAIL_IP_PER_MIN', base.workerFailIp!),
     authIp: rate('SBSCORE_LIMIT_AUTH_IP_PER_MIN', base.authIp),
     rates: {
       read: rate('SBSCORE_LIMIT_USER_READ_PER_MIN', base.rates.read!),

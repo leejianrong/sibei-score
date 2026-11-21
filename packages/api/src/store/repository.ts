@@ -74,7 +74,9 @@ export type WriteOutcome =
   /** A stale write. The current version comes back so the client can re-read and retry. */
   | { ok: false; reason: 'conflict'; version: number }
   | { ok: false; reason: 'not-found' }
-  | { ok: false; reason: 'already-exists' };
+  | { ok: false; reason: 'already-exists' }
+  /** The owner already holds `limit` scores. Only a create asked to enforce a ceiling can say this (SEC H2). */
+  | { ok: false; reason: 'quota'; limit: number };
 
 /**
  * Writes to a score's document.
@@ -96,7 +98,17 @@ export interface ScoreWriter {
    * true as a property rather than an aspiration (ADR-0003) — so it comes through here like
    * every other write, not beside it.
    */
-  create(owner: Owner, score: Score, operations: readonly StoredOperation[]): Promise<WriteOutcome>;
+  create(
+    owner: Owner,
+    score: Score,
+    operations: readonly StoredOperation[],
+    /**
+     * `maxScores`: refuse with `reason: 'quota'` when the owner already holds that many, **in the same
+     * transaction as the insert**, so two concurrent creates cannot both squeeze under a ceiling the
+     * way a read-then-write check allows (SEC H2).
+     */
+    options?: { maxScores?: number },
+  ): Promise<WriteOutcome>;
   /**
    * Replace the document and append its operations if and only if the stored version is
    * `expectedVersion`, bumping it on success. One transaction, and the version check is part of

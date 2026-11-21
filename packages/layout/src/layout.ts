@@ -249,6 +249,9 @@ function emptyPage(index: number, score: Score, spec: PageSpec): LayoutPage {
 
 /** The style line and the composer share a row this far below the title's baseline. */
 const SUB_ROW_GAP = 32;
+/** The subtitle's baseline below the title's, and the step between stacked composer/arranger lines. */
+const SUBTITLE_GAP = 26;
+const CREDIT_LINE_GAP = 20;
 
 /**
  * How far below the top margin page 1's first system sits — derived from the ink the
@@ -284,7 +287,10 @@ function headerBand(header: LayoutText[], spec: PageSpec): number {
 function buildHeader(score: Score, spec: PageSpec): LayoutText[] {
   const texts: LayoutText[] = [];
   const titleBaseline = spec.margin.top + spec.titleSize;
-  const subBaseline = titleBaseline + SUB_ROW_GAP;
+  // A subtitle sits between the title and the style/composer row, which then drops by one row (SIB2-180).
+  const subtitle = score.meta.subtitle ?? '';
+  const subtitleBaseline = titleBaseline + SUBTITLE_GAP;
+  const subBaseline = subtitle === '' ? titleBaseline + SUB_ROW_GAP : subtitleBaseline + SUB_ROW_GAP - 4;
 
   if (score.meta.title !== '') {
     texts.push({
@@ -293,6 +299,16 @@ function buildHeader(score: Score, spec: PageSpec): LayoutText[] {
       x: spec.width / 2,
       y: titleBaseline,
       size: spec.titleSize,
+      align: 'center',
+    });
+  }
+  if (subtitle !== '') {
+    texts.push({
+      role: 'subtitle',
+      text: subtitle,
+      x: spec.width / 2,
+      y: subtitleBaseline,
+      size: spec.styleSize + 3,
       align: 'center',
     });
   }
@@ -306,15 +322,22 @@ function buildHeader(score: Score, spec: PageSpec): LayoutText[] {
       align: 'left',
     });
   }
-  if (score.meta.composer !== '') {
+  // Composer lines, then the arranger, stack down the right edge one credit line each (SIB2-180).
+  let creditBaseline = subBaseline;
+  const credits: Array<['composer' | 'arranger', string]> = [
+    ...score.meta.composer.split('\n').filter((line) => line.trim() !== '').map((line): ['composer', string] => ['composer', line]),
+    ...((score.meta.arranger ?? '') === '' ? [] : [['arranger', score.meta.arranger ?? ''] as ['arranger', string]]),
+  ];
+  for (const [role, line] of credits) {
     texts.push({
-      role: 'composer',
-      text: score.meta.composer,
+      role,
+      text: line,
       x: spec.width - spec.margin.right,
-      y: subBaseline,
+      y: creditBaseline,
       size: spec.composerSize,
       align: 'right',
     });
+    creditBaseline += CREDIT_LINE_GAP;
   }
   return texts;
 }

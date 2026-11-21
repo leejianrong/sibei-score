@@ -223,9 +223,9 @@ export const LAYOUT_BAR_ITEM_KINDS: readonly LayoutBarItemKind[] = [
   'ending',
 ];
 
-export type LayoutTextRole = 'title' | 'composer' | 'style';
+export type LayoutTextRole = 'title' | 'subtitle' | 'composer' | 'arranger' | 'style';
 
-export const LAYOUT_TEXT_ROLES: readonly LayoutTextRole[] = ['title', 'composer', 'style'];
+export const LAYOUT_TEXT_ROLES: readonly LayoutTextRole[] = ['title', 'subtitle', 'composer', 'arranger', 'style'];
 
 export interface LayoutText {
   role: LayoutTextRole;

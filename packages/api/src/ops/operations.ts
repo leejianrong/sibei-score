@@ -55,7 +55,12 @@ export interface ScoreCreatePayload {
 
 export interface MetaSetPayload {
   title?: string;
+  /** Printed under the title (SIB2-180). Empty or null removes it. */
+  subtitle?: string | null;
+  /** `\n` makes a second composer line (SIB2-180). */
   composer?: string;
+  /** An arranger credit under the composer (SIB2-180). Empty or null removes it. */
+  arranger?: string | null;
   style?: string | null;
   key?: KeySignature;
   time?: TimeSignature;

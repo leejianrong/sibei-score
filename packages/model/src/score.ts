@@ -281,7 +281,15 @@ export interface Section {
 
 export interface ScoreMeta {
   title: string;
+  /**
+   * Printed under the title, centred (SIB2-180). Absent means none: optional-and-absent like `footer`, so no
+   * stored document changes and `SCHEMA_VERSION` stays (ADR-0028).
+   */
+  subtitle?: string;
+  /** Lines break on `\n`, so a second composer is a second line, right-aligned under the first. */
   composer: string;
+  /** An arranger credit printed under the composer lines (SIB2-180). Optional-and-absent, as `subtitle`. */
+  arranger?: string;
   /** The optional style or tempo line. */
   style: string | null;
   key: KeySignature;

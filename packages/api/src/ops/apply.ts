@@ -324,12 +324,16 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const key = payload.key === undefined ? score.meta.key : validKey(payload.key);
 
   const footer = nextFooter(score, payload);
+  const subtitle = nextCredit(score.meta.subtitle, payload.subtitle, 'subtitle');
+  const arranger = nextCredit(score.meta.arranger, payload.arranger, 'arranger');
   const policy = nextSignaturePolicy(score, payload);
   const chordStyle = nextChordStyle(score, payload);
   const perSystem = nextBarsPerSystem(score, payload);
   const tempo = nextTempo(score, payload);
   const {
     footer: _footer,
+    subtitle: _subtitle,
+    arranger: _arranger,
     signaturePolicy: _policy,
     chordStyle: _style,
     barsPerSystem: _bars,
@@ -341,7 +345,9 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     meta: {
       ...rest,
       title: payload.title ?? score.meta.title,
+      ...(subtitle === undefined ? {} : { subtitle }),
       composer: payload.composer ?? score.meta.composer,
+      ...(arranger === undefined ? {} : { arranger }),
       style: payload.style === undefined ? score.meta.style : payload.style,
       key,
       time,
@@ -426,6 +432,16 @@ function nextChordStyle(score: Score, payload: MetaSetPayload): ChordStylePreset
     });
   }
   return named;
+}
+
+/** A title-block line after a `meta.set` (SIB2-180): untouched unless named; empty text or null removes it. */
+function nextCredit(current: string | undefined, next: string | null | undefined, name: string): string | undefined {
+  if (next === undefined) return current;
+  if (next === null) return undefined;
+  if (typeof next !== 'string' || next.length > 200) {
+    throw new OperationError({ kind: 'validation', detail: `${name} must be text of at most 200 characters` });
+  }
+  return next.trim() === '' ? undefined : next;
 }
 
 /**

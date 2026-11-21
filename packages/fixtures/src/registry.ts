@@ -9,6 +9,7 @@ import { longFormChart } from './long-form-chart.js';
 import { nastyChart } from './nasty-chart.js';
 import { marksChart } from './marks-chart.js';
 import { slurChart } from './slur-chart.js';
+import { titleBlockChart } from './title-block-chart.js';
 import {
   beamingChart,
   everyGlyphChart,
@@ -43,4 +44,5 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   marks: marksChart,
   articulations: articulationsChart,
   'grace-notes': graceNotesChart,
+  'title-block': titleBlockChart,
 };

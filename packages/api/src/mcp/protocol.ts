@@ -64,9 +64,16 @@ export const PARSE_FAILURE: JsonRpcResponse = fail(null, PARSE_ERROR, 'the body 
  * Handle one message, or a batch of them. `null` means there is nothing to send back — the message was a
  * notification (no `id`) or a response, which the transport acknowledges without a body.
  */
+/**
+ * The most messages one JSON-RPC batch may carry (SEC H2). The batch runs concurrently, so without a bound
+ * one 1 MB body holds thousands of heavy tool calls. Refused whole, before any message runs.
+ */
+export const MAX_MCP_BATCH = 10;
+
 export async function handleMcpMessage(message: unknown, session: McpSession): Promise<JsonRpcResponse | JsonRpcResponse[] | null> {
   if (Array.isArray(message)) {
     if (message.length === 0) return fail(null, INVALID_REQUEST, 'an empty batch');
+    if (message.length > MAX_MCP_BATCH) return fail(null, INVALID_REQUEST, `a batch is capped at ${MAX_MCP_BATCH} messages, got ${message.length}`);
     const answers = (await Promise.all(message.map((one) => handleOne(one, session)))).filter((a): a is JsonRpcResponse => a !== null);
     return answers.length === 0 ? null : answers;
   }

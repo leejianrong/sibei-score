@@ -86,7 +86,7 @@ sbscore import --note-events FILE            # a NoteEvents v1 file (audio engin
 sbscore import FILE.musicxml|.xml|.mxl       # a MusicXML file into an editable draft (SIB2-152; `--musicxml` forces it)
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
-sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
+sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [--style S] [--key K] [--time 4/4]
                       [--footer TEXT] [--footer-pages first|last|all]
                       [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
@@ -94,8 +94,13 @@ sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
-`new` and `meta set` have no browser control yet for the title, composer, style, key and meter (Q79's
-one knowing exception); the footer has one, in the score view's rail.
+`new` and `meta set` have no browser control yet for the key and meter (Q79's
+one knowing exception); the title block (title, subtitle, composer, arranger, style) has one in the rail; the footer has one, in the score view's rail.
+
+`--subtitle` prints centred under the title and `--arranger` under the composer, right-aligned (SIB2-180).
+A literal `\n` in `--composer` starts a second composer line. An empty value removes a subtitle or arranger.
+MusicXML carries them as `<movement-title>` and `<creator type="arranger">` (one `<creator type="composer">`
+per composer line).
 
 `--footer` is a copyright or credit line printed in the bottom margin of the PDF and the browser
 sheet, wrapped to fit between the margins (write `\n` for a line break; an empty `--footer ''`
