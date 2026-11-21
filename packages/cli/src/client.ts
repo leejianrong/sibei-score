@@ -87,6 +87,13 @@ export interface Client {
    */
   importImages(images: ImportImage[]): Promise<ImportJobWire>;
   /**
+   * Import a NoteEvents v1 document (ADR-0040) as a draft. The file's bytes go up unchanged — the server
+   * is the validator — and the job is polled like an image import. A malformed, unknown-major or
+   * unsupported-instrument file is refused before any job exists, as a `CliError` carrying the server's
+   * kind and message.
+   */
+  importNoteEvents(document: Buffer): Promise<ImportJobWire>;
+  /**
    * Re-parse an imported chart (V14e): re-run OMR on its retained source images into a *new* draft,
    * with no re-upload. `POST /v1/scores/:id/reparse` enqueues a fresh job over the same scans (the
    * server reuses the existing blob keys), and this polls it to a terminal status like `importImages`
@@ -220,12 +227,13 @@ export interface ClientOptions {
 export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: ClientOptions = {}): Client {
   const authorization: Record<string, string> = options.token === undefined ? {} : { authorization: `Bearer ${options.token}` };
 
-  async function send(method: string, path: string, body?: unknown): Promise<Response> {
+  async function send(method: string, path: string, body?: unknown, rawJson?: Buffer): Promise<Response> {
+    const payload = rawJson !== undefined ? new Uint8Array(rawJson) : body === undefined ? undefined : JSON.stringify(body);
     try {
       return await fetch(`${baseUrl}${path}`, {
         method,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        headers: { ...authorization, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+        ...(payload === undefined ? {} : { body: payload }),
+        headers: { ...authorization, ...(payload === undefined ? {} : { 'content-type': 'application/json' }) },
       });
     } catch (error) {
       // The one failure a file-editing CLI would not have had. Say what to do about it.
@@ -355,6 +363,12 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
       let job = (safeParse(text) as { job: ImportJobWire }).job;
 
       return await pollJob(job);
+    },
+    async importNoteEvents(document: Buffer): Promise<ImportJobWire> {
+      const response = await send('POST', '/v1/imports', undefined, document);
+      const text = await response.text();
+      if (!response.ok) fail(response.status, text);
+      return await pollJob((safeParse(text) as { job: ImportJobWire }).job);
     },
     async reparse(id: string, engine?: string): Promise<ImportJobWire> {
       const body = engine === undefined ? {} : { engine };
