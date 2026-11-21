@@ -54,7 +54,26 @@ function labelStyleMatrix(): ChordStyle[] {
   return variants.map((v) => ({ ...c, ...v }));
 }
 
+/**
+ * Additive, versioned vocabulary extensions (SIB2-203). Version 1 is the shipped alphabet and its ids
+ * are frozen: `chord.onnx` + `chord-vocab.json` are a matched pair, so a vocabulary change must never
+ * renumber an existing class. A later version only APPENDS its new characters after every earlier
+ * id, in the order listed here, so a version-1 model's class ids stay valid inside a version-2 table.
+ * (A version-N model still needs a retrain to emit the new classes — that is a separate decision.)
+ *
+ *   2: `' '` — the member separator inside a parenthesised alternate, `(Gm7 C7)`.
+ */
+export const CHORD_VOCAB_EXTENSIONS: Readonly<Record<number, readonly string[]>> = { 2: [' '] };
+export const LATEST_CHORD_VOCAB_VERSION = 2;
+
+export interface BuildChordVocabularyOptions {
+  /** The vocabulary version to build (default 1, the shipped alphabet, byte-identical to before). */
+  version?: number;
+}
+
 export interface ChordVocabulary {
+  /** Which versioned alphabet this is; 1 is the shipped one. */
+  readonly version: number;
   /** `symbols[id]` — id 0 is the blank, id 1 the separator, then one entry per glyph character. */
   readonly symbols: readonly string[];
   readonly size: number;
@@ -72,7 +91,11 @@ export interface ChordVocabulary {
  * Build the closed character alphabet: every glyph character any styled render of any enumerable chord
  * can draw. De-duplicated, sorted for a stable manifest, with the blank at 0 and the separator at 1.
  */
-export function buildChordVocabulary(): ChordVocabulary {
+export function buildChordVocabulary(options: BuildChordVocabularyOptions = {}): ChordVocabulary {
+  const version = options.version ?? 1;
+  if (!Number.isInteger(version) || version < 1 || version > LATEST_CHORD_VOCAB_VERSION) {
+    throw new Error(`unknown chord vocabulary version: ${version}`);
+  }
   const styles = labelStyleMatrix();
   const chars = new Set<string>();
   for (const structure of enumerateChordSpace()) {
@@ -83,6 +106,10 @@ export function buildChordVocabulary(): ChordVocabulary {
   }
 
   const symbols = [BLANK_SYMBOL, CHORD_SEP_SYMBOL, ...[...chars].sort()];
+  // Appended, never sorted in: existing ids stay put (see CHORD_VOCAB_EXTENSIONS).
+  for (let v = 2; v <= version; v += 1) {
+    for (const ch of CHORD_VOCAB_EXTENSIONS[v] ?? []) if (!symbols.includes(ch)) symbols.push(ch);
+  }
   const idByChar = new Map(symbols.map((symbol, id) => [symbol, id] as const));
   const blank = 0;
   const sep = 1;
@@ -107,5 +134,5 @@ export function buildChordVocabulary(): ChordVocabulary {
     return out;
   };
 
-  return { symbols, size: symbols.length, blank, sep, idOfChar, encodeChord, encodeBand };
+  return { version, symbols, size: symbols.length, blank, sep, idOfChar, encodeChord, encodeBand };
 }

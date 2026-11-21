@@ -5,6 +5,12 @@
  *
  *   pnpm dump:v17b --seeds 300 --bars 16 --out out/v17b-corpus --levels clean,light,medium
  *
+ * Opt-in widening (SIB2-203, both default off, so a plain dump is unchanged): `--alternates P` draws
+ * a share P of chords as parenthesised alternates `(Gm7 C7)`, `--stacked-slash P` a share P of charts
+ * with stacked slash chords. Alternates need chord vocabulary version 2 (an appended space class), so
+ * `--alternates` writes a version-2 `vocab.json`; the shipped chord.onnx cannot emit it. Every dump
+ * also writes `corpus.json` (options, vocab version, generator git SHA, date).
+ *
  * Output layout (under --out):
  *   vocab.json          { size, blank: 0, sep: 1, symbols: [...] }   the shared manifest (id = index)
  *   labels.jsonl        one line per crop: { image, seed, system, level, chords, tokenIds, width, height }
@@ -18,6 +24,7 @@
  * in the seed.
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildChordVocabulary, generateScore, makeRng, randomRenderStyle } from '@sibei/synth';
@@ -31,6 +38,8 @@ interface Args {
   out: string;
   zoom: number;
   levels: DegradeLevel[];
+  alternates: number;
+  stackedSlash: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -56,6 +65,8 @@ function parseArgs(argv: string[]): Args {
     out: get('--out') ?? join('out', 'v17b-corpus'),
     zoom: Number(get('--zoom') ?? 2),
     levels,
+    alternates: Number(get('--alternates') ?? 0),
+    stackedSlash: Number(get('--stacked-slash') ?? 0),
   };
 }
 
@@ -64,29 +75,71 @@ const LEVEL_INDEX: Record<DegradeLevel, number> = { clean: 0, light: 1, medium: 
 /** A render style stream salted off the seed, independent of both the note and the chord streams. */
 const STYLE_SALT = 0x51ac_7b17;
 
+/** Layout units of crop below the chord baseline for a stacked bass (BASS_DROP 0.3 x size, plus its body). */
+const STACKED_DESCENT = 5;
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const cropsDir = join(args.out, 'crops');
   mkdirSync(cropsDir, { recursive: true });
 
-  const vocab = buildChordVocabulary();
+  for (const [flag, p] of [['--alternates', args.alternates], ['--stacked-slash', args.stackedSlash]] as const) {
+    if (!(p >= 0 && p <= 1)) throw new Error(`${flag} must be a probability in 0..1, got ${p}`);
+  }
+  const vocab = buildChordVocabulary({ version: args.alternates > 0 ? 2 : 1 });
+  // `version` is written only past 1, so a plain dump's manifest is byte-identical to the shipped one.
   writeFileSync(
     join(args.out, 'vocab.json'),
-    JSON.stringify({ size: vocab.size, blank: vocab.blank, sep: vocab.sep, symbols: vocab.symbols }, null, 2),
+    JSON.stringify(
+      {
+        ...(vocab.version > 1 ? { version: vocab.version } : {}),
+        size: vocab.size,
+        blank: vocab.blank,
+        sep: vocab.sep,
+        symbols: vocab.symbols,
+      },
+      null,
+      2,
+    ),
+  );
+  let generatorSha = 'unknown';
+  try {
+    generatorSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch {
+    /* not a git checkout */
+  }
+  writeFileSync(
+    join(args.out, 'corpus.json'),
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        generatorSha,
+        vocabVersion: vocab.version,
+        seeds: [args.seedStart, args.seedEnd - 1],
+        bars: args.bars,
+        levels: args.levels,
+        alternates: args.alternates,
+        stackedSlash: args.stackedSlash,
+      },
+      null,
+      2,
+    ),
   );
 
   const labelLines: string[] = [];
   let cropCount = 0;
 
   for (let seed = args.seedStart; seed < args.seedEnd; seed += 1) {
-    const score = generateScore({ seed, bars: args.bars });
-    const style = randomRenderStyle(makeRng((seed ^ STYLE_SALT) >>> 0));
+    const score = generateScore({ seed, bars: args.bars, alternates: args.alternates });
+    const style = randomRenderStyle(makeRng((seed ^ STYLE_SALT) >>> 0), { stackedSlash: args.stackedSlash });
     const crops = await renderBandCrops(score, {
       zoom: args.zoom,
       vocab,
       font: style.font,
       chordStyle: style.chordStyle,
       textFont: style.textFont,
+      // A stacked slash drops its bass below the chord baseline, where the band box ends.
+      ...(args.stackedSlash > 0 ? { descent: STACKED_DESCENT } : {}),
     });
 
     for (const crop of crops) {

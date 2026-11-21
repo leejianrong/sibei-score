@@ -27,11 +27,12 @@ function parseOut(argv: string[]): string {
 
 function main(): void {
   const out = parseOut(process.argv.slice(2));
-  const vocab = buildChordVocabulary();
+  const i = process.argv.indexOf('--version');
+  const vocab = buildChordVocabulary({ version: i >= 0 ? Number(process.argv[i + 1]) : 1 });
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(
     out,
-    JSON.stringify({ size: vocab.size, blank: vocab.blank, sep: vocab.sep, symbols: vocab.symbols }, null, 2),
+    JSON.stringify({ ...(vocab.version > 1 ? { version: vocab.version } : {}), size: vocab.size, blank: vocab.blank, sep: vocab.sep, symbols: vocab.symbols }, null, 2),
   );
   console.log(`wrote ${vocab.size} classes -> ${out}`);
 }
