@@ -573,7 +573,17 @@ function noteInk(
       // Spacing already reserved exactly this much room to the left of the notehead, so
       // the accidental lands in it rather than on top of whatever came before.
       const glyph = accidentalGlyph(note.item.accidentalGlyph);
-      elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), y));
+      if (note.item.accidental === 'parens') {
+        // A cautionary accidental (SIB2-182): the accidental between two SMuFL brackets, the pair
+        // sitting in the room spacing reserved (`parensWidth`).
+        const right = note.x - ACCIDENTAL_GAP - font.width('accidentalParensRight');
+        const glyphX = right - font.width(glyph);
+        elements.push(font.element('accidentalParensRight', right, y));
+        elements.push(font.element(glyph, glyphX, y));
+        elements.push(font.element('accidentalParensLeft', glyphX - font.width('accidentalParensLeft'), y));
+      } else {
+        elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), y));
+      }
     }
   }
 

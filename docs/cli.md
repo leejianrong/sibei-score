@@ -146,8 +146,8 @@ sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -
 ## Notes, rests and chords
 
 ```sh
-sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
-sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
+sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
+sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
 sbscore note rm  <id> <address>
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>

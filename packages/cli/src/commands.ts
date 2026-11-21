@@ -101,8 +101,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--signature-policy every|first|page] [--bars-per-system N]   bars to a line (1-8, default 4)
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
-  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
-  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
+  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
@@ -795,18 +795,19 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
       pitch: required(flags, 'pitch', 'note add'),
       duration: parseDuration(required(flags, 'dur', 'note add')),
       ...tieOf(flags),
+      ...accidentalOf(flags),
       ...spellOf(flags),
     };
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags), ...spellOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags) };
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --spell');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }
@@ -1207,6 +1208,17 @@ function tieOf(flags: Flags): { tie?: string } {
     throw new CliError(EXIT.usage, 'usage', '--tie takes none, start, stop or both');
   }
   return { tie };
+}
+
+/**
+ * `--accidental auto|show|hide|paren` (SIB2-182): whether and how the note's accidental is drawn.
+ * `paren` (or `parens`) is the stored `parens` display, a cautionary accidental in parentheses. Anything
+ * else passes through for the server, which owns the list, to judge.
+ */
+function accidentalOf(flags: Flags): { accidental?: string } {
+  const accidental = flags.options.get('accidental');
+  if (accidental === undefined) return {};
+  return { accidental: accidental === 'paren' ? 'parens' : accidental };
 }
 
 /**
