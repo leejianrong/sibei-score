@@ -166,3 +166,26 @@ describe('unparseable text is rejected, not half-understood (ADR-0012)', () => {
     });
   }
 });
+
+describe('parenthesised alterations fold onto the bare spelling', () => {
+  const cases: Array<[string, string]> = [
+    ['C7(#11)', 'C7#11'],
+    ['C7(b5)', 'C7b5'],
+    ['C7(#5)', 'C7#5'],
+    ['C7(b9)', 'C7b9'],
+    ['C7(b9,#11)', 'C7b9#11'],
+    ['Cmi(MA7)', 'CmMaj7'],
+    ['C(MA7)', 'Cmaj7'],
+    ['C7(#11)/E', 'C7#11/E'],
+  ];
+  for (const [text, canonical] of cases) {
+    it(`${text} reads as ${canonical}`, () => {
+      const parsed = parseChord(text);
+      expect(parsed, `${text} should parse`).not.toBeNull();
+      expect(parsed).toEqual(parseChord(canonical));
+    });
+  }
+  for (const text of ['C7(#11', 'C7#11)', 'C7((#11))', 'C7(foo)', '(N.C.)']) {
+    it(`${text} stays unparsed`, () => expect(parseChord(text)).toBeNull());
+  }
+});
