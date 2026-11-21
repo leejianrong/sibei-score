@@ -58,6 +58,17 @@ describe('sbscore barline', () => {
     expect(barAt(await open(), 16).endBarline).toBe('double');
   });
 
+  it('takes a bare bar number as well as barN, across the structure verbs (SIB2-189)', async () => {
+    await sbscore('new', '--id', 'tune', '--bars', '16');
+    expect((await sbscore('barline', 'set', 'tune', '2', '--end', 'double')).code).toBe(EXIT.ok);
+    expect((await sbscore('section', 'set', 'tune', '9', '--letter', 'B')).code).toBe(EXIT.ok);
+    expect((await sbscore('ending', 'set', 'tune', '3', '--numbers', '1', '--role', 'start-stop')).code).toBe(EXIT.ok);
+    expect((await sbscore('repeat', 'set', 'tune', '5', '8')).code).toBe(EXIT.ok);
+    const score = await open();
+    expect(barAt(score, 2).endBarline).toBe('double');
+    expect(barAt(score, 8).endBarline).toBe('repeat-end');
+  });
+
   it('refuses a barline set that changes nothing', async () => {
     await sbscore('new', '--id', 'tune', '--bars', '4');
     const result = await sbscore('barline', 'set', 'tune', 'bar1');
