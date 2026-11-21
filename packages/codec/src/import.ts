@@ -24,6 +24,7 @@ import type {
   NoteValue,
   Score,
   Section,
+  Spanner,
   Step,
   TieRole,
   Tuplet,
@@ -86,7 +87,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   if (measures.length === 0) throw new ImportError('the part has no <measure>');
 
   const reader = new PartReader(warnings);
-  const { bars, sections, key, time } = reader.read(measures);
+  const { bars, sections, spanners, key, time } = reader.read(measures);
 
   const score = makeScore({
     id: options.id ?? 'imported',
@@ -99,6 +100,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   });
   // `<rights>` is the one MusicXML home for the footer text; the pages it prints on are ours, so it comes
   // back on every page.
+  if (spanners.length > 0) score.spanners = spanners;
   const rights = rightsOf(root);
   if (rights !== '') score.meta.footer = { text: rights, pages: 'all' };
   return { score, warnings };
@@ -125,6 +127,7 @@ function composerOf(root: XmlElement): string {
 interface ReadResult {
   bars: ReturnType<typeof makeBar>[];
   sections: Section[];
+  spanners: Spanner[];
   key: KeySignature;
   time: { beats: number; beatValue: NoteValue };
 }
@@ -142,6 +145,9 @@ class PartReader {
   private key: KeySignature = { tonic: 'C', alter: 0, mode: 'major' };
   private time: { beats: number; beatValue: NoteValue } = { beats: 4, beatValue: 4 };
   private sawAttributes = false;
+  /** Slurs begun and not yet stopped, by MusicXML `number` (SIB2-167). */
+  private openSlurs = new Map<number, { startId: string; placement?: 'above' | 'below' }>();
+  private spanners: Spanner[] = [];
   /** An ending open on an earlier bar, so a bar between its start and stop reads as `continue`. */
   private openEnding: number[] | null = null;
 
@@ -170,7 +176,8 @@ class PartReader {
       }
     });
 
-    return { bars, sections, key: this.key, time: this.time };
+    if (this.openSlurs.size > 0) this.note('a slur that never stopped was dropped');
+    return { bars, sections, spanners: this.spanners, key: this.key, time: this.time };
   }
 
   private readMeasure(measure: XmlElement, index: number, sections: Section[]): ReturnType<typeof makeBar> {
@@ -212,6 +219,7 @@ class PartReader {
           }
           const parsed = this.readNote(child, cursor);
           items.push(parsed.item);
+          this.readSlurs(child, parsed.item);
           openTuplet = this.trackTuplet(openTuplet, tuplets, parsed);
           cursor += parsed.ticks;
           break;
@@ -284,6 +292,35 @@ class PartReader {
       endBarline,
       ending,
     });
+  }
+
+  /** `<notations><slur type number placement/>` on a note: open it, or close it into a spanner. */
+  private readSlurs(el: XmlElement, item: BarItem): void {
+    const notations = firstChild(el, 'notations');
+    if (notations === null) return;
+    for (const slur of childElements(notations, 'slur')) {
+      const type = attr(slur, 'type');
+      const number = Number(attr(slur, 'number') ?? 1);
+      if (item.kind !== 'note') {
+        this.note('a slur on a rest was dropped');
+        continue;
+      }
+      if (type === 'start') {
+        const placement = attr(slur, 'placement');
+        this.openSlurs.set(number, {
+          startId: item.id,
+          ...(placement === 'above' || placement === 'below' ? { placement } : {}),
+        });
+      } else if (type === 'stop') {
+        const open = this.openSlurs.get(number);
+        this.openSlurs.delete(number);
+        if (open === undefined || open.startId === item.id) {
+          this.note('a slur stop with no start was dropped');
+          continue;
+        }
+        this.spanners.push({ id: this.id('slur'), kind: 'slur', startId: open.startId, endId: item.id, ...(open.placement === undefined ? {} : { placement: open.placement }) });
+      }
+    }
   }
 
   private barNumber(measure: XmlElement, index: number): number {

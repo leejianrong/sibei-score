@@ -119,6 +119,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
+  sbscore slur rm  <id> <slur-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
   sbscore break rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
@@ -288,6 +290,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'slur':
+      return slur(flags, client, io, json);
     case 'break':
       return lineBreak(flags, client, io, json);
     case 'ending':
@@ -1004,6 +1008,29 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
     return submit(flags, client, io, json, id, [{ type: 'ending.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
+}
+
+/**
+ * `sbscore slur set <id> <from> <to> [--placement above|below|auto]` and `slur rm <id> <slur-id|from>`
+ * (SIB2-167). The two note addresses are the ones `show` prints (`bar1.n2`, `note-7`); a slur may cross
+ * bars. `rm` takes the `slur-N` id `show` prints, or the note a single slur starts on. The server judges
+ * order and that both are notes.
+ */
+async function slur(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `slur ${sub}`);
+  if (sub === 'set') {
+    const target = requiredPositional(flags, 3, 'the note it starts on', 'slur set');
+    const to = requiredPositional(flags, 4, 'the note it ends on', 'slur set');
+    const placement = flags.options.get('placement');
+    const payload = { to, ...(placement === undefined ? {} : { placement }) };
+    return submit(flags, client, io, json, id, [{ type: 'slur.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    const target = requiredPositional(flags, 3, 'a slur id or the note it starts on', 'slur rm');
+    return submit(flags, client, io, json, id, [{ type: 'slur.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'slur takes set or rm');
 }
 
 /**

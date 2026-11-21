@@ -155,6 +155,8 @@ sbscore chord set <id> <address> --text "F#m7b5" [--spell]      # upsert a chord
 sbscore chord rm  <id> <address>
 sbscore text set <id> <address> --text "(unis.)"                # a text direction above the staff
 sbscore text rm  <id> <address|annotation-id>
+sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from one note to a later one
+sbscore slur rm  <id> <slur-id|from>
 ```
 
 Durations are a note value and a dot per dot: `--dur 4`, `--dur 4.` (dotted quarter), `--dur 2..` —
@@ -168,6 +170,14 @@ A **text direction** — a cue, a tempo, "unis.", "solo on form" — is free tex
 band beside any chord at that beat, and `show` lists it under its bar with the beat and an `annotation-N`
 id, which `text rm` takes as well as the beat. MusicXML carries it as `<words>`. In the browser, select a
 bar: the Structure panel has a Text directions field.
+
+A **slur** runs from one note to a later one, in the same bar or another: `sbscore slur set <id> bar1.n2
+bar2.n3`. It is stored as a `spanner` (a kind and the ids of its two notes, so it follows them), setting the
+same pair again only changes `--placement` (`auto`, the default, means by stem direction), and removing either
+end note removes the slur. `show` lists them as `slur  bar1.n2 -> bar2.n3 slur-1`, and `slur rm` takes that
+id or the note a single slur starts on. Both ends must be notes, not rests. MusicXML carries a slur as
+`<slur type number placement>` and reads one back. Charts written before slurs have no `spanners` field and
+need no migration. Undoable like any edit.
 
 ## Transpose, structure
 
