@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { consoleLogger, createApi, createHttpWorkerClient, createLimits, parseAudioPlans, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import { consoleLogger, createApi, createBlobSweeper, createHttpWorkerClient, createLimits, parseAudioPlans, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
 import type { Api, AssetSource, AudioQuotaConfig, AudioWorkerOptions, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresBlobLedger, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
@@ -247,6 +247,17 @@ export function describeDatabase(url: string): string {
   } catch {
     return 'postgres (the URL could not be parsed, so it is not shown)';
   }
+}
+
+/** A positive whole number from the environment, or `fallback`; a malformed one is a usage error naming it. */
+function positiveEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new CliError(EXIT.usage, 'bad-sweep-config', `${name} must be a positive whole number, got ${JSON.stringify(raw)}`);
+  }
+  return value;
 }
 
 /** What hosted mode needs to sign anybody in (V20, ADR-0034). */
@@ -564,6 +575,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           onError: (message, error) => consoleLogger.error(message, error),
         });
 
+  const blobs = s3Config === undefined ? openDirectoryBlobStore({ directory: blobDirectory }) : openS3BlobStore(s3Config);
   const { store, jobStore, audioJobStore, blobLedger, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
   let api: Api;
   try {
@@ -586,7 +598,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
               github: { clientId: hostedConfig.clientId, clientSecret: hostedConfig.clientSecret },
             },
           }),
-      blobs: s3Config === undefined ? openDirectoryBlobStore({ directory: blobDirectory }) : openS3BlobStore(s3Config),
+      blobs,
       ...(worker === undefined ? {} : { worker }),
       ...(assets === undefined ? {} : { assets }),
     });
@@ -596,6 +608,22 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     throw new CliError(EXIT.usage, 'bad-hosted-config', error instanceof Error ? error.message : String(error));
   }
   const bound = await api.listen(port, bindHost);
+
+  // The blob sweep (V25b): expired export-cache and audio objects, found through the ledger. Hosted only: a
+  // local install keeps its cache until the person clears it, and has no audio retention promise to keep.
+  // Lifetimes are configuration (SBSCORE_SWEEP_EXPORT_DAYS, SBSCORE_SWEEP_AUDIO_HOURS).
+  const stopSweep =
+    hostedConfig === undefined
+      ? undefined
+      : createBlobSweeper({
+          ledger: blobLedger,
+          blobs,
+          lifetimes: {
+            export: positiveEnv('SBSCORE_SWEEP_EXPORT_DAYS', 7) * 24 * 60 * 60 * 1000,
+            audio: positiveEnv('SBSCORE_SWEEP_AUDIO_HOURS', 24) * 60 * 60 * 1000,
+          },
+          onError: (message, error) => consoleLogger.error(message, error),
+        }).start(60 * 60 * 1000);
 
   // The one place a store path is legitimately printed: the operator asked to start a server and
   // wants to know where their charts are. It never reaches a log line or a response body (ADR-0029).
@@ -635,6 +663,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const stop = () => {
     // Each close is awaited: the store port is asynchronous (V18), and exiting before a pool has
     // drained would cut off whatever it was still flushing.
+    stopSweep?.();
     void api
       .close()
       .then(() => Promise.all([jobStore.close(), audioJobStore.close(), store.close(), blobLedger.close(), authStore?.close(), redis?.close()]))

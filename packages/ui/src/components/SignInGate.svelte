@@ -24,7 +24,10 @@
 <section class="gate" aria-labelledby="gate-title">
   <div class="card">
     <h1 id="gate-title">Jazz lead sheets you can print</h1>
-    <p class="lede">Sign in to open your charts. Your library is private to your account.</p>
+    <p class="lede">
+      Write a lead sheet in the browser, edit it from the command line or an AI agent, and export a printable
+      PDF or MusicXML. Your library is private to your account.
+    </p>
     <a class="filled" href={SIGN_IN_PATH} onclick={remember}>
       <svg viewBox="0 0 16 16" aria-hidden="true" width="18" height="18">
         <path
@@ -35,6 +38,7 @@
       Sign in with GitHub
     </a>
     <p class="support">Only your public GitHub profile is read. No email.</p>
+    <p class="support beta"><strong>Beta.</strong> Data can be wiped while this is in progress, so export a chart to keep a copy.</p>
   </div>
 </section>
 

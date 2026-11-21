@@ -187,6 +187,8 @@ export type { QuotaName } from './limits/errors.js';
 
 // Account deletion and the blob ledger (V25). The SQLite and Postgres ledgers are on their adapter subpaths.
 export { createOwnerEraser } from './account/erase.js';
+export { DEFAULT_SWEEP_LIFETIMES, createBlobSweeper } from './account/sweep.js';
+export type { BlobSweeper, BlobSweeperOptions, SweepLifetimes } from './account/sweep.js';
 export type { OwnerEraser, OwnerEraserOptions } from './account/erase.js';
 export { memoryBlobLedger } from './store/blob-ledger.js';
 export type { BlobLedger, BlobRef } from './store/blob-ledger.js';
