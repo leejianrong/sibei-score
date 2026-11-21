@@ -71,6 +71,8 @@ function work(score: Score): XmlElement | null {
 function identification(score: Score): XmlElement {
   return elem('identification', {}, [
     score.meta.composer === '' ? null : leaf('creator', score.meta.composer, { type: 'composer' }),
+    // The footer's text is the copyright line; which pages carry it has no MusicXML home (a named lossy case).
+    score.meta.footer === undefined ? null : leaf('rights', score.meta.footer.text),
     elem('encoding', {}, [leaf('software', 'sibei-score'), leaf('encoding-date', '2020-01-01')]),
   ]);
 }

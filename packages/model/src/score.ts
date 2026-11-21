@@ -221,7 +221,25 @@ export interface ScoreMeta {
   style: string | null;
   key: KeySignature;
   time: TimeSignature;
+  /**
+   * A copyright or credit line printed in the page's bottom margin (SIB2-172). Absent means none —
+   * an optional field rather than a backfilled one, so no document written before it changes shape
+   * and `SCHEMA_VERSION` stays (ADR-0028). Lines break on `\n`; the layout wraps what is too long.
+   */
+  footer?: PageFooter;
 }
+
+/** Which pages carry the footer. `all` is the default a plain `--footer` means. */
+export type FooterPages = 'first' | 'last' | 'all';
+
+export const FOOTER_PAGES: readonly FooterPages[] = ['first', 'last', 'all'];
+
+export interface PageFooter {
+  text: string;
+  pages: FooterPages;
+}
+
+export const MAX_FOOTER_LENGTH = 500;
 
 export interface Score {
   schemaVersion: number;

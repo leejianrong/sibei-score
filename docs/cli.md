@@ -86,10 +86,18 @@ sbscore import --note-events FILE            # a NoteEvents v1 file (audio engin
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
+                      [--footer TEXT] [--footer-pages first|last|all]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
-`new` and `meta set` have no browser control yet (Q79's one knowing exception).
+`new` and `meta set` have no browser control yet for the title, composer, style, key and meter (Q79's
+one knowing exception); the footer has one, in the score view's rail.
+
+`--footer` is a copyright or credit line printed in the bottom margin of the PDF and the browser
+sheet, wrapped to fit between the margins (write `\n` for a line break; an empty `--footer ''`
+removes it). `--footer-pages` picks `first`, `last` or `all` pages (the default). It is part of the
+chart, so it is a logged, undoable edit and shows in `show`; MusicXML carries the text as `<rights>`
+but not the page choice.
 
 `import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
 stack); without one it is a 503 and every other feature still works (Q80). It takes several files as

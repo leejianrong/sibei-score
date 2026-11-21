@@ -97,7 +97,16 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
     bars,
     sections,
   });
+  // `<rights>` is the one MusicXML home for the footer text; the pages it prints on are ours, so it comes
+  // back on every page.
+  const rights = rightsOf(root);
+  if (rights !== '') score.meta.footer = { text: rights, pages: 'all' };
   return { score, warnings };
+}
+
+function rightsOf(root: XmlElement): string {
+  const identification = firstChild(root, 'identification');
+  return identification === null ? '' : (childText(identification, 'rights') ?? '').trim();
 }
 
 function composerOf(root: XmlElement): string {

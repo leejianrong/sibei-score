@@ -55,6 +55,10 @@ export interface MetaSetPayload {
   style?: string | null;
   key?: KeySignature;
   time?: TimeSignature;
+  /** The page footer (SIB2-172): text, with `\n` for line breaks. Empty or null removes it. */
+  footer?: string | null;
+  /** Which pages carry it: `first`, `last` or `all` (the default). Needs a footer, new or existing. */
+  footerPages?: 'first' | 'last' | 'all';
 }
 
 export interface NoteAddPayload {

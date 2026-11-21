@@ -413,7 +413,7 @@ export async function reparseScore(id: Id, engine?: string): Promise<ImportJobVi
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
  * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
  * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
- * `ending.set`/`ending.rm`; SIB2-186 `bar.add`/`bar.rm`. `note.add` on its own, `score.create` and `meta.set` exist on the
+ * `ending.set`/`ending.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172 `meta.set` for the page footer only. `note.add` on its own and `score.create` exist on the
  * server and have no UI control yet — that is booked debt (Q79), not a gap this file is meant to
  * close.
  */
@@ -457,6 +457,12 @@ export interface EndingSetPayload {
   role: EndingRole;
 }
 
+/** The page footer on `meta.set` (SIB2-172) — the one meta field the score view edits. Empty or null removes it. */
+export interface MetaSetPayload {
+  footer?: string | null;
+  footerPages?: 'first' | 'last' | 'all';
+}
+
 export type Operation =
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
@@ -469,6 +475,7 @@ export type Operation =
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
   | { type: 'ending.rm'; target: string }
+  | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };
 
