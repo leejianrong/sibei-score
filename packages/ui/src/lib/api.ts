@@ -487,6 +487,8 @@ export type Operation =
   | { type: 'ending.rm'; target: string }
   | { type: 'break.set'; target: string; payload: { kind: 'after' | 'join' } }
   | { type: 'break.rm'; target: string }
+  | { type: 'fermata.set'; target: string }
+  | { type: 'fermata.rm'; target: string }
   | { type: 'slur.set'; target: string; payload: { to: string; placement?: 'above' | 'below' } }
   | { type: 'slur.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }

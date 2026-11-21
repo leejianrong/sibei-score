@@ -74,6 +74,8 @@ export interface NoteItem {
   tie: TieRole;
   tupletId: Id | null;
   flagged: boolean;
+  /** A fermata above this note (SIB2-183). */
+  fermata?: boolean;
 }
 
 export interface RestItem {
@@ -84,6 +86,8 @@ export interface RestItem {
   duration: Duration;
   tupletId: Id | null;
   flagged: boolean;
+  /** A fermata above this rest (SIB2-183). */
+  fermata?: boolean;
 }
 
 export interface ChordSymbolItem {

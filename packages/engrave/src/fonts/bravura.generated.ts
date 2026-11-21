@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Bravura 1.392: the metrics the engraver
- * anchors to, and the outlines of the 43 glyphs it draws.
+ * anchors to, and the outlines of the 44 glyphs it draws.
  * Bravura is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * bravura-1.392, outlines from the font's own SVG font.
  *
@@ -298,6 +298,15 @@ export const BRAVURA = {
       anchors: {},
       path:
         'M50 50c27 0 50 -22 50 -50s-23 -50 -50 -50c-28 0 -50 22 -50 50s22 50 50 50z',
+    },
+    fermataAbove: {
+      codepoint: 'U+E4C0',
+      advance: 2.42,
+      bBoxSW: [0.012, -0.012],
+      bBoxNE: [2.42, 1.316],
+      anchors: {},
+      path:
+        'M302 221c-206 0 -251 -153 -263 -194c-1 -4 -2 -8 -3 -9c-6 -14 -11 -21 -20 -21c-8 0 -13 3 -13 13c0 3 0 7 1 11c61 306 268 308 300 308c29 0 238 -2 300 -308c1 -4 1 -7 1 -10c0 -10 -5 -14 -14 -14c-10 0 -14 7 -21 21c-1 1 -1 4 -2 7c-10 38 -53 196 -266 196z M358 52c0 -30 -25 -55 -55 -55c-29 0 -54 25 -54 55c0 29 25 54 54 54c30 0 55 -25 55 -54z',
     },
     timeSig0: {
       codepoint: 'U+E080',

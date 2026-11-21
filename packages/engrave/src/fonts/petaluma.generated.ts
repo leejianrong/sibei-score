@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Petaluma 1.065: the metrics the engraver
- * anchors to, and the outlines of the 43 glyphs it draws.
+ * anchors to, and the outlines of the 44 glyphs it draws.
  * Petaluma is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * petaluma-1.065, outlines from the OTF, via opentype.js.
  *
@@ -298,6 +298,15 @@ export const PETALUMA = {
       anchors: {},
       path:
         'M37 -82 C56 -76 77 -74 97 -68 C122 -60 143 -17 143 16 C143 26 141 35 137 42 C128 56 121 76 103 76 C99 76 94 75 89 73 C86 73 83 74 79 74 C62 74 47 68 31 66 C13 64 8 55 3 40 C1 31 0 23 0 14 C0 -12 8 -37 9 -64 C9 -74 17 -83 30 -83 C32 -83 34 -83 37 -82',
+    },
+    fermataAbove: {
+      codepoint: 'U+E4C0',
+      advance: 1.888,
+      bBoxSW: [-0.00018201776161617822, 0.00806028691002794],
+      bBoxNE: [1.888, 1.816],
+      anchors: {},
+      path:
+        'M27 7 C46 26 49 51 54 75 C64 126 77 175 113 216 C138 245 166 272 197 294 C217 308 236 315 259 318 C274 318 285 310 301 299 C368 251 414 192 419 106 C419 100 413 91 413 84 L413 61 C414 52 409 38 418 35 C430 30 438 42 444 51 C448 57 450 64 452 71 C458 92 460 113 463 135 C466 154 467 172 472 193 C472 268 443 334 389 394 C353 434 314 451 275 454 C253 454 226 447 202 439 C163 426 139 393 112 365 C59 310 18 248 3 173 C0 154 -2 136 3 121 C3 86 3 48 7 13 C8 4 11 0 20 3 C24 3 23 3 27 7 M235 26 C243 25 248 25 257 28 C269 28 264 30 264 52 C265 55 265 59 270 65 C270 77 260 85 247 92 C228 102 208 108 187 107 C175 107 158 109 156 87 C154 56 161 39 181 33 C199 28 217 28 235 26',
     },
     timeSig0: {
       codepoint: 'U+E080',

@@ -119,6 +119,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore fermata set <id> <address>      a fermata over a note or rest
+  sbscore fermata rm  <id> <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
   sbscore slur rm  <id> <slur-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
@@ -290,6 +292,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'fermata':
+      return fermata(flags, client, io, json);
     case 'slur':
       return slur(flags, client, io, json);
     case 'break':
@@ -1008,6 +1012,17 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
     return submit(flags, client, io, json, id, [{ type: 'ending.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
+}
+
+/** `sbscore fermata set|rm <id> <address>` (SIB2-183): a hold over a note or a rest, by the address `show` prints. */
+async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `fermata ${sub}`);
+  const target = requiredPositional(flags, 3, 'a note or rest address', `fermata ${sub}`);
+  if (sub === 'set' || sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: `fermata.${sub}`, target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'fermata takes set or rm');
 }
 
 /**

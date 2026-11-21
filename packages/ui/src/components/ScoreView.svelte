@@ -271,9 +271,10 @@
         tie: item.tie,
         // The pin is not a layout property (it changes no ink), so it is read from the model note.
         spellingPinned: notePinned(item.noteId),
+        fermata: item.fermata === true,
       };
     }
-    return { kind: 'rest', id: item.restId, duration: item.duration };
+    return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
   });
 
   /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
@@ -629,6 +630,10 @@
               target: `bar${located.barNumber}.beat${located.item.beat}`,
               payload: { duration: (edits as RestEdits).duration },
             },
+            // `rest.add` makes a new rest, which would drop the old one's fermata (SIB2-183).
+            ...(located.item.fermata === true
+              ? [{ type: 'fermata.set', target: `bar${located.barNumber}.beat${located.item.beat}` } as Operation]
+              : []),
           ];
 
     await runOps(operations);
@@ -1083,6 +1088,8 @@
               error={saveError}
               pendingSlur={pendingSlur}
               slurs={slursHere}
+              onfermata={(on) =>
+                void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
               onsave={handleSave}

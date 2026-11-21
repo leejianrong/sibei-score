@@ -65,6 +65,7 @@ export type MusicGlyphName =
   | 'rest32nd'
   | 'gClef'
   | 'repeatDot'
+  | 'fermataAbove'
   | `timeSig${Digit}`
   | `tuplet${Digit}`;
 

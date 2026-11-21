@@ -36,6 +36,15 @@ const STEM_UNITS = 35;
 /** Half a notehead, so the glyph's own extent is covered. */
 const NOTEHEAD_UNITS = 5;
 
+/**
+ * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and
+ * `FERMATA_GAP` above the note's head or stem, and the glyph is about `FERMATA_HEIGHT` tall. The engraver
+ * places it by the same three numbers (`packages/engrave/src/marks.ts`), so what layout reserves is what is drawn.
+ */
+export const FERMATA_BASE = 15;
+export const FERMATA_GAP = 10;
+export const FERMATA_HEIGHT = 15;
+
 export interface SystemVertical {
   /** Units from the top of the system to the top staff line. */
   aboveStaff: number;
@@ -58,12 +67,19 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
 
   for (const bar of input.bars) {
     for (const item of bar.items) {
+      // A fermata rides above the staff and above the note's own ink, so the chord band must clear it
+      // (SIB2-183). A rest has no ink above the staff, so it sits at the fixed height.
+      if (item.fermata === true && item.kind === 'rest') inkAbove = Math.max(inkAbove, FERMATA_BASE + FERMATA_HEIGHT);
       if (item.kind !== 'note') continue;
       const index = diatonic(item.pitch);
       const stemUp = index < MIDDLE_LINE;
       const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
       const below = (BOTTOM_LINE - index) * STEP_UNITS + NOTEHEAD_UNITS;
       inkAbove = Math.max(inkAbove, above + (stemUp ? STEM_UNITS : 0));
+      if (item.fermata === true) {
+        const reach = above + (stemUp ? STEM_UNITS : 0);
+        inkAbove = Math.max(inkAbove, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
+      }
       inkBelow = Math.max(inkBelow, below + (stemUp ? 0 : STEM_UNITS));
     }
   }

@@ -155,6 +155,8 @@ sbscore chord set <id> <address> --text "F#m7b5" [--spell]      # upsert a chord
 sbscore chord rm  <id> <address>
 sbscore text set <id> <address> --text "(unis.)"                # a text direction above the staff
 sbscore text rm  <id> <address|annotation-id>
+sbscore fermata set <id> <address>                               # a fermata over a note or rest
+sbscore fermata rm  <id> <address>
 sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from one note to a later one
 sbscore slur rm  <id> <slur-id|from>
 ```
@@ -170,6 +172,12 @@ A **text direction** — a cue, a tempo, "unis.", "solo on form" — is free tex
 band beside any chord at that beat, and `show` lists it under its bar with the beat and an `annotation-N`
 id, which `text rm` takes as well as the beat. MusicXML carries it as `<words>`. In the browser, select a
 bar: the Structure panel has a Text directions field.
+
+A **fermata** is a hold sign over a note or a rest: `sbscore fermata set <id> bar4.n2`, `fermata rm` to take it
+off (refused where there is none). It draws above the staff and above the note's own ink, centred on the
+head, and the chord band rises to clear it. `show` marks it `^` after the duration (`c5/4^`, `r/4^`), and
+MusicXML carries `<fermata type="upright"/>` and reads it back. In the browser, select a note or rest and tick
+Fermata. It has no playback length. Charts written before fermatas need no migration.
 
 A **slur** runs from one note to a later one, in the same bar or another: `sbscore slur set <id> bar1.n2
 bar2.n3`. It is stored as a `spanner` (a kind and the ids of its two notes, so it follows them), setting the

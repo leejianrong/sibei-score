@@ -46,6 +46,7 @@ import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
 import { slur } from './slurs.js';
+import { fermata } from './marks.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -439,6 +440,18 @@ function engraveBar(
     // sized from the notehead's own box rather than a measurement (ADR-0015).
     if (entry.item.flagged) shading.push(flaggedItemShade(note.x, font.width(note.glyph), staveY));
     ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
+    if (entry.item.fermata === true) {
+      const headTop = positionY(note.position, staveY) - units(0.5);
+      const up = note.stem !== null && note.stem.direction === 'up';
+      ink.push(
+        fermata(font, {
+          x: note.x,
+          width: font.width(note.glyph),
+          staveY,
+          inkTopY: entry.item.kind === 'rest' ? null : up && note.stem !== null ? Math.min(headTop, note.stem.endY) : headTop,
+        }),
+      );
+    }
   }
 
   for (const spec of tuplets) {

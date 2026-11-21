@@ -235,7 +235,9 @@ function describe(item: BarItem, bar: Bar): string {
     tuplet === null ? '' : tuplet.actual === 3 && tuplet.normal === 2 ? '(3)' : `(${tuplet.actual}:${tuplet.normal})`;
 
   const flag = flagSuffix(item.review, item.confidence);
-  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${flag === '' ? '' : ` ${flag}`}`;
+  // `^` is a fermata (SIB2-183), after the tie so `c5/4~^` reads as a held, tied note.
+  const hold = item.fermata === true ? '^' : '';
+  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${hold}${flag === '' ? '' : ` ${flag}`}`;
 }
 
 /** A band symbol (chord or quoted annotation) with its review flag and, on imports, its confidence. */
