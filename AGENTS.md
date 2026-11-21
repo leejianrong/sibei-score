@@ -38,8 +38,7 @@ its own dependency-free XML reader and a round-trip whose every lossy case is na
 V8d **MusicXML export is wired**: `GET …/export?format=musicxml` (a codec at the edge, not a render —
 it ignores paper/font, honours `--for` via `writtenPart`, cached like the PDF) and `sbscore export
 --musicxml`, and from V8e a **PDF | MusicXML toggle** in the score view's Export rail (the
-SegmentedControl the rail already uses for face and paper). Still booked: **MusicXML import** (a
-verb/button — pairs with v0.2's upload boundary). From V8c the **library** gained **delete** and
+SegmentedControl the rail already uses for face and paper). **MusicXML import landed in SIB2-152**: `POST /v1/imports` with a MusicXML media type (or a zip `.mxl`, unpacked and size-bounded in `imports/musicxml.ts`), `sbscore import FILE.musicxml|.xml|.mxl`, a library file picker; a job like NoteEvents, no worker, dropped content kept as the job diagnostic and shown on both surfaces, a malformed file a 422 `invalid-musicxml`/`unsupported-musicxml`. From V8c the **library** gained **delete** and
 **duplicate** on both surfaces: `sbscore duplicate` and the row's Duplicate/Delete controls (delete
 asks first — it destroys the log). Duplicate is a copy with a *fresh* history, built on `score.import`
 — one operation carrying a whole document (ADR-0003), server-only (never the client `/ops` route, so
@@ -91,8 +90,7 @@ Re-parse control) re-runs OMR over the kept scans with no re-upload — `getBySc
 → the server-only `Applier.import` (ADR-0003/0008) → a **new** draft, the original untouched; the engine
 is threaded end-to-end (job table schema v3→v4) with a `422 unsupported-engine` (V14e). The V12
 human-time ship gate is written into `docs/eval.md` as a repeatable procedure, but the run itself is
-**deferred** — its 32-bar fixture is not yet committed (V14f). Still **not built yet:** MusicXML import;
-clef/key/time/tie/triplet **detection** (worker + a further `OMR_SCHEMA_VERSION` bump + fixture); and
+**deferred** — its 32-bar fixture is not yet committed (V14f). Still **not built yet:** clef/key/time/tie/triplet **detection** (worker + a further `OMR_SCHEMA_VERSION` bump + fixture); and
 title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `ScoreMeta` review field to
 flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
 module exists because a plan mentions it.

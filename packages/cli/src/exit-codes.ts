@@ -110,6 +110,9 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'job-not-retryable': // an import job that is not failed (SIB2-114), the same class as the audio one
     // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
     case 'invalid-note-events':
+    // A MusicXML file that cannot be read (SIB2-152): malformed, too large, or an archive that holds none. The
+    // sibling `unsupported-musicxml` (score-timewise) is covered by the `unsupported-` prefix above.
+    case 'invalid-musicxml':
     // Photo import switched off on this service (SIB2-201): readable, never retryable, and the fix is to use
     // audio or a NoteEvents file. Validation like its siblings, so a script that backs off on 9 or retries on
     // 4 does neither.

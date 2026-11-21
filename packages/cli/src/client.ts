@@ -94,6 +94,13 @@ export interface Client {
    */
   importNoteEvents(document: Buffer): Promise<ImportJobWire>;
   /**
+   * Import a MusicXML file (SIB2-152; `.musicxml`, `.xml`, or a compressed `.mxl`) as a draft. The bytes go up
+   * unchanged and the server validates and unpacks; a refused file is a `CliError` with the server's kind
+   * (`invalid-musicxml`, `unsupported-musicxml`) and no job exists. What the codec dropped comes back as the
+   * finished job's `diagnostic`.
+   */
+  importMusicXml(document: Buffer, compressed: boolean): Promise<ImportJobWire>;
+  /**
    * Re-parse an imported chart (V14e): re-run OMR on its retained source images into a *new* draft,
    * with no re-upload. `POST /v1/scores/:id/reparse` enqueues a fresh job over the same scans (the
    * server reuses the existing blob keys), and this polls it to a terminal status like `importImages`
@@ -292,13 +299,13 @@ export interface ClientOptions {
 export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: ClientOptions = {}): Client {
   const authorization: Record<string, string> = options.token === undefined ? {} : { authorization: `Bearer ${options.token}` };
 
-  async function send(method: string, path: string, body?: unknown, rawJson?: Buffer): Promise<Response> {
+  async function send(method: string, path: string, body?: unknown, rawJson?: Buffer, contentType = 'application/json'): Promise<Response> {
     const payload = rawJson !== undefined ? new Uint8Array(rawJson) : body === undefined ? undefined : JSON.stringify(body);
     try {
       return await fetch(`${baseUrl}${path}`, {
         method,
         ...(payload === undefined ? {} : { body: payload }),
-        headers: { ...authorization, ...(payload === undefined ? {} : { 'content-type': 'application/json' }) },
+        headers: { ...authorization, ...(payload === undefined ? {} : { 'content-type': contentType }) },
       });
     } catch (error) {
       // The one failure a file-editing CLI would not have had. Say what to do about it.
@@ -432,6 +439,13 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
     },
     async importNoteEvents(document: Buffer): Promise<ImportJobWire> {
       const response = await send('POST', '/v1/imports', undefined, document);
+      const text = await response.text();
+      if (!response.ok) fail(response.status, text);
+      return await pollJob((safeParse(text) as { job: ImportJobWire }).job);
+    },
+    async importMusicXml(document: Buffer, compressed: boolean): Promise<ImportJobWire> {
+      const type = compressed ? 'application/vnd.recordare.musicxml' : 'application/vnd.recordare.musicxml+xml';
+      const response = await send('POST', '/v1/imports', undefined, document, type);
       const text = await response.text();
       if (!response.ok) fail(response.status, text);
       return await pollJob((safeParse(text) as { job: ImportJobWire }).job);

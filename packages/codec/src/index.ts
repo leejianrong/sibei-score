@@ -22,5 +22,6 @@ export {
   childText,
   attr,
   XmlError,
+  DEFAULT_MAX_DEPTH,
 } from './xml.js';
-export type { XmlElement, XmlNode, XmlText } from './xml.js';
+export type { XmlElement, XmlNode, XmlText, ParseOptions } from './xml.js';

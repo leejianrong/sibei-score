@@ -52,7 +52,11 @@ export interface ImportResult {
 
 /** A document this codec cannot read at all (not well-formed, or not a single-voice lead sheet). */
 export class ImportError extends Error {
-  constructor(message: string) {
+  /** `unsupported` is a well-formed document in a shape this codec does not read (score-timewise). */
+  constructor(
+    message: string,
+    readonly kind: 'malformed' | 'unsupported' = 'malformed',
+  ) {
     super(message);
     this.name = 'ImportError';
   }
@@ -72,7 +76,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   }
 
   if (root.name === 'score-timewise') {
-    throw new ImportError('score-timewise is not supported; convert to score-partwise first');
+    throw new ImportError('score-timewise is not supported; convert to score-partwise first', 'unsupported');
   }
   if (root.name !== 'score-partwise') {
     throw new ImportError(`expected a <score-partwise> document, found <${root.name}>`);
@@ -87,6 +91,10 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
 
   const measures = childElements(part, 'measure');
   if (measures.length === 0) throw new ImportError('the part has no <measure>');
+
+  const extraParts = childElements(root, 'part').length - 1;
+  if (extraParts > 0) warnings.push(`${extraParts} further part${extraParts === 1 ? '' : 's'} dropped: only the first part is read`);
+  warnLossyContent(measures, warnings);
 
   const reader = new PartReader(warnings);
   const { bars, sections, spanners, key, time, tempo } = reader.read(measures);
@@ -107,6 +115,32 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   if (rights !== '') score.meta.footer = { text: rights, pages: 'all' };
   if (tempo !== undefined) score.meta.tempo = tempo;
   return { score, warnings };
+}
+
+/**
+ * What a single-voice lead sheet has no home for, named once each so the import is never silently thinner than
+ * the file (SIB2-152): extra staves, lyrics, dynamics and grace notes. (Second voices, chord tones, slurs and the
+ * rest are named by the part reader as it meets them.)
+ */
+function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
+  const found = new Set<string>();
+  for (const measure of measures) {
+    for (const child of childElements(measure)) {
+      if (child.name === 'attributes') {
+        const staves = Number(childText(child, 'staves') ?? '1');
+        if (staves > 1) found.add(`a ${staves}-staff part was read as its first staff only`);
+      } else if (child.name === 'note') {
+        if (Number(childText(child, 'staff') ?? '1') > 1) found.add('notes on a second staff were dropped: single-staff only');
+        if (firstChild(child, 'lyric') !== null) found.add('lyrics were dropped');
+        if (firstChild(child, 'grace') !== null) found.add('grace notes were dropped: no grace-note model');
+      } else if (child.name === 'direction') {
+        for (const type of childElements(child, 'direction-type')) {
+          if (firstChild(type, 'dynamics') !== null) found.add('dynamics were dropped');
+        }
+      }
+    }
+  }
+  for (const w of found) if (!warnings.includes(w)) warnings.push(w);
 }
 
 function rightsOf(root: XmlElement): string {
@@ -236,6 +270,7 @@ class PartReader {
 
         case 'note': {
           if (voiceEnded) break;
+          if (firstChild(child, 'grace') !== null) break; // takes no time and has no model; named by `warnLossyContent`
           if (firstChild(child, 'chord') !== null) {
             // A second note at the same onset: single-voice keeps the first (ADR-0021, the layout
             // engine's single-voice assumption), and this is dropped rather than refused.

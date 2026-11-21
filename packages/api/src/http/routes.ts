@@ -19,6 +19,7 @@ import {
   parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
+import { MUSICXML_SOURCE, validateMusicXmlUpload } from '../imports/musicxml.js';
 import { NOTE_EVENTS_SOURCE, validateNoteEventsUpload } from '../imports/note-events.js';
 import { multipartBoundary, parseMultipartImages, validateUpload } from '../imports/upload.js';
 import type { UploadRejection } from '../imports/upload.js';
@@ -103,6 +104,8 @@ export interface ImportService {
    * worker, so it works whether or not `available` — the runner maps it with a pure function.
    */
   submitNoteEvents(owner: Owner, document: Buffer): Promise<ImportJob>;
+  /** Store an already-validated MusicXML document (SIB2-152, plain XML: an `.mxl` is unpacked at the boundary) and enqueue a job. */
+  submitMusicXml(owner: Owner, xml: Buffer): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
   retry(owner: Owner, id: JobId): Promise<ImportJob | null>;
   /**
@@ -431,17 +434,29 @@ async function submitImport(
   response: ServerResponse,
   context: RouteContext,
 ): Promise<number> {
-  const isNoteEvents = (request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json');
-  if (!isNoteEvents && context.imports !== undefined && !context.imports.photoImport) {
+  const declared = (request.headers['content-type'] ?? '').toLowerCase();
+  const isNoteEvents = declared.startsWith('application/json');
+  // MusicXML (SIB2-152): `application/xml`, `text/xml`, `application/vnd.recordare.musicxml[+xml]`, or a zip (`.mxl`).
+  const isMusicXml = /^(application\/(xml|zip|x-zip-compressed|vnd\.recordare\.musicxml)|text\/xml)/.test(declared) || declared.includes('+xml');
+  const needsNoWorker = isNoteEvents || isMusicXml;
+  if (!needsNoWorker && context.imports !== undefined && !context.imports.photoImport) {
     return send(response, photoImportUnavailable());
   }
   // A NoteEvents document (ADR-0040) needs no OMR worker, so it skips the worker-availability check.
-  if (context.imports === undefined || (!isNoteEvents && !context.imports.available)) {
+  if (context.imports === undefined || (!needsNoWorker && !context.imports.available)) {
     return send(response, noImportPipeline());
   }
 
   const bytes = await readRawBody(request, response);
   if (bytes === TOO_LARGE) return 413;
+
+  if (isMusicXml) {
+    const check = validateMusicXmlUpload(bytes);
+    if (!check.ok) return send(response, badMusicXml(check.reason, check.message));
+    const job = await context.imports.submitMusicXml(context.owner, check.xml);
+    response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
+    return sendJson(response, 202, { job });
+  }
 
   if (isNoteEvents) {
     const check = validateNoteEventsUpload(bytes);
@@ -566,7 +581,7 @@ async function retryImport(response: ServerResponse, context: RouteContext, id: 
   }
   const existing = await context.imports.reader.get(context.owner, id);
   if (existing === null) return send(response, noSuchImport(id));
-  if (!context.imports.photoImport && existing.engine !== NOTE_EVENTS_SOURCE) {
+  if (!context.imports.photoImport && existing.engine !== NOTE_EVENTS_SOURCE && existing.engine !== MUSICXML_SOURCE) {
     return send(response, photoImportUnavailable());
   }
   if (existing.status !== 'failed') {
@@ -812,6 +827,16 @@ function badNoteEvents(reason: 'malformed' | 'unsupported-version' | 'unsupporte
   if (reason === 'unsupported-version') return problem(422, 'unsupported-note-events-version', message, { detail });
   if (reason === 'unsupported-instrument') return problem(422, 'unsupported-note-events-instrument', message, { detail });
   return problem(422, 'invalid-note-events', message, { detail });
+}
+
+/**
+ * A refused MusicXML document (SIB2-152): always a 422 (too large included, since the cap here is the
+ * format's, not the body's), each reason its own kind, none retryable, none creating a job.
+ */
+function badMusicXml(reason: 'malformed' | 'unsupported' | 'too-large', message: string): Problem {
+  const detail = { kind: reason };
+  if (reason === 'unsupported') return problem(422, 'unsupported-musicxml', message, { detail });
+  return problem(422, 'invalid-musicxml', message, { detail });
 }
 
 function match(path: string, pattern: RegExp): Id | null {
