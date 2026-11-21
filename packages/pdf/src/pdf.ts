@@ -3,7 +3,8 @@ import { layout } from '@sibei/layout';
 import type { Score } from '@sibei/model';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
-import { pdfFontFor } from './fonts.js';
+import { readFileSync } from 'node:fs';
+import { EMBEDDED_SERIF, EMBEDDED_SERIF_FILE, pdfFontFor } from './fonts.js';
 import type { RenderOptions, RenderedPage } from './svg.js';
 import { renderLayoutToSvg } from './svg.js';
 
@@ -12,7 +13,7 @@ import { renderLayoutToSvg } from './svg.js';
  *
  * Every value that would otherwise vary is pinned, so a given score always produces
  * identical bytes: fixed creation and modification dates, a fixed producer string, and
- * base-14 fonts only. The engraver contributes nothing that varies — it reaches no clock,
+ * base-14 fonts plus one embedded, subsetted serif. The engraver contributes nothing that varies — it reaches no clock,
  * no counter and no DOM, so it needed no id-stripping pass of the kind the VexFlow
  * adapter did. Regression tests snapshot the SVG rather than these bytes, because PDF
  * structure shifts with library versions in ways that are noise (Q39) — but the
@@ -54,6 +55,8 @@ export function renderPagesToPdf(pages: RenderedPage[], metadata: PdfMetadata): 
       ModDate: PINNED_DATE,
     },
   });
+
+  doc.registerFont(EMBEDDED_SERIF, readFileSync(EMBEDDED_SERIF_FILE));
 
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
