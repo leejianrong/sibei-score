@@ -287,6 +287,16 @@
     return false;
   }
 
+  /** The tuplet an item sits in, from the stored score (SIB2-166). */
+  function tupletOfItem(itemId: Id): { actual: number; normal: number } | null {
+    if (score === null) return null;
+    for (const bar of score.bars) {
+      const found = bar.tuplets.find((t) => t.memberIds.includes(itemId));
+      if (found !== undefined) return { actual: found.actual, normal: found.normal };
+    }
+    return null;
+  }
+
   /** A chord's spelling pin, looked up from the stored score by id (the seed for the chord inspector). */
   function chordPinned(chordId: Id): boolean {
     if (score === null) return false;
@@ -632,6 +642,17 @@
           ];
 
     await runOps(operations);
+  }
+
+  /** Bracket a run as a tuplet from the selected item, or take it off (SIB2-166). One op, so one undo. */
+  async function handleSetTuplet(actual: number, normal: number, count: number): Promise<void> {
+    if (selectedId === null) return;
+    await runOps([{ type: 'tuplet.set', target: selectedId, payload: { actual, normal, count } }]);
+  }
+
+  async function handleRemoveTuplet(): Promise<void> {
+    if (selectedId === null) return;
+    await runOps([{ type: 'tuplet.rm', target: selectedId }]);
   }
 
   /**
@@ -1086,6 +1107,9 @@
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
               onsave={handleSave}
+              tuplet={tupletOfItem(selection.id)}
+              onsettuplet={handleSetTuplet}
+              onremovetuplet={handleRemoveTuplet}
               ondeselect={deselect}
               onreload={handleReload}
             />

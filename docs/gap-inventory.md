@@ -81,7 +81,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F04 | Parenthesised chord alterations | S | S | S | P | P | S | S | S | `@sibei/music` rejects `7(#11)`, `7(b5)`, `7(#5)`, `(MA7)`. Stored verbatim, flagged for review, drawn as plain text; MusicXML gets text only |
 | F05 | Stacked slash chords | S | S | S | P | S | S | S | S | Engraver draws root and bass inline on one baseline, not stacked |
 | F06 | Parenthesised alternate chords | P | S | S | P | P | S | S | S | Parser rejects the parentheses, so the chord is flagged; no "alternate" notion |
-| F07 | Tuplet brackets | S | M | S | S | S | M | M | M | No op creates one (`operations.ts`: "belongs to a later slice"); only import and fixtures make tuplets. A `tuplet` field on `note.add` is silently dropped |
+| F07 | Tuplet brackets | S | S | S | S | S | S | S | M | Closed by SIB2-166: `tuplet.set`/`tuplet.rm`, `sbscore tuplet`, the Tuplet section of the item inspector. Nested tuplets are out of scope |
 | F08 | Slurs | M | M | M | M | M | M | M | M | Nothing exists. A tie is the only curve |
 | F09 | Text directions in a bar | S | M | S | S | M | M | M | M | `Annotation` exists (import makes it) with no op; chord band only; MusicXML drops it |
 | F10 | Whole-bar rests | S | S | S | S | S | S | S | S | Works (`rest add --dur 1`) |
