@@ -91,7 +91,24 @@ export function createDeviceRoutes(options: DeviceRoutesOptions): DeviceRoutes {
   const unauthenticated = (response: ServerResponse): number =>
     send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
 
-  async function start(response: ServerResponse): Promise<number> {
+  async function start(request: IncomingMessage, response: ServerResponse): Promise<number> {
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    const fields = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+    // What the client would like, never what it gets: the person who approves chooses (and sees) both. They
+    // ride in the verification link so the approval page can pre-fill them; nothing is stored with the code.
+    const requested = parseScopes(fields.scopes);
+    if (requested === null) {
+      return send(
+        response,
+        problem(422, 'invalid-scopes', `scopes must be a non-empty list of: ${API_SCOPES.join(', ')}`),
+      );
+    }
+    const hint = new URLSearchParams();
+    if (fields.scopes !== undefined) hint.set('scopes', requested.join(','));
+    if (typeof fields.name === 'string' && fields.name.trim() !== '') hint.set('name', parseName(fields.name));
+    const verificationUri =
+      hint.size === 0 ? options.verificationUri : `${options.verificationUri}?${hint.toString()}`;
     const deviceCode = randomToken();
     const userCode = newUserCode();
     const at = now();
@@ -106,7 +123,7 @@ export function createDeviceRoutes(options: DeviceRoutesOptions): DeviceRoutes {
     return sendJson(response, 200, {
       deviceCode,
       userCode: formatUserCode(userCode),
-      verificationUri: options.verificationUri,
+      verificationUri,
       expiresIn: DEVICE_TTL_MS / 1000,
       interval: POLL_INTERVAL_SECONDS,
     });
@@ -216,7 +233,7 @@ export function createDeviceRoutes(options: DeviceRoutesOptions): DeviceRoutes {
       const method = (request.method ?? 'GET').toUpperCase();
       const path = new URL(request.url ?? '/', 'http://localhost').pathname;
 
-      if (path === '/v1/auth/device') return method === 'POST' ? start(response) : methodNotAllowed(response, 'POST');
+      if (path === '/v1/auth/device') return method === 'POST' ? start(request, response) : methodNotAllowed(response, 'POST');
       if (path === '/v1/auth/device/token') return method === 'POST' ? poll(request, response) : methodNotAllowed(response, 'POST');
       if (path === '/v1/auth/device/approve') return method === 'POST' ? approve(request, response) : methodNotAllowed(response, 'POST');
       if (path === '/v1/auth/tokens') return method === 'GET' ? list(request, response) : methodNotAllowed(response, 'GET');

@@ -32,6 +32,22 @@ export const SCOPE_CHOICES = [
 
 export type ScopeName = (typeof SCOPE_CHOICES)[number]['scope'];
 
+/**
+ * What a CLI asked for in the approval link (`#/device?scopes=read&name=ci`): pre-filled values only, validated
+ * against the choices the form offers; anything else is ignored, and the person can change all of it.
+ */
+export function prefillOf(hash: string): { name?: string; scopes?: ScopeName[] } {
+  const query = hash.split('?')[1] ?? '';
+  const params = new URLSearchParams(query);
+  const out: { name?: string; scopes?: ScopeName[] } = {};
+  const name = params.get('name')?.trim().slice(0, 60);
+  if (name) out.name = name;
+  const asked = (params.get('scopes') ?? '').split(',');
+  const scopes = SCOPE_CHOICES.map((c) => c.scope).filter((s) => asked.includes(s));
+  if (scopes.length > 0) out.scopes = scopes;
+  return out;
+}
+
 /** The scopes still on after one is toggled, in a stable order. At least one always stays on. */
 export function toggleScope(on: readonly ScopeName[], scope: ScopeName): ScopeName[] {
   const next = on.includes(scope) ? on.filter((s) => s !== scope) : [...on, scope];

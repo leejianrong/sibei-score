@@ -33,7 +33,7 @@ export function routeOf(hash: string): Route {
   if (path === 'authorize' || path.startsWith('authorize?')) {
     return { view: 'authorize', params: Object.fromEntries(new URLSearchParams(path.slice('authorize?'.length))) };
   }
-  if (path === 'device') return DEVICE;
+  if (path === 'device' || path.startsWith('device?')) return DEVICE;
   if (path === 'tokens') return TOKENS;
   if (path === 'audio') return AUDIO;
   const id = /^score\/(.+)$/.exec(path)?.[1];
