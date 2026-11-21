@@ -146,6 +146,9 @@ describe('sbscore bar (SIB2-186)', () => {
     expect((await sbscore('bar', 'rm', 'tune', '2')).code).toBe(EXIT.validation);
     expect((await sbscore('bar', 'rm', 'tune', '3')).code).toBe(EXIT.ok);
     expect((await open()).bars.map((b) => b.number)).toEqual([1, 2, 3]);
+  });
+});
+
 describe('sbscore check (SIB2-193)', () => {
   it('lists a flagged chord with its address and reason, and --strict turns it into an exit code', async () => {
     await sbscore('new', '--id', 'tune', '--bars', '4');
