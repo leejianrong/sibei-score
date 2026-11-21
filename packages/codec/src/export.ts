@@ -251,6 +251,10 @@ function harmony(chord: Chord): XmlElement {
     return elem('harmony', {}, [leaf('kind', 'none', { text: chord.text }), offset]);
   }
 
+  if (parsed.kind === 'alternate') {
+    // MusicXML has no bracketed alternate: carry the verbatim text, as for any chord it cannot name.
+    return elem('harmony', {}, [rootless(chord.text), offset]);
+  }
   const s = parsed.structure;
   return elem('harmony', {}, [
     rootElement('root', s.root),

@@ -108,6 +108,12 @@ describe('transposing the chords with the melody (ADR-0016)', () => {
     expect(chordTextsOf(moved, 1)).toEqual(['F7/A']);
   });
 
+  it('moves every root inside a bracketed alternate', () => {
+    const { score } = chartInC([], [{ target: 'bar1.beat1', text: '(Dm7 G7)' }]);
+    const moved = applyOperation(score, transpose(EB)).score;
+    expect(chordTextsOf(moved, 1)).toEqual(['(Fm7 Bb7)']);
+  });
+
   it('leaves N.C. and unparseable text verbatim, keeping the flag', () => {
     const { score } = chartInC(
       [],
