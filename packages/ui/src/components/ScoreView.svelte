@@ -40,7 +40,7 @@
     submitOps,
     undoScore,
   } from '../lib/api.js';
-  import type { ExportFormat, ExportInstrument, Operation } from '../lib/api.js';
+  import type { ExportFormat, ExportInstrument, MetaSetPayload, Operation } from '../lib/api.js';
   import { TARGET_KEYS, keyEquals } from '../lib/keys.js';
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
@@ -164,6 +164,33 @@
       (footerDraft !== (score.meta.footer?.text ?? '') ||
         (footerDraft !== '' && footerPagesDraft !== (score.meta.footer?.pages ?? 'all'))),
   );
+
+  // The title block (SIB2-178): title, composer and the style or tempo line. Drafts the reader edits and
+  // saves as one `meta.set` of whichever fields changed; re-seeded from the chart after every change.
+  let titleDraft = $state('');
+  let composerDraft = $state('');
+  let styleDraft = $state('');
+  $effect(() => {
+    titleDraft = score?.meta.title ?? '';
+    composerDraft = score?.meta.composer ?? '';
+    styleDraft = score?.meta.style ?? '';
+  });
+  const titleBlockDirty = $derived(
+    score !== null &&
+      (titleDraft !== score.meta.title ||
+        composerDraft !== score.meta.composer ||
+        styleDraft.trim() !== (score.meta.style ?? '')),
+  );
+
+  async function handleTitleBlockSave(): Promise<void> {
+    if (score === null || !titleBlockDirty) return;
+    const payload: MetaSetPayload = {};
+    if (titleDraft !== score.meta.title) payload.title = titleDraft;
+    if (composerDraft !== score.meta.composer) payload.composer = composerDraft;
+    if (styleDraft.trim() !== (score.meta.style ?? '')) payload.style = styleDraft.trim() === '' ? null : styleDraft.trim();
+    deselect();
+    await runOps([{ type: 'meta.set', payload }]);
+  }
 
   async function handleBarsPerSystem(count: number): Promise<void> {
     if (score === null || count === (score.meta.barsPerSystem ?? 4)) return;
@@ -856,6 +883,19 @@
       </div>
 
       <div class="group control-row">
+        <h3>Title block</h3>
+        <input class="meta-input" aria-label="Title" placeholder="Title" bind:value={titleDraft} />
+        <input class="meta-input" aria-label="Composer" placeholder="Composer" bind:value={composerDraft} />
+        <input class="meta-input" aria-label="Style or tempo" placeholder="Style or tempo, e.g. Medium swing" bind:value={styleDraft} />
+        <button type="button" class="transpose-btn" disabled={saving || !titleBlockDirty} onclick={handleTitleBlockSave}>
+          {saving ? 'Working…' : 'Set title block'}
+        </button>
+        <p class="control-note">
+          Printed above the first system. A logged, undoable edit (<code>meta set --title --composer --style</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
         <h3>Bars per line</h3>
         <select
           class="part-select"
@@ -1366,6 +1406,17 @@
     resize: vertical;
     margin-bottom: 8px;
   }
+  .meta-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    padding: 7px 9px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+  .meta-input:focus,
   .footer-text:focus {
     border-color: var(--accent);
     outline: none;

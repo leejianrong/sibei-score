@@ -87,7 +87,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F10 | Whole-bar rests | S | S | S | S | S | S | S | S | Works (`rest add --dur 1`) |
 | F11 | Ties | S | S | S | S | S | S | P | S | UI sets a tie on an existing note; it cannot add a note |
 | F12 | Non-grid system breaks | P | P | P | S | - | M | M | M | `BARS_PER_SYSTEM` is 4 and a section forces a break; no way to say "five bars here" or let a section share a line |
-| F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; `meta.set` has no UI control |
+| F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; the rail now has a Title block (SIB2-178) |
 | F14 | Free page text / copyright | M | M | M | M | M | M | M | M | No page-level text object |
 | F15 | Segno, coda, D.S., D.C., Fine | M | M | M | M | M | M | M | M | Excluded by ADR-0021 |
 | F16 | Rehearsal and named boxes | P | S | P | P | P | S | S | S | A letter is free text and draws boxed (`Intro` works). `Section.name` is stored and never drawn, so a second box ("HEAD") beside "A" is impossible |
