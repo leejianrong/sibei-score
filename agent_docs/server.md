@@ -476,3 +476,25 @@ barrel. What is Postgres's own:
 - **Landing an import is idempotent**: the score id is `import-<jobId>`, unique per owner, so a
   `conflict-exists` on it is this job's own earlier landing (a crash between `Applier.import` and
   `jobs.complete`) and the runner completes the job against it instead of failing forever.
+
+## Limits, quotas and the Redis adapter (V23)
+
+`packages/api/src/limits/` is the policy: a `RateLimiter` port (fixed-window, check-then-add, so a refused
+call is not counted; in-memory by default, Redis via `@sibei/api/redis`), `createLimits` (per-IP before
+auth, per-user by request class after, quotas, the per-user stream cap), and `limitsFromEnv` (every number
+is an `SBSCORE_LIMIT_*` / `SBSCORE_QUOTA_*` variable; defaults in `DEFAULT_LIMITS`, deliberately
+conservative). `server.ts` applies them: `gateAddress` ahead of the auth routes, `gateUser` after the
+principal, `quotaApplier` wrapping the routes' applier (not the job runner's: an import's quota is spent at
+submit, by `imports.submit`/`reparse`, so a refused import costs nothing). Local mode passes no `limits`
+and is unchanged; hosted mode turns them on (`SBSCORE_LIMITS=on|off` overrides).
+
+**A new route is limited by default** (`classify`: `read` for GET/HEAD, `write` otherwise). To give a route
+its own budget, add a rule to `DEFAULT_CLASSIFIERS` and a class to `LimitsConfig.rates`; a route that is not a
+user's (a worker polling with its own token) is `exempt` (`/v1/worker/*` already is, as is `/v1/health`).
+Refusals: `429 rate-limited` + `Retry-After`, `403 quota-exceeded` (CLI exit 9). Stored-bytes accounting is
+not here yet: the quotas are scores held, import pages and bytes per day, and open streams.
+
+`packages/api/src/redis.ts` is the only file that names the driver (`tests/arch/redis-seam.test.ts`). It
+wraps the in-process change and job buses so a publish is delivered locally first, then on a Redis channel;
+every process ignores its own echo. Pub/sub is at-most-once, which the bus's design absorbs (events are
+nudges; the stream's first frame is a catch-up). `pnpm test:redis` runs `tests/redis/` on a throwaway Redis.

@@ -1,4 +1,5 @@
 import { DocumentMigrationError } from '@sibei/model';
+import { QuotaError } from '../limits/errors.js';
 import { OperationError } from '../ops/errors.js';
 import type { OperationFailure } from '../ops/errors.js';
 
@@ -89,6 +90,14 @@ function exhaustive(failure: never): never {
 /** Anything that reaches the top of a handler. */
 export function problemForUnknown(error: unknown): Problem {
   if (error instanceof OperationError) return problemForOperationError(error);
+
+  if (error instanceof QuotaError) {
+    // 403, not 429: waiting a minute does not fix a quota (V23). The structured detail names which one and
+    // its limit; a windowed quota also says when it resets.
+    return problem(403, 'quota-exceeded', error.message, {
+      detail: { quota: error.quota, limit: error.limit, ...(error.retryAfterSeconds === undefined ? {} : { retryAfterSeconds: error.retryAfterSeconds }) },
+    });
+  }
 
   if (error instanceof DocumentMigrationError) {
     // A document this build cannot read (ADR-0028). 500 rather than 4xx: the request was fine, the

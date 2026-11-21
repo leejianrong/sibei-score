@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./sqlite": "./src/sqlite.ts",
-    "./postgres": "./src/postgres.ts"
+    "./postgres": "./src/postgres.ts",
+    "./redis": "./src/redis.ts"
   },
   "types": "./src/index.ts",
   "sideEffects": false,
@@ -19,6 +20,7 @@
     "@sibei/music": "workspace:*",
     "@sibei/pdf": "workspace:*",
     "better-sqlite3": "13.0.2",
+    "ioredis": "5.8.2",
     "pg": "8.23.0"
   },
   "devDependencies": {
