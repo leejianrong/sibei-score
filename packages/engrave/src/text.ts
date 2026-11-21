@@ -129,6 +129,9 @@ const STACK_SCALE = 0.72;
 const STACK_LINE = 0.82;
 /** Rough advance per superscript character, for sliding a stacked run back. Digits are narrow. */
 const STACK_ADVANCE = 0.5;
+/** A stacked slash chord's bass: its size and how far it drops below the baseline, as fractions. */
+const BASS_SCALE = 0.82;
+const BASS_DROP = 0.3;
 /** Music accidentals as glyphs, so `♯11` reads as an alteration rather than a hash. */
 const SHARP = '♯';
 const FLAT = '♭';
@@ -166,7 +169,11 @@ export interface ChordStyle {
   stackAlterations: boolean;
   /** The `Δ` glyph's size relative to the chord size; `1` draws it inline at full size. */
   triangleScale: number;
+  /** A slash chord's bass: `inline` on the baseline (`Bb6/F`), or `stacked` under a diagonal rule. */
+  slash: SlashStyle;
 }
+
+export type SlashStyle = 'inline' | 'stacked';
 
 /**
  * The style every surface drew before the knob existed: `Δ`/`ø`/`°`/`+` glyphs, a full-size
@@ -185,6 +192,7 @@ export const CANONICAL_CHORD_STYLE: ChordStyle = {
   parenthesizeAlterations: true,
   stackAlterations: true,
   triangleScale: 1,
+  slash: 'stacked',
 };
 
 export interface ChordSpec {
@@ -271,10 +279,7 @@ function alternateOrChordParts(
     text(root as string);
     runs.push(...rest);
     label += part.label.slice((root as string).length);
-    raised = part.runs.reduce<number>(
-      (sum, run) => sum + (typeof run === 'string' ? 0 : Number(run.attrs.dy ?? 0)),
-      0,
-    );
+    raised = netRise(part.runs);
   });
   text(')');
   return { runs, label };
@@ -341,9 +346,41 @@ function chordParts(
     }
   }
 
-  // The slash and the bass stay at full size: a superscripted bass reads as an extension.
-  if (s.bass !== null) push(`/${formatRootStyled(s.bass, style)}`);
+  if (s.bass !== null) {
+    // A raised run's `dy` is cumulative, so first carry the baseline back to where it started.
+    const owed = round(-netRise(runs));
+    const bass = formatRootStyled(s.bass, style);
+    if (style.slash === 'stacked') {
+      // Root over bass, the way Real-Book pages print it: a full-size diagonal rule, then the bass
+      // smaller and dropped beneath it. Text only, nothing measured (ADR-0015). The label is still
+      // the plain `/bass` so a recogniser reads what it always read.
+      runs.push(
+        owed === 0 ? '/' : { name: 'tspan', attrs: { dy: owed }, children: [], text: ['/'] },
+        {
+          name: 'tspan',
+          attrs: { 'font-size': `${round(size * BASS_SCALE)}px`, dy: round(size * BASS_DROP) },
+          children: [],
+          text: [bass],
+        },
+      );
+      label += `/${bass}`;
+    } else {
+      // Inline: the slash and the bass stay at full size on the baseline, so a superscripted 7
+      // does not carry the bass up with it.
+      const text = `/${bass}`;
+      runs.push(owed === 0 ? text : { name: 'tspan', attrs: { dy: owed }, children: [], text: [text] });
+      label += text;
+    }
+  }
   return { runs, label };
+}
+
+/** The baseline shift the runs so far leave behind (SVG `dy` accumulates; up is negative). */
+function netRise(runs: readonly (SvgElement | string)[]): number {
+  return runs.reduce<number>(
+    (sum, run) => sum + (typeof run === 'string' ? 0 : Number(run.attrs.dy ?? 0)),
+    0,
+  );
 }
 
 function formatRootStyled(root: Root, style: ChordStyle): string {
