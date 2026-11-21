@@ -19,7 +19,7 @@ import type { Operation, OperationType } from './operations.js';
 const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'score.create': ['id', 'title', 'composer', 'style', 'key', 'time', 'barCount', 'pickup', 'bars'],
   'score.import': ['document'],
-  'meta.set': ['title', 'composer', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem', 'tempo'],
+  'meta.set': ['title', 'subtitle', 'composer', 'arranger', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem', 'tempo'],
   'note.add': ['pitch', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations', 'id'],
   'note.set': ['pitch', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations'],
   'note.rm': [],
@@ -45,6 +45,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'slur.rm': [],
   'ottava.set': ['to', 'shift', 'id'],
   'ottava.rm': [],
+  'grace.add': ['pitch', 'value', 'slashed', 'accidental', 'id'],
+  'grace.rm': [],
   'bar.add': ['count', 'ids'],
   'bar.rm': [],
 };

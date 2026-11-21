@@ -31,7 +31,10 @@ export async function workerRoute(
     const body = await readJsonBody(request, response);
     if (body === MALFORMED) return 400;
     const waitSeconds = (body as { waitSeconds?: unknown } | null)?.waitSeconds;
-    const job = await worker.claim(typeof waitSeconds === 'number' ? { waitSeconds } : {});
+    const job = await worker.claim({
+      ...(typeof waitSeconds === 'number' ? { waitSeconds } : {}),
+      credential: worker.credentialOf(request.headers.authorization),
+    });
     if (job === null) {
       response.writeHead(204).end();
       return 204;

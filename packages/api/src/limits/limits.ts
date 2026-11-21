@@ -9,7 +9,7 @@ import type { RateLimiter, RateVerdict } from './rate-limiter.js';
  *
  * Three different things, kept apart because they answer different questions:
  *
- *   - **per-IP** limits run *before* authentication and bound what an anonymous caller (or a sign-in
+ *   - **per-IP** limits (plus one global ceiling) run *before* authentication and bound what an anonymous caller (or a sign-in
  *     loop) can cost. A tighter one covers `/v1/auth/`.
  *   - **per-user** limits run after, by **class** of request (`read`, `write`, `export`, `import`).
  *   - **quotas** bound how much a user may hold or consume: scores, import pages and bytes per day, and
@@ -35,8 +35,12 @@ export interface Rate {
 }
 
 export interface LimitsConfig {
-  /** Per-IP, every non-exempt request. */
+  /** Per-IP, every non-exempt request. An IPv6 address is keyed on its /64 (SEC M5). */
   ip: Rate;
+  /** All callers together, every non-exempt request: the ceiling a distributed flood meets (SEC M5). */
+  global?: Rate;
+  /** Per-IP, failed `sbsw_` worker authentications, which `/v1/worker/` otherwise exempts (SEC M2/M5). */
+  workerFailIp?: Rate;
   /** Per-IP, `/v1/auth/*` only: sign-in and device-flow endpoints, which are public by nature. */
   authIp: Rate;
   /** Per-user, by class. A class with no entry here is not limited per user. */
@@ -50,6 +54,12 @@ export interface LimitsConfig {
     importBytesPerDay: number;
     /** Concurrent SSE streams one user may hold open in this process (KAN-602). */
     maxStreams: number;
+    /**
+     * Cached export artefacts one user may hold (SEC M6). Every paper/face/instrument/page combination is its
+     * own entry, so without a bound 20 exports a minute fill the disk for the 7-day lifetime. The oldest is
+     * evicted past this, which bounds the bytes as entries times one render.
+     */
+    maxExportCacheEntries?: number;
   };
   /**
    * Take the client address from the *rightmost* `X-Forwarded-For` entry (the one our own reverse proxy
@@ -65,6 +75,8 @@ const DAY = 24 * HOUR;
 
 export const DEFAULT_LIMITS: LimitsConfig = {
   ip: { limit: 600, windowMs: MINUTE },
+  global: { limit: 6000, windowMs: MINUTE },
+  workerFailIp: { limit: 30, windowMs: MINUTE },
   authIp: { limit: 30, windowMs: MINUTE },
   rates: {
     read: { limit: 300, windowMs: MINUTE },
@@ -77,6 +89,7 @@ export const DEFAULT_LIMITS: LimitsConfig = {
     importPagesPerDay: 30,
     importBytesPerDay: 100 * 1024 * 1024,
     maxStreams: 8,
+    maxExportCacheEntries: 100,
   },
   trustProxy: false,
 };
@@ -112,9 +125,27 @@ export function clientAddress(request: IncomingMessage, trustProxy: boolean): st
     const forwarded = request.headers['x-forwarded-for'];
     const value = Array.isArray(forwarded) ? forwarded[forwarded.length - 1] : forwarded;
     const last = value?.split(',').pop()?.trim();
-    if (last !== undefined && last !== '') return last;
+    if (last !== undefined && last !== '') return addressBucket(last);
   }
-  return request.socket.remoteAddress ?? 'unknown';
+  return addressBucket(request.socket.remoteAddress ?? 'unknown');
+}
+
+/**
+ * The key an address is limited by. An IPv4 address is its own bucket; an IPv6 one is its /64, since a
+ * single subscriber is routinely handed a whole /64 and keying on the full address gives it 2^64 buckets
+ * (SEC M5). An IPv4-mapped IPv6 address (`::ffff:1.2.3.4`) is the IPv4 one.
+ */
+export function addressBucket(address: string): string {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
+  if (mapped !== null) return mapped[1]!;
+  if (!address.includes(':')) return address;
+  const zone = address.split('%')[0]!;
+  const [head = '', tail] = zone.split('::');
+  const front = head === '' ? [] : head.split(':');
+  const back = tail === undefined || tail === '' ? [] : tail.split(':');
+  const groups = tail === undefined ? front : [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill('0'), ...back];
+  const prefix = groups.slice(0, 4).map((g) => (g === '' ? '0' : g.toLowerCase().replace(/^0+(?=.)/, '')));
+  return `${prefix.join(':')}::/64`;
 }
 
 /** A request refused for speed (`429`). */
@@ -140,6 +171,10 @@ export interface Limits {
   gateAddress(request: IncomingMessage): Promise<LimitRefusal | null>;
   /** After authentication. */
   gateUser(request: IncomingMessage, owner: Owner): Promise<LimitRefusal | null>;
+  /** Charge one request of a named class to a user without a request's path to classify (`/mcp`, per tool). */
+  gateClass(owner: Owner, cls: RequestClass): Promise<LimitRefusal | null>;
+  /** A worker request just failed authentication. Counts it, and says so once the address has had too many. */
+  workerAuthFailed(request: IncomingMessage): Promise<LimitRefusal | null>;
   /** Throws `QuotaError` when a user already holding `held` scores has no room for one more. */
   checkScoreRoom(held: number): void;
   /** Spend import pages and bytes from today's budget; throws `QuotaError` when it is exhausted. */
@@ -154,12 +189,18 @@ export function createLimits(options: LimitsOptions = {}): Limits {
   const classifiers = options.classifiers ?? DEFAULT_CLASSIFIERS;
   const streams = new Map<string, number>();
 
-  async function consume(key: string, cost: number, rate: Rate): Promise<RateVerdict | null> {
+  /**
+   * Fail-open or fail-closed when the counter errors (SEC M5). Reads fail **open**: the limits protect the
+   * service and must not take reading down with a Redis blip. Anything that writes, spends or signs in fails
+   * **closed** — refused for a few seconds — because a limiter outage is exactly when an attacker would
+   * otherwise get unmetered writes and sign-in guesses.
+   */
+  async function consume(key: string, cost: number, rate: Rate, failClosed = false): Promise<RateVerdict | null> {
     try {
       return await limiter.consume(key, cost, rate.limit, rate.windowMs);
     } catch (error) {
-      options.onError?.('a rate-limit counter failed; admitting the request', error);
-      return null;
+      options.onError?.(`a rate-limit counter failed; ${failClosed ? 'refusing' : 'admitting'} the request`, error);
+      return failClosed ? { allowed: false, limit: rate.limit, remaining: 0, retryAfterMs: 5000 } : null;
     }
   }
 
@@ -170,6 +211,12 @@ export function createLimits(options: LimitsOptions = {}): Limits {
 
   const hours = (ms: number): number => Math.max(1, Math.ceil(ms / HOUR));
 
+  async function gateClass(owner: Owner, cls: RequestClass): Promise<LimitRefusal | null> {
+    const rate = config.rates[cls];
+    if (rate === undefined) return null;
+    return refusal(await consume(`user:${owner}:${cls}`, 1, rate, cls !== 'read'), 'user', cls);
+  }
+
   return {
     config,
 
@@ -177,20 +224,29 @@ export function createLimits(options: LimitsOptions = {}): Limits {
       const path = (request.url ?? '/').split('?')[0]!;
       if (classify(request.method ?? 'GET', path, classifiers) === 'exempt') return null;
       const address = clientAddress(request, config.trustProxy);
+      const method = (request.method ?? 'GET').toUpperCase();
+      const closed = method !== 'GET' && method !== 'HEAD';
+      const overall = refusal(await consume('global', 1, config.global ?? DEFAULT_LIMITS.global!, closed), 'ip', 'global');
+      if (overall !== null) return overall;
       if (path.startsWith('/v1/auth/')) {
-        const tight = refusal(await consume(`ip-auth:${address}`, 1, config.authIp), 'auth-ip', 'auth');
+        const tight = refusal(await consume(`ip-auth:${address}`, 1, config.authIp, true), 'auth-ip', 'auth');
         if (tight !== null) return tight;
       }
-      return refusal(await consume(`ip:${address}`, 1, config.ip), 'ip', 'any');
+      return refusal(await consume(`ip:${address}`, 1, config.ip, closed), 'ip', 'any');
     },
 
     async gateUser(request, owner) {
       const path = (request.url ?? '/').split('?')[0]!;
       const cls = classify(request.method ?? 'GET', path, classifiers);
       if (cls === 'exempt') return null;
-      const rate = config.rates[cls];
-      if (rate === undefined) return null;
-      return refusal(await consume(`user:${owner}:${cls}`, 1, rate), 'user', cls);
+      return gateClass(owner, cls);
+    },
+
+    gateClass,
+
+    async workerAuthFailed(request) {
+      const rate = config.workerFailIp ?? DEFAULT_LIMITS.workerFailIp!;
+      return refusal(await consume(`ip-worker-fail:${clientAddress(request, config.trustProxy)}`, 1, rate, true), 'ip', 'worker-auth');
     },
 
     checkScoreRoom(held) {

@@ -64,9 +64,26 @@ step "bring the stack up (no worker)"
 docker compose up -d --build --wait >/dev/null || fail "the stack did not become healthy"
 ok "caddy, api, postgres, redis and the fake GitHub are up and healthy"
 
+step "no secrets or backups are baked into the API image (SIB2-205)"
+# Put decoys where the runbook puts the real files, rebuild, and look inside. They are removed again
+# whatever happens. A decoy .env with a marker, never a real one.
+printf 'DECOY=smoke\n' >.env.smoke-decoy
+mkdir -p backups && printf 'decoy' >backups/smoke-decoy.sql.gz
+cleanup_decoys() { rm -f .env.smoke-decoy backups/smoke-decoy.sql.gz; rmdir backups 2>/dev/null || true; }
+trap 'cleanup_decoys; cleanup' EXIT
+docker compose build api >/dev/null || fail "rebuilding the api image with decoys in the context"
+leaked="$(docker run --rm --entrypoint sh "${API_IMAGE:-sibei-score-api:local}" -c 'ls -A /app/.env* /app/backups /app/deploy /app/tools/runpod 2>/dev/null' || true)"
+cleanup_decoys
+[ -z "$leaked" ] || fail "the api image contains secret-bearing paths: $leaked"
+ok "the image has no .env*, backups/, deploy/ or tools/runpod/"
+
 step "the edge answers, and only the edge"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$SITE/v1/health")" = 200 ] || fail "/v1/health through Caddy"
 ok "GET /v1/health through Caddy is 200"
+page_headers="$(curl -s -D - -o /dev/null "$SITE/" | tr -d '\r')"
+printf '%s' "$page_headers" | grep -qi "^content-security-policy:.*frame-ancestors 'none'" || fail "the page has no CSP with frame-ancestors 'none'"
+printf '%s' "$page_headers" | grep -qi '^x-frame-options: DENY' || fail "the page has no X-Frame-Options: DENY"
+ok "the page carries a CSP (frame-ancestors 'none') and X-Frame-Options: DENY through Caddy"
 published="$(docker compose ps --format json | jq -rs '[.[] | select((.Publishers // []) | any(.PublishedPort > 0)) | .Service] | sort | join(",")')"
 [ "$published" = "caddy,fake-github" ] || fail "services publishing ports: [$published] (expected only caddy, plus the smoke-only fake-github)"
 ok "only caddy publishes a port (and the smoke-only fake GitHub)"

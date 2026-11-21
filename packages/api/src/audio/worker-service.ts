@@ -3,6 +3,7 @@ import { hashToken, sameSecret } from '../auth/secrets.js';
 import { isPresigning } from '../blob/blob-store.js';
 import type { ManagedBlobStore } from '../blob/blob-store.js';
 import type { AudioJob, AudioJobId, AudioJobStore, AudioProgress } from '../store/audio-jobs.js';
+import type { BlobLedger } from '../store/blob-ledger.js';
 
 /**
  * The audio worker's side of the queue (SIB2-138, "Audio worker protocol v1" in the ADR-0034 amendment).
@@ -27,8 +28,14 @@ import type { AudioJob, AudioJobId, AudioJobStore, AudioProgress } from '../stor
  */
 
 export interface AudioWorkerOptions {
-  /** The plaintext worker credentials (`sbsw_…`). Hashed on the way in; never kept or logged. */
+  /**
+   * The plaintext worker credentials, each `sbsw_…` or `name=sbsw_…` (SEC M2). Hashed on the way in; never
+   * kept or logged. A name identifies the credential in the claim cap and tells an operator's workers apart;
+   * revoking one is removing its entry and restarting, so give each worker its own credential.
+   */
   tokens: readonly string[];
+  /** Concurrent long-poll `claim` calls one credential may hold open. Default 4. */
+  maxConcurrentClaims?: number;
   /** How long a lease lasts after a claim or heartbeat. Default 120. */
   leaseSeconds?: number;
   /** How often the worker is told to heartbeat. Default 30. */
@@ -57,6 +64,21 @@ export interface AudioResultImporter {
 }
 
 export const WORKER_TOKEN_PREFIX = 'sbsw_';
+
+/** `name=sbsw_...` or a bare `sbsw_...` (named after its digest, so the name is stable and reveals nothing). */
+export function parseWorkerCredential(entry: string): { name: string; token: string } {
+  const at = entry.indexOf('=');
+  if (at === -1) return { name: `token-${hashToken(entry).slice(0, 8)}`, token: entry };
+  return { name: entry.slice(0, at).trim(), token: entry.slice(at + 1).trim() };
+}
+
+/** The longest a result's decoded duration may be, given what was declared and uploaded (SEC M2). */
+export function plausibleDuration(job: Pick<AudioJob, 'declaredDurationSeconds' | 'sizeBytes'>): number {
+  // No codec this server accepts averages under ~6 kbps, so the file's size bounds its length.
+  const bySize = Math.max(60, (job.sizeBytes * 8) / 6000);
+  const byDeclared = job.declaredDurationSeconds === null ? Infinity : Math.max(job.declaredDurationSeconds * 2, job.declaredDurationSeconds + 60);
+  return Math.min(86_400, bySize, byDeclared);
+}
 
 export interface ClaimedJob {
   id: AudioJobId;
@@ -94,7 +116,10 @@ export interface CompleteInput {
 export interface AudioWorkerService {
   /** Is this `Authorization` header a worker credential this server knows? */
   authenticate(header: string | undefined): boolean;
-  claim(input: { waitSeconds?: number }): Promise<ClaimedJob | null>;
+  /** The name of the credential an `Authorization` header carries, or `null`. */
+  credentialOf(header: string | undefined): string | null;
+  /** `credential` is charged for the long-poll; absent (a direct call) is uncharged. */
+  claim(input: { waitSeconds?: number; credential?: string | null }): Promise<ClaimedJob | null>;
   heartbeat(id: AudioJobId, input: { leaseToken: unknown; progress?: unknown }): Promise<WorkerResult<{ leaseExpiresAt: string | null; cancelled: boolean; audio: WorkerTransfer | null }>>;
   complete(id: AudioJobId, input: CompleteInput): Promise<WorkerResult<{ status: AudioJob['status']; alreadyCompleted?: true }>>;
   fail(id: AudioJobId, input: { leaseToken: unknown; kind?: unknown; message?: unknown; retryable?: unknown }): Promise<WorkerResult<{ status: AudioJob['status'] }>>;
@@ -114,8 +139,10 @@ export function createAudioWorkerService(options: {
   blobs: ManagedBlobStore;
   worker: AudioWorkerOptions;
   importer?: AudioResultImporter;
+  /** Records the result key a worker is handed a PUT for, so the sweep finds what it writes late (SEC M1). */
+  ledger?: BlobLedger;
 }): AudioWorkerService {
-  const { jobs, blobs, importer } = options;
+  const { jobs, blobs, importer, ledger } = options;
   const config = options.worker;
   const leaseSeconds = config.leaseSeconds ?? 120;
   const heartbeatSeconds = config.heartbeatSeconds ?? 30;
@@ -124,7 +151,12 @@ export function createAudioWorkerService(options: {
   const resultTtl = config.resultUrlTtlSeconds ?? 7200;
   const maxResultBytes = config.maxResultBytes ?? 32 * 1024 * 1024;
   const now = config.now ?? (() => new Date());
-  const digests = config.tokens.map((token) => hashToken(token));
+  const credentials = config.tokens.map((entry) => {
+    const { name, token } = parseWorkerCredential(entry);
+    return { name, digest: hashToken(token) };
+  });
+  const maxClaims = config.maxConcurrentClaims ?? 4;
+  const claiming = new Map<string, number>();
   let timer: ReturnType<typeof setInterval> | undefined;
 
   function audioTransfer(job: AudioJob): WorkerTransfer {
@@ -166,46 +198,28 @@ export function createAudioWorkerService(options: {
 
   return {
     authenticate(header) {
-      const match = /^Bearer (sbsw_[A-Za-z0-9_-]+)$/.exec(header ?? '');
-      if (match === null) return false;
-      const digest = hashToken(match[1]!);
-      // Every digest is compared, with no early exit, so how many credentials exist and which one matched
-      // is not something timing can tell.
-      let found = false;
-      for (const known of digests) if (sameSecret(known, digest)) found = true;
-      return found;
+      return credentialOf(header) !== null;
     },
 
-    async claim({ waitSeconds }) {
+    credentialOf,
+
+    async claim({ waitSeconds, credential = null }) {
       const wait = Math.min(Math.max(typeof waitSeconds === 'number' ? waitSeconds : 0, 0), 30);
-      const deadline = Date.now() + wait * 1000;
-      for (;;) {
-        await sweep();
-        const job = await jobs.claim(leaseSeconds);
-        if (job !== null) {
-          const claimed: ClaimedJob = {
-            id: job.id,
-            attempt: job.attempts,
-            leaseToken: job.leaseToken!,
-            leaseExpiresAt: job.leaseExpiresAt!,
-            heartbeatIntervalSeconds: heartbeatSeconds,
-            audio: audioTransfer(job),
-            params: { instrument: job.instrument, declaredDurationSeconds: job.declaredDurationSeconds },
-          };
-          if (isPresigning(blobs)) {
-            const signed = blobs.presignPut(resultKey(job.id), { expiresInSeconds: resultTtl, contentType: 'application/json' });
-            claimed.resultUpload = {
-              url: signed.url,
-              method: 'PUT',
-              headers: signed.headers,
-              expiresAt: new Date(signed.expiresAt).toISOString(),
-              viaApi: false,
-            };
-          }
-          return claimed;
+      // A held-open claim costs a poll loop against the store for up to 30 s. One credential gets a few; past
+      // that the answer is "nothing yet", which a worker retries after its usual pause (SEC M2).
+      if (credential !== null) {
+        const open = claiming.get(credential) ?? 0;
+        if (open >= maxClaims && wait > 0) return null;
+        claiming.set(credential, open + 1);
+      }
+      try {
+        return await claimLoop(wait);
+      } finally {
+        if (credential !== null) {
+          const left = (claiming.get(credential) ?? 1) - 1;
+          if (left <= 0) claiming.delete(credential);
+          else claiming.set(credential, left);
         }
-        if (Date.now() >= deadline) return null;
-        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     },
 
@@ -216,9 +230,9 @@ export function createAudioWorkerService(options: {
       if (progress === false) return { ok: false, kind: 'bad-request', message: 'progress must be { stage: string, fraction: 0..1 }' };
       const beat = await jobs.heartbeat(id, token, leaseSeconds, progress);
       if (beat.outcome === 'lease-lost') {
-        // A job its owner deleted is not a stolen lease: say so, so the worker discards instead of retrying.
-        if ((await jobs.getById(id)) === null) return { ok: true, value: { leaseExpiresAt: null, cancelled: true, audio: null } };
-        return { ok: false, kind: 'lease-lost' };
+        // A deleted job and a lost lease answer identically (SEC M2): either way the worker must stop and
+        // discard, and a credential that could tell them apart could probe which job ids exist.
+        return { ok: true, value: { leaseExpiresAt: null, cancelled: true, audio: null } };
       }
       return {
         ok: true,
@@ -244,6 +258,10 @@ export function createAudioWorkerService(options: {
       const current = await jobs.getById(id);
       if (current === null || current.leaseToken !== token) return { ok: false, kind: 'lease-lost' };
       if (current.status === 'succeeded') return { ok: true, value: { status: 'succeeded', alreadyCompleted: true } };
+      // The metered figure cannot be wildly past what the upload and its declared length allow (SEC M2).
+      if (seconds > plausibleDuration(current)) {
+        return { ok: false, kind: 'bad-request', message: 'durationSeconds is longer than the uploaded audio could be' };
+      }
 
       const read = await readResult(id, input.result);
       if (!read.ok) return read;
@@ -307,6 +325,53 @@ export function createAudioWorkerService(options: {
       timer = undefined;
     },
   };
+
+  async function claimLoop(wait: number): Promise<ClaimedJob | null> {
+      const deadline = Date.now() + wait * 1000;
+      // Expired leases are swept once per call and by the timer, not on every 500 ms poll (SEC M2).
+      await sweep();
+      for (;;) {
+        const job = await jobs.claim(leaseSeconds);
+        if (job !== null) {
+          const claimed: ClaimedJob = {
+            id: job.id,
+            attempt: job.attempts,
+            leaseToken: job.leaseToken!,
+            leaseExpiresAt: job.leaseExpiresAt!,
+            heartbeatIntervalSeconds: heartbeatSeconds,
+            audio: audioTransfer(job),
+            params: { instrument: job.instrument, declaredDurationSeconds: job.declaredDurationSeconds },
+          };
+          if (isPresigning(blobs)) {
+            // Ledgered before the URL is handed out, so an object the worker writes after the job is gone
+            // (or the account is) is still found and swept (SEC M1).
+            await ledger?.record(job.owner, resultKey(job.id), 'audio');
+            const signed = blobs.presignPut(resultKey(job.id), { expiresInSeconds: resultTtl, contentType: 'application/json' });
+            claimed.resultUpload = {
+              url: signed.url,
+              method: 'PUT',
+              headers: signed.headers,
+              expiresAt: new Date(signed.expiresAt).toISOString(),
+              viaApi: false,
+            };
+          }
+          return claimed;
+        }
+        if (Date.now() >= deadline) return null;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+  }
+
+  function credentialOf(header: string | undefined): string | null {
+    const match = /^Bearer (sbsw_[A-Za-z0-9_-]+)$/.exec(header ?? '');
+    if (match === null) return null;
+    const digest = hashToken(match[1]!);
+    // Every digest is compared, with no early exit, so how many credentials exist and which one matched
+    // is not something timing can tell.
+    let found: string | null = null;
+    for (const known of credentials) if (sameSecret(known.digest, digest)) found = known.name;
+    return found;
+  }
 
   /** The NoteEvents document, inline or from the upload target. Schema validation is the importer's, not ours. */
   async function readResult(id: AudioJobId, result: unknown): Promise<WorkerResult<unknown>> {

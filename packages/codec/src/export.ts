@@ -20,6 +20,7 @@ import type {
   Bar,
   Chord,
   Ending,
+  GraceNote,
   Note,
   NoteValue,
   Rest,
@@ -55,6 +56,7 @@ export function scoreToMusicXml(score: Score): string {
   const ottavas = ottavaMarks(score);
   const root = elem('score-partwise', { version: '4.0' }, [
     work(score),
+    movementTitle(score),
     identification(score),
     elem('part-list', {}, [
       elem('score-part', { id: 'P1' }, [leaf('part-name', score.meta.title || 'Lead sheet')]),
@@ -72,9 +74,19 @@ function work(score: Score): XmlElement | null {
   return score.meta.title === '' ? null : elem('work', {}, [leaf('work-title', score.meta.title)]);
 }
 
+/** The subtitle is the movement title (SIB2-180); it sits between `<work>` and `<identification>`. */
+function movementTitle(score: Score): XmlElement | null {
+  return score.meta.subtitle === undefined ? null : leaf('movement-title', score.meta.subtitle);
+}
+
 function identification(score: Score): XmlElement {
   return elem('identification', {}, [
-    score.meta.composer === '' ? null : leaf('creator', score.meta.composer, { type: 'composer' }),
+    // One creator per composer line; the arranger is a creator of its own type (SIB2-180).
+    ...score.meta.composer
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => leaf('creator', line, { type: 'composer' })),
+    score.meta.arranger === undefined ? null : leaf('creator', score.meta.arranger, { type: 'arranger' }),
     // The footer's text is the copyright line; which pages carry it has no MusicXML home (a named lossy case).
     score.meta.footer === undefined ? null : leaf('rights', score.meta.footer.text),
     elem('encoding', {}, [leaf('software', 'sibei-score'), leaf('encoding-date', '2020-01-01')]),
@@ -226,7 +238,13 @@ function noteElements(bar: Bar, slurs: SlurMarks, ottavas: OttavaMarks): XmlElem
   return bar.items.flatMap((item) => {
     if (item.kind !== 'note') return [restElement(item, bar)];
     const lines = ottavas.get(item.id);
-    return [...(lines?.starts ?? []), noteElement(item, bar, slurs.get(item.id) ?? []), ...(lines?.stops ?? [])];
+    return [
+      ...(lines?.starts ?? []),
+      // Grace notes come first, each a `<note><grace/>` with no duration (SIB2-185).
+      ...(item.graces ?? []).map(graceElement),
+      noteElement(item, bar, slurs.get(item.id) ?? []),
+      ...(lines?.stops ?? []),
+    ];
   });
 }
 
@@ -285,6 +303,21 @@ function noteElement(note: Note, bar: Bar, slurs: SlurMark[]): XmlElement {
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
 }
 
+/** A grace note: `<grace slash="yes"/>` for an acciaccatura, no `<duration>`, a `<type>` for its flags. */
+function graceElement(grace: GraceNote): XmlElement {
+  return elem(
+    'note',
+    {},
+    [
+      elem('grace', grace.slashed ? { slash: 'yes' } : {}),
+      pitchElement(grace),
+      leaf('voice', 1),
+      leaf('type', NOTE_TYPE[grace.value]),
+      accidentalElement(grace),
+    ].filter((c): c is XmlElement => c !== null),
+  );
+}
+
 function restElement(rest: Rest, bar: Bar): XmlElement {
   const tuplet = tupletOf(rest.id, bar);
   return elem('note', {}, [
@@ -298,7 +331,7 @@ function restElement(rest: Rest, bar: Bar): XmlElement {
   ].filter((c): c is XmlElement => c !== null));
 }
 
-function pitchElement(note: Note): XmlElement {
+function pitchElement(note: Pick<Note, 'pitch'>): XmlElement {
   return elem('pitch', {}, [
     leaf('step', note.pitch.step),
     note.pitch.alter === 0 ? null : leaf('alter', note.pitch.alter),
@@ -311,7 +344,7 @@ function pitchElement(note: Note): XmlElement {
  * lossy edge: our `accidental` display ('auto'/'show'/'hide') has no MusicXML counterpart, so the
  * round-trip normalises it (`parens` is the exception: it is `parentheses="yes"` and survives) — the case is named in a test rather than pretended away.
  */
-function accidentalElement(note: Note): XmlElement | null {
+function accidentalElement(note: Pick<Note, 'pitch' | 'accidental'>): XmlElement | null {
   const parens = note.accidental === 'parens';
   if (note.accidental === 'hide' || (note.pitch.alter === 0 && !parens)) return null;
   // A parenthesised accidental is `parentheses="yes"` (SIB2-182), which survives; a cautionary natural

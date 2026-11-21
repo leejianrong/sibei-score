@@ -69,6 +69,9 @@ export async function audioRoute(
     if (bytes === null) return 413;
     const job = await audio.receive(owner, id, bytes);
     if (job === null) return send(response, noSuchJob(id));
+    if (job === 'too-large') {
+      return send(response, problem(413, 'audio-too-large', 'the body is larger than the size declared when the job was created'));
+    }
     response.writeHead(204).end();
     return 204;
   }

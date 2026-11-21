@@ -296,7 +296,28 @@ export interface ClientOptions {
   token?: string;
 }
 
+/** Is this URL one a bearer token may travel to: https, or plain http to this machine (SEC, low)? */
+export function tokenMayTravelTo(baseUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return true; // not ours to judge here: the request itself will fail with a clear error
+  }
+  if (url.protocol === 'https:') return true;
+  const host = url.hostname.toLowerCase();
+  return host === 'localhost' || host.endsWith('.localhost') || /^127\./.test(host) || host === '[::1]' || host === '::1';
+}
+
 export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: ClientOptions = {}): Client {
+  if (options.token !== undefined && !tokenMayTravelTo(baseUrl) && process.env.SBSCORE_ALLOW_INSECURE_TOKEN !== '1') {
+    throw new CliError(
+      EXIT.usage,
+      'insecure-url',
+      `refusing to send a token to ${baseUrl}: it is plain http to another machine, so anyone on the path could read it. ` +
+        `Use an https URL, or set SBSCORE_ALLOW_INSECURE_TOKEN=1 if you really mean it.`,
+    );
+  }
   const authorization: Record<string, string> = options.token === undefined ? {} : { authorization: `Bearer ${options.token}` };
 
   async function send(method: string, path: string, body?: unknown, rawJson?: Buffer, contentType = 'application/json'): Promise<Response> {

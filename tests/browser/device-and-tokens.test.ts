@@ -65,7 +65,8 @@ describe('approving a device', () => {
       expect(await approve.isDisabled()).toBe(false);
 
       await page.locator('#device-name').fill('my laptop');
-      await page.getByRole('button', { name: 'Change your charts' }).click();
+      // Write is never on unless ticked (SIB2-206): the default is read alone.
+      expect(await page.getByRole('button', { name: 'Change your charts' }).getAttribute('aria-pressed')).toBe('false');
       await approve.click();
       await page.waitForSelector('[role="status"]');
       expect(await page.locator('[role="status"]').innerText()).toContain('Device approved');
@@ -82,10 +83,23 @@ describe('approving a device', () => {
       const read = page.getByRole('button', { name: 'Read your charts' });
       const write = page.getByRole('button', { name: 'Change your charts' });
       await write.click();
-      expect(await read.getAttribute('aria-pressed')).toBe('true');
       await read.click();
-      expect(await read.getAttribute('aria-pressed')).toBe('true');
-      expect(await write.getAttribute('aria-pressed')).toBe('false');
+      expect(await read.getAttribute('aria-pressed')).toBe('false');
+      await write.click();
+      expect(await write.getAttribute('aria-pressed')).toBe('true');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('does not tick write for a link that asks for it, and says so (SIB2-206)', async () => {
+    const page = await openAt('#/device?scopes=read,write&name=ci', signedIn);
+    try {
+      await page.waitForSelector('#device-code');
+      expect(await page.locator('#device-name').inputValue()).toBe('ci');
+      expect(await page.getByRole('button', { name: 'Change your charts' }).getAttribute('aria-pressed')).toBe('false');
+      expect(await page.getByText('This device asked to change your charts').count()).toBe(1);
+      expect(await page.getByText('Only approve a code you started yourself.').count()).toBe(1);
     } finally {
       await page.close();
     }

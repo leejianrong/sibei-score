@@ -175,16 +175,22 @@
   // saves as one `meta.set` of whichever fields changed; re-seeded from the chart after every change.
   let titleDraft = $state('');
   let composerDraft = $state('');
+  let subtitleDraft = $state('');
+  let arrangerDraft = $state('');
   let styleDraft = $state('');
   $effect(() => {
     titleDraft = score?.meta.title ?? '';
     composerDraft = score?.meta.composer ?? '';
+    subtitleDraft = score?.meta.subtitle ?? '';
+    arrangerDraft = score?.meta.arranger ?? '';
     styleDraft = score?.meta.style ?? '';
   });
   const titleBlockDirty = $derived(
     score !== null &&
       (titleDraft !== score.meta.title ||
         composerDraft !== score.meta.composer ||
+        subtitleDraft.trim() !== (score.meta.subtitle ?? '') ||
+        arrangerDraft.trim() !== (score.meta.arranger ?? '') ||
         styleDraft.trim() !== (score.meta.style ?? '')),
   );
 
@@ -193,6 +199,8 @@
     const payload: MetaSetPayload = {};
     if (titleDraft !== score.meta.title) payload.title = titleDraft;
     if (composerDraft !== score.meta.composer) payload.composer = composerDraft;
+    if (subtitleDraft.trim() !== (score.meta.subtitle ?? '')) payload.subtitle = subtitleDraft.trim() === '' ? null : subtitleDraft.trim();
+    if (arrangerDraft.trim() !== (score.meta.arranger ?? '')) payload.arranger = arrangerDraft.trim() === '' ? null : arrangerDraft.trim();
     if (styleDraft.trim() !== (score.meta.style ?? '')) payload.style = styleDraft.trim() === '' ? null : styleDraft.trim();
     deselect();
     await runOps([{ type: 'meta.set', payload }]);
@@ -333,6 +341,12 @@
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
         articulations: item.articulations ?? [],
+        graces: (item.graces ?? []).map((grace) => ({
+          id: grace.graceId,
+          pitch: formatPitch(grace.pitch),
+          value: grace.value,
+          slashed: grace.slashed,
+        })),
       };
     }
     return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
@@ -974,13 +988,15 @@
       <div class="group control-row">
         <h3>Title block</h3>
         <input class="meta-input" aria-label="Title" placeholder="Title" bind:value={titleDraft} />
-        <input class="meta-input" aria-label="Composer" placeholder="Composer" bind:value={composerDraft} />
+        <input class="meta-input" aria-label="Subtitle" placeholder="Subtitle" bind:value={subtitleDraft} />
+        <textarea class="meta-input" aria-label="Composer" placeholder="Composer (one per line)" rows="2" bind:value={composerDraft}></textarea>
+        <input class="meta-input" aria-label="Arranger" placeholder="Arranger" bind:value={arrangerDraft} />
         <input class="meta-input" aria-label="Style or tempo" placeholder="Style or tempo, e.g. Medium swing" bind:value={styleDraft} />
         <button type="button" class="transpose-btn" disabled={saving || !titleBlockDirty} onclick={handleTitleBlockSave}>
           {saving ? 'Working…' : 'Set title block'}
         </button>
         <p class="control-note">
-          Printed above the first system. A logged, undoable edit (<code>meta set --title --composer --style</code>).
+          Printed above the first system. A logged, undoable edit (<code>meta set --title --subtitle --composer --arranger --style</code>).
         </p>
       </div>
 
@@ -1248,6 +1264,9 @@
               ottavas={ottavasHere}
               onottava={(shift) => void handleOttava(shift)}
               onrmottava={(id) => void runOps([removeOttavaOp(id)])}
+              ongraceadd={(grace) =>
+                void runOps([{ type: 'grace.add', target: selection!.id, payload: grace } as Operation])}
+              ongracerm={(id) => void runOps([{ type: 'grace.rm', target: id } as Operation])}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}

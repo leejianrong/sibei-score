@@ -1,6 +1,9 @@
 import type { BlobStore } from '../blob/blob-store.js';
 import type { BlobLedger } from '../store/blob-ledger.js';
 import { isManaged } from './erase.js';
+import { uploadKeyFor } from '../audio/service.js';
+import { resultKey } from '../audio/worker-service.js';
+import type { AudioJobWorkerStore } from '../store/audio-jobs.js';
 
 /**
  * The blob sweep (V25b, ADR-0034 decisions 11 and 16, and the blob eviction KAN-516 asked for): delete blobs
@@ -23,7 +26,7 @@ export interface SweepLifetimes {
 }
 
 export const DEFAULT_SWEEP_LIFETIMES: SweepLifetimes = {
-  export: 7 * 24 * 60 * 60 * 1000,
+  export: 24 * 60 * 60 * 1000,
   audio: 24 * 60 * 60 * 1000,
 };
 
@@ -31,6 +34,12 @@ export interface BlobSweeperOptions {
   ledger: BlobLedger;
   blobs: BlobStore;
   lifetimes?: SweepLifetimes;
+  /**
+   * Delete audio jobs still `awaiting-upload` after `staleUploadMs` (default one hour), with anything a
+   * presigned URL may have written for them (SEC H4). Absent means jobs are left alone.
+   */
+  audioJobs?: Pick<AudioJobWorkerStore, 'deleteStaleUploads'>;
+  staleUploadMs?: number;
   /** The most blobs one kind loses per pass, so a huge backlog is worked off in bounded steps. */
   batch?: number;
   now?: () => Date;
@@ -53,6 +62,17 @@ export function createBlobSweeper(options: BlobSweeperOptions): BlobSweeper {
   async function sweepOnce(): Promise<Record<string, number>> {
     const deleted: Record<string, number> = {};
     if (!isManaged(blobs)) return deleted;
+    if (options.audioJobs !== undefined) {
+      const cutoff = new Date(now().getTime() - (options.staleUploadMs ?? 60 * 60 * 1000)).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      deleted['audio-upload'] = 0;
+      for (const job of await options.audioJobs.deleteStaleUploads(cutoff)) {
+        for (const key of [job.audioKey, uploadKeyFor(job.id), resultKey(job.id)]) {
+          await blobs.delete(key);
+          await ledger.forget(job.owner, key);
+        }
+        deleted['audio-upload'] += 1;
+      }
+    }
     for (const [kind, lifetime] of Object.entries(lifetimes)) {
       const cutoff = new Date(now().getTime() - lifetime).toISOString().replace(/\.\d{3}Z$/, 'Z');
       deleted[kind] = 0;

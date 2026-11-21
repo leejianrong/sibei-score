@@ -1,5 +1,6 @@
 import {
   ARTICULATIONS,
+  GRACE_VALUES,
   CHORD_STYLE_PRESETS,
   DEFAULT_KEY,
   DEFAULT_TIME,
@@ -42,6 +43,8 @@ import type {
   AccidentalDisplay,
   Annotation,
   Articulation,
+  GraceNote,
+  GraceValue,
   Bar,
   BarItem,
   Chord,
@@ -79,6 +82,7 @@ import type {
   EndingSetPayload,
   LoggedOperation,
   NoteSetPayload,
+  GraceAddPayload,
   Operation,
   RestAddPayload,
   ScoreCreatePayload,
@@ -210,6 +214,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setOttava(score, operation.target, operation.payload);
     case 'ottava.rm':
       return removeOttava(score, operation.target);
+    case 'grace.add':
+      return addGrace(score, operation.target, operation.payload);
+    case 'grace.rm':
+      return removeGrace(score, operation.target);
     case 'bar.add':
       return addBars(score, operation.target, operation.payload ?? {});
     case 'bar.rm':
@@ -316,12 +324,16 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const key = payload.key === undefined ? score.meta.key : validKey(payload.key);
 
   const footer = nextFooter(score, payload);
+  const subtitle = nextCredit(score.meta.subtitle, payload.subtitle, 'subtitle');
+  const arranger = nextCredit(score.meta.arranger, payload.arranger, 'arranger');
   const policy = nextSignaturePolicy(score, payload);
   const chordStyle = nextChordStyle(score, payload);
   const perSystem = nextBarsPerSystem(score, payload);
   const tempo = nextTempo(score, payload);
   const {
     footer: _footer,
+    subtitle: _subtitle,
+    arranger: _arranger,
     signaturePolicy: _policy,
     chordStyle: _style,
     barsPerSystem: _bars,
@@ -333,7 +345,9 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     meta: {
       ...rest,
       title: payload.title ?? score.meta.title,
+      ...(subtitle === undefined ? {} : { subtitle }),
       composer: payload.composer ?? score.meta.composer,
+      ...(arranger === undefined ? {} : { arranger }),
       style: payload.style === undefined ? score.meta.style : payload.style,
       key,
       time,
@@ -418,6 +432,16 @@ function nextChordStyle(score: Score, payload: MetaSetPayload): ChordStylePreset
     });
   }
   return named;
+}
+
+/** A title-block line after a `meta.set` (SIB2-180): untouched unless named; empty text or null removes it. */
+function nextCredit(current: string | undefined, next: string | null | undefined, name: string): string | undefined {
+  if (next === undefined) return current;
+  if (next === null) return undefined;
+  if (typeof next !== 'string' || next.length > 200) {
+    throw new OperationError({ kind: 'validation', detail: `${name} must be text of at most 200 characters` });
+  }
+  return next.trim() === '' ? undefined : next;
 }
 
 /**
@@ -859,7 +883,11 @@ function transpose(score: Score, payload: TransposePayload): Applied {
     const items = bar.items.map((item) => {
       if (item.kind !== 'note') return item;
       changed.push(item.id);
-      return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned) };
+      const graces =
+        item.graces === undefined
+          ? {}
+          : { graces: item.graces.map((grace) => ({ ...grace, pitch: transposePitch(grace.pitch, interval, to, false) })) };
+      return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned), ...graces };
     });
     const chords = bar.chords.map((chord) => {
       const moved = transposeChordText(chord.text, interval, to, chord.spellingPinned);
@@ -1030,6 +1058,83 @@ function setFermata(score: Score, target: string, on: boolean): Applied {
 function withoutFermata(item: BarItem): BarItem {
   const { fermata: _gone, ...rest } = item;
   return rest as BarItem;
+}
+
+// ---------------------------------------------------------------------------
+// grace.add, grace.rm (SIB2-185)
+// ---------------------------------------------------------------------------
+
+/** Most grace notes one note carries: past this a run is an ornament written out, not a grace group. */
+const MAX_GRACES = 8;
+
+/** Append a grace note to the target note. It is not a bar item, so no bar is reflagged (ADR-0013). */
+function addGrace(score: Score, target: string, payload: GraceAddPayload): Applied {
+  const resolved = resolveAddress(score, target, 'note');
+  const note = resolved.target as Note;
+  if ((note.graces?.length ?? 0) >= MAX_GRACES) {
+    throw new OperationError({ kind: 'validation', detail: `${target} already has ${MAX_GRACES} grace notes, the most one note carries` });
+  }
+  const value = payload.value ?? 8;
+  if (!GRACE_VALUES.includes(value as GraceValue)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a grace note value is ${GRACE_VALUES.join(', ')}, not ${JSON.stringify(value)}`,
+    });
+  }
+  if (payload.slashed !== undefined && typeof payload.slashed !== 'boolean') {
+    throw new OperationError({ kind: 'validation', detail: `slashed is true or false, not ${JSON.stringify(payload.slashed)}` });
+  }
+  const id = payload.id ?? nextId(score, 'grace');
+  const grace: GraceNote = {
+    id,
+    pitch: validPitch(payload.pitch),
+    value: value as GraceValue,
+    slashed: payload.slashed ?? false,
+    accidental: payload.accidental === undefined ? 'auto' : validAccidental(payload.accidental),
+  };
+  const updated: Note = { ...note, graces: [...(note.graces ?? []), grace] };
+  return {
+    score: replaceNote(score, resolved.bar.id, updated),
+    operation: { type: 'grace.add', target, payload: { ...payload, id } },
+    changed: [id],
+  };
+}
+
+/** Remove one grace by id, or every grace on a note by its address. Absent is the none state, never `[]`. */
+function removeGrace(score: Score, target: string): Applied {
+  for (const bar of score.bars) {
+    for (const item of bar.items) {
+      if (item.kind !== 'note' || item.graces === undefined || !item.graces.some((grace) => grace.id === target)) continue;
+      const rest = item.graces.filter((grace) => grace.id !== target);
+      return {
+        score: replaceNote(score, bar.id, withGraces(item, rest)),
+        operation: { type: 'grace.rm', target },
+        changed: [target],
+      };
+    }
+  }
+  const resolved = resolveAddress(score, target, 'note');
+  const note = resolved.target as Note;
+  if (note.graces === undefined || note.graces.length === 0) {
+    throw new OperationError({ kind: 'validation', detail: `${target} has no grace notes, so there is nothing to remove` });
+  }
+  return {
+    score: replaceNote(score, resolved.bar.id, withGraces(note, [])),
+    operation: { type: 'grace.rm', target },
+    changed: note.graces.map((grace) => grace.id),
+  };
+}
+
+function withGraces(note: Note, graces: GraceNote[]): Note {
+  const { graces: _gone, ...rest } = note;
+  return graces.length === 0 ? rest : { ...rest, graces };
+}
+
+function replaceNote(score: Score, barId: Id, updated: Note): Score {
+  return mapBar(score, barId, (bar) => ({
+    ...bar,
+    items: bar.items.map((item) => (item.id === updated.id ? updated : item)),
+  }));
 }
 
 // ---------------------------------------------------------------------------
