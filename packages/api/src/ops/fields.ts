@@ -33,6 +33,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'barline.set': ['start', 'end'],
   'ending.set': ['numbers', 'role'],
   'ending.rm': [],
+  'bar.add': ['count', 'ids'],
+  'bar.rm': [],
 };
 
 /** Throws a validation failure naming the first payload field the operation does not know. */

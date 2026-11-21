@@ -70,7 +70,7 @@ note-17        a stable id (survives edits)
 Onsets only: **a beat with nothing on it is an error that lists the bar's real onsets**, never a
 snap to the nearest note. `sbscore show <id>` prints the addresses the CLI accepts for a chart, so
 you never have to guess one. Whole-bar verbs (`section`, `barline`, `repeat`, `ending`) take a bare
-bar address like `bar12`.
+bar like `12` or `bar12`.
 
 ## Charts
 
@@ -78,6 +78,7 @@ bar address like `bar12`.
 sbscore new [--title T] [--composer C] [--key K] [--time 4/4] [--bars N] [--pickup] [--id ID]
 sbscore list                                 # every chart: id, title, composer, key, version
 sbscore open <id>                            # the full document, as JSON
+sbscore check <id> [--json] [--strict]       # list every flagged object: address, kind, reasons (--strict exits 2 if any)
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
@@ -141,6 +142,8 @@ whatever you write.
 
 ```sh
 sbscore transpose <id> --to Eb                                   # change the concert key (ADR-0016)
+sbscore bar add <id> [--after <bar>] [--count N]                 # add empty bars, default at the end
+sbscore bar rm  <id> <bar>                                       # remove an empty bar
 sbscore section set <id> <bar> [--letter A] [--name Bridge]      # a section boundary (ADR-0021)
 sbscore section rm  <id> <bar>
 sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|final|repeat-end]
@@ -148,6 +151,10 @@ sbscore repeat set <id> <startBar> <endBar>                      # a repeat pair
 sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
 sbscore ending rm  <id> <bar>
 ```
+
+`bar add --after bar8` puts new empty bars after bar 8; every later bar's number goes up (and a section
+starting there moves with it), while ids stay. `bar rm` refuses a bar that holds notes, chords, text, an
+ending or a section start. Both are undoable.
 
 ## Undo, redo and batches
 
