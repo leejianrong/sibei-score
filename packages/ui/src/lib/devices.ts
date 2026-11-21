@@ -32,6 +32,22 @@ export const SCOPE_CHOICES = [
 
 export type ScopeName = (typeof SCOPE_CHOICES)[number]['scope'];
 
+/** How a token's scope reads in the token list. An MCP client's scopes are named in words; an unknown one stays raw. */
+export function scopeLabel(scope: string): string {
+  switch (scope) {
+    case 'read':
+      return 'Read charts';
+    case 'write':
+      return 'Change charts';
+    case 'mcp:read':
+      return 'Read charts (MCP)';
+    case 'mcp:write':
+      return 'Change charts (MCP)';
+    default:
+      return scope;
+  }
+}
+
 /**
  * What a CLI asked for in the approval link (`#/device?scopes=read&name=ci`): pre-filled values only, validated
  * against the choices the form offers; anything else is ignored, and the person can change all of it.
