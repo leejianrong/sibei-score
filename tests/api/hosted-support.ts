@@ -41,8 +41,13 @@ export interface Hosted {
   close(): Promise<void>;
 }
 
-export async function startHosted(): Promise<Hosted> {
-  const store = openSqliteStore({ filename: ':memory:' });
+export interface HostedOptions {
+  /** The score store's clock, for a suite that compares timestamps across runs. */
+  now?: () => Date;
+}
+
+export async function startHosted(options: HostedOptions = {}): Promise<Hosted> {
+  const store = openSqliteStore({ filename: ':memory:', ...(options.now ? { now: options.now } : {}) });
   const jobs = openSqliteJobStore({ filename: ':memory:' });
   const auth = openSqliteAuthStore({ filename: ':memory:' });
   const api = createApi({
