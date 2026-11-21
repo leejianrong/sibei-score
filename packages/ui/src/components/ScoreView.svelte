@@ -188,6 +188,35 @@
     ]);
   }
 
+  // The tempo mark (SIB2-177): a beat unit and a number, saved as a `meta.set`, re-seeded from the chart.
+  let tempoUnit = $state('4');
+  let tempoBpm = $state('');
+  $effect(() => {
+    const tempo = score?.meta.tempo;
+    tempoUnit = tempo === undefined ? '4' : `${tempo.unit.value}${tempo.unit.dots === 1 ? '.' : ''}`;
+    tempoBpm = tempo === undefined ? '' : String(tempo.bpm);
+  });
+  async function handleTempoSave(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([
+      {
+        type: 'meta.set',
+        payload: {
+          tempo: {
+            unit: { value: Number(tempoUnit.replace('.', '')), dots: tempoUnit.endsWith('.') ? 1 : 0 },
+            bpm: Number(tempoBpm),
+          },
+        },
+      },
+    ]);
+  }
+  async function handleTempoRemove(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { tempo: null } }]);
+  }
+
   async function handleChordStyle(event: Event): Promise<void> {
     if (score === null) return;
     const chosen = (event.currentTarget as HTMLSelectElement).value as 'standard' | 'dash' | 'words' | 'real-book';
@@ -889,6 +918,39 @@
         <p class="control-note">
           A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
           (<code>meta set --footer</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
+        <h3>Tempo</h3>
+        <div class="transpose-row">
+          <select class="key-select" aria-label="Tempo beat unit" bind:value={tempoUnit}>
+            <option value="4">quarter =</option>
+            <option value="4.">dotted quarter =</option>
+            <option value="2">half =</option>
+            <option value="8">eighth =</option>
+            <option value="1">whole =</option>
+          </select>
+          <input
+            class="key-select"
+            type="number"
+            min="20"
+            max="400"
+            aria-label="Beats per minute"
+            bind:value={tempoBpm}
+          />
+        </div>
+        <div class="transpose-row">
+          <button type="button" class="transpose-btn" disabled={saving || tempoBpm === ''} onclick={handleTempoSave}>
+            {saving ? 'Working…' : 'Set tempo'}
+          </button>
+          <button type="button" class="transpose-btn" disabled={saving || score.meta.tempo === undefined} onclick={handleTempoRemove}>
+            Remove
+          </button>
+        </div>
+        <p class="control-note">
+          A metronome mark above the first bar; notation only, nothing plays. A logged, undoable edit
+          (<code>meta set --tempo</code>).
         </p>
       </div>
 

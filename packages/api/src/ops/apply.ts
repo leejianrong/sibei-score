@@ -3,6 +3,9 @@ import {
   DEFAULT_KEY,
   DEFAULT_TIME,
   FOOTER_PAGES,
+  MAX_TEMPO,
+  MIN_TEMPO,
+  TEMPO_UNITS,
   LINE_BREAKS,
   MAX_BARS_PER_SYSTEM,
   MIN_BARS_PER_SYSTEM,
@@ -46,6 +49,7 @@ import type {
   Review,
   Score,
   SignaturePolicy,
+  Tempo,
   StartBarline,
   TieRole,
   TimeSignature,
@@ -286,7 +290,15 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const policy = nextSignaturePolicy(score, payload);
   const chordStyle = nextChordStyle(score, payload);
   const perSystem = nextBarsPerSystem(score, payload);
-  const { footer: _footer, signaturePolicy: _policy, chordStyle: _style, barsPerSystem: _bars, ...rest } = score.meta;
+  const tempo = nextTempo(score, payload);
+  const {
+    footer: _footer,
+    signaturePolicy: _policy,
+    chordStyle: _style,
+    barsPerSystem: _bars,
+    tempo: _tempo,
+    ...rest
+  } = score.meta;
   const next: Score = {
     ...score,
     meta: {
@@ -300,6 +312,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       ...(policy === undefined ? {} : { signaturePolicy: policy }),
       ...(chordStyle === undefined ? {} : { chordStyle }),
       ...(perSystem === undefined ? {} : { barsPerSystem: perSystem }),
+      ...(tempo === undefined ? {} : { tempo }),
     },
   };
 
@@ -326,6 +339,28 @@ function nextSignaturePolicy(score: Score, payload: MetaSetPayload): SignaturePo
     });
   }
   return asked === 'every' ? undefined : asked;
+}
+
+/** The tempo mark after a `meta.set` (SIB2-177): untouched unless named; null removes it. */
+function nextTempo(score: Score, payload: MetaSetPayload): Tempo | undefined {
+  const asked = payload.tempo;
+  if (asked === undefined) return score.meta.tempo;
+  if (asked === null) return undefined;
+  const value = asked.unit?.value;
+  const dots = asked.unit?.dots ?? 0;
+  if (!(TEMPO_UNITS as readonly unknown[]).includes(value) || (dots !== 0 && dots !== 1)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'tempo unit must be a whole, half, quarter or eighth note, optionally dotted',
+    });
+  }
+  if (!Number.isInteger(asked.bpm) || asked.bpm < MIN_TEMPO || asked.bpm > MAX_TEMPO) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `tempo must be a whole number from ${MIN_TEMPO} to ${MAX_TEMPO} beats per minute`,
+    });
+  }
+  return { unit: { value: value as Tempo['unit']['value'], dots: dots as 0 | 1 }, bpm: asked.bpm };
 }
 
 /** Bars per line after a `meta.set` (SIB2-174): 1 to 8; 4, the grid, is stored as absent. */

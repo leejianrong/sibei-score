@@ -469,6 +469,8 @@ export interface MetaSetPayload {
   barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163); `standard` clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
+  /** The tempo mark (SIB2-177); null removes it. */
+  tempo?: { unit: { value: number; dots: number }; bpm: number } | null;
 }
 
 export type Operation =

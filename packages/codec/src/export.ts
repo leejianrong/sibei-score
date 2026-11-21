@@ -24,6 +24,7 @@ import type {
   NoteValue,
   Rest,
   Score,
+  Tempo,
   Tuplet,
 } from '@sibei/model';
 import { parseChord } from '@sibei/music';
@@ -94,6 +95,9 @@ function measure(score: Score, bar: Bar, isFirst: boolean, previous: Bar | undef
   const left = leftBarline(bar);
   if (left !== null) children.push(left);
 
+  // The tempo mark (SIB2-177) opens the first measure: a metronome beat unit and `<sound tempo>` in quarter-note bpm.
+  if (isFirst && score.meta.tempo !== undefined) children.push(tempoDirection(score.meta.tempo));
+
   // A rehearsal letter for any section that begins on this bar. A section's free-text `name` has no
   // MusicXML home and is a named lossy case; its `letter` round-trips through `<rehearsal>`.
   for (const section of score.sections) {
@@ -121,6 +125,23 @@ function measure(score: Score, bar: Bar, isFirst: boolean, previous: Bar | undef
   // A pickup is `implicit="yes"`: its bar number is 0 and it does not consume a numbered slot.
   const attrs = bar.number === 0 ? { number: '0', implicit: 'yes' } : { number: String(bar.number) };
   return elem('measure', attrs, children.filter((c): c is XmlElement => c !== null));
+}
+
+const BEAT_UNIT: Record<number, string> = { 1: 'whole', 2: 'half', 4: 'quarter', 8: 'eighth' };
+
+function tempoDirection(tempo: Tempo): XmlElement {
+  // `<sound tempo>` is quarter notes a minute, so a dotted or other unit is converted.
+  const quarters = (tempo.bpm * (4 / tempo.unit.value) * (tempo.unit.dots === 1 ? 1.5 : 1));
+  return elem('direction', { placement: 'above' }, [
+    elem('direction-type', {}, [
+      elem('metronome', {}, [
+        leaf('beat-unit', BEAT_UNIT[tempo.unit.value] ?? 'quarter'),
+        tempo.unit.dots === 1 ? elem('beat-unit-dot', {}) : null,
+        leaf('per-minute', tempo.bpm),
+      ]),
+    ]),
+    elem('sound', { tempo: Number(quarters.toFixed(2)) }),
+  ]);
 }
 
 function rehearsal(letter: string): XmlElement {
