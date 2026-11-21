@@ -17,14 +17,19 @@
     onTokens: () => void;
     onAccount: () => void;
     onSignOut: () => void;
+    onSignOutEverywhere: () => void;
   }
 
-  const { account, onTokens, onAccount, onSignOut }: Props = $props();
+  const { account, onTokens, onAccount, onSignOut, onSignOutEverywhere }: Props = $props();
 
   let open = $state(false);
+  // Ending every session cannot be undone, so the menu asks in place before acting (SIB2-223).
+  let confirming = $state(false);
   let root: HTMLDivElement | undefined = $state();
   let chip: HTMLButtonElement | undefined = $state();
   let firstItem: HTMLButtonElement | undefined = $state();
+  let cancel: HTMLButtonElement | undefined = $state();
+  let everywhere: HTMLButtonElement | undefined = $state();
 
   async function toggle(): Promise<void> {
     open = !open;
@@ -34,8 +39,21 @@
     }
   }
 
+  // The item stays put under the question, so focus never falls to the body (which reads as leaving the menu).
+  async function ask(): Promise<void> {
+    confirming = true;
+    await Promise.resolve();
+    cancel?.focus();
+  }
+
+  function back(): void {
+    confirming = false;
+    everywhere?.focus();
+  }
+
   function close(returnFocus: boolean): void {
     open = false;
+    confirming = false;
     if (returnFocus) chip?.focus();
   }
 
@@ -112,6 +130,25 @@
       >
         Sign out
       </button>
+      <button class="item" type="button" role="menuitem" bind:this={everywhere} onclick={ask}>Sign out everywhere</button>
+      {#if confirming}
+        <div class="ask" role="group" aria-label="Confirm sign out everywhere">
+          <p>Ends every session of this account, in every browser. API tokens keep working.</p>
+          <div class="actions">
+            <button class="text" type="button" bind:this={cancel} onclick={back}>Cancel</button>
+            <button
+              class="text danger"
+              type="button"
+              onclick={() => {
+                close(false);
+                onSignOutEverywhere();
+              }}
+            >
+              Sign out everywhere
+            </button>
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -235,6 +272,38 @@
     letter-spacing: var(--md-sys-typescale-label-large-tracking);
     cursor: pointer;
     outline: none;
+  }
+
+  .ask {
+    padding: 8px 16px 4px;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .ask p {
+    margin: 0 0 8px;
+    font: var(--md-sys-typescale-body-small);
+    color: var(--md-sys-color-on-surface-variant);
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .text {
+    height: 36px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: none;
+    color: var(--md-sys-color-primary);
+    font: var(--md-sys-typescale-label-large);
+    letter-spacing: var(--md-sys-typescale-label-large-tracking);
+    cursor: pointer;
+  }
+  .text.danger {
+    color: var(--md-sys-color-error);
+  }
+  .text:hover {
+    background: color-mix(in srgb, currentColor 8%, transparent);
   }
 
   /* On a phone the chip is the avatar alone, and the menu still names the account. */

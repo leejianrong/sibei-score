@@ -80,10 +80,39 @@ describe('signed in', () => {
       expect(await page.locator('.chip').innerText()).toContain('alice');
       await page.locator('.chip').click();
       expect(await page.locator('.menu .name').innerText()).toBe('Alice A');
-      await page.getByRole('menuitem', { name: 'Sign out' }).click();
+      await page.getByRole('menuitem', { name: 'Sign out', exact: true }).click();
       await page.waitForSelector('.gate');
       expect(loggedOut).toBe(true);
       expect(await page.locator('.chip').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('asks before Sign out everywhere, and only then ends every session', async () => {
+    let calls = 0;
+    let ended = false;
+    const page = await open(
+      (route) => (ended ? json(route, 401, unauthenticated) : json(route, 200, { mode: 'hosted', user: ALICE })),
+      async (p) => {
+        await p.route('**/v1/auth/logout-all', (route) => {
+          calls += 1;
+          ended = true;
+          return route.fulfill({ status: 204 });
+        });
+      },
+    );
+    try {
+      await page.waitForSelector('.chip');
+      await page.locator('.chip').click();
+      await page.getByRole('menuitem', { name: 'Sign out everywhere' }).click();
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      expect(calls).toBe(0);
+      expect(await page.locator('.gate').count()).toBe(0);
+      await page.getByRole('menuitem', { name: 'Sign out everywhere' }).click();
+      await page.getByRole('button', { name: 'Sign out everywhere' }).click();
+      await page.waitForSelector('.gate');
+      expect(calls).toBe(1);
     } finally {
       await page.close();
     }
