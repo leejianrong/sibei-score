@@ -12,6 +12,7 @@
   import { onMount } from 'svelte';
   import AccountMenu from './components/AccountMenu.svelte';
   import DeviceApproval from './components/DeviceApproval.svelte';
+  import AudioJobs from './components/AudioJobs.svelte';
   import LibraryView from './components/LibraryView.svelte';
   import McpConsent from './components/McpConsent.svelte';
   import ScoreView from './components/ScoreView.svelte';
@@ -31,6 +32,8 @@
       ? 'Approve a device'
       : r.view === 'tokens'
         ? 'API tokens'
+        : r.view === 'audio'
+          ? 'Audio'
         : r.view === 'authorize'
           ? 'Connect an app'
           : null;
@@ -105,6 +108,8 @@
   <main>
     {#if route.view === 'library'}
       <LibraryView onReachable={(ok) => (reachable = ok)} />
+    {:else if route.view === 'audio'}
+      <AudioJobs />
     {:else if route.view === 'device' || route.view === 'tokens' || route.view === 'authorize'}
       {#if session.phase === 'signed-in' || session.phase === 'ended'}
         {#if route.view === 'device'}<DeviceApproval />{:else if route.view === 'authorize'}<McpConsent params={route.params} />{:else}<TokenList />{/if}

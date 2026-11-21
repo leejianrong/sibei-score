@@ -26,7 +26,7 @@
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { displayKey, relativeTime } from '../lib/format.js';
-  import { hashOf } from '../lib/routing.js';
+  import { AUDIO, hashOf } from '../lib/routing.js';
 
   interface Props {
     onReachable: (reachable: boolean) => void;
@@ -202,6 +202,7 @@
           </svg>
           {importing ? 'Importing…' : 'Import a photo'}
         </button>
+        <a class="import-btn" href={hashOf(AUDIO)}>Transcribe audio</a>
       {/if}
     </div>
   </div>
