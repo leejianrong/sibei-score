@@ -450,8 +450,8 @@ describe('a commit is one transaction', () => {
     // half its operations logged. Replay would then reproduce a *different* score, silently and
     // forever, and no test that only checks the happy path would ever notice.
     //
-    // Provoked without a fault-injection seam: the second operation carries a field the applier
-    // tolerates (it copies only the fields it knows) but JSON cannot serialise, so the first
+    // Provoked without a fault-injection seam: the second operation's duration carries a property the
+    // applier tolerates (it validates only the fields it knows) but JSON cannot serialise, so the first
     // append succeeds and the second throws mid-transaction.
     const context = await authorAChart();
     const { store } = context;
@@ -467,7 +467,7 @@ describe('a commit is one transaction', () => {
         {
           type: 'note.set',
           target: 'bar1.n2',
-          payload: { duration: dur(2), junk: circular } as never,
+          payload: { duration: { ...dur(2), junk: circular } } as never,
         },
       ),
     )
@@ -771,5 +771,42 @@ describe('import: landing a whole document as a new score (V11, ADR-0003)', () =
     await expect(ctx.applier.import(LOCAL_OWNER, imported('import-1'))).rejects.toThrow(
       /already exists/,
     );
+  });
+});
+
+describe('unknown payload fields (SIB2-188)', () => {
+  it('refuses a new write that names a field the operation does not know, and writes nothing', async () => {
+    const fx = fresh();
+    await fx.applier.apply(LOCAL_OWNER, null, { operations: [CREATE] });
+    const bad = {
+      type: 'note.add',
+      target: 'bar1.beat1',
+      payload: { pitch: 'C5', duration: dur(4), tuplet: { actual: 3 } },
+    } as unknown as Operation;
+    const error = await edit(fx, bad).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(OperationError);
+    expect((error as OperationError).failure).toMatchObject({ kind: 'validation' });
+    expect((error as OperationError).message).toContain('"tuplet"');
+    expect((await fx.store.get(LOCAL_OWNER, 'score-1'))!.version).toBe(1);
+  });
+
+  it('still replays an old log that carries such a field', () => {
+    const at = (seq: number, operation: Operation) => ({
+      seq,
+      batch: seq,
+      version: seq,
+      operation,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const old = {
+      type: 'note.add',
+      target: 'bar1.beat1',
+      payload: { pitch: 'C5', duration: dur(4), tuplet: { actual: 3 }, id: 'note-1' },
+    } as unknown as Operation;
+    const score = replayLog([at(1, CREATE), at(2, old)]);
+    expect(notesOf(score!.bars[0]!)).toHaveLength(1);
   });
 });

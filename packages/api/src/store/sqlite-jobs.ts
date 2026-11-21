@@ -89,9 +89,9 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
         )
       RETURNING *`,
     ),
-    complete: db.prepare<[string, string, string, JobId], JobRow>(
+    complete: db.prepare<[string, string, string | null, string, JobId], JobRow>(
       `UPDATE import_jobs
-          SET status = 'succeeded', result = ?, score_id = ?, diagnostic = NULL, version = version + 1, updated_at = ?
+          SET status = 'succeeded', result = ?, score_id = ?, diagnostic = ?, version = version + 1, updated_at = ?
         WHERE id = ? AND status = 'running'
       RETURNING *`,
     ),
@@ -149,8 +149,8 @@ export function openSqliteJobStore(options: SqliteJobStoreOptions): JobStore {
       return row === undefined ? null : toJob(row);
     },
 
-    async complete(id, result: OmrDocument[], scoreId) {
-      const row = statements.complete.get(JSON.stringify(result), scoreId, timestamp(now), id);
+    async complete(id, result: OmrDocument[], scoreId, diagnostic = null) {
+      const row = statements.complete.get(JSON.stringify(result), scoreId, diagnostic, timestamp(now), id);
       return row === undefined ? null : toJob(row);
     },
 

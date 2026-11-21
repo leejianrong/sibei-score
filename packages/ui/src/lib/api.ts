@@ -249,6 +249,32 @@ export async function submitImport(files: readonly File[]): Promise<ImportJobVie
   return ((await response.json()) as { job: ImportJobView }).job;
 }
 
+/**
+ * Import a NoteEvents v1 file from the audio engine (ADR-0040) — the same affordance as a photo, a
+ * different file. The bytes go up as `application/json` and the server validates them; a malformed,
+ * unknown-version or unsupported-instrument file is a 422 whose message surfaces as the import error.
+ * No OMR worker is involved, so this works on a server started without one.
+ */
+export async function submitNoteEvents(file: File): Promise<ImportJobView> {
+  let response: Response;
+  try {
+    response = await fetch(`${V1}/imports`, {
+      method: 'POST',
+      body: file,
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+    });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) throw await failureFrom(response);
+  return ((await response.json()) as { job: ImportJobView }).job;
+}
+
+/** A chosen file is a NoteEvents document rather than a scan: by extension or media type, never by content. */
+export function isNoteEventsFile(file: File): boolean {
+  return file.type === 'application/json' || file.name.toLowerCase().endsWith('.json');
+}
+
 export async function getImport(id: Id): Promise<ImportJobView> {
   const body = await getJson<{ job: ImportJobView }>(`${V1}/imports/${encodeURIComponent(id)}`);
   return body.job;
