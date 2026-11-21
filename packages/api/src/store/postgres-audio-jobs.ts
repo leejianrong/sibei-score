@@ -242,11 +242,11 @@ export async function openPostgresAudioJobStore(options: PostgresAudioJobStoreOp
       });
     },
 
-    async attachScore(id, scoreId: Id): Promise<AudioJob | null> {
+    async attachScore(id, scoreId: Id, diagnostic = null): Promise<AudioJob | null> {
       return asSystem(pool, async (client) => {
         const result = await client.query<AudioJobRow>(
-          `UPDATE audio_jobs SET score_id = $1, version = version + 1, updated_at = $2 WHERE id = $3 RETURNING *`,
-          [scoreId, timestamp(now), id],
+          `UPDATE audio_jobs SET score_id = $1, diagnostic = $2, version = version + 1, updated_at = $3 WHERE id = $4 RETURNING *`,
+          [scoreId, diagnostic, timestamp(now), id],
         );
         return result.rows[0] === undefined ? null : toJob(result.rows[0]);
       });

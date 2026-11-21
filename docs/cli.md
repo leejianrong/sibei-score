@@ -114,7 +114,9 @@ reuses the retained images, V14e) and lands the result as a **new** draft, print
 original chart and any corrections on it are left untouched. `--engine` picks the recogniser —
 `heuristic` on a small host, `oemer` where the RAM is there — and without it the worker keeps its own
 default (host-appropriate). Like `import` it needs a server with a worker and waits for the job. A
-chart with no scan behind it (hand-authored or duplicated) has nothing to re-run and fails with exit 2.
+chart with no scan behind it (hand-authored or duplicated) has nothing to re-run and fails with exit 2. An
+import id the server does not know (or an image index past the end) is exit 5, and retrying an import job
+that has not failed is exit 2.
 
 ```sh
 sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -> a fresh draft id
@@ -189,7 +191,7 @@ to put that name in.
 ```sh
 sbscore audio submit take.wav [--instrument piano]   # uploads, queues, prints the job id
 sbscore audio list                                   # your audio jobs, newest first
-sbscore audio show <id>                              # status, progress, the reason if it failed
+sbscore audio show <id>                              # status, progress, the reason if it failed, or the draft and its warnings
 sbscore audio retry <id>                             # requeue a failed job
 sbscore audio rm <id>                                # delete the job and its audio
 ```
@@ -198,6 +200,12 @@ A recording becomes a job that a separate transcription worker picks up, so `sub
 job waits `queued` until a worker takes it. Nothing else is affected while no worker is running. On a hosted
 server the file goes straight to object storage by a presigned URL; locally it goes through the API. The
 browser's equivalent is the Audio page (`#/audio`, "Transcribe audio" in the library).
+
+When the worker finishes, the result becomes an editable draft in your library: `audio show` prints
+`draft: <id>  (sbscore open <id>)` and any warnings (low-confidence notes, a guessed barring, a duration that
+disagrees with the file), and the Audio page's "Open the draft" link goes to it. A recording with no sound gives
+an empty one-bar draft with the `silent_input` warning. A result that is not valid NoteEvents fails the job and
+is not counted against your audio-seconds.
 
 ```sh
 sbscore audio usage          # audio-seconds transcribed this month, and the allowance if there is one
@@ -236,9 +244,13 @@ Open the address in a browser you are already signed in to, enter the code, and 
 scopes there. The CLI is handed the token once and keeps it. After that every verb works unchanged against that
 server.
 
+To ask for less, pass `--scopes read` (or `read,write`) and `--name ci`: the server puts them in the address it
+prints, and the approval page opens with them filled in. They are a request, not a grant: the person approving
+can change both, and what they approve is what the token gets.
+
 | Verb | What it does |
 |---|---|
-| `auth login` | The device flow above. `--json` prints one line for the prompt and one for the result |
+| `auth login [--scopes S] [--name N]` | The device flow above. `--json` prints one line for the prompt and one for the result |
 | `auth login --token-stdin` | The headless fallback: read a token from stdin, check it against the server, keep it. `--token VALUE` also works, but leaves the token in your shell history and process list |
 | `auth status` | Who the server thinks you are, where the credential came from, when it expires. Exit `7` when signed out |
 | `auth token` | Prints the token and nothing else, so `$(sbscore auth token)` is a token |
@@ -292,6 +304,7 @@ A contract — branch on these rather than parsing prose:
 | `6` | no server reachable |
 | `7` | refused (a guard rejected it) |
 | `8` | already exists |
+| `9` | rate limited or over quota (back off and retry later) |
 
 ## Offline
 

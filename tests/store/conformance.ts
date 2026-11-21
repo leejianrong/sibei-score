@@ -896,7 +896,7 @@ export function audioJobStoreConformance(label: string, open: OpenHarness): void
       await queued(audio);
       const job = (await audio.claim(120))!;
       await audio.complete(job.id, job.leaseToken!, { ok: true }, 3);
-      expect((await audio.attachScore(job.id, 'score-1'))?.scoreId).toBe('score-1');
+      expect((await audio.attachScore(job.id, 'score-1', 'inferred: C minor'))).toMatchObject({ scoreId: 'score-1', diagnostic: 'inferred: C minor' });
       expect(await audio.rejectResult(job.id, 'invalid-result', 'not NoteEvents')).toMatchObject({
         status: 'failed',
         diagnosticKind: 'invalid-result',

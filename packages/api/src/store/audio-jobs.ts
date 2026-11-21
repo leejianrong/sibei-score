@@ -60,7 +60,7 @@ export interface AudioJob {
   attempts: number;
   /** A short slug for the failure (`unsupported-audio`, `worker-lost`, ...); `null` unless failed. */
   diagnosticKind: string | null;
-  /** The failure reason when `failed` (Q80); `null` otherwise. */
+  /** The failure reason when `failed` (Q80); the import's warnings when `succeeded` with a draft; else `null`. */
   diagnostic: string | null;
   progress: AudioProgress | null;
   /** The audio length the worker decoded, when `succeeded`: the metering input (decision 17). */
@@ -162,8 +162,11 @@ export interface AudioJobWorkerStore {
   expireLeases(maxAttempts: number): Promise<{ requeued: AudioJob[]; failed: AudioJob[] }>;
   /** A job by id, any owner: the worker service's own read. Never reachable from a user route. */
   getById(id: AudioJobId): Promise<AudioJob | null>;
-  /** Record the score the import hook produced from the result. */
-  attachScore(id: AudioJobId, scoreId: Id): Promise<AudioJob | null>;
+  /**
+   * Record the score the import hook produced from the result, and the engine's warnings about it as the
+   * job's `diagnostic` (a `succeeded` job's diagnostic is advisory, not a failure reason; `null` clears it).
+   */
+  attachScore(id: AudioJobId, scoreId: Id, diagnostic?: string | null): Promise<AudioJob | null>;
   /** The import hook refused the result: `succeeded` → `failed` (non-retryable), keeping the result. */
   rejectResult(id: AudioJobId, kind: string, message: string): Promise<AudioJob | null>;
 }

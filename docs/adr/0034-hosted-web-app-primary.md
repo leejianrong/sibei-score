@@ -343,3 +343,12 @@ ledger is what the orphan/expired-blob sweep (V25b) and audio retention (decisio
 Residual: a *running* import that finishes after its job row was deleted lands a score for an account that no
 longer exists; the sweep removes such orphans. A new table holding account data must be named in
 `tests/arch/account-erasure-coverage.test.ts` and reached by one of the deletes above.
+
+### Amendment: the join as built (SIB2-E10)
+
+The import hook is `createAudioResultImporter` and is wired by default in `createApi`. Differences from the text
+above: a job's `diagnostic` also carries the draft's warnings when it `succeeded` (it was failure-only), and
+metering is recorded only for a job that ends `succeeded`, after the import, so a document the hook refuses is
+not metered. The duration cross-check compares the document's `source.duration_s` with the worker's decoded
+duration and with the declared one, and only adds a `duration-mismatch` warning (tolerance: the larger of 1 s
+and 5%); it never rejects. The draft is score `audio-<jobId>`, so a redelivered `complete` lands one draft.

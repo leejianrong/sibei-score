@@ -53,7 +53,7 @@ export interface AudioWorkerOptions {
  * refused. Absent, a job simply succeeds with its result stored and no score.
  */
 export interface AudioResultImporter {
-  importResult(job: AudioJob, noteEvents: unknown): Promise<{ ok: true; scoreId: Id } | { ok: false; kind: string; message: string }>;
+  importResult(job: AudioJob, noteEvents: unknown): Promise<{ ok: true; scoreId: Id; diagnostic?: string | null } | { ok: false; kind: string; message: string }>;
 }
 
 export const WORKER_TOKEN_PREFIX = 'sbsw_';
@@ -254,11 +254,6 @@ export function createAudioWorkerService(options: {
 
       await dropAudio(done.job);
       await blobs.delete(resultKey(id));
-      // Metering (SIB2-139): the audio-seconds this job cost, once. Recorded for the work done, whether or
-      // not the importer then accepts the document, and keyed by the job id so a re-run after an importer
-      // refusal, or a redelivered `complete`, adds nothing the second time.
-      await jobs.recordUsage(done.job.owner, id, seconds);
-
       let status: AudioJob['status'] = 'succeeded';
       if (importer !== undefined) {
         const imported = await importer.importResult(done.job, read.value).catch(
@@ -268,12 +263,16 @@ export function createAudioWorkerService(options: {
             message: 'the result could not be imported',
           }),
         );
-        if (imported.ok) await jobs.attachScore(id, imported.scoreId);
+        if (imported.ok) await jobs.attachScore(id, imported.scoreId, imported.diagnostic ?? null);
         else {
           await jobs.rejectResult(id, imported.kind, imported.message);
           status = 'failed';
         }
       }
+      // Metering (SIB2-139): the audio-seconds this job cost, once, for a job that ends `succeeded`. A result
+      // the importer refused is a failed job and is not metered; the job id keys the ledger, so a redelivered
+      // `complete` adds nothing the second time.
+      if (status === 'succeeded') await jobs.recordUsage(done.job.owner, id, seconds);
       return { ok: true, value: { status } };
     },
 

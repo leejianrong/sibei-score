@@ -126,8 +126,8 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
           SET status = 'failed', diagnostic_kind = ?, diagnostic = ?, progress = NULL, version = version + 1, updated_at = ?
         WHERE status = 'running' AND lease_expires_at < ? AND attempts >= ? RETURNING *`,
     ),
-    attachScore: db.prepare<[string, string, string], AudioJobRow>(
-      `UPDATE audio_jobs SET score_id = ?, version = version + 1, updated_at = ? WHERE id = ? RETURNING *`,
+    attachScore: db.prepare<[string, string | null, string, string], AudioJobRow>(
+      `UPDATE audio_jobs SET score_id = ?, diagnostic = ?, version = version + 1, updated_at = ? WHERE id = ? RETURNING *`,
     ),
     rejectResult: db.prepare<[string, string, string, string], AudioJobRow>(
       `UPDATE audio_jobs
@@ -227,8 +227,8 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
       const row = statements.byId.get(id);
       return row === undefined ? null : toAudioJob(row);
     },
-    async attachScore(id, scoreId) {
-      const row = statements.attachScore.get(scoreId, timestamp(now), id);
+    async attachScore(id, scoreId, diagnostic = null) {
+      const row = statements.attachScore.get(scoreId, diagnostic, timestamp(now), id);
       return row === undefined ? null : toAudioJob(row);
     },
     async rejectResult(id, kind, message) {

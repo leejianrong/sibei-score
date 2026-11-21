@@ -159,9 +159,9 @@ export function memoryAudioJobStore(options: MemoryAudioJobStoreOptions = {}): A
       const job = jobs.get(id);
       return job === undefined ? null : structuredClone(job);
     },
-    async attachScore(id, scoreId) {
+    async attachScore(id, scoreId, diagnostic = null) {
       const job = jobs.get(id);
-      return job === undefined ? null : update(job, { scoreId });
+      return job === undefined ? null : update(job, { scoreId, diagnostic });
     },
     async rejectResult(id, kind, message) {
       const job = jobs.get(id);
