@@ -31,3 +31,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+
+  # Base images are pinned by version and digest (SIB2-209), so they only move through a PR like this one.
+  - package-ecosystem: docker
+    directories: ["/", "/worker"]
+    schedule:
+      interval: monthly
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: monthly
