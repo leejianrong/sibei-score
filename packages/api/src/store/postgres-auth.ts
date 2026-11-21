@@ -134,6 +134,14 @@ export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): 
       });
     },
 
+    async deleteUser(id) {
+      return asSystem(pool, async (client) => {
+        // identities, sessions, device_codes, api_tokens and oauth_codes all cascade from users.
+        const result = await client.query(`DELETE FROM users WHERE id = $1`, [id]);
+        return result.rowCount === 1;
+      });
+    },
+
     async deleteSession(tokenHash) {
       return asSystem(pool, async (client) => {
         const result = await client.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);

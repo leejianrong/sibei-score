@@ -127,6 +127,16 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return recovered;
     },
 
+    async deleteAll(owner: Owner) {
+      const keys: BlobKey[] = [];
+      for (const [id, job] of jobs) {
+        if (job.owner !== owner) continue;
+        keys.push(...job.imageKeys);
+        jobs.delete(id);
+      }
+      return keys;
+    },
+
     async close() {
       jobs.clear();
     },

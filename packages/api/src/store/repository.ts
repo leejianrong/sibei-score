@@ -126,6 +126,11 @@ export interface ScoreWriter {
  */
 export interface ScoreLibrary {
   delete(owner: Owner, id: Id): Promise<boolean>;
+  /**
+   * Delete every score this owner has, with their op logs, and say how many (V25, account deletion — the
+   * one place a whole library goes at once). Like `delete`, not an operation: it destroys the logs.
+   */
+  deleteAll(owner: Owner): Promise<number>;
 }
 
 /** The whole store. Composed, then handed out as the narrower halves it is made of. */

@@ -192,6 +192,16 @@ export async function openPostgresJobStore(options: PostgresJobStoreOptions): Pr
       });
     },
 
+    async deleteAll(owner): Promise<BlobKey[]> {
+      return asOwner(pool, owner, async (client) => {
+        const deleted = await client.query<{ image_keys: string }>(
+          `DELETE FROM import_jobs WHERE owner = $1 RETURNING image_keys`,
+          [owner],
+        );
+        return deleted.rows.flatMap((row) => JSON.parse(row.image_keys) as BlobKey[]);
+      });
+    },
+
     async close(): Promise<void> {
       await closeHandle(handle);
     },

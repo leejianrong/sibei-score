@@ -7,6 +7,7 @@ import { createChangeBus, publishingApplier, publishingLibrary } from '../events
 import { createJobBus } from '../events/job-bus.js';
 import { createHostedAuth } from '../auth/hosted.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
+import { createOwnerEraser } from '../account/erase.js';
 import { createExporter } from '../export/export.js';
 import { createMcpEndpoint } from '../mcp/endpoint.js';
 import { createJobRunner } from '../imports/runner.js';
@@ -17,6 +18,8 @@ import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
 import { memoryJobStore } from '../store/memory-job-store.js';
 import type { JobStore } from '../store/jobs.js';
+import { memoryBlobLedger } from '../store/blob-ledger.js';
+import type { BlobLedger } from '../store/blob-ledger.js';
 import type { Owner, ScoreStore } from '../store/repository.js';
 import { createEventStreams } from './event-stream.js';
 import { createJobStreams } from './job-stream.js';
@@ -71,6 +74,12 @@ export interface ApiOptions {
    * address (ADR-0001).
    */
   worker?: WorkerClient;
+  /**
+   * Which account owns which stored blob (V25), so account deletion and the sweep can find them. Defaults
+   * to a process-lifetime in-memory ledger; `sbscore serve` supplies the SQLite or Postgres one beside the
+   * library. Everything that writes a blob for an account records it here.
+   */
+  blobLedger?: BlobLedger;
   /** Defaults to resolving `local` (ADR-0029). Exclusive with `hosted`, which supplies its own. */
   authenticate?: Authenticator;
   /**

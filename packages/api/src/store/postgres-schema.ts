@@ -102,6 +102,16 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 CREATE INDEX IF NOT EXISTS import_jobs_owner_created ON import_jobs (owner, created_at DESC);
 CREATE INDEX IF NOT EXISTS import_jobs_status_created ON import_jobs (status, created_at ASC);
 
+-- The blob ledger (V25): which account owns which stored blob. Additive and idempotent; no version bump.
+CREATE TABLE IF NOT EXISTS blob_refs (
+  owner       text NOT NULL,
+  key         text NOT NULL,
+  kind        text NOT NULL,
+  recorded_at text NOT NULL,
+  PRIMARY KEY (owner, key)
+);
+CREATE INDEX IF NOT EXISTS blob_refs_kind_recorded ON blob_refs (kind, recorded_at);
+
 -- Identity (table version 2, V20). A user's id becomes the \`owner\` on the rows they create. Sessions hold
 -- only the SHA-256 of the cookie token (store/auth.ts), so the table yields nothing replayable.
 CREATE TABLE IF NOT EXISTS users (
@@ -189,6 +199,8 @@ ALTER TABLE operations  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operations  FORCE  ROW LEVEL SECURITY;
 ALTER TABLE import_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_jobs FORCE  ROW LEVEL SECURITY;
+ALTER TABLE blob_refs   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE blob_refs   FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS owner_isolation ON scores;
 CREATE POLICY owner_isolation ON scores
@@ -198,6 +210,9 @@ CREATE POLICY owner_isolation ON operations
   USING (${OWNER_POLICY}) WITH CHECK (${OWNER_POLICY});
 DROP POLICY IF EXISTS owner_isolation ON import_jobs;
 CREATE POLICY owner_isolation ON import_jobs
+  USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
+DROP POLICY IF EXISTS owner_isolation ON blob_refs;
+CREATE POLICY owner_isolation ON blob_refs
   USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
 
 ALTER TABLE users      ENABLE ROW LEVEL SECURITY;

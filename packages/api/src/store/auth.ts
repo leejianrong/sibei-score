@@ -52,6 +52,13 @@ export interface AuthStore {
    */
   signIn(profile: ProviderProfile): Promise<User>;
   getUser(id: UserId): Promise<User | null>;
+  /**
+   * Delete the user and everything that hangs off them in this store (V25, account deletion): their
+   * identities, sessions, device approvals, API tokens and OAuth codes. `false` when there was no such user,
+   * so a repeated deletion is not an error. The caller removes the user's *content* (scores, jobs, blobs)
+   * first and calls this last, so a failure part-way leaves the account able to retry.
+   */
+  deleteUser(id: UserId): Promise<boolean>;
   /** Record a session by the SHA-256 (hex) of its token. The token itself never reaches the store. */
   createSession(tokenHash: string, userId: UserId, expiresAt: string): Promise<void>;
   /** The session for this hash, or `null` if there is none **or it has expired as of `now`** (ISO-8601). */
