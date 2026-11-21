@@ -8,6 +8,7 @@ import {
   formatDay,
   formatTypedCode,
   prefillOf,
+  scopeLabel,
   hashOf,
   isCompleteCode,
   listApiTokens,
@@ -162,5 +163,15 @@ describe('prefillOf (the approval link a CLI asked for)', () => {
     expect(prefillOf('#/device?scopes=write,read,admin')).toEqual({ scopes: ['read', 'write'] });
     expect(prefillOf('#/device?scopes=admin')).toEqual({});
     expect(prefillOf('#/device')).toEqual({});
+  });
+});
+
+describe('scopeLabel', () => {
+  it('names all four scopes in words and leaves an unknown one raw', () => {
+    expect(scopeLabel('read')).toBe('Read charts');
+    expect(scopeLabel('write')).toBe('Change charts');
+    expect(scopeLabel('mcp:read')).toBe('Read charts (MCP)');
+    expect(scopeLabel('mcp:write')).toBe('Change charts (MCP)');
+    expect(scopeLabel('future:thing')).toBe('future:thing');
   });
 });

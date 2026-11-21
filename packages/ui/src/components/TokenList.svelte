@@ -12,7 +12,7 @@
   import { onMount } from 'svelte';
   import { listApiTokens, revokeApiToken } from '../lib/api.js';
   import type { ApiTokenView } from '../lib/api.js';
-  import { formatDay } from '../lib/devices.js';
+  import { formatDay, scopeLabel } from '../lib/devices.js';
   import { DEVICE, hashOf } from '../lib/routing.js';
 
   let tokens = $state<ApiTokenView[] | null>(null);
@@ -76,7 +76,7 @@
           <li class="row" class:confirm={confirming === token.id}>
             <span class="name">{token.name}</span>
             <div class="meta">
-              {#each token.scopes as scope (scope)}<span class="scope">{scope}</span>{/each}
+              {#each token.scopes as scope (scope)}<span class="scope">{scopeLabel(scope)}</span>{/each}
               {#if confirming === token.id}
                 <span>Revoking stops it working immediately.</span>
               {:else}
