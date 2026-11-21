@@ -57,6 +57,15 @@ flowchart TD
 | **3 · Beat mapping** | Align each chord box's x to the note/rest onset at or before it | chord x + note onsets → chord onset | **done (V13)** |
 | **Correction** | Human fixes the draft against the retained scan; flags/invalid-bar shading point at the doubts | draft → corrected chart | **done (V14)** |
 
+### Planned but not built: song identification (v0.5, KAN-1522)
+
+A genuinely new stage, not a refinement of any stage above: after Stage 3 produces a draft chord
+sequence, match it against a fingerprint index of known songs (built from a real, labelled corpus —
+see [ADR-0036](adr/0036-real-corpus-labelling-and-dataset-strategy.md)) to suggest which song an
+import actually is — advisory only, never a silent substitution (ADR-0019). Sits beside correction,
+reading its input, not inside recognition; does not depend on which engine produced the draft. See
+[ADR-0037](adr/0037-song-identification-via-chord-retrieval.md) and `SLICES.md` V29.
+
 ### Proposed but not planned: a cross-bar / spanning stage
 
 Notation that **spans** notes or bars is read by none of the per-crop stages above and is currently
@@ -125,3 +134,4 @@ V15c's Stage-2a result (clean noteF1 0.868 vs 0.120 heuristic, ~0.3 sec/page, ~1
 | The metrics + how to run the harness | [docs/eval.md](eval.md) |
 | The worker, the engines, running them | [worker/README.md](../worker/README.md) |
 | The V15 training retrospective (what broke) | [agent_docs/v15-training-notes.md](../agent_docs/v15-training-notes.md) |
+| The real-corpus labelling studio, dataset, and song matching (v0.5, planning of record) | [ADR-0036](adr/0036-real-corpus-labelling-and-dataset-strategy.md), [ADR-0037](adr/0037-song-identification-via-chord-retrieval.md), `SLICES.md` V27–V29 |

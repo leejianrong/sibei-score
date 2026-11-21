@@ -132,6 +132,20 @@ in full: `docs/adr/`.
 | **Tracking metrics** | Note accuracy, chord accuracy, percentage of metrically valid bars. Measured every run. |
 | **Ship gate** | The release criterion: a 32-bar head correctable by hand in roughly two minutes. |
 
+### The real corpus (v0.5, planning of record — KAN-1522)
+
+| Term | Meaning |
+|---|---|
+| **Real corpus** | The large, non-rights-cleared, real (not synthetic) PDF corpus of published jazz lead sheets this milestone plans around. Distinct from the small, curated, git-committed eval control set. |
+| **Region kind** | The open-string class a human gives a labelled region (`lead-staff`, `accompaniment-staff`, `drum-staff`, `chord-band`, `title`, `rehearsal-mark`, `tempo`, `footer`, `other`, `barline`). Only kinds the detector already has map to a `clsId`; the rest are recorded now and trained on when a class is added (ADR-0036 amendment). |
+| **Label status** | A region's or system's completeness: `transcribed`, `partial`, `structure-only`, `ignore` — or `pre-labelled` for an untouched engine guess, which the exporter treats as `ignore`. Never absent. |
+| **Extended tag** | A positioned record (`x:` namespace) of notation the vocabulary cannot yet express — a triplet, a diamond head, an 8va. Kept, never dropped; earns a vocabulary entry only through its own slice (ADR-0038). |
+| **Labelling studio** | `worker/devtools/label_studio` (planned): pre-labels a real page from the current recogniser, then lets a human correct it. A sibling of `omr_viz`, not the same tool. |
+| **Pre-label then correct** | The studio's core method: run the existing recogniser first and have a human fix its output, rather than annotating from a blank page — the only tractable approach at hundreds of pages per PDF. |
+| **Derived structural data** | What the real-corpus store retains: pixel *coordinates*, token sequences and chord text — never a page image or crop. The distinction ADR-0020's amendment turns on. |
+| **Song-progression fingerprint** | A transposition-invariant encoding of a chord sequence, used to retrieve which known song a fresh import matches. Never a raw chart. |
+| **Song match** | An advisory suggestion that a fresh import is a known song from the labelled corpus. Confidence-gated; never applied without an explicit accept, and always through the ordinary op log when accepted. |
+
 ---
 
 ## Decision register
@@ -205,6 +219,12 @@ in full: `docs/adr/`.
 | D66 | The engraved face is the reader's choice per render — Bravura (`normal`) or Petaluma (`jazz`) — so no font is named in the engraver's code | Accepted | [ADR-0030](docs/adr/0030-own-the-engraver.md), [ADR-0027](docs/adr/0027-paddleocr-and-dependency-register.md) |
 | D65 | The project is MIT licensed | Accepted | `LICENSE` |
 | D67 | The CLI binary is **`sbscore`**, not `sibei` — the `sb<product>` convention `sibei-flow` set with `sbflow`. Env vars are `SBSCORE_URL` / `SBSCORE_DATA` and the data directory is `~/.local/share/sbscore`, adopting a pre-rename one once. The repo keeps its `sibei-score` name and no verb or exit code changed | Accepted | [ADR-0008](docs/adr/0008-imperative-cli-verbs-plus-batch.md) status note, 2026-08-01 |
+| D68 | The real, third-party PDF corpus (KAN-1522) is not rights-cleared, so ADR-0020's "no corpus of copyrighted charts is retained" applies at its word: no raw page image or crop is ever durably stored, only derived structural labels, re-rasterized transiently from the maintainer's own PDFs when pixels are actually needed | Accepted | [ADR-0020 amendment](docs/adr/0020-omr-evaluation-strategy.md), [ADR-0036](docs/adr/0036-real-corpus-labelling-and-dataset-strategy.md) |
+| D69 | The labelling studio pre-labels from the current recogniser and lets a human correct it, producing a superset of the label shapes `packages/synth` already produces (ADR-0036 amendment), so training and the eval harness need no second data format | Accepted (planning of record) | [ADR-0036](docs/adr/0036-real-corpus-labelling-and-dataset-strategy.md) |
+| D70 | The studio is a new `worker/devtools/label_studio`, a sibling to `omr_viz` (EPIC-228) — not a `packages/*` app, not an extension of `packages/ui` | Accepted (planning of record) | [ADR-0036](docs/adr/0036-real-corpus-labelling-and-dataset-strategy.md) |
+| D71 | Song identification's signal is a transposition-invariant chord-progression fingerprint (melody deferred); it is a new, advisory-only post-Stage-3 stage, never applied without an explicit accept, and an accepted match lands through the ordinary op log | Accepted (planning of record) | [ADR-0037](docs/adr/0037-song-identification-via-chord-retrieval.md) |
+| D72 | The long-term direction is full notation (multi-staff, polyphony, percussion, spanners), staged behind the harness; the lead-sheet path is never gated on it and `Score` does not change under this decision | Accepted (direction of record) | [ADR-0038](docs/adr/0038-full-notation-is-the-long-term-direction.md), [ADR-0031 amendment](docs/adr/0031-bespoke-recogniser.md) |
+| D73 | Real-corpus labels are recorded wide (region `kind`, completion `status`, extended tags) and the exporter projects them down — masking regions the detector has no class for by whiting them out of the transiently re-rasterized image, so no training script changes | Accepted (planning of record) | [ADR-0036 amendment](docs/adr/0036-real-corpus-labelling-and-dataset-strategy.md) |
 
 ### Not yet decided
 
