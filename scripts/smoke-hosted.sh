@@ -8,8 +8,8 @@
 #
 # Needs Docker with the compose plugin, curl and jq. Uses loopback ports 18080 (the site) and 19000 (the fake
 # GitHub), a throwaway project name, and a throwaway env file with random secrets that is never printed.
-# It does not start the OMR worker (its image bakes ML weights and takes minutes to build, and nothing here
-# imports). It does NOT deploy anything: see docs/deploy-hosted.md for that.
+# The OMR worker is behind an opt-in compose profile and is not started; the test checks that a photo is
+# refused cleanly instead. It does NOT deploy anything: see docs/deploy-hosted.md for that.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -61,7 +61,7 @@ cleanup() {
 trap cleanup EXIT
 
 step "bring the stack up (no worker)"
-docker compose up -d --build --wait --scale worker=0 >/dev/null || fail "the stack did not become healthy"
+docker compose up -d --build --wait >/dev/null || fail "the stack did not become healthy"
 ok "caddy, api, postgres, redis and the fake GitHub are up and healthy"
 
 step "the edge answers, and only the edge"
@@ -99,6 +99,13 @@ curl -s -f -b "$jar" -H 'content-type: application/json' -X POST "$SITE/v1/score
 xml="$(curl -s -b "$jar" "$SITE/v1/scores/smoke/export?format=musicxml")"
 printf '%s' "$xml" | grep -q "score-partwise" || fail "the MusicXML export is not MusicXML"
 ok "created a chart, listed it, and exported MusicXML through Caddy"
+
+step "a photo is refused cleanly (photo import is off at launch)"
+photo="$(curl -s -w '\n%{http_code}' -b "$jar" -H 'content-type: image/png' -X POST "$SITE/v1/imports" --data-binary 'x')"
+[ "$(printf '%s' "$photo" | tail -1)" = 422 ] || fail "a photo import should be 422: $photo"
+printf '%s' "$photo" | head -1 | jq -e '.error.kind == "photo-import-unavailable"' >/dev/null || fail "wrong error kind: $photo"
+[ "$(curl -s -b "$jar" "$SITE/v1/me" | jq -r '.photoImport')" = false ] || fail "/v1/me should say photoImport is false"
+ok "an image import is a 422 photo-import-unavailable, and /v1/me says so"
 
 step "a backup restores into a fresh database"
 bash deploy/backup.sh >/dev/null 2>&1 || fail "backup"

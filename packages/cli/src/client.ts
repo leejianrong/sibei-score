@@ -164,6 +164,7 @@ export interface AudioJobWire {
 export interface MeWire {
   mode: 'local' | 'hosted';
   user?: { id: string; login: string; name: string | null };
+  photoImport?: boolean;
 }
 
 /** `POST /v1/auth/device`. */

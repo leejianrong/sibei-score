@@ -110,6 +110,10 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'job-not-retryable': // an import job that is not failed (SIB2-114), the same class as the audio one
     // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
     case 'invalid-note-events':
+    // Photo import switched off on this service (SIB2-201): readable, never retryable, and the fix is to use
+    // audio or a NoteEvents file. Validation like its siblings, so a script that backs off on 9 or retries on
+    // 4 does neither.
+    case 'photo-import-unavailable':
     // The device flow (V21a). A code that is not eight letters and digits, a scope that does not exist, and
     // a code that expired or was already used are requests that were readable and cannot be fulfilled: the
     // same class as `validation`, and the fix is to start again or correct the value.

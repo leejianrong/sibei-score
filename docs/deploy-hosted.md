@@ -17,7 +17,7 @@ sit on an `internal` Docker network with no route to the internet (`compose.host
 
 | Thing | Notes |
 |---|---|
-| A VM | Linux, 4 GB RAM and 40 GB disk is comfortable (API ~300 MB, bespoke worker ~300 MB, Postgres, Redis, Caddy). 2 GB works for a quiet beta. Hetzner or DigitalOcean; the choice is not architectural. |
+| A VM | Linux, 4 GB RAM and 40 GB disk is comfortable (API ~300 MB, Postgres, Redis, Caddy). 2 GB works for a quiet beta. Hetzner or DigitalOcean; the choice is not architectural. |
 | A domain | Its A (and AAAA) record must point at the VM **before** the first start, or Caddy cannot get a certificate and will retry against Let's Encrypt's rate limits. |
 | Open ports | 80 and 443 from the internet (80 is the certificate challenge and the http-to-https redirect). Nothing else. |
 | A GitHub OAuth App | https://github.com/settings/developers, "New OAuth App". Homepage `https://<domain>`, callback `https://<domain>/v1/auth/github/callback`. Keep the client id and generate a client secret. |
@@ -107,9 +107,12 @@ external monitor, probe `https://<domain>/v1/health`.
 
 - **No CI-built images.** The VM builds the API and worker images itself. Pushing prebuilt images to a
   registry (and setting `API_IMAGE`) is a follow-up.
-- **The worker image needs the bespoke model weights** baked in (ADR-0024) for `SIBEI_OMR_ENGINE=bespoke`; that
-  provisioning belongs to V26 (import beta on hosted). Until then, import on a deployment without them
-  fails with a retryable diagnostic and everything else works.
+- **Photo import is off.** It is not part of the launch (ADR-0039) and the worker image has no bespoke weights
+  baked in (ADR-0024). `SBSCORE_PHOTO_IMPORT` defaults to `off` in hosted mode: an image import answers a
+  non-retryable `photo-import-unavailable`, the library hides the photo button, and the worker container is
+  behind the `photo-import` compose profile, so it is neither built nor started. Audio and NoteEvents `.json`
+  import work. To enable it later (V26): build a worker image with weights, set `SBSCORE_PHOTO_IMPORT=on`,
+  and `docker compose -f compose.hosted.yaml --profile photo-import up -d --build`.
 - **Off-box backup needs a destination you choose** (`BACKUP_REMOTE`).
 
 ## The local smoke test
@@ -117,4 +120,4 @@ external monitor, probe `https://<domain>/v1/health`.
 `bash scripts/smoke-hosted.sh` brings the whole stack up on loopback with a fake GitHub, signs in, creates and
 exports a chart, checks that only Caddy publishes a port and that a foreign Origin is refused, takes a backup
 and restores it into a fresh database, deletes the account, and tears everything down. It needs Docker, curl
-and jq, builds the API image (minutes the first time), and starts no worker. It deploys nothing.
+and jq, builds the API image (minutes the first time), and starts no worker (it also checks that a photo import is refused). It deploys nothing.

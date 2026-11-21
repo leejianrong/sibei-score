@@ -1,4 +1,4 @@
-# The hosted deployment (V24, ADR-0034): Caddy, the API, the OMR worker, Postgres and Redis on one VM.
+# The hosted deployment (V24, ADR-0034): Caddy, the API, Postgres and Redis on one VM (the OMR worker is opt-in).
 #
 #     cp deploy/hosted.env.example .env      # then fill it in; see docs/deploy-hosted.md
 #     docker compose -f compose.hosted.yaml up -d --build
@@ -57,6 +57,10 @@ services:
       # API refuses to start as one (ADR-0034 decision 2).
       SBSCORE_DATABASE_URL: postgres://sibei_app:${SIBEI_APP_PASSWORD:?set SIBEI_APP_PASSWORD}@postgres:5432/sibei
       SBSCORE_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+      # Photo import is not part of the launch (ADR-0039), so it is off here unless asked for: image imports
+      # answer `photo-import-unavailable` and the OMR worker below is not started. To turn it on, build a
+      # worker image with weights, set SBSCORE_PHOTO_IMPORT=on and start with `--profile photo-import`.
+      SBSCORE_PHOTO_IMPORT: ${SBSCORE_PHOTO_IMPORT:-off}
       SBSCORE_WORKER_URL: http://worker:8000
       # Caddy fronts the API, so the client address for rate limiting is the one Caddy appended.
       SBSCORE_TRUST_PROXY: "1"
@@ -91,8 +95,10 @@ services:
       - edge
       - backend
 
-  # The OMR worker (ADR-0034 decision 10): the bespoke engine, ~300 MB, CPU. Always on, private.
+  # The OMR worker (ADR-0034 decision 10): the bespoke engine, ~300 MB, CPU, private. Opt-in (SIB2-201):
+  # behind the `photo-import` profile, so a plain `up` neither builds nor starts it.
   worker:
+    profiles: ["photo-import"]
     build:
       context: ./worker
       dockerfile: Dockerfile
