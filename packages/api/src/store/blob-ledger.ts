@@ -1,5 +1,6 @@
 import type { BlobKey } from '../blob/blob-store.js';
 import type { Owner } from './repository.js';
+import { timestamp } from './store-shared.js';
 
 /**
  * The blob ledger (V25, ADR-0034 decisions 11 and 16): a durable record of *which account owns which
@@ -45,7 +46,7 @@ export function memoryBlobLedger(now: () => Date = () => new Date()): BlobLedger
   const id = (owner: Owner, key: BlobKey): string => `${owner}\u0000${key}`;
   return {
     async record(owner, key, kind) {
-      if (!refs.has(id(owner, key))) refs.set(id(owner, key), { owner, key, kind, recordedAt: now().toISOString() });
+      if (!refs.has(id(owner, key))) refs.set(id(owner, key), { owner, key, kind, recordedAt: timestamp(now) });
     },
     async list(owner) {
       return [...refs.values()].filter((ref) => ref.owner === owner).sort(byAge);

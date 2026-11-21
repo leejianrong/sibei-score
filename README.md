@@ -1,8 +1,10 @@
 # sibei-score
 
-A local-only jazz lead sheet notation app: a single staff with chord symbols above it, four bars
-to a line, the way a Real Book prints it — authored and edited **equally from a browser and a
-command line**, and exported as a print-ready PDF.
+A jazz lead sheet notation app: a single staff with chord symbols above it, four bars to a line,
+the way a Real Book prints it — authored and edited **equally from a browser and a command line** (or
+an AI agent), and exported as a print-ready PDF or MusicXML. The primary way to use it is the **hosted
+web app** (beta, GitHub sign-in, [ADR-0034](docs/adr/0034-hosted-web-app-primary.md)); it also runs
+**locally on your own machine**, offline, with no account. Both are the same code.
 
 > **Status: v0.1 and v0.2 are complete**, and local-only by design (ADR-0001). v0.1 (V1–V8): the
 > score model, layout engine, our own engraver, PDF **and MusicXML** export, the store, the `/v1/`
@@ -44,7 +46,15 @@ flowchart LR
   Render -.composed in the browser.-> UI
 ```
 
-## Quick start
+## Two ways to run it
+
+- **Hosted (beta).** Sign in with GitHub in the browser; your charts are private to your account. Use the
+  CLI against the same library with `sbscore auth login`. Beta means data can be wiped, so export a chart to
+  keep a copy, and you can delete your account (and everything it owns) from the Account page. To run your
+  own deployment, follow [`docs/deploy-hosted.md`](docs/deploy-hosted.md).
+- **Local.** Everything below: one container (or `pnpm serve`), no sign-in, nothing leaves your machine.
+
+## Quick start (local)
 
 Requires only [Docker](https://docs.docker.com/get-docker/) and `make`. Everything runs on your own
 machine (see [Offline by design](#offline-by-design) below). One command:
