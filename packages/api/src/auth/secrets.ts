@@ -36,14 +36,20 @@ export function sameSecret(a: string, b: string): boolean {
 /** One cookie out of a `Cookie` header, or `undefined`. A value that is not a plain token is ignored. */
 export function readCookie(header: string | undefined, name: string): string | undefined {
   if (header === undefined) return undefined;
+  let found: string | undefined;
+  let seen = false;
   for (const part of header.split(';')) {
     const at = part.indexOf('=');
     if (at === -1) continue;
     if (part.slice(0, at).trim() !== name) continue;
+    // Two cookies of one name is what a cookie planted from a sibling subdomain looks like, and the browser
+    // lists the planted one first. Refusing the ambiguity beats trusting whichever came first.
+    if (seen) return undefined;
+    seen = true;
     const value = part.slice(at + 1).trim();
-    return /^[A-Za-z0-9_.-]+$/.test(value) ? value : undefined;
+    found = /^[A-Za-z0-9_.-]+$/.test(value) ? value : undefined;
   }
-  return undefined;
+  return found;
 }
 
 export interface CookieOptions {

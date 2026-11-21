@@ -21,7 +21,7 @@ import { quotaApplier } from '../limits/quota.js';
 import type { Limits, LimitRefusal } from '../limits/limits.js';
 import { createHostedAuth } from '../auth/hosted.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
-import { createOwnerEraser } from '../account/erase.js';
+import { createOwnerEraser, isManaged } from '../account/erase.js';
 import { createExporter } from '../export/export.js';
 import { MUSICXML_SOURCE } from '../imports/musicxml.js';
 import { NOTE_EVENTS_SOURCE } from '../imports/note-events.js';
@@ -233,7 +233,17 @@ export function createApi(options: ApiOptions): Api {
 
   // Narrowed on the way in: the exporter is handed the store as a `ScoreReader`, so the export
   // path is a read by construction and not by intention (ADR-0003).
-  const exporter = createExporter(store, blobs, (owner, key) => ledger.record(owner, key, 'export'));
+  const exporter = createExporter(store, blobs, async (owner, key) => {
+    await ledger.record(owner, key, 'export');
+    const cap = limits?.config.quotas.maxExportCacheEntries;
+    if (cap === undefined || !isManaged(blobs)) return;
+    // Past the per-user bound the oldest cached artefacts go (SEC M6). They are derived and re-creatable.
+    const held = (await ledger.list(owner)).filter((ref) => ref.kind === 'export');
+    for (const ref of held.slice(0, Math.max(0, held.length - cap))) {
+      await blobs.delete(ref.key);
+      await ledger.forget(owner, ref.key);
+    }
+  });
 
   // The import pipeline (V10). Its own change bus and streams, the sibling of the score ones — a job
   // moving is announced the same way a score moving is (ADR-0001's "subscribe"). The job store and
@@ -459,6 +469,14 @@ export function createApi(options: ApiOptions): Api {
     // The guards run *before* routing, so an unrouted path cannot become a way past them.
     const host = checkHost(request, hostedHosts);
     if (!host.ok) return send(response, problem(403, 'foreign-host', host.reason));
+
+    // A malformed percent escape (`%E0%A4%A`) would throw out of `decodeURIComponent` in a route and surface
+    // as a 500 with a log line. It is a bad request, answered here once for every route (SEC, low).
+    try {
+      decodeURIComponent(pathOf(request));
+    } catch {
+      return send(response, problem(400, 'malformed-path', 'the request path has a malformed percent escape'));
+    }
 
     const origin = checkOrigin(request, hostedHosts);
     if (!origin.ok) return send(response, problem(403, 'foreign-origin', origin.reason));

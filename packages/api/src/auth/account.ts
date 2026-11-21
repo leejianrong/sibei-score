@@ -27,7 +27,7 @@ export interface AccountRoutesOptions {
   /** Erase everything the user owns except the identity itself (`account/erase.ts`). */
   eraseData(owner: UserId): Promise<unknown>;
   /** The `Set-Cookie` header value that clears the session cookie. */
-  clearSessionCookie(): string;
+  clearSessionCookie(): string | string[];
 }
 
 export interface AccountRoutes {

@@ -162,7 +162,7 @@ export type {
   ScoreDeleted,
 } from './events/change-bus.js';
 
-export { createHostedAuth, GITHUB, SESSION_COOKIE } from './auth/hosted.js';
+export { createHostedAuth, GITHUB, SECURE_SESSION_COOKIE, SESSION_COOKIE } from './auth/hosted.js';
 export type { GitHubOptions, HostedAuth, HostedAuthOptions } from './auth/hosted.js';
 export { createApi } from './http/server.js';
 export type { Api, ApiOptions } from './http/server.js';
