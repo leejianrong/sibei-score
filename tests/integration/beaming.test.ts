@@ -37,15 +37,16 @@ describe('flags on beamed notes', () => {
    * The two counts are asserted together because neither is worth much alone, and the
    * pair admits only correct behaviour.
    *
-   * `beamingChart` is fourteen notes: eleven beamable ones in four groups, one eighth
+   * `beamingChart` is fourteen notes: eleven beamable ones in three groups (the last four eighths are one half-bar group since
+   * SIB2-154), one eighth
    * alone on its beat, and two quarters. Flags on beamed notes would make it eleven
    * flags; no beams at all would make it eleven flags too. Only an engraver that beams
-   * the groups *and* flags the loner lands on five beams and one flag.
+   * the groups *and* flags the loner lands on four beams (one, two for the sixteenths, one) and one flag.
    */
   it('beams the groups, flags the loner, and does not do both to anything', () => {
     const svg = render(beamingChart());
     expect(count(svg, NOTEHEAD)).toBe(14);
-    expect(count(svg, BEAM)).toBe(5);
+    expect(count(svg, BEAM)).toBe(4);
     expect(count(svg, FLAG)).toBe(1);
   });
 
