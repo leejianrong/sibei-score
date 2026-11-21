@@ -55,6 +55,7 @@ export function scoreToMusicXml(score: Score): string {
   const ottavas = ottavaMarks(score);
   const root = elem('score-partwise', { version: '4.0' }, [
     work(score),
+    movementTitle(score),
     identification(score),
     elem('part-list', {}, [
       elem('score-part', { id: 'P1' }, [leaf('part-name', score.meta.title || 'Lead sheet')]),
@@ -72,9 +73,19 @@ function work(score: Score): XmlElement | null {
   return score.meta.title === '' ? null : elem('work', {}, [leaf('work-title', score.meta.title)]);
 }
 
+/** The subtitle is the movement title (SIB2-180); it sits between `<work>` and `<identification>`. */
+function movementTitle(score: Score): XmlElement | null {
+  return score.meta.subtitle === undefined ? null : leaf('movement-title', score.meta.subtitle);
+}
+
 function identification(score: Score): XmlElement {
   return elem('identification', {}, [
-    score.meta.composer === '' ? null : leaf('creator', score.meta.composer, { type: 'composer' }),
+    // One creator per composer line; the arranger is a creator of its own type (SIB2-180).
+    ...score.meta.composer
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => leaf('creator', line, { type: 'composer' })),
+    score.meta.arranger === undefined ? null : leaf('creator', score.meta.arranger, { type: 'arranger' }),
     // The footer's text is the copyright line; which pages carry it has no MusicXML home (a named lossy case).
     score.meta.footer === undefined ? null : leaf('rights', score.meta.footer.text),
     elem('encoding', {}, [leaf('software', 'sibei-score'), leaf('encoding-date', '2020-01-01')]),
