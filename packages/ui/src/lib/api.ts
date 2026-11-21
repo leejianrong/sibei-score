@@ -495,6 +495,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string }
   | { type: 'break.set'; target: string; payload: { kind: 'after' | 'join' } }
   | { type: 'break.rm'; target: string }
+  | { type: 'slur.set'; target: string; payload: { to: string; placement?: 'above' | 'below' } }
+  | { type: 'slur.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };

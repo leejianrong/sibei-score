@@ -2,6 +2,7 @@ import type { Score } from '@sibei/model';
 import { aabaChart } from './aaba-chart.js';
 import { longFormChart } from './long-form-chart.js';
 import { nastyChart } from './nasty-chart.js';
+import { slurChart } from './slur-chart.js';
 import {
   beamingChart,
   everyGlyphChart,
@@ -26,4 +27,5 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'long-form': longFormChart,
   'aaba-chart': aabaChart,
   untitled: untitledChart,
+  slurs: slurChart,
 };

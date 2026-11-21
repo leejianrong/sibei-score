@@ -45,6 +45,7 @@ import type { SvgElement } from './svg.js';
 import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
+import { slur } from './slurs.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -232,6 +233,25 @@ export function engraveSystem(
       to: layoutTie.toNoteId === null ? null : (anchors.get(layoutTie.toNoteId) ?? null),
       systemLeft: musicLeft,
       systemRight: system.x + system.width,
+    });
+    if (curve !== null) children.push(curve);
+  }
+
+  // Slurs go over everything else in the system: they bridge notes, so they need every note's extent.
+  for (const layoutSlur of system.slurs) {
+    const from = layoutSlur.fromNoteId === null ? null : (anchors.get(layoutSlur.fromNoteId) ?? null);
+    const to = layoutSlur.toNoteId === null ? null : (anchors.get(layoutSlur.toNoteId) ?? null);
+    const lowest = Math.min(from?.x ?? musicLeft, to?.x ?? musicLeft);
+    const highest = Math.max(from?.x ?? system.x + system.width, to?.x ?? system.x + system.width);
+    const under = [...anchors.values()].filter((end) => end.x >= lowest && end.x <= highest);
+    const curve = slur(font, {
+      from,
+      to,
+      under,
+      placement: layoutSlur.placement,
+      systemLeft: musicLeft,
+      systemRight: system.x + system.width,
+      ceiling: bands.chordBaseline,
     });
     if (curve !== null) children.push(curve);
   }
@@ -451,6 +471,8 @@ function engraveBar(
         noteheadWidth: font.width(note.glyph),
         y: positionY(note.position, staveY),
         stem: note.stem?.direction ?? null,
+        stemTipY: note.stem?.endY ?? null,
+        stemX: note.stem?.centre ?? null,
       });
     }
     // A note or rest the recogniser was unsure of gets a stripe down its column (ADR-0019),
