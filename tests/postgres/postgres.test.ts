@@ -270,7 +270,7 @@ describe('the migration', () => {
     const admin = new pg.Client({ connectionString: database.superuserUrl });
     await admin.connect();
     try {
-      await admin.query(`DROP TABLE api_tokens, device_codes, sessions, identities, users`);
+      await admin.query(`DROP TABLE oauth_codes, api_tokens, device_codes, sessions, identities, users`);
       await admin.query(`UPDATE schema_meta SET value = 1 WHERE key = 'table_version'`);
     } finally {
       await admin.end();
@@ -322,7 +322,7 @@ describe('API tokens and device codes (V21a)', () => {
     const admin = new pg.Client({ connectionString: database.superuserUrl });
     await admin.connect();
     try {
-      await admin.query(`DROP TABLE api_tokens, device_codes`);
+      await admin.query(`DROP TABLE oauth_codes, api_tokens, device_codes`);
       await admin.query(`UPDATE schema_meta SET value = 2 WHERE key = 'table_version'`);
     } finally {
       await admin.end();
