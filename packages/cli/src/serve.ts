@@ -196,6 +196,19 @@ export function resolveWorkerUrl(flags: Flags): string | undefined {
   return chosen === undefined || chosen === '' ? undefined : chosen;
 }
 
+/**
+ * Whether photo import is offered (SIB2-201): `SBSCORE_PHOTO_IMPORT=on|off`. Default off in hosted mode
+ * (photo import is not part of the launch, ADR-0039, and the hosted worker has no bespoke weights) and on
+ * everywhere else, so a local install is exactly what it was.
+ */
+export function resolvePhotoImport(hosted: boolean, env: NodeJS.ProcessEnv = process.env): boolean {
+  const chosen = (env.SBSCORE_PHOTO_IMPORT ?? '').toLowerCase();
+  if (chosen !== '' && chosen !== 'on' && chosen !== 'off') {
+    throw new CliError(EXIT.usage, 'bad-photo-import-config', 'SBSCORE_PHOTO_IMPORT must be `on` or `off`');
+  }
+  return chosen === '' ? !hosted : chosen === 'on';
+}
+
 export function resolveUiDirectory(flags: Flags): string | undefined {
   const chosen = flags.options.get('ui') ?? process.env.SBSCORE_UI;
   if (chosen === undefined || chosen === '') return undefined;
@@ -540,11 +553,12 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   // address (ADR-0001) — it takes the client as a port. Absent means import is unavailable and every
   // other feature works (Q80). The job store shares the library's database file (one volume), behind
   // its own connection (ADR-0006).
-  const workerUrl = resolveWorkerUrl(flags);
+  const hostedConfig = resolveHostedConfig(flags);
+  const photoImport = resolvePhotoImport(hostedConfig !== undefined);
+  // Photo import off (SIB2-201) means no OMR worker is wired even if a URL is set: nothing may call it.
+  const workerUrl = photoImport ? resolveWorkerUrl(flags) : undefined;
   const worker: WorkerClient | undefined =
     workerUrl === undefined ? undefined : createHttpWorkerClient({ url: workerUrl });
-
-  const hostedConfig = resolveHostedConfig(flags);
   const s3Config = resolveS3Config();
   const audioWorker = resolveAudioWorker();
   const audioQuota = resolveAudioQuota();
@@ -618,6 +632,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           }),
       blobs,
       ...(worker === undefined ? {} : { worker }),
+      ...(photoImport ? {} : { photoImport: false }),
       ...(assets === undefined ? {} : { assets }),
     });
   } catch (error) {
@@ -672,7 +687,9 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           (hostedConfig === undefined ? '' : `  hosted mode: GitHub sign-in required, served as ${hostedConfig.publicUrl}\n`) +
           (redis === undefined ? '' : '  Redis: change streams and rate limits are shared across processes\n') +
           (limits === undefined ? '' : '  rate limits and quotas are on\n') +
-          (workerUrl === undefined
+          (!photoImport
+            ? '  photo import is off (SBSCORE_PHOTO_IMPORT=off): audio and NoteEvents import still work\n'
+            : workerUrl === undefined
             ? '  no OMR worker configured — import is unavailable (set --worker or SBSCORE_WORKER_URL)\n'
             : `  OMR worker at ${workerUrl}\n`) +
           `  stop with ctrl-c`,

@@ -100,7 +100,7 @@ export interface HostedAuth {
    * Answer `GET /v1/me` for a principal the server has already authenticated (V20b). Lives here rather
    * than in a route because it reads a user, and no request path may hold an `AuthStore`.
    */
-  me(response: ServerResponse, owner: string): Promise<number>;
+  me(response: ServerResponse, owner: string, capabilities?: Record<string, boolean>): Promise<number>;
 }
 
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -303,13 +303,13 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     return 204;
   }
 
-  async function me(response: ServerResponse, owner: string): Promise<number> {
+  async function me(response: ServerResponse, owner: string, capabilities: Record<string, boolean> = {}): Promise<number> {
     const user = await auth.getUser(owner);
     // A live session whose user is gone (an account deleted under it) is not signed in either.
     if (user === null) return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
     // Only what the browser draws. Not the session, not the provider subject, not a timestamp it has no use for.
     response.setHeader('cache-control', 'no-store');
-    return sendJson(response, 200, { mode: 'hosted', user: { id: user.id, login: user.login, name: user.name } });
+    return sendJson(response, 200, { mode: 'hosted', user: { id: user.id, login: user.login, name: user.name }, ...capabilities });
   }
 
   return {

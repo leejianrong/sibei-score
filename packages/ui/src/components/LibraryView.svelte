@@ -27,6 +27,7 @@
   } from '../lib/api.js';
   import { UNTITLED } from '@sibei/model';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
+  import { getMe } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { rememberReturn } from '../lib/session.js';
   import { displayKey, relativeTime } from '../lib/format.js';
@@ -59,6 +60,12 @@
   let fileInput = $state<HTMLInputElement | null>(null);
   let importing = $state(false);
   let importNote = $state('');
+  // Whether this service takes photos (SIB2-201). Optimistic until `/v1/me` says otherwise, so a local
+  // install never flashes the notice; when it is off the picker offers only a NoteEvents .json.
+  let photoImport = $state(true);
+  void getMe()
+    .then((me) => (photoImport = me.photoImport !== false))
+    .catch(() => {});
 
   /** How often the browser polls the durable job while it runs (ADR-0001). */
   const IMPORT_POLL_MS = 800;
@@ -193,8 +200,8 @@
   <input
     class="file-picker"
     type="file"
-    accept="image/png,image/jpeg,application/json,.json"
-    multiple
+    accept={photoImport ? 'image/png,image/jpeg,application/json,.json' : 'application/json,.json'}
+    multiple={photoImport}
     bind:this={fileInput}
     onchange={onFilesChosen}
     aria-hidden="true"
@@ -217,7 +224,7 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
             <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
           </svg>
-          {importing ? 'Importing…' : 'Import a photo'}
+          {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import NoteEvents'}
         </button>
         <a class="import-btn" href={hashOf(AUDIO)}>Transcribe audio</a>
       {/if}
@@ -228,6 +235,10 @@
     <div class="import-note" role="status">
       <span class="spinner" aria-hidden="true"></span>{importNote}
     </div>
+  {/if}
+
+  {#if !photoImport && failure === null}
+    <div class="import-note" role="note">Photo import is not available on this service yet. You can still transcribe audio or import a NoteEvents .json file.</div>
   {/if}
 
   {#if failure !== null}
@@ -260,15 +271,16 @@
     <div class="state">
       <h2>No charts yet.</h2>
       <p>
-        Import a photo or scan of a lead sheet to turn it into an editable draft (every parse is a
-        draft you correct, ADR-0019) — or author one in the terminal. Both talk to the same API, so a
+        {#if photoImport}Import a photo or scan of a lead sheet to turn it into an editable draft (every parse is a
+        draft you correct, ADR-0019){:else}Transcribe audio or import a NoteEvents file into an editable draft{/if}
+        — or author one in the terminal. Both talk to the same API, so a
         chart made either way opens here immediately.
       </p>
       <button class="import-btn big" onclick={() => fileInput?.click()} disabled={importing}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
           <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
         </svg>
-        {importing ? 'Importing…' : 'Import a photo'}
+        {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import NoteEvents'}
       </button>
       <div class="term"><span class="prompt">{'$ '}</span>{NEW_CHART_COMMAND}</div>
     </div>
@@ -377,7 +389,7 @@
     {/if}
 
     <div class="lib-foot">
-      <span>Import a photo above, or author a chart in the terminal.</span>
+      <span>{photoImport ? 'Import a photo above' : 'Import above'}, or author a chart in the terminal.</span>
       <code>{NEW_CHART_COMMAND}</code>
     </div>
   {/if}
