@@ -93,6 +93,8 @@ export interface Me {
   user?: { id: string; login: string; name: string | null };
   /** Present, and `false`, only when this service takes no photos (SIB2-201). Absent means yes. */
   photoImport?: boolean;
+  /** Hosted only (SIB2-207): redirect hosts the server treats as known MCP clients. The consent page warns on the rest. */
+  mcpKnownHosts?: string[];
 }
 
 export async function getMe(): Promise<Me> {
@@ -531,6 +533,8 @@ export type Operation =
   | { type: 'slur.rm'; target: string }
   | { type: 'ottava.set'; target: string; payload: { to: string; shift: 'up' | 'down' } }
   | { type: 'ottava.rm'; target: string }
+  | { type: 'grace.add'; target: string; payload: { pitch: string; value: 8 | 16 | 32; slashed: boolean } }
+  | { type: 'grace.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };

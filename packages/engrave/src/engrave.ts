@@ -49,6 +49,7 @@ import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
 import { slur } from './slurs.js';
 import { articulations, fermata } from './marks.js';
+import { graceInk } from './graces.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -536,6 +537,9 @@ function engraveBar(
     // sized from the notehead's own box rather than a measurement (ADR-0015).
     if (entry.item.flagged) shading.push(flaggedItemShade(note.x, font.width(note.glyph), staveY));
     ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
+    if (entry.item.kind === 'note' && entry.item.graces !== undefined && entry.graceXs !== undefined) {
+      ink.push(...graceInk(font, entry.item.graces, entry.graceXs, entry.item.ottava, staveY));
+    }
     if (entry.item.kind === 'note' && entry.item.articulations !== undefined && entry.item.articulations.length > 0) {
       ink.push(
         ...articulations(font, {

@@ -56,6 +56,16 @@ export function blobContract(name: string, open: () => ManagedBlobStore): void {
       expect((await blobs.get('export:../../etc/passwd:v1:concert:pdf'))?.toString()).toBe('contained');
     });
 
+    it('copies server-side, leaving the source, and reports a missing source as false (SEC M1)', async () => {
+      const blobs = open();
+      await blobs.put('from', Buffer.from('bytes'));
+      expect(await blobs.copy('from', 'to')).toBe(true);
+      expect((await blobs.get('to'))?.toString()).toBe('bytes');
+      expect((await blobs.get('from'))?.toString()).toBe('bytes');
+      expect(await blobs.copy('absent', 'elsewhere')).toBe(false);
+      expect(await blobs.get('elsewhere')).toBeNull();
+    });
+
     it('reports a stored size without reading the body, and null for a miss', async () => {
       const blobs = open();
       expect(await blobs.stat('absent')).toBeNull();

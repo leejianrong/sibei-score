@@ -209,7 +209,7 @@ describe('a fake worker, end to end', () => {
     expect(second).toMatchObject({ id, attempt: 2 });
     // The first worker comes back and is told to abandon the work.
     const stale = await worker('POST', `/jobs/${id}/heartbeat`, { leaseToken: first.leaseToken });
-    expect(stale).toMatchObject({ status: 409, body: { error: { kind: 'lease-lost' } } });
+    expect(stale).toMatchObject({ status: 200, body: { cancelled: true } }); // same answer as a deleted job (SEC M2)
     expect((await worker('POST', `/jobs/${id}/complete`, { leaseToken: first.leaseToken, durationSeconds: 1, result: { inline: NOTE_EVENTS } })).status).toBe(409);
 
     clock.at += 121_000;

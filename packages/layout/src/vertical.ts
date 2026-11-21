@@ -36,6 +36,13 @@ const STEM_UNITS = 35;
 /** Half a notehead, so the glyph's own extent is covered. */
 const NOTEHEAD_UNITS = 5;
 
+/**
+ * Grace notes (SIB2-185) are drawn at this fraction of a normal note, with an up stem of `GRACE_STEM_UNITS`. The
+ * engraver draws them by the same two numbers, so what layout reserves above the staff is what is drawn.
+ */
+export const GRACE_SCALE = 0.65;
+export const GRACE_STEM_UNITS = 23;
+
 /** An ottava line sits this far past the highest or lowest note ink, and takes this much room itself (SIB2-184). */
 const OTTAVA_GAP = 15;
 const OTTAVA_BAND = 6;
@@ -104,6 +111,14 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
         inkAbove = Math.max(inkAbove, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
       }
       inkBelow = Math.max(inkBelow, below + (stemUp ? 0 : STEM_UNITS));
+      // Grace notes are small with an up stem, so they add to the room above and below like a note of their own.
+      for (const grace of item.graces ?? []) {
+        const graceIndex = diatonic(grace.pitch) + (shift === undefined ? 0 : shift === 'up' ? -7 : 7);
+        const graceAbove = (graceIndex - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS * GRACE_SCALE + GRACE_STEM_UNITS;
+        const graceBelow = (BOTTOM_LINE - graceIndex) * STEP_UNITS + NOTEHEAD_UNITS * GRACE_SCALE;
+        inkAbove = Math.max(inkAbove, graceAbove);
+        inkBelow = Math.max(inkBelow, graceBelow);
+      }
     }
   }
 

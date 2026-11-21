@@ -125,7 +125,12 @@ export function openS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
   }
 
   /** A header-signed request, for the calls the API itself makes. */
-  async function call(method: 'GET' | 'PUT' | 'HEAD' | 'DELETE', path: string, body?: Buffer): Promise<Response> {
+  async function call(
+    method: 'GET' | 'PUT' | 'HEAD' | 'DELETE',
+    path: string,
+    body?: Buffer,
+    extra: Record<string, string> = {},
+  ): Promise<Response> {
     const at = now();
     const stamp = amzDate(at);
     const date = stamp.slice(0, 8);
@@ -134,6 +139,7 @@ export function openS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
       host: base.host,
       'x-amz-content-sha256': payloadHash,
       'x-amz-date': stamp,
+      ...extra,
     };
     const signedHeaders = Object.keys(signed).sort().join(';');
     const canonicalRequest = [
@@ -153,6 +159,7 @@ export function openS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
       headers: {
         'x-amz-content-sha256': payloadHash,
         'x-amz-date': stamp,
+        ...extra,
         authorization,
       },
       ...(body === undefined ? {} : { body: new Uint8Array(body) }),
@@ -188,6 +195,19 @@ export function openS3BlobStore(options: S3BlobStoreOptions): S3BlobStore {
       if (response.status === 404) return null;
       if (!response.ok) return fail('stat', response);
       return { size: Number(response.headers.get('content-length') ?? '0') };
+    },
+
+    async copy(from, to) {
+      const source = `/${encode(options.bucket)}/${objectName(from).split('/').map(encode).join('/')}`;
+      const response = await call('PUT', objectPath(to), undefined, { 'x-amz-copy-source': source });
+      if (response.status === 404) {
+        await response.arrayBuffer();
+        return false;
+      }
+      if (!response.ok) return fail('copy', response);
+      // CopyObject can answer 200 and still carry an <Error> body.
+      if (/<Error>/.test(await response.text())) return fail('copy', response);
+      return true;
     },
 
     async delete(key) {

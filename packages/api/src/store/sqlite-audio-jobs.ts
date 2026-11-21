@@ -77,6 +77,9 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
     ),
     delete: db.prepare<[string, string], AudioJobRow>(`DELETE FROM audio_jobs WHERE owner = ? AND id = ? RETURNING *`),
     deleteUsage: db.prepare<[string]>(`DELETE FROM audio_usage WHERE owner = ?`),
+    deleteStale: db.prepare<[string], AudioJobRow>(
+      `DELETE FROM audio_jobs WHERE status = 'awaiting-upload' AND created_at < ? RETURNING *`,
+    ),
     deleteAll: db.prepare<[string], { id: string; audio_key: string }>(`DELETE FROM audio_jobs WHERE owner = ? RETURNING id, audio_key`),
 
     // The ledger (SIB2-139). INSERT OR IGNORE on the job id is the idempotency.
@@ -222,6 +225,9 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
         .all('worker-lost', 'the transcription worker stopped responding', at, at, maxAttempts)
         .map(toAudioJob);
       return { requeued, failed };
+    },
+    async deleteStaleUploads(beforeIso) {
+      return statements.deleteStale.all(beforeIso).map(toAudioJob);
     },
     async getById(id) {
       const row = statements.byId.get(id);

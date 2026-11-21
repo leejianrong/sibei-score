@@ -161,8 +161,8 @@ export interface MusicFont {
   box(name: MusicGlyphName): { top: number; bottom: number; height: number };
   anchor(name: MusicGlyphName, anchorName: string): Point;
   hasAnchor(name: MusicGlyphName, anchorName: string): boolean;
-  /** Place a glyph with its origin at (x, y). */
-  element(name: MusicGlyphName, x: number, y: number): SvgElement;
+  /** Place a glyph with its origin at (x, y), optionally drawn at a fraction of its size (grace notes). */
+  element(name: MusicGlyphName, x: number, y: number, size?: number): SvgElement;
 }
 
 /**
@@ -235,14 +235,39 @@ export function musicFont(data: MusicFontData): MusicFont {
      * Rewriting the path would be the alternative, and it would mean this project owning
      * a path parser and a copy of the outlines that no longer matches the font.
      */
-    element(name, x, y) {
+    element(name, x, y, size = 1) {
       return el('path', {
-        class: `se-glyph se-${name}`,
-        transform: `translate(${num(x)},${num(y)}) scale(${num(scale)},${num(-scale)})`,
+        class: size === 1 ? `se-glyph se-${name}` : `se-glyph se-grace se-${name}`,
+        transform: `translate(${num(x)},${num(y)}) scale(${num(scale * size)},${num(-scale * size)})`,
         d: data.glyphs[name].path,
         fill: '#000000',
         stroke: 'none',
       });
     },
+  };
+}
+
+/**
+ * The same face at a fraction of its size, for grace notes (SIB2-185). Every metric the engraver reads — widths, ink
+ * thicknesses, anchors, glyph boxes — scales together, and `element` draws the outline smaller, so the geometry
+ * functions written for a full-size note (`stem`, `ledgerLines`, `beamElements`) work on a grace unchanged.
+ */
+export function scaledFont(font: MusicFont, size: number): MusicFont {
+  const ink = Object.fromEntries(Object.entries(font.ink).map(([key, value]) => [key, value * size])) as unknown as Ink;
+  return {
+    data: font.data,
+    ink,
+    beamPitch: font.beamPitch * size,
+    width: (name) => font.width(name) * size,
+    box(name) {
+      const box = font.box(name);
+      return { top: box.top * size, bottom: box.bottom * size, height: box.height * size };
+    },
+    anchor(name, anchorName) {
+      const point = font.anchor(name, anchorName);
+      return { x: point.x * size, y: point.y * size };
+    },
+    hasAnchor: (name, anchorName) => font.hasAnchor(name, anchorName),
+    element: (name, x, y) => font.element(name, x, y, size),
   };
 }

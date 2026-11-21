@@ -148,6 +148,8 @@ function rowFor(bars: Bar[], score: Score, label?: string): string[] {
     // An empty bar prints no melody line. The chord grid above already shows that it exists, and a
     // blank 32-bar chart would otherwise be 32 lines of nothing — which is the opposite of compact.
     if (melody !== null) lines.push(`   ${melody}`);
+    const graces = graceLine(bar);
+    if (graces !== null) lines.push(`   ${graces}`);
     const directions = textLine(bar, score.meta.time, score);
     if (directions !== null) lines.push(`   ${directions}`);
   }
@@ -214,6 +216,24 @@ function textLine(bar: Bar, time: TimeSignature, score: Score): string | null {
       return `beat${formatBeat(beatOfOnset(note.onset, time))} ${JSON.stringify(note.text)}${line}${flag === '' ? '' : ` ${flag}`} ${note.id}`;
     });
   return `${`bar${bar.number}`.padEnd(7)}text  ${parts.join('  ')}`;
+}
+
+/**
+ * `bar2   grace  n3: d5/8s grace-1  e5/16 grace-2` — the grace notes before each note of a bar (SIB2-185): the pitch,
+ * `/value`, a trailing `s` for a slashed one (an acciaccatura), and the id `grace rm` accepts. The melody line is
+ * untouched: a grace takes no time. Only printed for a bar that has any.
+ */
+function graceLine(bar: Bar): string | null {
+  const items = orderedItems(bar);
+  const groups: string[] = [];
+  items.forEach((item, index) => {
+    if (item.kind !== 'note' || item.graces === undefined || item.graces.length === 0) return;
+    const graces = item.graces.map(
+      (grace) => `${formatPitch(grace.pitch).toLowerCase()}/${grace.value}${grace.slashed ? 's' : ''} ${grace.id}`,
+    );
+    groups.push(`n${index + 1}: ${graces.join('  ')}`);
+  });
+  return groups.length === 0 ? null : `${`bar${bar.number}`.padEnd(7)}grace  ${groups.join('  ')}`;
 }
 
 /** `bar2  n1 gb5/2  n2 f5/4 !`, or null when the bar holds nothing. */

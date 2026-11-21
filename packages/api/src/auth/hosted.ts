@@ -47,7 +47,14 @@ import { hashToken, pkceChallenge, randomToken, readCookie, sameSecret, serializ
  */
 
 export const GITHUB = 'github';
+/** The session cookie's name where the connection is plain (loopback development), and the legacy name everywhere. */
 export const SESSION_COOKIE = 'sb_session';
+/**
+ * Over https the cookie is `__Host-` prefixed: the browser then insists on `Secure`, `Path=/` and no `Domain`,
+ * so a sibling subdomain cannot plant or overwrite it. Sessions issued under the old name still work (both
+ * names are read) and are cleared whenever a session is.
+ */
+export const SECURE_SESSION_COOKIE = '__Host-sb_session';
 const LOGIN_COOKIE = 'sb_oauth';
 const AUTH_PATH = '/v1/auth/github';
 
@@ -100,7 +107,7 @@ export interface HostedAuth {
    * Answer `GET /v1/me` for a principal the server has already authenticated (V20b). Lives here rather
    * than in a route because it reads a user, and no request path may hold an `AuthStore`.
    */
-  me(response: ServerResponse, owner: string, capabilities?: Record<string, boolean>): Promise<number>;
+  me(response: ServerResponse, owner: string, capabilities?: Record<string, boolean | readonly string[]>): Promise<number>;
 }
 
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -128,8 +135,16 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
   const report = options.onError ?? (() => {});
 
   /** The user behind a session **cookie**, or `null`. Bearer tokens are not an answer here: see `auth/device.ts`. */
+  const readSession = (request: IncomingMessage): string | undefined =>
+    readCookie(request.headers.cookie, SECURE_SESSION_COOKIE) ?? readCookie(request.headers.cookie, SESSION_COOKIE);
+  /** Every name a session cookie may be under, expired. */
+  const clearSession = (): string[] => [
+    serializeCookie(SESSION_COOKIE, '', { path: '/', maxAge: 0, secure }),
+    ...(secure ? [serializeCookie(SECURE_SESSION_COOKIE, '', { path: '/', maxAge: 0, secure })] : []),
+  ];
+
   async function sessionUser(request: IncomingMessage): Promise<string | null> {
-    const token = readCookie(request.headers.cookie, SESSION_COOKIE);
+    const token = readSession(request);
     if (token === undefined) return null;
     // A missing, unknown and expired session are all the same answer to the caller: not signed in.
     const session = await auth.findSession(hashToken(token), timestamp(now));
@@ -165,7 +180,7 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
           auth,
           sessionUser,
           eraseData: options.eraseData,
-          clearSessionCookie: () => serializeCookie(SESSION_COOKIE, '', { path: '/', maxAge: 0, secure }),
+          clearSessionCookie: clearSession,
         });
 
   const oauth = createOAuthRoutes({ auth, now, origin: publicUrl.origin, sessionUser });
@@ -250,7 +265,9 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
 
     return redirect(response, '/', [
       clearLogin(),
-      serializeCookie(SESSION_COOKIE, token, { path: '/', maxAge: Math.floor(sessionTtlMs / 1000), secure }),
+      serializeCookie(secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE, token, { path: '/', maxAge: Math.floor(sessionTtlMs / 1000), secure }),
+      // A session under the legacy name is replaced, not left beside the new one.
+      ...(secure ? [serializeCookie(SESSION_COOKIE, '', { path: '/', maxAge: 0, secure })] : []),
     ]);
   }
 
@@ -295,15 +312,19 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
   }
 
   async function logout(request: IncomingMessage, response: ServerResponse): Promise<number> {
-    const token = readCookie(request.headers.cookie, SESSION_COOKIE);
+    const token = readSession(request);
     if (token !== undefined) await auth.deleteSession(hashToken(token));
-    response.setHeader('set-cookie', serializeCookie(SESSION_COOKIE, '', { path: '/', maxAge: 0, secure }));
+    response.setHeader('set-cookie', clearSession());
     response.setHeader('cache-control', 'no-store');
     response.writeHead(204).end();
     return 204;
   }
 
-  async function me(response: ServerResponse, owner: string, capabilities: Record<string, boolean> = {}): Promise<number> {
+  async function me(
+    response: ServerResponse,
+    owner: string,
+    capabilities: Record<string, boolean | readonly string[]> = {},
+  ): Promise<number> {
     const user = await auth.getUser(owner);
     // A live session whose user is gone (an account deleted under it) is not signed in either.
     if (user === null) return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
