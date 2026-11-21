@@ -6,7 +6,8 @@ import type { Exporter } from '../export/export.js';
 import type { Applier } from '../ops/applier.js';
 import type { ScoreReader } from '../store/repository.js';
 import { createServerBackend } from './backend.js';
-import { handleMcpMessage } from './protocol.js';
+import { MAX_MCP_BATCH, handleMcpMessage } from './protocol.js';
+import { toolRateClass } from './tools.js';
 import type { ToolAccess } from './tools.js';
 
 /**
@@ -35,6 +36,11 @@ export interface McpEndpointOptions {
   authenticate: Authenticator;
   /** Where the protected-resource metadata is served, for the `WWW-Authenticate` challenge. */
   resourceMetadataUrl: string;
+  /**
+   * Charge one request of a rate-limit class to a user (SEC H2). Returns the status it answered with when
+   * refused (it has already sent the 429), `null` when admitted. Absent means unlimited: a local install.
+   */
+  charge?: (response: ServerResponse, owner: string, cls: 'read' | 'write' | 'export') => Promise<number | null>;
   onError?: (message: string, error: unknown) => void;
 }
 
@@ -76,6 +82,19 @@ export function createMcpEndpoint(options: McpEndpointOptions): McpEndpoint {
 
       const body = await readJsonBody(request, response);
       if (body === MALFORMED) return 400;
+
+      // `/mcp` returns ahead of the generic per-user gate, so it spends the same budgets itself: each
+      // `tools/call` is charged to its class, anything else as a read. Charged per message, so a batch
+      // cannot buy more than separate requests would.
+      if (options.charge !== undefined) {
+        const messages = Array.isArray(body) ? (body.length > MAX_MCP_BATCH ? [] : body) : [body];
+        for (const message of messages) {
+          const call = typeof message === 'object' && message !== null ? (message as { method?: unknown; params?: { name?: unknown } }) : {};
+          const cls = call.method === 'tools/call' ? toolRateClass(call.params?.name) : 'read';
+          const refused = await options.charge(response, principal.owner, cls);
+          if (refused !== null) return refused;
+        }
+      }
 
       const backend = createServerBackend({
         owner: principal.owner,

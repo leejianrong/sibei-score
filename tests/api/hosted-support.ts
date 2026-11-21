@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import { createApi, memoryBlobStore } from '@sibei/api';
-import type { Api, AuthStore, JobStore, ScoreStore, TokenScope } from '@sibei/api';
+import type { Api, AuthStore, JobStore, Limits, ScoreStore, TokenScope } from '@sibei/api';
 import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 
 /**
@@ -44,6 +44,8 @@ export interface Hosted {
 export interface HostedOptions {
   /** The score store's clock, for a suite that compares timestamps across runs. */
   now?: () => Date;
+  /** Rate limits and quotas, for a suite about them. */
+  limits?: Limits;
 }
 
 export async function startHosted(options: HostedOptions = {}): Promise<Hosted> {
@@ -54,6 +56,7 @@ export async function startHosted(options: HostedOptions = {}): Promise<Hosted> 
     store,
     jobs,
     blobs: memoryBlobStore(),
+    ...(options.limits === undefined ? {} : { limits: options.limits }),
     logger: { request: () => {}, error: () => {} },
     hosted: {
       auth,

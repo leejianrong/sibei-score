@@ -53,6 +53,9 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (score.meta.signaturePolicy !== undefined) {
     lines.push(`  clef and key: ${score.meta.signaturePolicy === 'first' ? 'first system only' : 'first system of each page'}`);
   }
+  // The title block's extra lines (SIB2-180) are printed text too.
+  if (score.meta.subtitle !== undefined) lines.push(`  subtitle: ${JSON.stringify(score.meta.subtitle)}`);
+  if (score.meta.arranger !== undefined) lines.push(`  arranger: ${JSON.stringify(score.meta.arranger)}`);
   // The page footer is printed text a reader of the projection would otherwise never see (SIB2-172).
   if (score.meta.footer !== undefined) {
     lines.push(`  footer (${score.meta.footer.pages} pages): ${JSON.stringify(score.meta.footer.text)}`);
@@ -126,7 +129,7 @@ function header(score: Score): string {
   // cell that leaves a leading em-dash on the line. The header degrades to the key, meter and
   // length, which is the same set the printed page shows when its title band collapses (KAN-525).
   const parts = title === '' ? [] : [title];
-  if (composer !== '') parts.push(composer);
+  if (composer !== '') parts.push(composer.split('\n').join(' / '));
   parts.push(`key ${formatKeySignature(key)}, ${time.beats}/${time.beatValue}, ${bars} bars`);
   if (style !== null && style !== '') parts.push(style);
   return parts.join(' — ');

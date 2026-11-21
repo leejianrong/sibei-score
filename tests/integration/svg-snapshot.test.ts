@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, articulationsChart, everyGlyphChart, longFormChart, nastyChart, marksChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, articulationsChart, everyGlyphChart, longFormChart, nastyChart, marksChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -71,6 +71,11 @@ describe('rendered SVG', () => {
     // SIB2-183: fermatas over a low note, a high one, a rest and a whole note, with the chord band
     // lifted to clear them. Articulations (SIB2-179) join this fixture.
     snapshotScore(marksChart(), 'marks');
+  });
+
+  it('matches the committed snapshot for the title-block chart', () => {
+    // SIB2-180: a subtitle under the title, two composer lines and an arranger stacked down the right.
+    snapshotScore(titleBlockChart(), 'title-block');
   });
 
   it('matches the committed snapshot for the articulations chart', () => {

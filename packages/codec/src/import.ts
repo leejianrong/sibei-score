@@ -114,6 +114,10 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   const rights = rightsOf(root);
   if (rights !== '') score.meta.footer = { text: rights, pages: 'all' };
   if (tempo !== undefined) score.meta.tempo = tempo;
+  const subtitle = (childText(root, 'movement-title') ?? '').trim();
+  if (subtitle !== '') score.meta.subtitle = subtitle;
+  const arranger = creditsOf(root, 'arranger').join(' / ');
+  if (arranger !== '') score.meta.arranger = arranger;
   return { score, warnings };
 }
 
@@ -148,13 +152,18 @@ function rightsOf(root: XmlElement): string {
   return identification === null ? '' : (childText(identification, 'rights') ?? '').trim();
 }
 
+/** Every composer creator, one per line (SIB2-180: a second composer is a second line). */
 function composerOf(root: XmlElement): string {
+  return creditsOf(root, 'composer').join('\n');
+}
+
+function creditsOf(root: XmlElement, type: string): string[] {
   const identification = firstChild(root, 'identification');
-  if (identification === null) return '';
-  for (const creator of childElements(identification, 'creator')) {
-    if (attr(creator, 'type') === 'composer') return textContent(creator);
-  }
-  return '';
+  if (identification === null) return [];
+  return childElements(identification, 'creator')
+    .filter((creator) => attr(creator, 'type') === type)
+    .map((creator) => textContent(creator).trim())
+    .filter((line) => line !== '');
 }
 
 // ---------------------------------------------------------------------------

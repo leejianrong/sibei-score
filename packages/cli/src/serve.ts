@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { consoleLogger, createApi, createBlobSweeper, createHttpWorkerClient, createLimits, parseAudioPlans, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import { consoleLogger, createApi, createBlobSweeper, createHttpWorkerClient, createLimits, parseAudioPlans, limitsFromEnv, writeCapsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
 import type { Api, AssetSource, AudioQuotaConfig, AudioWorkerOptions, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresBlobLedger, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
@@ -598,6 +598,12 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       );
     }
   }
+  let writeCaps: ReturnType<typeof writeCapsFromEnv>;
+  try {
+    writeCaps = writeCapsFromEnv(process.env);
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'bad-limits-config', error instanceof Error ? error.message : String(error));
+  }
   const limits =
     limitsConfig === undefined
       ? undefined
@@ -613,6 +619,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   try {
     api = createApi({
       ...(limits === undefined ? {} : { limits }),
+      writeCaps,
       ...(redis === undefined ? {} : { changeBus: redis.changeBus(), jobBus: redis.jobBus() }),
       ...(allowedHosts.length === 0 ? {} : { allowedHosts }),
       store,

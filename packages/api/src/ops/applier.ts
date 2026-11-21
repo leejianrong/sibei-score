@@ -2,6 +2,9 @@ import type { Id, Score } from '@sibei/model';
 import { rejectUnknownFields } from './fields.js';
 import { applyOperation, replay, resolveLog } from './apply.js';
 import { OperationError } from './errors.js';
+import { QuotaError } from '../limits/errors.js';
+import { DEFAULT_WRITE_CAPS, checkAfterFold, checkBeforeFold } from './caps.js';
+import type { WriteCaps } from './caps.js';
 import { OPERATION_VERSION, isCreateBatch } from './operations.js';
 import type { Batch, ControlOperation, LoggedOperation, Operation, StoredOperation } from './operations.js';
 import type { Owner, ScoreReader, ScoreWriter } from '../store/repository.js';
@@ -109,6 +112,7 @@ export interface ImportResult {
 export function createApplier(
   store: ScoreReader & ScoreWriter,
   now: () => Date = () => new Date(),
+  caps: WriteCaps = DEFAULT_WRITE_CAPS,
 ): Applier {
   return {
     async apply(owner, scoreId, batch) {
@@ -132,14 +136,17 @@ export function createApplier(
         rejectUnknownFields(operation, batch.operations.length > 1 ? index : undefined);
       }
 
-      if (isCreateBatch(batch)) return await create(store, owner, batch, now);
+      if (isCreateBatch(batch)) {
+        checkBeforeFold(caps, batch.operations, 0);
+        return await create(store, owner, batch, now, caps);
+      }
 
       // Both questions are about the batch itself, so both are asked before the store is touched:
       // the answer to "is this a write I can even attempt" must not depend on which ids happen to
       // exist. It also means neither refusal can report on a score's existence.
       const id = requireId(scoreId);
       const expected = requireExpectedVersion(batch);
-      return await mutate(store, owner, id, batch, expected, now);
+      return await mutate(store, owner, id, batch, expected, now, caps);
     },
 
     async undo(owner, scoreId, expectedVersion) {
@@ -151,11 +158,11 @@ export function createApplier(
     },
 
     async duplicate(owner, scoreId, newId) {
-      return await duplicate(store, owner, scoreId, newId, now);
+      return await duplicate(store, owner, scoreId, newId, now, caps);
     },
 
     async import(owner, document) {
-      return await importDocument(store, owner, document, now);
+      return await importDocument(store, owner, document, now, caps);
     },
   };
 }
@@ -171,11 +178,13 @@ async function importDocument(
   owner: Owner,
   document: Score,
   now: () => Date,
+  caps: WriteCaps,
 ): Promise<ImportResult> {
   const applied = applyOperation(null, { type: 'score.import', payload: { document } });
 
-  const outcome = await store.create(owner, applied.score, stamp([applied.operation], now));
+  const outcome = await store.create(owner, applied.score, stamp([applied.operation], now), createOptions(caps));
   if (!outcome.ok) {
+    if (outcome.reason === 'quota') throw scoreQuota(outcome.limit);
     if (outcome.reason === 'already-exists') throw new OperationError({ kind: 'conflict-exists', id: document.id });
     throw new OperationError({ kind: 'validation', detail: `the store refused: ${outcome.reason}` });
   }
@@ -194,6 +203,7 @@ async function duplicate(
   sourceId: Id,
   newId: Id | undefined,
   now: () => Date,
+  caps: WriteCaps,
 ): Promise<DuplicateResult> {
   const source = await store.get(owner, sourceId);
   if (source === null) throw new OperationError({ kind: 'no-such-score', id: sourceId });
@@ -202,8 +212,9 @@ async function duplicate(
   const document = { ...source.score, id };
   const applied = applyOperation(null, { type: 'score.import', payload: { document } });
 
-  const outcome = await store.create(owner, applied.score, stamp([applied.operation], now));
+  const outcome = await store.create(owner, applied.score, stamp([applied.operation], now), createOptions(caps));
   if (!outcome.ok) {
+    if (outcome.reason === 'quota') throw scoreQuota(outcome.limit);
     if (outcome.reason === 'already-exists') throw new OperationError({ kind: 'conflict-exists', id });
     throw new OperationError({ kind: 'validation', detail: `the store refused: ${outcome.reason}` });
   }
@@ -334,15 +345,18 @@ async function create(
   owner: Owner,
   batch: Batch,
   now: () => Date,
+  caps: WriteCaps,
 ): Promise<ApplyResult> {
   const { score, applied, changed } = fold(null, batch.operations);
   if (score === null) {
     // Unreachable: a batch starting with score.create always produces a score.
     throw new OperationError({ kind: 'validation', detail: 'score.create produced no score' });
   }
+  checkAfterFold(caps, null, score);
 
-  const outcome = await store.create(owner, score, stamp(applied, now));
+  const outcome = await store.create(owner, score, stamp(applied, now), createOptions(caps));
   if (!outcome.ok) {
+    if (outcome.reason === 'quota') throw scoreQuota(outcome.limit);
     if (outcome.reason === 'already-exists') {
       throw new OperationError({ kind: 'conflict-exists', id: score.id });
     }
@@ -359,6 +373,7 @@ async function mutate(
   /** Never optional, which is the fix: there is no longer a fallback to fall through to. */
   expected: number,
   now: () => Date,
+  caps: WriteCaps,
 ): Promise<ApplyResult> {
   const current = await store.get(owner, scoreId);
   if (current === null) throw new OperationError({ kind: 'no-such-score', id: scoreId });
@@ -377,10 +392,12 @@ async function mutate(
   // The whole batch folds before anything is written, so an operation that throws takes the
   // entire batch with it and none of it lands (ADR-0008). Atomicity comes from this and from the
   // single transaction the store commits in, not from either alone.
+  checkBeforeFold(caps, batch.operations, current.score.bars.length);
   const { score, applied, changed } = fold(current.score, batch.operations);
   if (score === null) {
     throw new OperationError({ kind: 'validation', detail: 'the batch produced no score' });
   }
+  checkAfterFold(caps, current.score, score);
 
   const outcome = await store.commit(owner, scoreId, current.version, score, stamp(applied, now));
   if (!outcome.ok) {
@@ -431,4 +448,12 @@ function stamp(operations: readonly LoggedOperation[], now: () => Date): StoredO
     operation,
     createdAt,
   }));
+}
+
+function createOptions(caps: WriteCaps): { maxScores: number } | undefined {
+  return caps.maxScores === undefined ? undefined : { maxScores: caps.maxScores };
+}
+
+function scoreQuota(limit: number): QuotaError {
+  return new QuotaError('scores', limit, `this account holds ${limit} scores, which is the limit; delete one to make room`);
 }

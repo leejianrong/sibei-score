@@ -41,7 +41,9 @@ export function styleForRole(role: LayoutTextRole): TextStyle {
   switch (role) {
     case 'title':
       return { family: SERIF, weight: 'bold', style: 'normal' };
+    case 'subtitle':
     case 'composer':
+    case 'arranger':
     case 'style':
       return { family: SERIF, weight: 'normal', style: 'italic' };
   }

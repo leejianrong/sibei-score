@@ -116,6 +116,8 @@ export {
 } from './ops/apply.js';
 export type { Applied, UndoState } from './ops/apply.js';
 export { createApplier } from './ops/applier.js';
+export { DEFAULT_WRITE_CAPS, writeCapsFromEnv } from './ops/caps.js';
+export type { WriteCaps } from './ops/caps.js';
 export type { Applier, ApplyResult, UndoResult, DuplicateResult, ImportResult } from './ops/applier.js';
 
 // The OMR import pipeline (V10): the upload boundary, the worker port, and the job runner. The
@@ -182,7 +184,7 @@ export { serveStaticAsset } from './http/static.js';
 export type { Asset, AssetSource } from './http/static.js';
 
 // Rate limits and quotas (V23). The Redis counters and buses are the opt-in `@sibei/api/redis`.
-export { DEFAULT_LIMITS, classify, clientAddress, createLimits, DEFAULT_CLASSIFIERS } from './limits/limits.js';
+export { DEFAULT_LIMITS, addressBucket, classify, clientAddress, createLimits, DEFAULT_CLASSIFIERS } from './limits/limits.js';
 export type { Classifier, LimitRefusal, Limits, LimitsConfig, LimitsOptions, Rate, RequestClass } from './limits/limits.js';
 export { limitsFromEnv } from './limits/config.js';
 export { memoryRateLimiter } from './limits/rate-limiter.js';
