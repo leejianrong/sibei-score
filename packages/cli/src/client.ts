@@ -218,6 +218,12 @@ export interface ExportQuery {
   font?: string;
   /** The written part to render — a transposing instrument, or `concert` (the default). */
   instrument?: string;
+  /** `none` or a position such as `top-right` (SIB2-171). */
+  pagenumbers?: string;
+  /** `n`, `page` or `of`. */
+  pagenumberformat?: string;
+  /** `yes` or `no`: whether page 1 is numbered. */
+  pagenumberfirst?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */

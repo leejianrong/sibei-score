@@ -176,6 +176,8 @@ the browser's multi-edit actions — undoes as a single step. In the browser, ct
 ```sh
 sbscore export <id> [--pdf | --musicxml] [-o PATH]
                     [--paper a4|letter] [--font normal|jazz]
+                    [--page-numbers[=top-right]] [--page-number-format n|page|of]
+                    [--page-number-first yes|no]
                     [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
 ```
 
@@ -185,6 +187,12 @@ and `--font`, which are page choices. `--for` exports a transposing instrument's
 reads, transposed). Without `-o` the file is written to the working directory, named after the
 chart's title — *Body and Soul* becomes `./Body and Soul.pdf`; `-o` takes a file path, or a directory
 to put that name in.
+
+`--page-numbers` prints a number on each page of the PDF; it is off by default, so existing output is
+unchanged. Bare, it is top-right; name a place with `--page-numbers=bottom-center` (`top` or `bottom`
+with `left`, `center` or `right`). `--page-number-format` is `n` (`2`), `page` (`Page 2`) or `of`
+(`Page 2 of 3`), and `--page-number-first no` leaves page 1 bare. These are page choices, so MusicXML
+ignores them. The browser's Export rail has the same controls.
 
 ## Audio
 
