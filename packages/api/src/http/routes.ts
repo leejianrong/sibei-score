@@ -16,7 +16,7 @@ import {
   parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
-import { validateNoteEventsUpload } from '../imports/note-events.js';
+import { NOTE_EVENTS_SOURCE, validateNoteEventsUpload } from '../imports/note-events.js';
 import { multipartBoundary, parseMultipartImages, validateUpload } from '../imports/upload.js';
 import type { UploadRejection } from '../imports/upload.js';
 import type { AudioService } from '../audio/service.js';
@@ -84,6 +84,12 @@ export interface RouteContext {
  */
 export interface ImportService {
   available: boolean;
+  /**
+   * Whether this service takes photos at all (SIB2-201). `false` is a deliberate configuration, not a
+   * missing worker: a hosted deployment before photo import ships answers every image import, re-parse
+   * and image retry with a non-retryable `photo-import-unavailable`, while NoteEvents and audio carry on.
+   */
+  photoImport: boolean;
   /**
    * Store the (already validated) page images — one, or several in page order (Q26) — and enqueue one
    * job for them, returning the queued job.
@@ -423,6 +429,9 @@ async function submitImport(
   context: RouteContext,
 ): Promise<number> {
   const isNoteEvents = (request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json');
+  if (!isNoteEvents && context.imports !== undefined && !context.imports.photoImport) {
+    return send(response, photoImportUnavailable());
+  }
   // A NoteEvents document (ADR-0040) needs no OMR worker, so it skips the worker-availability check.
   if (context.imports === undefined || (!isNoteEvents && !context.imports.available)) {
     return send(response, noImportPipeline());
@@ -479,6 +488,9 @@ async function reparseScore(
   scoreId: Id,
   body: unknown,
 ): Promise<number> {
+  if (context.imports !== undefined && !context.imports.photoImport) {
+    return send(response, photoImportUnavailable());
+  }
   if (context.imports === undefined || !context.imports.available) {
     return send(response, noImportPipeline());
   }
@@ -551,6 +563,9 @@ async function retryImport(response: ServerResponse, context: RouteContext, id: 
   }
   const existing = await context.imports.reader.get(context.owner, id);
   if (existing === null) return send(response, noSuchImport(id));
+  if (!context.imports.photoImport && existing.engine !== NOTE_EVENTS_SOURCE) {
+    return send(response, photoImportUnavailable());
+  }
   if (existing.status !== 'failed') {
     return send(
       response,
@@ -728,6 +743,19 @@ function noSuchImage(id: JobId, index: string): Problem {
     404,
     'no-such-import-image',
     `import ${JSON.stringify(id)} has no source image at ${JSON.stringify(index)}`,
+  );
+}
+
+/**
+ * Photo import is switched off on this service (SIB2-201). 422, not 503: the request was readable and
+ * waiting will not change the answer, so a client must not retry. Audio and NoteEvents imports are
+ * unaffected, which the message says because that is what a person can do instead.
+ */
+function photoImportUnavailable(): Problem {
+  return problem(
+    422,
+    'photo-import-unavailable',
+    'photo import is not available on this service yet; audio import and NoteEvents .json import still work',
   );
 }
 

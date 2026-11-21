@@ -91,6 +91,8 @@ export class OfflineError extends Error {
 export interface Me {
   mode: 'local' | 'hosted';
   user?: { id: string; login: string; name: string | null };
+  /** Present, and `false`, only when this service takes no photos (SIB2-201). Absent means yes. */
+  photoImport?: boolean;
 }
 
 export async function getMe(): Promise<Me> {

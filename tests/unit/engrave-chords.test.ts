@@ -1,4 +1,5 @@
-import { chordSymbol, serialise } from '@sibei/engrave';
+import { CANONICAL_CHORD_STYLE, chordGlyphText, chordSymbol, serialise } from '@sibei/engrave';
+import type { ChordStyle } from '@sibei/engrave';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -12,8 +13,11 @@ import { describe, expect, it } from 'vitest';
  * structure the engraver builds from — nothing here measures.
  */
 
-function render(text: string, plain = false): string {
-  return serialise(chordSymbol({ text, x: 0, y: 0, size: 14, plain }));
+function render(text: string, style?: ChordStyle | boolean): string {
+  const plain = style === true;
+  return serialise(
+    chordSymbol({ text, x: 0, y: 0, size: 14, plain, ...(typeof style === 'object' ? { style } : {}) }),
+  );
 }
 
 describe('the jazz quality glyphs', () => {
@@ -58,10 +62,22 @@ describe('extensions, alterations, and the bass', () => {
     expect(render('C7alt')).toMatch(/<tspan[^>]*>7alt<\/tspan>/);
   });
 
-  it('keeps a slash bass at full size on the baseline', () => {
-    const svg = render('Ab/Eb');
+  it('keeps an inline slash bass at full size on the baseline', () => {
+    const svg = render('Ab/Eb', { ...CANONICAL_CHORD_STYLE, slash: 'inline' });
     expect(svg).toContain('>Ab/Eb<');
     expect(svg).not.toContain('tspan');
+  });
+
+  it('stacks the bass beneath a diagonal rule by default, and reads back the same label', () => {
+    const svg = render('Ab/Eb', CANONICAL_CHORD_STYLE);
+    expect(svg).toMatch(/>Ab\/<tspan[^>]*dy="[0-9.]+"[^>]*>Eb<\/tspan>/);
+    expect(chordGlyphText('Ab/Eb')).toBe('Ab/Eb');
+  });
+
+  it('carries the baseline back before the slash when a superscript came first', () => {
+    const inline = render('F7/A', { ...CANONICAL_CHORD_STYLE, slash: 'inline' });
+    expect(inline).toMatch(/<tspan dy="[0-9.]+">\/A<\/tspan>/);
+    expect(render('F7/A')).toMatch(/<tspan dy="[0-9.]+">\/<\/tspan>/);
   });
 });
 
