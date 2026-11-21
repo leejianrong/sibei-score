@@ -48,6 +48,7 @@ import { tie } from './ties.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
+  chordStyleForPreset,
   DEFAULT_TEXT_FONT,
   chordSymbol,
   headerText,
@@ -135,6 +136,8 @@ export function engravePage(
   options: Partial<EngraveOptions> = {},
 ): EngravedPage {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+  // The score's own chord symbology (SIB2-163) unless a caller named a style outright (the OMR corpus does).
+  if (options.chordStyle === undefined) opts.chordStyle = chordStyleForPreset(result.chordStyle);
   const page = result.pages[pageIndex];
   if (page === undefined) throw new Error(`no such page: ${pageIndex}`);
 

@@ -88,6 +88,7 @@ sbscore rm <id>                              # delete a chart (destroys its op l
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
                       [--footer TEXT] [--footer-pages first|last|all]
                       [--signature-policy every|first|page]
+                      [--chord-style standard|dash|words|real-book]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
@@ -105,6 +106,11 @@ a chart without the setting does), the `first` system only, or the first system 
 time signature is always printed once. Later systems that lose the prefix get the room back, so their bars
 widen. Bar numbers stay on each system. It is a logged, undoable edit with a control in the score view's
 rail, it shows in `show`, and MusicXML has no home for it.
+`--chord-style` chooses how the chart prints its chords, in the PDF and the browser alike (one render
+path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`), `dash` (`Δ7`, `-7`,
+`-7♭5`), `words` (`maj7`, `min7`, `min7♭5`, `dim`, `aug`) or `real-book` (`MA7`, `MI7`, `MI7♭5`). It is
+a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
+carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
 
 `import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
 stack); without one it is a 503 and every other feature still works (Q80). It takes several files as

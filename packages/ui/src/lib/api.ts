@@ -415,7 +415,7 @@ export async function reparseScore(id: Id, engine?: string): Promise<ImportJobVi
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
  * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
  * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
- * `ending.set`/`ending.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172 `meta.set` for the page footer only. `note.add` on its own and `score.create` exist on the
+ * `ending.set`/`ending.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163 `meta.set` for the page footer and chord style only. `note.add` on its own and `score.create` exist on the
  * server and have no UI control yet — that is booked debt (Q79), not a gap this file is meant to
  * close.
  */
@@ -465,6 +465,8 @@ export interface MetaSetPayload {
   footerPages?: 'first' | 'last' | 'all';
   /** Where the clef and key signature are drawn (SIB2-173). */
   signaturePolicy?: 'every' | 'first' | 'page';
+  /** The chord symbology (SIB2-163); `standard` clears it. */
+  chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
 }
 
 export type Operation =

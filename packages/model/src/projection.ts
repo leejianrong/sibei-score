@@ -46,6 +46,8 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
     lines.push(`  footer (${score.meta.footer.pages} pages): ${JSON.stringify(score.meta.footer.text)}`);
   }
 
+  if (score.meta.chordStyle !== undefined) lines.push(`  chord style: ${score.meta.chordStyle}`);
+
   // The wording lives in `review.ts`, not here, because the score rail says the same sentence
   // (V4b): the engraver draws no flag, so the chrome carries review state and must carry it in
   // the projection's own vocabulary rather than inventing a second one.

@@ -232,6 +232,13 @@ export interface ScoreMeta {
    * before. Optional-and-absent, like `footer`, so no stored document changes and `SCHEMA_VERSION` stays.
    */
   signaturePolicy?: SignaturePolicy;
+  /**
+   * The chord symbology the score prints in (SIB2-163): `-7` vs `m7` vs `MI7`, `Δ` vs `maj7`. Absent
+   * means `standard`, the style every surface drew before — optional rather than backfilled, so no
+   * existing document changes and `SCHEMA_VERSION` stays (ADR-0028). It is a *rendering* choice: the
+   * chord text itself stays the one canonical spelling (ADR-0012), so MusicXML and `show` are unmoved.
+   */
+  chordStyle?: ChordStylePreset;
 }
 
 /**
@@ -241,6 +248,11 @@ export interface ScoreMeta {
 export type SignaturePolicy = 'every' | 'first' | 'page';
 
 export const SIGNATURE_POLICIES: readonly SignaturePolicy[] = ['every', 'first', 'page'];
+
+/** The named chord symbologies. `standard` is the default and is stored as absence. */
+export type ChordStylePreset = 'standard' | 'dash' | 'words' | 'real-book';
+
+export const CHORD_STYLE_PRESETS: readonly ChordStylePreset[] = ['standard', 'dash', 'words', 'real-book'];
 
 /** Which pages carry the footer. `all` is the default a plain `--footer` means. */
 export type FooterPages = 'first' | 'last' | 'all';
