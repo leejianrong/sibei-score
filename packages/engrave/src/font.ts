@@ -56,6 +56,8 @@ export type MusicGlyphName =
   | 'accidentalNatural'
   | 'accidentalSharp'
   | 'accidentalDoubleSharp'
+  | 'accidentalParensLeft'
+  | 'accidentalParensRight'
   | 'augmentationDot'
   | 'restWhole'
   | 'restHalf'
@@ -65,6 +67,7 @@ export type MusicGlyphName =
   | 'rest32nd'
   | 'gClef'
   | 'repeatDot'
+  | 'fermataAbove'
   | `timeSig${Digit}`
   | `tuplet${Digit}`;
 

@@ -252,7 +252,7 @@ function noteElement(note: Note, bar: Bar, slurs: SlurMark[]): XmlElement {
     ...dots(note.duration.dots),
     accidentalElement(note),
     timeModification(tuplet),
-    notations(note, bar, tuplet, undefined, slurs),
+    notations(note, bar, tuplet, undefined, slurs, note.fermata === true),
   ];
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
 }
@@ -266,7 +266,7 @@ function restElement(rest: Rest, bar: Bar): XmlElement {
     leaf('type', NOTE_TYPE[rest.duration.value]),
     ...dots(rest.duration.dots),
     timeModification(tuplet),
-    notations(null, bar, tuplet, rest.id),
+    notations(null, bar, tuplet, rest.id, [], rest.fermata === true),
   ].filter((c): c is XmlElement => c !== null));
 }
 
@@ -280,13 +280,16 @@ function pitchElement(note: Note): XmlElement {
 
 /**
  * `<accidental>` is emitted only when a note is displaced and its display is not hidden. This is the
- * lossy edge: our three-way `accidental` ('auto'/'show'/'hide') has no MusicXML counterpart, so the
- * round-trip normalises it — the case is named in a test rather than pretended away.
+ * lossy edge: our `accidental` display ('auto'/'show'/'hide') has no MusicXML counterpart, so the
+ * round-trip normalises it (`parens` is the exception: it is `parentheses="yes"` and survives) — the case is named in a test rather than pretended away.
  */
 function accidentalElement(note: Note): XmlElement | null {
-  if (note.accidental === 'hide' || note.pitch.alter === 0) return null;
-  const name = ACCIDENTAL_NAME[note.pitch.alter];
-  return name === undefined ? null : leaf('accidental', name);
+  const parens = note.accidental === 'parens';
+  if (note.accidental === 'hide' || (note.pitch.alter === 0 && !parens)) return null;
+  // A parenthesised accidental is `parentheses="yes"` (SIB2-182), which survives; a cautionary natural
+  // needs its own element since a natural has no alter.
+  const name = note.pitch.alter === 0 ? 'natural' : ACCIDENTAL_NAME[note.pitch.alter];
+  return name === undefined ? null : leaf('accidental', name, parens ? { parentheses: 'yes' } : {});
 }
 
 const ACCIDENTAL_NAME: Record<number, string> = {
@@ -322,6 +325,7 @@ function notations(
   tuplet: Tuplet | null,
   restId?: string,
   slurs: SlurMark[] = [],
+  held = false,
 ): XmlElement | null {
   const parts: XmlElement[] = [];
 
@@ -329,6 +333,9 @@ function notations(
     if (note.tie === 'stop' || note.tie === 'both') parts.push(elem('tied', { type: 'stop' }));
     if (note.tie === 'start' || note.tie === 'both') parts.push(elem('tied', { type: 'start' }));
   }
+
+  // `<fermata type="upright"/>` is the hold above the note or rest (SIB2-183).
+  if (held) parts.push(elem('fermata', { type: 'upright' }));
 
   for (const slur of slurs) {
     parts.push(

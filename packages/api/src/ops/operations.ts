@@ -240,6 +240,13 @@ export interface SlurSetPayload {
 /** Remove a slur, named by its id (`slur-2`, which `show` prints) or by the note it starts on. */
 export type SlurRmPayload = Record<string, never>;
 
+/**
+ * A fermata over the target note or rest (SIB2-183). Setting one that is already there changes nothing;
+ * `fermata.rm` on an item with none is refused so a typo does not read as success.
+ */
+export type FermataSetPayload = Record<string, never>;
+export type FermataRmPayload = Record<string, never>;
+
 /** A line-break override on a bar (SIB2-174). `after` is the default: end the line after this bar. */
 export interface BreakSetPayload {
   kind?: 'after' | 'join';
@@ -313,6 +320,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string; payload?: TupletRmPayload }
   | { type: 'break.set'; target: string; payload?: BreakSetPayload }
   | { type: 'break.rm'; target: string; payload?: BreakRmPayload }
+  | { type: 'fermata.set'; target: string; payload?: FermataSetPayload }
+  | { type: 'fermata.rm'; target: string; payload?: FermataRmPayload }
   | { type: 'slur.set'; target: string; payload: SlurSetPayload }
   | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
@@ -342,6 +351,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'tuplet.rm',
   'break.set',
   'break.rm',
+  'fermata.set',
+  'fermata.rm',
   'slur.set',
   'slur.rm',
   'bar.add',

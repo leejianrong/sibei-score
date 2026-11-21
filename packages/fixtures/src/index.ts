@@ -4,4 +4,5 @@ export * from './long-form-chart.js';
 export * from './nasty-chart.js';
 export * from './registry.js';
 export * from './simple-charts.js';
+export * from './marks-chart.js';
 export * from './slur-chart.js';

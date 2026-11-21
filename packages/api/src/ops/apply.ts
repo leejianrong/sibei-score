@@ -194,6 +194,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setBreak(score, operation.target, operation.payload ?? {});
     case 'break.rm':
       return removeBreak(score, operation.target);
+    case 'fermata.set':
+      return setFermata(score, operation.target, true);
+    case 'fermata.rm':
+      return setFermata(score, operation.target, false);
     case 'slur.set':
       return setSlur(score, operation.target, operation.payload);
     case 'slur.rm':
@@ -983,6 +987,36 @@ function removeEnding(score: Score, target: string): Applied {
 }
 
 // ---------------------------------------------------------------------------
+// fermata.set, fermata.rm (SIB2-183)
+// ---------------------------------------------------------------------------
+
+/** Put a fermata on a note or rest, or take it off. Absent is the off state, never `fermata: false`. */
+function setFermata(score: Score, target: string, on: boolean): Applied {
+  const resolved = resolveAddress(score, target, 'item');
+  const item = resolved.target as BarItem;
+  if (!on && item.fermata !== true) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} has no fermata, so there is nothing to remove`,
+    });
+  }
+  const updated: BarItem = on ? { ...item, fermata: true } : withoutFermata(item);
+  return {
+    score: mapBar(score, resolved.bar.id, (bar) => ({
+      ...bar,
+      items: bar.items.map((other) => (other.id === item.id ? updated : other)),
+    })),
+    operation: { type: on ? 'fermata.set' : 'fermata.rm', target },
+    changed: [item.id],
+  };
+}
+
+function withoutFermata(item: BarItem): BarItem {
+  const { fermata: _gone, ...rest } = item;
+  return rest as BarItem;
+}
+
+// ---------------------------------------------------------------------------
 // slur.set, slur.rm (SIB2-167)
 // ---------------------------------------------------------------------------
 
@@ -1353,7 +1387,7 @@ function reflag(bar: Bar): Bar {
 
 const NOTE_VALUES = [1, 2, 4, 8, 16, 32];
 
-const ACCIDENTAL_DISPLAYS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide'];
+const ACCIDENTAL_DISPLAYS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide', 'parens'];
 const TIE_ROLES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 
 // These three used to be spread through raw, so `accidental: "cautionary"` was stored and answered

@@ -97,8 +97,12 @@ export type Confidence = number | null;
 // Bar contents
 // ---------------------------------------------------------------------------
 
-/** Whether an accidental is drawn. `auto` derives it from the key signature. */
-export type AccidentalDisplay = 'auto' | 'show' | 'hide';
+/**
+ * Whether an accidental is drawn. `auto` derives it from the key signature; `show` always draws it; `hide`
+ * never does; `parens` always draws it in parentheses, a cautionary accidental (SIB2-182). Additive: a value
+ * an older reader does not know is only ever written by a newer op.
+ */
+export type AccidentalDisplay = 'auto' | 'show' | 'hide' | 'parens';
 
 /** A tie may start on a note, end on it, or both when it is mid-chain. */
 export type TieRole = 'none' | 'start' | 'stop' | 'both';
@@ -114,6 +118,11 @@ export interface Note {
   tie: TieRole;
   /** An explicit spelling that survives transposition (ADR-0017). */
   spellingPinned: boolean;
+  /**
+   * A fermata (hold) over this note (SIB2-183). Optional-and-absent — `true` or missing, never `false` — so no
+   * stored document changes shape and `SCHEMA_VERSION` stays (ADR-0028). Playback length is not modelled.
+   */
+  fermata?: boolean;
   confidence: Confidence;
   review: Review;
 }
@@ -124,6 +133,8 @@ export interface Rest {
   id: Id;
   onset: number;
   duration: Duration;
+  /** A fermata over this rest (SIB2-183); optional-and-absent like a note's. */
+  fermata?: boolean;
   confidence: Confidence;
   review: Review;
 }

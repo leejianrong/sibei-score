@@ -46,6 +46,7 @@ import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
 import { slur } from './slurs.js';
+import { fermata } from './marks.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -53,6 +54,7 @@ import {
   DEFAULT_TEXT_FONT,
   chordSymbol,
   headerText,
+  rehearsalBoxWidth,
   rehearsalMark,
   text,
 } from './text.js';
@@ -362,15 +364,35 @@ function engraveBar(
         break;
       }
 
-      case 'rehearsalMark':
+      case 'rehearsalMark': {
         hasRehearsalMark = true;
-        rehearsalRight = bar.x + options.rehearsalFontSize * (0.72 * item.text.length + 0.8);
-        before.push(
-          // The top of the band, not a baseline: the box's own padding is the adapter's
-          // to allow for, and layout reserved the band from `bands.top` down.
-          ...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize),
-        );
+        // The top of the band, not a baseline: the box's own padding is the adapter's
+        // to allow for, and layout reserved the band from `bands.top` down.
+        if (item.text !== '') {
+          before.push(...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize));
+        }
+        // The section's name (SIB2-176) is boxed beside the letter, or alone when it has no letter.
+        const letterWidth =
+          item.text === '' ? 0 : rehearsalBoxWidth(item.text, options.rehearsalFontSize) + options.rehearsalFontSize * 0.4;
+        // Where the boxes end, so a tempo mark on the same bar starts clear of them.
+        rehearsalRight =
+          bar.x +
+          letterWidth +
+          (item.name === undefined ? 0 : rehearsalBoxWidth(item.name, options.rehearsalFontSize));
+        if (item.name !== undefined) {
+          before.push(
+            ...rehearsalMark(
+              item.name,
+              bar.x + letterWidth,
+              bands.top,
+              options.rehearsalFontSize,
+              'se-sectionnamebox',
+              'se-sectionname',
+            ),
+          );
+        }
         break;
+      }
 
       case 'barline':
         // After the clef and key signature, not before them: a repeat sign belongs to
@@ -473,6 +495,18 @@ function engraveBar(
     // sized from the notehead's own box rather than a measurement (ADR-0015).
     if (entry.item.flagged) shading.push(flaggedItemShade(note.x, font.width(note.glyph), staveY));
     ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
+    if (entry.item.fermata === true) {
+      const headTop = positionY(note.position, staveY) - units(0.5);
+      const up = note.stem !== null && note.stem.direction === 'up';
+      ink.push(
+        fermata(font, {
+          x: note.x,
+          width: font.width(note.glyph),
+          staveY,
+          inkTopY: entry.item.kind === 'rest' ? null : up && note.stem !== null ? Math.min(headTop, note.stem.endY) : headTop,
+        }),
+      );
+    }
   }
 
   for (const spec of tuplets) {
@@ -675,7 +709,17 @@ function noteInk(
       // Spacing already reserved exactly this much room to the left of the notehead, so
       // the accidental lands in it rather than on top of whatever came before.
       const glyph = accidentalGlyph(note.item.accidentalGlyph);
-      elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), y));
+      if (note.item.accidental === 'parens') {
+        // A cautionary accidental (SIB2-182): the accidental between two SMuFL brackets, the pair
+        // sitting in the room spacing reserved (`parensWidth`).
+        const right = note.x - ACCIDENTAL_GAP - font.width('accidentalParensRight');
+        const glyphX = right - font.width(glyph);
+        elements.push(font.element('accidentalParensRight', right, y));
+        elements.push(font.element(glyph, glyphX, y));
+        elements.push(font.element('accidentalParensLeft', glyphX - font.width('accidentalParensLeft'), y));
+      } else {
+        elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), y));
+      }
     }
   }
 

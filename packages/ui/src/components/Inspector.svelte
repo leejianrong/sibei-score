@@ -30,12 +30,15 @@
     tie: TieRole;
     /** Whether this note's spelling is pinned against transposition (ADR-0017). V6e. */
     spellingPinned: boolean;
+    /** Whether a fermata sits over this note (SIB2-183). */
+    fermata: boolean;
   }
 
   export interface RestSelection {
     kind: 'rest';
     id: Id;
     duration: Duration;
+    fermata: boolean;
   }
 
   export type Selection = NoteSelection | RestSelection;
@@ -68,6 +71,7 @@
     pendingSlur?: { with: Id } | null;
     /** The slurs that begin or end on this note, each removable. */
     slurs?: readonly Spanner[];
+    onfermata?: (on: boolean) => void;
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
@@ -88,6 +92,7 @@
     error,
     pendingSlur = null,
     slurs = [],
+    onfermata,
     onslur,
     onrmslur,
     onsave,
@@ -117,7 +122,7 @@
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOT_COUNTS: readonly Dots[] = [0, 1, 2];
-  const ACCIDENTALS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide'];
+  const ACCIDENTALS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide', 'parens'];
 
   // Seeded from the selection once: `ScoreView` mounts a fresh `Inspector` per selection (keyed
   // on its id), so these never need to notice a *different* item arriving — only edits to this
@@ -222,7 +227,7 @@
           label="Accidental display"
           options={ACCIDENTALS}
           value={accidental}
-          display={(option) => option.charAt(0).toUpperCase() + option.slice(1)}
+          display={(option) => (option === 'parens' ? '(♯)' : option.charAt(0).toUpperCase() + option.slice(1))}
           onselect={(chosen) => (accidental = chosen)}
         />
       </div>
@@ -239,6 +244,19 @@
         </span>
       </label>
     {/if}
+
+    <label class="pin">
+      <input
+        type="checkbox"
+        checked={selection.fermata}
+        disabled={saving}
+        onchange={(event) => onfermata?.((event.currentTarget as HTMLInputElement).checked)}
+      />
+      <span class="pin-text">
+        Fermata
+        <em>A hold sign over this {selection.kind}. Applies at once, like the slur controls.</em>
+      </span>
+    </label>
 
     {#if selection.kind === 'note'}
       <div class="field slur-field">

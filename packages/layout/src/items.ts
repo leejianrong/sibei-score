@@ -50,7 +50,10 @@ export interface BarNumberItem {
 export interface RehearsalMarkItem {
   kind: 'rehearsalMark';
   sectionId: Id;
+  /** The letter, or '' for a section that has only a name. */
   text: string;
+  /** The section's name (SIB2-176), boxed beside the letter; absent when the section has none. */
+  name?: string;
 }
 
 /** The tempo mark (SIB2-177): on the score's first bar only, above the staff, after any rehearsal box. */
@@ -81,6 +84,8 @@ export interface NoteItem {
   tie: TieRole;
   tupletId: Id | null;
   flagged: boolean;
+  /** A fermata above this note (SIB2-183). */
+  fermata?: boolean;
 }
 
 export interface RestItem {
@@ -91,6 +96,8 @@ export interface RestItem {
   duration: Duration;
   tupletId: Id | null;
   flagged: boolean;
+  /** A fermata above this rest (SIB2-183). */
+  fermata?: boolean;
 }
 
 export interface ChordSymbolItem {

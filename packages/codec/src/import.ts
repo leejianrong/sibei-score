@@ -237,6 +237,8 @@ class PartReader {
             break;
           }
           const parsed = this.readNote(child, cursor);
+          const notations = firstChild(child, 'notations');
+          if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
           items.push(parsed.item);
           this.readSlurs(child, parsed.item);
           openTuplet = this.trackTuplet(openTuplet, tuplets, parsed);
@@ -411,6 +413,9 @@ class PartReader {
     const step = (childText(pitch, 'step') ?? 'C') as Step;
     const alter = clampAlter(Number(childText(pitch, 'alter') ?? 0));
     const octave = Number(childText(pitch, 'octave') ?? 4);
+    // `<accidental parentheses="yes">` is a cautionary accidental (SIB2-182).
+    const written = firstChild(el, 'accidental');
+    const cautionary = written !== null && attr(written, 'parentheses') === 'yes';
 
     return {
       item: makeNote({
@@ -419,6 +424,7 @@ class PartReader {
         duration: { value, dots },
         pitch: { step, alter, octave },
         tie: tieOf(el),
+        ...(cautionary ? { accidental: 'parens' as const } : {}),
       }),
       ticks,
       tuplet,

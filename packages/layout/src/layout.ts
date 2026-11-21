@@ -122,7 +122,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           bars,
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
           hasRehearsalMark:
-            bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null) ||
+            bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))) ||
             // The tempo mark takes the same band as a rehearsal letter (SIB2-177).
             (index === 0 && score.meta.tempo !== undefined),
         },
@@ -282,6 +282,11 @@ function buildHeader(score: Score, spec: PageSpec): LayoutText[] {
 // Bar contents
 // ---------------------------------------------------------------------------
 
+/** A section draws a mark when it has a letter or a name (SIB2-176); a name alone is boxed by itself. */
+function hasMark(section: { letter: string | null; name: string | null } | null): boolean {
+  return section !== null && (section.letter != null || (section.name != null && section.name !== ''));
+}
+
 function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
   const { bar } = entry;
   return {
@@ -317,11 +322,19 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
   }
 
   const section = sectionStartingAt(score, bar.number);
-  if (section !== null && section.letter !== null) {
-    items.push({ kind: 'rehearsalMark', sectionId: section.id, text: section.letter });
+  if (section !== null && hasMark(section)) {
+    items.push({
+      kind: 'rehearsalMark',
+      sectionId: section.id,
+      text: section.letter ?? '',
+      // A name that only repeats the letter ("A" beside A) adds nothing, so it is not boxed twice.
+      ...(section.name && section.name !== section.letter ? { name: section.name } : {}),
+    });
   }
 
-  if (score.meta.tempo !== undefined && bar.id === score.bars[0]?.id) {
+  // On the first numbered bar, not a pickup: a pickup is a stub of a bar, and a mark that long would run into the
+  // next bar's rehearsal box. A pickup chart's mark therefore starts just after the pickup.
+  if (score.meta.tempo !== undefined && bar.id === (score.bars.find((b) => b.number !== 0) ?? score.bars[0])?.id) {
     items.push({ kind: 'tempo', unit: score.meta.tempo.unit, bpm: score.meta.tempo.bpm });
   }
 
@@ -346,6 +359,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
         tie: item.tie,
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,
+        ...(item.fermata === true ? { fermata: true } : {}),
       });
     } else {
       items.push({
@@ -356,6 +370,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
         duration: item.duration,
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,
+        ...(item.fermata === true ? { fermata: true } : {}),
       });
     }
   }

@@ -102,8 +102,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
-  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
-  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
+  sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
@@ -120,6 +120,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore fermata set <id> <address>      a fermata over a note or rest
+  sbscore fermata rm  <id> <address>
   sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]   bracket --over items from <address>: --notes in the time of --in
   sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
@@ -293,6 +295,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'fermata':
+      return fermata(flags, client, io, json);
     case 'tuplet':
       return tuplet(flags, client, io, json);
     case 'slur':
@@ -798,18 +802,19 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
       pitch: required(flags, 'pitch', 'note add'),
       duration: parseDuration(required(flags, 'dur', 'note add')),
       ...tieOf(flags),
+      ...accidentalOf(flags),
       ...spellOf(flags),
     };
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags), ...spellOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags) };
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --spell');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }
@@ -1020,6 +1025,17 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
   throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
 }
 
+/** `sbscore fermata set|rm <id> <address>` (SIB2-183): a hold over a note or a rest, by the address `show` prints. */
+async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `fermata ${sub}`);
+  const target = requiredPositional(flags, 3, 'a note or rest address', `fermata ${sub}`);
+  if (sub === 'set' || sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: `fermata.${sub}`, target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'fermata takes set or rm');
+}
+
 /**
  * `sbscore tuplet set <id> bar3.beat2 --notes 3 --in 2 --over 3` and `tuplet rm <id> bar3.beat2`
  * (SIB2-166). `--notes` written in the time of `--in` (a triplet is 3 in 2); `--in` defaults to the
@@ -1213,6 +1229,17 @@ function tieOf(flags: Flags): { tie?: string } {
     throw new CliError(EXIT.usage, 'usage', '--tie takes none, start, stop or both');
   }
   return { tie };
+}
+
+/**
+ * `--accidental auto|show|hide|paren` (SIB2-182): whether and how the note's accidental is drawn.
+ * `paren` (or `parens`) is the stored `parens` display, a cautionary accidental in parentheses. Anything
+ * else passes through for the server, which owns the list, to judge.
+ */
+function accidentalOf(flags: Flags): { accidental?: string } {
+  const accidental = flags.options.get('accidental');
+  if (accidental === undefined) return {};
+  return { accidental: accidental === 'paren' ? 'parens' : accidental };
 }
 
 /**
