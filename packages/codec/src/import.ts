@@ -13,7 +13,7 @@
  * document is not the place to be strict — the model stores and flags, it does not reject.
  */
 
-import { makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
+import { MAX_TEMPO, MIN_TEMPO, makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
 import type {
   Alter,
   BarItem,
@@ -26,6 +26,7 @@ import type {
   Section,
   Spanner,
   Step,
+  Tempo,
   TieRole,
   Tuplet,
 } from '@sibei/model';
@@ -87,7 +88,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   if (measures.length === 0) throw new ImportError('the part has no <measure>');
 
   const reader = new PartReader(warnings);
-  const { bars, sections, spanners, key, time } = reader.read(measures);
+  const { bars, sections, spanners, key, time, tempo } = reader.read(measures);
 
   const score = makeScore({
     id: options.id ?? 'imported',
@@ -103,6 +104,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   if (spanners.length > 0) score.spanners = spanners;
   const rights = rightsOf(root);
   if (rights !== '') score.meta.footer = { text: rights, pages: 'all' };
+  if (tempo !== undefined) score.meta.tempo = tempo;
   return { score, warnings };
 }
 
@@ -130,6 +132,7 @@ interface ReadResult {
   spanners: Spanner[];
   key: KeySignature;
   time: { beats: number; beatValue: NoteValue };
+  tempo: Tempo | undefined;
 }
 
 /** A tuplet being accumulated across consecutive time-modified notes. */
@@ -145,6 +148,8 @@ class PartReader {
   private key: KeySignature = { tonic: 'C', alter: 0, mode: 'major' };
   private time: { beats: number; beatValue: NoteValue } = { beats: 4, beatValue: 4 };
   private sawAttributes = false;
+  /** The first metronome mark (SIB2-177); later ones in the piece are dropped, one tempo per score. */
+  private tempo: Tempo | undefined;
   /** Slurs begun and not yet stopped, by MusicXML `number` (SIB2-167). */
   private openSlurs = new Map<number, { startId: string; placement?: 'above' | 'below' }>();
   private spanners: Spanner[] = [];
@@ -177,7 +182,7 @@ class PartReader {
     });
 
     if (this.openSlurs.size > 0) this.note('a slur that never stopped was dropped');
-    return { bars, sections, spanners: this.spanners, key: this.key, time: this.time };
+    return { bars, sections, spanners: this.spanners, key: this.key, time: this.time, tempo: this.tempo };
   }
 
   private readMeasure(measure: XmlElement, index: number, sections: Section[]): ReturnType<typeof makeBar> {
@@ -253,6 +258,7 @@ class PartReader {
               text: words,
             });
           }
+          if (this.tempo === undefined) this.tempo = this.metronomeOf(child);
           const letter = this.rehearsalOf(child);
           if (letter !== null && !sections.some((s) => s.startBar === number)) {
             sections.push(makeSection({ id: this.id('section'), startBar: number, letter }));
@@ -463,6 +469,21 @@ class PartReader {
       }
     }
     return null;
+  }
+
+  /** A `<metronome>` with a beat unit and a per-minute number, or undefined (a range or a tied pair is skipped). */
+  private metronomeOf(direction: XmlElement): Tempo | undefined {
+    for (const type of childElements(direction, 'direction-type')) {
+      const metronome = firstChild(type, 'metronome');
+      if (metronome === null) continue;
+      const unit = childText(metronome, 'beat-unit');
+      const value = unit === null ? undefined : ({ whole: 1, half: 2, quarter: 4, eighth: 8 } as const)[unit as 'whole'];
+      const bpm = Number(childText(metronome, 'per-minute'));
+      if (value === undefined || !Number.isInteger(bpm) || bpm < MIN_TEMPO || bpm > MAX_TEMPO) continue;
+      const dots = firstChild(metronome, 'beat-unit-dot') === null ? 0 : 1;
+      return { unit: { value, dots }, bpm };
+    }
+    return undefined;
   }
 
   private startsNewSystem(measure: XmlElement): boolean {

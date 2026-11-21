@@ -57,6 +57,7 @@ import {
   rehearsalMark,
   text,
 } from './text.js';
+import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
 /**
@@ -300,6 +301,7 @@ function engraveBar(
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
+  let rehearsalRight: number | null = null;
 
   for (const item of bar.items) {
     switch (item.kind) {
@@ -335,8 +337,25 @@ function engraveBar(
         );
         break;
 
+      case 'tempo': {
+        hasRehearsalMark = true;
+        // After the clef, key and time signature, and clear of a rehearsal box on the same bar.
+        const afterBox = rehearsalRight === null ? 0 : rehearsalRight - bar.x + units(1);
+        before.push(
+          ...tempoMark(
+            font,
+            item,
+            bar.x + Math.max(bar.prefixWidth + units(0.5), afterBox),
+            bands.top,
+            options.rehearsalFontSize,
+          ),
+        );
+        break;
+      }
+
       case 'rehearsalMark':
         hasRehearsalMark = true;
+        rehearsalRight = bar.x + options.rehearsalFontSize * (0.72 * item.text.length + 0.8);
         before.push(
           // The top of the band, not a baseline: the box's own padding is the adapter's
           // to allow for, and layout reserved the band from `bands.top` down.

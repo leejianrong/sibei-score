@@ -89,6 +89,7 @@ sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4
                       [--footer TEXT] [--footer-pages first|last|all]
                       [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
+                      [--tempo 4=120]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
@@ -111,6 +112,12 @@ path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`)
 `-7♭5`), `words` (`maj7`, `min7`, `min7♭5`, `dim`, `aug`) or `real-book` (`MA7`, `MI7`, `MI7♭5`). It is
 a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
 carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
+
+`--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (`4=120`, `4.=60` for a
+dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text
+`--style` line, and it is notation only: nothing plays. MusicXML carries it as a `<metronome>` and a
+`<sound tempo>` (in quarter notes a minute) on the first measure, and reads it back. It is a logged, undoable
+edit, it shows in `show` as `tempo: 4=120`, and the score view's rail has a Tempo control.
 
 `import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
 stack); without one it is a 503 and every other feature still works (Q80). It takes several files as
@@ -203,6 +210,8 @@ sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|
 sbscore repeat set <id> <startBar> <endBar>                      # a repeat pair around startBar..endBar
 sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
 sbscore ending rm  <id> <bar>
+sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]       # bracket --over items from <address> as --notes in the time of --in
+sbscore tuplet rm  <id> <address>
 sbscore break set <id> <bar> [--join]                            # end the line after <bar>; --join: a section shares the line
 sbscore break rm  <id> <bar>
 ```
@@ -210,6 +219,12 @@ sbscore break rm  <id> <bar>
 `bar add --after bar8` puts new empty bars after bar 8; every later bar's number goes up (and a section
 starting there moves with it), while ids stay. `bar rm` refuses a bar that holds notes, chords, text, an
 ending or a section start. Both are undoable.
+
+**Tuplets.** Write the notes at their written values, then bracket them: `tuplet set <id> bar3.beat2 --notes 3 --in 2 --over 3`
+makes the three items from beat 2 a triplet (3 in the time of 2). The run closes up to its scaled length and later
+items in the bar follow, so a bar of one quarter, three eighths and two quarters fills 4/4. `--in` defaults to the power
+of two below `--notes`, `--over` to `--notes`. `tuplet rm <id> <any member>` restores the written lengths. One op, so
+one undo; nested tuplets are refused. The browser has the same under Selected, on a note or rest.
 
 **Line breaks.** The layout is a four-bar grid with a forced break at each section (ADR-0015). A chart can say
 otherwise: `break set <id> bar6` ends the line after bar 6 (the grid carries on from bar 7); `break set <id>

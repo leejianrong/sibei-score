@@ -40,7 +40,7 @@
     submitOps,
     undoScore,
   } from '../lib/api.js';
-  import type { ExportFormat, ExportInstrument, Operation } from '../lib/api.js';
+  import type { ExportFormat, ExportInstrument, MetaSetPayload, Operation } from '../lib/api.js';
   import { TARGET_KEYS, keyEquals } from '../lib/keys.js';
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
@@ -167,6 +167,33 @@
         (footerDraft !== '' && footerPagesDraft !== (score.meta.footer?.pages ?? 'all'))),
   );
 
+  // The title block (SIB2-178): title, composer and the style or tempo line. Drafts the reader edits and
+  // saves as one `meta.set` of whichever fields changed; re-seeded from the chart after every change.
+  let titleDraft = $state('');
+  let composerDraft = $state('');
+  let styleDraft = $state('');
+  $effect(() => {
+    titleDraft = score?.meta.title ?? '';
+    composerDraft = score?.meta.composer ?? '';
+    styleDraft = score?.meta.style ?? '';
+  });
+  const titleBlockDirty = $derived(
+    score !== null &&
+      (titleDraft !== score.meta.title ||
+        composerDraft !== score.meta.composer ||
+        styleDraft.trim() !== (score.meta.style ?? '')),
+  );
+
+  async function handleTitleBlockSave(): Promise<void> {
+    if (score === null || !titleBlockDirty) return;
+    const payload: MetaSetPayload = {};
+    if (titleDraft !== score.meta.title) payload.title = titleDraft;
+    if (composerDraft !== score.meta.composer) payload.composer = composerDraft;
+    if (styleDraft.trim() !== (score.meta.style ?? '')) payload.style = styleDraft.trim() === '' ? null : styleDraft.trim();
+    deselect();
+    await runOps([{ type: 'meta.set', payload }]);
+  }
+
   async function handleBarsPerSystem(count: number): Promise<void> {
     if (score === null || count === (score.meta.barsPerSystem ?? 4)) return;
     deselect();
@@ -188,6 +215,35 @@
         payload: footerDraft.trim() === '' ? { footer: null } : { footer: footerDraft, footerPages: footerPagesDraft },
       },
     ]);
+  }
+
+  // The tempo mark (SIB2-177): a beat unit and a number, saved as a `meta.set`, re-seeded from the chart.
+  let tempoUnit = $state('4');
+  let tempoBpm = $state('');
+  $effect(() => {
+    const tempo = score?.meta.tempo;
+    tempoUnit = tempo === undefined ? '4' : `${tempo.unit.value}${tempo.unit.dots === 1 ? '.' : ''}`;
+    tempoBpm = tempo === undefined ? '' : String(tempo.bpm);
+  });
+  async function handleTempoSave(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([
+      {
+        type: 'meta.set',
+        payload: {
+          tempo: {
+            unit: { value: Number(tempoUnit.replace('.', '')), dots: tempoUnit.endsWith('.') ? 1 : 0 },
+            bpm: Number(tempoBpm),
+          },
+        },
+      },
+    ]);
+  }
+  async function handleTempoRemove(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { tempo: null } }]);
   }
 
   async function handleChordStyle(event: Event): Promise<void> {
@@ -286,6 +342,16 @@
       }
     }
     return false;
+  }
+
+  /** The tuplet an item sits in, from the stored score (SIB2-166). */
+  function tupletOfItem(itemId: Id): { actual: number; normal: number } | null {
+    if (score === null) return null;
+    for (const bar of score.bars) {
+      const found = bar.tuplets.find((t) => t.memberIds.includes(itemId));
+      if (found !== undefined) return { actual: found.actual, normal: found.normal };
+    }
+    return null;
   }
 
   /** A chord's spelling pin, looked up from the stored score by id (the seed for the chord inspector). */
@@ -639,6 +705,17 @@
     await runOps(operations);
   }
 
+  /** Bracket a run as a tuplet from the selected item, or take it off (SIB2-166). One op, so one undo. */
+  async function handleSetTuplet(actual: number, normal: number, count: number): Promise<void> {
+    if (selectedId === null) return;
+    await runOps([{ type: 'tuplet.set', target: selectedId, payload: { actual, normal, count } }]);
+  }
+
+  async function handleRemoveTuplet(): Promise<void> {
+    if (selectedId === null) return;
+    await runOps([{ type: 'tuplet.rm', target: selectedId }]);
+  }
+
   /**
    * Save a bar's structure (V7c). The panel hands over the bar's desired section, barlines and
    * ending; this turns the diff against what the bar carries now into the minimal batch of the ops
@@ -877,6 +954,19 @@
       </div>
 
       <div class="group control-row">
+        <h3>Title block</h3>
+        <input class="meta-input" aria-label="Title" placeholder="Title" bind:value={titleDraft} />
+        <input class="meta-input" aria-label="Composer" placeholder="Composer" bind:value={composerDraft} />
+        <input class="meta-input" aria-label="Style or tempo" placeholder="Style or tempo, e.g. Medium swing" bind:value={styleDraft} />
+        <button type="button" class="transpose-btn" disabled={saving || !titleBlockDirty} onclick={handleTitleBlockSave}>
+          {saving ? 'Working…' : 'Set title block'}
+        </button>
+        <p class="control-note">
+          Printed above the first system. A logged, undoable edit (<code>meta set --title --composer --style</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
         <h3>Bars per line</h3>
         <select
           class="part-select"
@@ -931,6 +1021,39 @@
         <p class="control-note">
           A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
           (<code>meta set --footer</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
+        <h3>Tempo</h3>
+        <div class="transpose-row">
+          <select class="key-select" aria-label="Tempo beat unit" bind:value={tempoUnit}>
+            <option value="4">quarter =</option>
+            <option value="4.">dotted quarter =</option>
+            <option value="2">half =</option>
+            <option value="8">eighth =</option>
+            <option value="1">whole =</option>
+          </select>
+          <input
+            class="key-select"
+            type="number"
+            min="20"
+            max="400"
+            aria-label="Beats per minute"
+            bind:value={tempoBpm}
+          />
+        </div>
+        <div class="transpose-row">
+          <button type="button" class="transpose-btn" disabled={saving || tempoBpm === ''} onclick={handleTempoSave}>
+            {saving ? 'Working…' : 'Set tempo'}
+          </button>
+          <button type="button" class="transpose-btn" disabled={saving || score.meta.tempo === undefined} onclick={handleTempoRemove}>
+            Remove
+          </button>
+        </div>
+        <p class="control-note">
+          A metronome mark above the first bar; notation only, nothing plays. A logged, undoable edit
+          (<code>meta set --tempo</code>).
         </p>
       </div>
 
@@ -1093,6 +1216,9 @@
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
               onsave={handleSave}
+              tuplet={tupletOfItem(selection.id)}
+              onsettuplet={handleSetTuplet}
+              onremovetuplet={handleRemoveTuplet}
               ondeselect={deselect}
               onreload={handleReload}
             />
@@ -1391,6 +1517,17 @@
     resize: vertical;
     margin-bottom: 8px;
   }
+  .meta-input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    padding: 7px 9px;
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+  .meta-input:focus,
   .footer-text:focus {
     border-color: var(--accent);
     outline: none;

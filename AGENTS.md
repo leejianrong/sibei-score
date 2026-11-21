@@ -271,8 +271,8 @@ Breaking one of these breaks a decision of record. Ask before deviating from any
 - **Never `measureText` or `getBBox()`** — they exist only in a real browser and would drift
   screen from print (ADR-0015). Place text with SVG `text-anchor`. See `agent_docs/architecture.md`.
 - Every capability is an **op** with both a CLI verb and a UI control, or it is not built (Q79).
-  The one remaining knowing exception: `score.create` and `meta.set` have a CLI verb and no UI
-  control yet. (V8e gave `export --musicxml` its rail toggle, so export format now has both.) (V6's `transpose`, part export and `--spell` pins, and V7c's structure panel —
+  The one remaining knowing exception: `score.create` has a CLI verb and no UI
+  control yet (`meta.set` has had its title block in the rail since SIB2-178, with the footer, chord style, bars per line and signature policy). (V8e gave `export --musicxml` its rail toggle, so export format now has both.) (V6's `transpose`, part export and `--spell` pins, and V7c's structure panel —
   section, barlines and endings, reached by clicking a bar — each have a control in the score view.)
 - **The two surfaces must not disagree about a user-facing *string* either.** The browser's
   `CLI_BINARY` is asserted equal to the `bin` key in `packages/cli/package.json`. If two in-flight

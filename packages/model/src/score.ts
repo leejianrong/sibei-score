@@ -261,7 +261,23 @@ export interface ScoreMeta {
    * chord text itself stays the one canonical spelling (ADR-0012), so MusicXML and `show` are unmoved.
    */
   chordStyle?: ChordStylePreset;
+  /**
+   * The tempo mark (SIB2-177): a beat unit and beats per minute, drawn with a note glyph above the first bar. It
+   * is separate from the `style` text line, which stays free text. Optional-and-absent, so no stored document
+   * changes and `SCHEMA_VERSION` stays (ADR-0028). It is notation only: nothing plays.
+   */
+  tempo?: Tempo;
 }
+
+/** A metronome mark: `unit` is the beat (a quarter, a dotted quarter) and `bpm` how many of them a minute. */
+export interface Tempo {
+  unit: { value: 1 | 2 | 4 | 8; dots: 0 | 1 };
+  bpm: number;
+}
+
+export const TEMPO_UNITS: readonly Tempo['unit']['value'][] = [1, 2, 4, 8];
+export const MIN_TEMPO = 20;
+export const MAX_TEMPO = 400;
 
 /**
  * `every` system, the `first` system only, or the first system of every `page` (what a page turn wants: the

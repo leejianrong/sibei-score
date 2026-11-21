@@ -2,7 +2,7 @@ import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { formatBeat, orderedItems } from './address.js';
 import { barReview, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from './review.js';
-import type { Bar, BarItem, Confidence, Review, Score, TimeSignature } from './score.js';
+import type { Bar, BarItem, Confidence, Review, Score, Tempo, TimeSignature } from './score.js';
 
 /**
  * The agent-facing text projection (ADR-0009). A **contract**, not ad-hoc formatting: agents will
@@ -55,6 +55,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
     lines.push(`  footer (${score.meta.footer.pages} pages): ${JSON.stringify(score.meta.footer.text)}`);
   }
 
+  if (score.meta.tempo !== undefined) lines.push(`  tempo: ${tempoText(score.meta.tempo)}`);
   if (score.meta.chordStyle !== undefined) lines.push(`  chord style: ${score.meta.chordStyle}`);
 
   // The wording lives in `review.ts`, not here, because the score rail says the same sentence
@@ -285,4 +286,9 @@ function legend(score: Score): string[] {
 
 function trim(beat: number): string {
   return Number(beat.toFixed(4)).toString();
+}
+
+/** `4=120`, `4.=60`: the form `meta set --tempo` takes. */
+export function tempoText(tempo: Tempo): string {
+  return `${tempo.unit.value}${tempo.unit.dots === 1 ? '.' : ''}=${tempo.bpm}`;
 }

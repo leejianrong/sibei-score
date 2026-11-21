@@ -66,6 +66,8 @@ export interface MetaSetPayload {
   barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163): `standard`, `dash`, `words` or `real-book`. `standard` or null clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book' | null;
+  /** The tempo mark (SIB2-177): the beat and beats per minute. Null removes it. */
+  tempo?: { unit: { value: number; dots?: number }; bpm: number } | null;
 }
 
 /**
@@ -194,6 +196,30 @@ export interface EndingSetPayload {
 export type EndingRmPayload = Record<string, never>;
 
 /**
+ * Bracket a run of items as a tuplet (SIB2-166). The target is the **first** item (`bar3.beat2` or its
+ * id); the `count` items from there, in onset order, become members. `actual` notes are written in the
+ * time of `normal` (a triplet is 3 in 2), so each member's duration is its written value scaled by
+ * `normal/actual`. The members are written at their nominal values and this op re-lays them: they sit
+ * back to back from the first member's onset at their scaled length, and every later item in the bar
+ * moves with them, so a bar of three eighths in the time of two (`actual 3, normal 2`) closes up to one
+ * beat. A ratio that would leave a member on a fractional tick, a run that overruns the bar's items, or
+ * a member already inside a tuplet is refused (nesting is out of scope).
+ */
+export interface TupletSetPayload {
+  /** Notes written, e.g. 3. At least 2, and different from `normal`. */
+  actual: number;
+  /** Notes' worth of time, e.g. 2. */
+  normal: number;
+  /** How many items the bracket spans, from the target. Defaults to `actual`. */
+  count?: number;
+  /** *Recorded.* The id of the tuplet the applier assigned. */
+  id?: Id;
+}
+
+/** Remove the tuplet that holds the target item: the members go back to their written length, later items follow. */
+export type TupletRmPayload = Record<string, never>;
+
+/**
  * A slur from the target note to `to` (SIB2-167). The target is the note it starts on, `to` the note it ends
  * on, each any note address (`bar1.n2`, `note-7`); `to` must come later in reading order, in this bar or a
  * later one. Stored as a `Spanner` (ADR-0041), so it names the two notes by id and follows them.
@@ -288,6 +314,8 @@ export type Operation =
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
   | { type: 'ending.rm'; target: string; payload?: EndingRmPayload }
+  | { type: 'tuplet.set'; target: string; payload: TupletSetPayload }
+  | { type: 'tuplet.rm'; target: string; payload?: TupletRmPayload }
   | { type: 'break.set'; target: string; payload?: BreakSetPayload }
   | { type: 'break.rm'; target: string; payload?: BreakRmPayload }
   | { type: 'fermata.set'; target: string; payload?: FermataSetPayload }
@@ -317,6 +345,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'barline.set',
   'ending.set',
   'ending.rm',
+  'tuplet.set',
+  'tuplet.rm',
   'break.set',
   'break.rm',
   'fermata.set',

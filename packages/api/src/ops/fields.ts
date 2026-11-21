@@ -19,7 +19,7 @@ import type { Operation, OperationType } from './operations.js';
 const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'score.create': ['id', 'title', 'composer', 'style', 'key', 'time', 'barCount', 'pickup', 'bars'],
   'score.import': ['document'],
-  'meta.set': ['title', 'composer', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem'],
+  'meta.set': ['title', 'composer', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem', 'tempo'],
   'note.add': ['pitch', 'duration', 'accidental', 'tie', 'spellingPinned', 'id'],
   'note.set': ['pitch', 'duration', 'accidental', 'tie', 'spellingPinned'],
   'note.rm': [],
@@ -35,6 +35,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'barline.set': ['start', 'end'],
   'ending.set': ['numbers', 'role'],
   'ending.rm': [],
+  'tuplet.set': ['actual', 'normal', 'count', 'id'],
+  'tuplet.rm': [],
   'break.set': ['kind'],
   'break.rm': [],
   'fermata.set': [],

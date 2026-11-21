@@ -43,6 +43,12 @@
 
   export type Selection = NoteSelection | RestSelection;
 
+  /** The tuplet the selected item sits in, if any (SIB2-166), read from the stored score. */
+  export interface TupletInfo {
+    actual: number;
+    normal: number;
+  }
+
   export interface NoteEdits {
     pitch: string;
     duration: Duration;
@@ -69,6 +75,12 @@
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
+    /** The tuplet holding this item, or null. */
+    tuplet?: TupletInfo | null;
+    /** Bracket `count` items from this one as `actual` in the time of `normal` (`tuplet.set`). */
+    onsettuplet?: (actual: number, normal: number, count: number) => void;
+    /** Take the bracket off (`tuplet.rm`). */
+    onremovetuplet?: () => void;
     ondeselect: () => void;
     onreload: () => void;
   }
@@ -84,9 +96,29 @@
     onslur,
     onrmslur,
     onsave,
+    tuplet = null,
+    onsettuplet,
+    onremovetuplet,
     ondeselect,
     onreload,
   }: Props = $props();
+
+  // The ratios a lead sheet uses; the CLI takes any `--notes`/`--in`.
+  const TUPLET_PRESETS: readonly { label: string; actual: number; normal: number }[] = [
+    { label: 'Triplet 3:2', actual: 3, normal: 2 },
+    { label: 'Duplet 2:3', actual: 2, normal: 3 },
+    { label: 'Quintuplet 5:4', actual: 5, normal: 4 },
+    { label: 'Sextuplet 6:4', actual: 6, normal: 4 },
+    { label: 'Septuplet 7:4', actual: 7, normal: 4 },
+  ];
+  let presetIndex = $state(0);
+  let tupletCount = $state(3);
+  const preset = $derived(TUPLET_PRESETS[presetIndex] ?? TUPLET_PRESETS[0]!);
+
+  function pickPreset(index: number): void {
+    presetIndex = index;
+    tupletCount = TUPLET_PRESETS[index]?.actual ?? 3;
+  }
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOT_COUNTS: readonly Dots[] = [0, 1, 2];
@@ -252,6 +284,53 @@
             </button>
           </div>
         {/each}
+      </div>
+    {/if}
+
+    {#if onsettuplet !== undefined}
+      <div class="field tuplet" role="group" aria-label="Tuplet">
+        <span class="field-label">Tuplet</span>
+        {#if tuplet !== null}
+          <p class="inspector-note">
+            In a {tuplet.actual}:{tuplet.normal} tuplet.
+          </p>
+          <button type="button" class="btn btn-cancel" disabled={saving} onclick={onremovetuplet}>
+            Remove tuplet
+          </button>
+        {:else}
+          <select
+            class="tuplet-ratio"
+            aria-label="Tuplet ratio"
+            value={presetIndex}
+            onchange={(event) => pickPreset(Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each TUPLET_PRESETS as option, index (option.label)}
+              <option value={index}>{option.label}</option>
+            {/each}
+          </select>
+          <label class="tuplet-count">
+            <span class="field-label">Items</span>
+            <input
+              type="number"
+              min="1"
+              max="32"
+              aria-label="Items the tuplet spans"
+              value={tupletCount}
+              oninput={(event) => (tupletCount = Number((event.currentTarget as HTMLInputElement).value))}
+            />
+          </label>
+          <button
+            type="button"
+            class="btn btn-cancel"
+            disabled={saving}
+            onclick={() => onsettuplet?.(preset.actual, preset.normal, tupletCount)}
+          >
+            Bracket from here
+          </button>
+          <p class="inspector-note">
+            Brackets this item and the next ones as one tuplet; later items close up to follow.
+          </p>
+        {/if}
       </div>
     {/if}
 
@@ -443,6 +522,23 @@
     color: var(--ink-faint);
     margin-top: 2px;
     line-height: 1.5;
+  }
+
+  .tuplet-ratio,
+  .tuplet-count input {
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    padding: 7px 9px;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .tuplet-count {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .tuplet-count input {
+    width: 70px;
   }
 
   .conflict {
