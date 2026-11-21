@@ -228,6 +228,11 @@ export interface ScoreMeta {
    */
   footer?: PageFooter;
   /**
+   * Where the clef and key signature are drawn (SIB2-173). Absent means `every`: the head of every system, as
+   * before. Optional-and-absent, like `footer`, so no stored document changes and `SCHEMA_VERSION` stays.
+   */
+  signaturePolicy?: SignaturePolicy;
+  /**
    * The chord symbology the score prints in (SIB2-163): `-7` vs `m7` vs `MI7`, `Δ` vs `maj7`. Absent
    * means `standard`, the style every surface drew before — optional rather than backfilled, so no
    * existing document changes and `SCHEMA_VERSION` stays (ADR-0028). It is a *rendering* choice: the
@@ -235,6 +240,14 @@ export interface ScoreMeta {
    */
   chordStyle?: ChordStylePreset;
 }
+
+/**
+ * `every` system, the `first` system only, or the first system of every `page` (what a page turn wants: the
+ * reader sees the clef and key again). The time signature is printed once either way (ADR-0021).
+ */
+export type SignaturePolicy = 'every' | 'first' | 'page';
+
+export const SIGNATURE_POLICIES: readonly SignaturePolicy[] = ['every', 'first', 'page'];
 
 /** The named chord symbologies. `standard` is the default and is stored as absence. */
 export type ChordStylePreset = 'standard' | 'dash' | 'words' | 'real-book';

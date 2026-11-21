@@ -103,33 +103,47 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   });
   const tiesBySystem = planTies(score, systemOfNote);
 
-  const built: LayoutSystem[] = planned.map((system, index) => {
-    const allocated = allocateWidths(score, system, spec, { isFirstSystem: index === 0 });
-    const bars = allocated.map((entry) => entry.bar);
-    const vertical = systemVertical(
-      {
-        bars,
-        hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
-        hasRehearsalMark: bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null),
-      },
-      spec,
-    );
+  // Which systems draw the clef and key signature (SIB2-173). Widths depend on it, pagination does not
+  // (a system's height comes from its notes, never its width), so for the `page` policy the systems are
+  // built once, paginated to learn which one heads each page, and rebuilt with that answer.
+  const policy = score.meta.signaturePolicy ?? 'every';
+  const buildSystems = (showsSignatures: (index: number) => boolean): LayoutSystem[] =>
+    planned.map((system, index) => {
+      const allocated = allocateWidths(score, system, spec, {
+        isFirstSystem: index === 0,
+        showSignatures: showsSignatures(index),
+      });
+      const bars = allocated.map((entry) => entry.bar);
+      const vertical = systemVertical(
+        {
+          bars,
+          hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
+          hasRehearsalMark: bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null),
+        },
+        spec,
+      );
 
-    return {
-      index,
-      x: spec.margin.left,
-      // Placed onto a page below; y is assigned in the pagination pass.
-      y: 0,
-      width: spec.width - spec.margin.left - spec.margin.right,
-      height: vertical.height,
-      aboveStaff: vertical.aboveStaff,
-      belowStaff: vertical.belowStaff,
-      chordBaselineOffset: vertical.chordBaselineOffset,
-      staveY: 0,
-      bars: allocated.map((entry) => buildBar(score, entry)),
-      ties: tiesBySystem.get(index) ?? [],
-    };
-  });
+      return {
+        index,
+        x: spec.margin.left,
+        // Placed onto a page below; y is assigned in the pagination pass.
+        y: 0,
+        width: spec.width - spec.margin.left - spec.margin.right,
+        height: vertical.height,
+        aboveStaff: vertical.aboveStaff,
+        belowStaff: vertical.belowStaff,
+        chordBaselineOffset: vertical.chordBaselineOffset,
+        staveY: 0,
+        bars: allocated.map((entry) => buildBar(score, entry)),
+        ties: tiesBySystem.get(index) ?? [],
+      };
+    });
+
+  let built = buildSystems((index) => policy === 'every' || index === 0);
+  if (policy === 'page') {
+    const headsPage = new Set(paginate(score, built, spec).map((page) => page.systems[0]?.index ?? 0));
+    built = buildSystems((index) => index === 0 || headsPage.has(index));
+  }
 
   return {
     scoreId: score.id,
@@ -291,7 +305,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
   }
 
   // Bar numbers head each system, by convention not on bar 1 and never on a pickup.
-  if (entry.prefix.clef && bar.number > 1) {
+  if (entry.headsSystem && bar.number > 1) {
     items.push({ kind: 'barNumber', text: String(bar.number) });
   }
 

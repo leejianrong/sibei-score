@@ -19,7 +19,7 @@ import type { Operation, OperationType } from './operations.js';
 const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'score.create': ['id', 'title', 'composer', 'style', 'key', 'time', 'barCount', 'pickup', 'bars'],
   'score.import': ['document'],
-  'meta.set': ['title', 'composer', 'style', 'key', 'time', 'footer', 'footerPages', 'chordStyle'],
+  'meta.set': ['title', 'composer', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle'],
   'note.add': ['pitch', 'duration', 'accidental', 'tie', 'spellingPinned', 'id'],
   'note.set': ['pitch', 'duration', 'accidental', 'tie', 'spellingPinned'],
   'note.rm': [],

@@ -87,6 +87,7 @@ sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans i
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
                       [--footer TEXT] [--footer-pages first|last|all]
+                      [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
 ```
 
@@ -100,6 +101,11 @@ removes it). `--footer-pages` picks `first`, `last` or `all` pages (the default)
 chart, so it is a logged, undoable edit and shows in `show`; MusicXML carries the text as `<rights>`
 but not the page choice.
 
+`--signature-policy` says where the clef and key signature are drawn: `every` system (the default, and what
+a chart without the setting does), the `first` system only, or the first system of each `page`. The
+time signature is always printed once. Later systems that lose the prefix get the room back, so their bars
+widen. Bar numbers stay on each system. It is a logged, undoable edit with a control in the score view's
+rail, it shows in `show`, and MusicXML has no home for it.
 `--chord-style` chooses how the chart prints its chords, in the PDF and the browser alike (one render
 path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`), `dash` (`Δ7`, `-7`,
 `-7♭5`), `words` (`maj7`, `min7`, `min7♭5`, `dim`, `aug`) or `real-book` (`MA7`, `MI7`, `MI7♭5`). It is
