@@ -14,7 +14,12 @@ export type Route =
   /** Approve the code a CLI printed (V21b). The address `sbscore auth login` tells a person to open. */
   | { view: 'device' }
   /** The caller's API tokens, to look at and revoke (V21b). */
-  | { view: 'tokens' };
+  | { view: 'tokens' }
+  /**
+   * Consent for an MCP client (V22a): the page the server's authorise endpoint sends the browser to, carrying
+   * the OAuth request in the hash query. The parameters are the server's to validate, so they are kept raw.
+   */
+  | { view: 'authorize'; params: Record<string, string> };
 
 export const LIBRARY: Route = { view: 'library' };
 export const DEVICE: Route = { view: 'device' };
@@ -22,6 +27,9 @@ export const TOKENS: Route = { view: 'tokens' };
 
 export function routeOf(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
+  if (path === 'authorize' || path.startsWith('authorize?')) {
+    return { view: 'authorize', params: Object.fromEntries(new URLSearchParams(path.slice('authorize?'.length))) };
+  }
   if (path === 'device') return DEVICE;
   if (path === 'tokens') return TOKENS;
   const id = /^score\/(.+)$/.exec(path)?.[1];
@@ -36,6 +44,8 @@ export function hashOf(route: Route): string {
       return '#/device';
     case 'tokens':
       return '#/tokens';
+    case 'authorize':
+      return `#/authorize?${new URLSearchParams(route.params).toString()}`;
     case 'score':
       return `#/score/${encodeURIComponent(route.id)}`;
   }

@@ -6,6 +6,7 @@ import { pathOf, queryOf, send, sendJson } from '../http/routes.js';
 import type { AuthStore, ProviderProfile } from '../store/auth.js';
 import { timestamp } from '../store/store-shared.js';
 import { createDeviceRoutes, TOKEN_PREFIX } from './device.js';
+import { createOAuthRoutes } from './oauth.js';
 import { hashToken, pkceChallenge, randomToken, readCookie, sameSecret, serializeCookie } from './secrets.js';
 
 /**
@@ -83,6 +84,10 @@ export interface HostedAuth {
   /** Hostnames the Host and Origin guards must admit for this deployment. */
   hosts: ReadonlySet<string>;
   authenticate: Authenticator;
+  /** The URL of the MCP endpoint — the one resource an MCP token may be used at (V22a). */
+  mcpResource: string;
+  /** Answer an OAuth metadata path under `/.well-known/`, or `null` if the path is not one of them. */
+  handleWellKnown(request: IncomingMessage, response: ServerResponse): number | null;
   /** Handle a `/v1/auth/…` request. Needs no session — signing in is how one starts. */
   handle(request: IncomingMessage, response: ServerResponse): Promise<number>;
   /**
@@ -146,6 +151,8 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     // The browser page that takes the code is V21b's; the address is fixed here so the CLI can print it.
     verificationUri: `${publicUrl.origin}/#/device`,
   });
+
+  const oauth = createOAuthRoutes({ auth, now, origin: publicUrl.origin, sessionUser });
 
   function redirect(response: ServerResponse, location: string, cookies: string[]): number {
     // No CORS header, as on every response (ADR-0029). `no-store` because this carries `Set-Cookie`.
@@ -293,6 +300,8 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     hosts: new Set([publicUrl.hostname]),
     authenticate,
     me,
+    mcpResource: oauth.resource,
+    handleWellKnown: oauth.handleWellKnown,
     async handle(request, response) {
       const method = (request.method ?? 'GET').toUpperCase();
       const path = pathOf(request);
@@ -305,7 +314,7 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
       if (path === '/v1/auth/logout') {
         return method === 'POST' ? logout(request, response) : notAllowed(response, 'POST');
       }
-      const handled = await device.handle(request, response);
+      const handled = (await device.handle(request, response)) ?? (await oauth.handle(request, response));
       if (handled !== null) return handled;
       return send(response, notFound());
     },

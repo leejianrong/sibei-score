@@ -13,3 +13,6 @@ export * from './title.js';
 export * from './projection.js';
 export * from './omr.js';
 export * from './omr-map.js';
+export * from './note-events.js';
+export * from './note-events-quantize.js';
+export * from './note-events-map.js';

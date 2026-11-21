@@ -136,6 +136,8 @@ describe('the routes cannot write (ADR-0003)', () => {
       // The device flow and token management (V21a) read and write the same credentials, and are built
       // by `hosted.ts`, which hands them the port; no request path outside the auth module does.
       'packages/api/src/auth/device.ts',
+      // The OAuth server for MCP (V22a) mints the same tokens from the same store, built by `hosted.ts` too.
+      'packages/api/src/auth/oauth.ts',
       'packages/api/src/store/auth.ts',
       'packages/api/src/store/sqlite-auth.ts',
       'packages/api/src/store/postgres-auth.ts',
@@ -152,8 +154,11 @@ describe('the routes cannot write (ADR-0003)', () => {
   it('has no log outlet at all in the device flow, where every value is a credential (V21a)', () => {
     // A device code, a user code, a bearer token: nothing in `auth/device.ts` is safe to print. So the
     // module takes no logger and has no `report(` to hand one to — there is nowhere to put a secret.
-    const device = codeOf(join(REPO, 'packages/api/src/auth/device.ts'));
-    expect(device).not.toMatch(/console\.|\blogger\b|\breport\(|\bonError\b/);
+    // The OAuth server (V22a) handles the same kind of value — a code, a verifier, a token — and has none either.
+    for (const file of ['device.ts', 'oauth.ts']) {
+      const text = codeOf(join(REPO, 'packages/api/src/auth', file));
+      expect({ file, outlet: /console\.|\blogger\b|\breport\(|\bonError\b/.test(text) }).toEqual({ file, outlet: false });
+    }
   });
 
   it('never logs a secret or a credential from the sign-in flow (V20)', () => {

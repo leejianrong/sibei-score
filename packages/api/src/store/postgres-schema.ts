@@ -25,13 +25,13 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 4;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 5;
 
 /**
  * Lineage: v1 (V19) scores, operations, import_jobs. v2 (V20, ADR-0034) adds users, identities and
  * sessions — purely additive, so `migratePostgres` takes a v1 database to v2 by creating three tables
  * and touching none of the existing rows. v3 (V21a, ADR-0034 decision 4) adds device_codes and api_tokens,
- * likewise additive. v4 (SIB2-137) adds audio_jobs, likewise.
+ * likewise additive. v4 (V22a) adds oauth_codes and v5 (SIB2-137) audio_jobs, likewise.
  */
 
 /**
@@ -155,7 +155,20 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, seq DESC);
 CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
 
--- Audio jobs (table version 4, SIB2-137): the second kind of job, with a lease for the pulling worker.
+-- OAuth authorisation codes for the MCP endpoint (table version 4, V22a). Hash only; spent by deletion.
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash      text NOT NULL PRIMARY KEY,
+  client_id      text NOT NULL,
+  user_id        text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  redirect_uri   text NOT NULL,
+  code_challenge text NOT NULL,
+  scopes         text NOT NULL,
+  name           text NOT NULL,
+  expires_at     text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS oauth_codes_expires ON oauth_codes (expires_at);
+
+-- Audio jobs (table version 5, SIB2-137): the second kind of job, with a lease for the pulling worker.
 CREATE TABLE IF NOT EXISTS audio_jobs (
   id                        text NOT NULL PRIMARY KEY,
   owner                     text NOT NULL,
@@ -229,6 +242,8 @@ ALTER TABLE device_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE device_codes FORCE  ROW LEVEL SECURITY;
 ALTER TABLE api_tokens   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_tokens   FORCE  ROW LEVEL SECURITY;
+ALTER TABLE oauth_codes  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE oauth_codes  FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS system_only ON users;
 CREATE POLICY system_only ON users
@@ -244,6 +259,9 @@ CREATE POLICY system_only ON device_codes
   USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
 DROP POLICY IF EXISTS system_only ON api_tokens;
 CREATE POLICY system_only ON api_tokens
+  USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
+DROP POLICY IF EXISTS system_only ON oauth_codes;
+CREATE POLICY system_only ON oauth_codes
   USING (${SYSTEM_POLICY}) WITH CHECK (${SYSTEM_POLICY});
 `;
 

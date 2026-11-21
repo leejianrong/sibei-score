@@ -1,0 +1,109 @@
+# ADR-0040: NoteEvents import — the audio engine's contract becomes a draft
+
+- **Status:** Accepted
+- **Date:** 2026-11-22
+- **Deciders:** Jian (direction: ADR-0039 decision 6, audio is in the 2026 hosted launch)
+- **Relates to:** the audio repo's `docs/adr/0002-sibei-score-boundary-and-note-events-contract.md`
+  (music-audio-transcriber), [ADR-0003](0003-op-log-and-optimistic-concurrency.md),
+  [ADR-0005](0005-node-owns-api-python-omr-worker.md), [ADR-0008](0008-imperative-cli-verbs-plus-batch.md),
+  [ADR-0013](0013-store-and-flag-invalid-rhythm.md), [ADR-0019](0019-parse-is-a-draft.md),
+  [ADR-0021](0021-notation-coverage-boundary.md), ADR-0039 (product direction and schedule)
+
+## Context
+
+The audio engine (a separate repo) turns a recording into `NoteEvents` v1: a JSON document of notes
+with onset and offset **in seconds**, MIDI pitch, a 0-1 confidence, an optional beat/downbeat list
+and warnings. Its ADR-0002 draws the boundary: the engine never sees bars, clefs or engraving; **this
+repo owns everything symbolic** — quantization to a metrical grid, bar/key/time inference, spelling,
+review flags, engraving. The reasons it gives hold here too: quantization is a notation problem, it is
+testable with no audio, and it can reuse the "parse is a draft" flow OMR import already has (ADR-0019).
+
+This ADR decides how we receive that contract. It adds no new notation: ADR-0021 stays in force.
+
+## Decision
+
+1. **NoteEvents v1 is the only interface.** We read the JSON document and nothing else from the audio
+   engine: no audio, no model internals, no MIDI. The JSON Schema is **owned by the audio repo**; we do
+   not edit it. We keep a model-owned TypeScript type and validator (`packages/model/src/note-events.ts`,
+   the way `omr.ts` is the OMR worker's contract) and copy the audio repo's fixtures into
+   `tests/fixtures/note-events/` with the source repo and commit recorded beside them. Contract drift
+   is the main failure mode of two repos, so the validator is strict where the schema is
+   (`additionalProperties: false`, ranges, the sha256 pattern) and the fixtures are the cross-repo test.
+
+2. **Forward-compatible reading, and unknown majors are rejected.** `schema_version` is the major. An
+   absent or `1` is read; any other value (including 2, a string, or a non-integer) is refused with a
+   distinct error naming `schema_version`. Within a major we are forward-compatible only in the way the
+   schema allows: the contract bumps the major for any change, so we do not silently ignore unknown
+   fields — an unknown key under v1 is a validation error, because it means one repo is ahead of the
+   other. Every validation error names the failing field path (`notes[3].onset_s`).
+
+3. **Scope: voice and bass, one melody staff.** ADR-0021's single-melody-staff boundary is explicitly
+   **kept**. `instrument` of `voice` or `bass` imports; `piano`, `drums`, `guitar` and `other` are
+   *valid* NoteEvents but are refused at import with a distinct "instrument not supported yet" error
+   (a different kind from "malformed"), until the staves-by-voices model (ADR-0039 decision 3) exists.
+   Notes that overlap in time (the engine promises monophony but may not deliver it) are not made
+   polyphonic: the quantizer keeps one line, truncating a note at the next onset, and records a
+   warning. Bass is written in bass clef only if/when the model gains clefs; until then it is the
+   melody staff in treble clef at written pitch, which is a known limitation, not a decision.
+
+4. **Where the code lives.** Three pure, framework-free, Node-free modules in `packages/model`, beside
+   `omr.ts` and `omr-map.ts`, so they run in the browser and the server and are testable without audio:
+   `note-events.ts` (type + validator), `note-events-quantize.ts` (seconds to ticks) and
+   `note-events-map.ts` (quantized notes to a `Score` draft). They need nothing from `music` (no chord
+   recognition from audio is attempted), so ADR-0011's `model` / `music` split is not crossed.
+   The quantizer has **no randomness and no clock**: the same input gives the same output.
+
+5. **Quantization is deliberately simple.** The grid is the **beat grid when one is supplied**
+   (beats with `is_downbeat` define bars; a beat is subdivided on the tick grid, nearest legal
+   subdivision wins, ties round down so the result is deterministic); with **no beat grid** the
+   quantizer infers a single constant tempo from the median inter-onset interval, assumes 4/4 with the
+   first note's bar as bar one, and **emits a warning** that the draft's barring is a guess. Swing-feel
+   detection and tempo changes are out of scope: a performance that drifts yields flagged bars, not
+   silent repair. Gaps become explicit rests (ADR-0021, ADR-0013 needs them). The quantizer never
+   rejects: a bar that does not sum to the meter is stored and flagged (ADR-0013).
+
+6. **It is a draft (ADR-0019).** Mapping infers key (from the pitch-class histogram, a major/relative
+   minor guess) and spells pitches with the existing spelling engine; every note carries the engine's
+   **confidence** into the model's existing review-flag field, and every NoteEvents `warning` becomes a
+   **diagnostic on the import record**. Flags show as `!` in `sbscore show` and highlight in the
+   browser exactly as OMR flags do (the flag-parity test covers both). There is no source image; the
+   source is the NoteEvents JSON, kept in the BlobStore with the job so the draft can be re-derived by
+   a better quantizer later (the ADR-0019 re-parse argument, unchanged). Sections are not detected
+   (same advisory as OMR, ADR-0021).
+
+7. **It lands through the existing path, never a new write path.** Import is a **job** (ADR-0001) with a
+   new source kind, `note-events`: the document is validated at the boundary (ADR-0029's "validate by
+   decoding", here: parse + schema + instrument + size cap), stored in the BlobStore, and the runner —
+   which for this kind calls no worker — runs the pure mapper and lands the result through the
+   server-only `Applier.import` as one `score.import` with a fresh history, exactly as OMR import and
+   duplicate do (ADR-0003, ADR-0008: never the client `/ops` route). A malformed, unknown-major or
+   unsupported-instrument file is refused **at the boundary with a distinct, non-retryable error**,
+   before a job exists; a runtime mapping failure fails the job like any other (Q80).
+
+8. **Both surfaces (Q79).** `POST /v1/imports` accepts a NoteEvents document; `sbscore import
+   --note-events FILE`; and the library's import affordance accepts the same file.
+
+## Consequences
+
+- The audio and notation repos are independently testable: here, NoteEvents fixtures are scored against
+  ground-truth scores (SIB2-134, a `packages/synth` extension); there, fixtures against ground truth
+  audio. Only an integration check spans both.
+- Quantization quality, not audio F1, decides sheet quality. It gets its own number on the V12 harness
+  (the NoteEvents-import row) so that improving it is measurable.
+- Fixtures are hand-made against the v1 schema while the audio repo's corpus is empty; they are
+  replaced or joined by its fixtures when they exist, and the recorded commit says which.
+- Piano, drums and guitar stay refused until the model ADR lands. The error kind is distinct so the
+  hosted UI can say "coming soon" rather than "invalid file".
+- Transport (how a NoteEvents document reaches us from the GPU worker) is ADR-0039 decision 9
+  (pull); this ADR is independent of it, since a file upload and a worker's result are the same JSON.
+
+## Amendment (2026-11-22): what the real transcriber emits
+
+The audio repo's shared fixtures (its `tests/fixtures/note_events/`, copied unchanged) and contract
+notes settled four things. `Beat.is_downbeat` is `bool | null`, and real output is **null on every
+beat** (warning `downbeats_unknown`): the importer never assumes where bar 1 starts, it infers 4/4 and
+starts bar 1 on the beat nearest the first note, and the mapper flags bar 1 as a draft assumption. A
+note whose `offset_s` is not after `onset_s` is malformed (their `invalid_offset_not_after_onset`).
+A silent or empty document (`silent_input`, no notes) is **not an error**: it imports as an empty draft
+with its warnings kept. Soft-attack voices produce late onsets and split notes, so note confidence
+drives review flags and the quantizer is tested with onset jitter.

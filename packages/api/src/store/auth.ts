@@ -89,13 +89,35 @@ export interface AuthStore {
   listTokens(userId: UserId): Promise<ApiToken[]>;
   /** End one of this user's tokens. `false` when they have none by that id (including another user's). */
   revokeToken(userId: UserId, id: string): Promise<boolean>;
-  /** Drop expired device authorisations and tokens. Returns how many. Housekeeping; lookups never rely on it. */
+  /** Drop expired device authorisations, OAuth codes and tokens. Returns how many. Housekeeping; lookups never rely on it. */
   purgeExpiredCredentials(now: string): Promise<number>;
+
+  // --- OAuth authorisation codes for the MCP endpoint (V22a, ADR-0034 decision 5) -----------------------
+  //
+  // Same shape of port again. A code is stored by its SHA-256 and spent exactly once.
+
+  /** Record an authorisation code a signed-in person just granted to a client. */
+  createAuthCode(code: NewAuthCode): Promise<void>;
+  /**
+   * **Spend** the code with this hash: returns what it was granted and deletes it in the same step, so one
+   * code is one exchange however many times and however concurrently it is presented. `null` when there is
+   * none or it has expired as of `now`. An exchange that then fails (wrong verifier, wrong redirect) has
+   * still spent the code, as OAuth 2.1 wants.
+   */
+  consumeAuthCode(codeHash: string, now: string): Promise<AuthCodeGrant | null>;
   close(): Promise<void>;
 }
 
-/** The scopes a token may carry. Coarse on purpose: V22's MCP audience adds finer ones, and adding is additive. */
-export const TOKEN_SCOPES = ['read', 'write'] as const;
+/**
+ * The scopes a token may carry. Two **audiences**, told apart by the scope family (V22a, ADR-0034 decision 5):
+ * `read`/`write` are for the `/v1/` API (the CLI, a script), `mcp:read`/`mcp:write` for the `/mcp` endpoint.
+ * A token of one family is refused by the other's door, which is what an OAuth resource's audience check is
+ * for: a token minted for MCP must not be replayable against `/v1/`, nor the CLI's token against `/mcp`.
+ * Carrying the audience in the scope keeps the token table as it was.
+ */
+export const API_SCOPES = ['read', 'write'] as const;
+export const MCP_SCOPES = ['mcp:read', 'mcp:write'] as const;
+export const TOKEN_SCOPES = [...API_SCOPES, ...MCP_SCOPES] as const;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
 export interface NewDevice {
@@ -143,3 +165,19 @@ export interface TokenPrincipal {
   userId: UserId;
   scopes: readonly TokenScope[];
 }
+
+export interface NewAuthCode {
+  codeHash: string;
+  clientId: string;
+  userId: UserId;
+  redirectUri: string;
+  /** The S256 PKCE challenge the exchange must answer. */
+  codeChallenge: string;
+  scopes: readonly TokenScope[];
+  /** What the token will be named in the token list: the client's own name. */
+  name: string;
+  /** ISO-8601, UTC. */
+  expiresAt: string;
+}
+
+export type AuthCodeGrant = Omit<NewAuthCode, 'codeHash' | 'expiresAt'>;

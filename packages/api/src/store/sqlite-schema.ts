@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 8;
+export const TABLE_SCHEMA_VERSION = 9;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -177,7 +177,21 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
 
--- Audio jobs (table schema version 8, SIB2-137, ADR-0034 amendment). The second kind of job beside
+-- OAuth authorisation codes for the MCP endpoint (table schema version 8, V22a, ADR-0034 decision 5).
+-- Purely additive. \`code_hash\` is the SHA-256 of the code; the row is deleted by the exchange that spends it.
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash      TEXT NOT NULL PRIMARY KEY,
+  client_id      TEXT NOT NULL,
+  user_id        TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  redirect_uri   TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  scopes         TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS oauth_codes_expires ON oauth_codes (expires_at);
+
+-- Audio jobs (table schema version 9, SIB2-137, ADR-0034 amendment). The second kind of job beside
 -- import_jobs, in its own table: it has a lease and a pulling worker, an upload that happens after the
 -- row exists, and a NoteEvents result. Purely additive. \`audio_key\` names the blob while it lives (it is
 -- deleted when the job ends, decision 16); the lease columns are filled by the worker protocol (SIB2-138).
@@ -245,7 +259,8 @@ export function migrateTables(db: Database): void {
   ensureColumn(db, 'import_jobs', 'engine', 'TEXT');
   //   v6 (V20): users, identities, sessions — new tables, created by the DDL above; nothing to alter.
   //   v7 (V21a): device_codes, api_tokens — likewise.
-  //   v8 (SIB2-137): audio_jobs — likewise.
+  //   v8 (V22a): oauth_codes — likewise.
+  //   v9 (SIB2-137): audio_jobs — likewise.
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
 }

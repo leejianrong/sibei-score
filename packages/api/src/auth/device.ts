@@ -2,7 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { problem } from '../http/problems.js';
 import { MALFORMED, readJsonBody, send, sendJson } from '../http/routes.js';
-import { TOKEN_SCOPES } from '../store/auth.js';
+import { API_SCOPES } from '../store/auth.js';
 import type { AuthStore, TokenScope, UserId } from '../store/auth.js';
 import { timestamp } from '../store/store-shared.js';
 import { hashToken, randomToken } from './secrets.js';
@@ -131,7 +131,7 @@ export function createDeviceRoutes(options: DeviceRoutesOptions): DeviceRoutes {
     if (scopes === null) {
       return send(
         response,
-        problem(422, 'invalid-scopes', `scopes must be a non-empty list of: ${TOKEN_SCOPES.join(', ')}`),
+        problem(422, 'invalid-scopes', `scopes must be a non-empty list of: ${API_SCOPES.join(', ')}`),
       );
     }
     const name = parseName(fields.name);
@@ -236,12 +236,13 @@ export function createDeviceRoutes(options: DeviceRoutesOptions): DeviceRoutes {
   };
 }
 
+/** The device flow mints `/v1/` tokens only; the MCP scopes come from the OAuth flow (`oauth.ts`). */
 function parseScopes(value: unknown): TokenScope[] | null {
-  if (value === undefined) return [...TOKEN_SCOPES];
+  if (value === undefined) return [...API_SCOPES];
   if (!Array.isArray(value) || value.length === 0) return null;
   const scopes: TokenScope[] = [];
   for (const scope of value) {
-    if (typeof scope !== 'string' || !(TOKEN_SCOPES as readonly string[]).includes(scope)) return null;
+    if (typeof scope !== 'string' || !(API_SCOPES as readonly string[]).includes(scope)) return null;
     if (!scopes.includes(scope as TokenScope)) scopes.push(scope as TokenScope);
   }
   return scopes;

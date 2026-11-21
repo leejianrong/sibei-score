@@ -625,6 +625,51 @@ export function authStoreConformance(label: string, open: OpenHarness): void {
       expect(await auth.purgeExpiredCredentials('2026-09-01T00:00:00Z')).toBe(0);
     });
   });
+
+  describe(`${label}: OAuth authorisation codes (V22a)`, () => {
+    const T0 = '2026-08-01T00:00:00Z';
+    const aUser = (auth: AuthStore) => auth.signIn(octocat);
+    const grant = {
+      clientId: 'sbc_x',
+      redirectUri: 'http://127.0.0.1:9999/cb',
+      codeChallenge: 'chal',
+      scopes: ['mcp:read', 'mcp:write'] as const,
+      name: 'An agent',
+    };
+
+    it('spends a code exactly once, returning what it was granted', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createAuthCode({ codeHash: 'c1', userId: user.id, expiresAt: '2026-10-01T00:00:00Z', ...grant });
+      expect(await auth.consumeAuthCode('c1', T0)).toEqual({ userId: user.id, ...grant });
+      expect(await auth.consumeAuthCode('c1', T0)).toBeNull();
+    });
+
+    it('treats an expired code as gone, and spends it', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createAuthCode({ codeHash: 'c1', userId: user.id, expiresAt: '2026-09-01T00:00:00Z', ...grant });
+      expect(await auth.consumeAuthCode('c1', '2026-09-01T00:00:00Z')).toBeNull();
+      expect(await auth.consumeAuthCode('c1', T0)).toBeNull();
+    });
+
+    it('never lets two concurrent exchanges both win', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createAuthCode({ codeHash: 'c1', userId: user.id, expiresAt: '2026-10-01T00:00:00Z', ...grant });
+      const results = await Promise.all([auth.consumeAuthCode('c1', T0), auth.consumeAuthCode('c1', T0)]);
+      expect(results.filter((r) => r !== null)).toHaveLength(1);
+    });
+
+    it('round-trips the MCP scopes on a token and purges expired codes', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createToken({ id: 'tok_m', tokenHash: 'hm', userId: user.id, name: 'x', scopes: ['mcp:read'], expiresAt: '2026-11-01T00:00:00Z' });
+      expect(await auth.findToken('hm', T0)).toEqual({ id: 'tok_m', userId: user.id, scopes: ['mcp:read'] });
+      await auth.createAuthCode({ codeHash: 'old', userId: user.id, expiresAt: '2026-08-01T00:00:00Z', ...grant });
+      expect(await auth.purgeExpiredCredentials('2026-09-01T00:00:00Z')).toBe(1);
+    });
+  });
 }
 
 /**
