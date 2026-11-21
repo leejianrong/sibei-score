@@ -50,7 +50,10 @@ export interface BarNumberItem {
 export interface RehearsalMarkItem {
   kind: 'rehearsalMark';
   sectionId: Id;
+  /** The letter, or '' for a section that has only a name. */
   text: string;
+  /** The section's name (SIB2-176), boxed beside the letter; absent when the section has none. */
+  name?: string;
 }
 
 export interface NoteItem {

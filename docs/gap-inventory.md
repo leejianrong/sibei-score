@@ -90,7 +90,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; `meta.set` has no UI control |
 | F14 | Free page text / copyright | M | M | M | M | M | M | M | M | No page-level text object |
 | F15 | Segno, coda, D.S., D.C., Fine | M | M | M | M | M | M | M | M | Excluded by ADR-0021 |
-| F16 | Rehearsal and named boxes | P | S | P | P | P | S | S | S | A letter is free text and draws boxed (`Intro` works). `Section.name` is stored and never drawn, so a second box ("HEAD") beside "A" is impossible |
+| F16 | Rehearsal and named boxes | S | S | S | S | P | S | S | S | Closed by SIB2-176: `Section.name` draws as a second box beside the letter (or alone). MusicXML keeps the letter only |
 | F17 | Repeats | S | S | S | S | S | S | S | S | |
 | F17b | 1st / 2nd endings | S | S | S | S | S | S | S | S | |
 | F18 | N.C. | S | S | S | S | S | S | S | S | `N.C.` parses as a no-chord symbol; `(N.C.)` is flagged |

@@ -556,6 +556,14 @@ function round(value: number): number {
 }
 
 /**
+ * A box's width, sized from the font size and the character count rather than from a measurement, for the
+ * same reason nothing else here is measured (ADR-0015). The engraver also needs it to place a second box.
+ */
+export function rehearsalBoxWidth(value: string, size: number): number {
+  return size * 0.72 * value.length + size * 0.4 * 2;
+}
+
+/**
  * A rehearsal letter, boxed the way a reader expects to find one.
  *
  * `top` is the top of the band layout reserved for the mark, not the letter's baseline:
@@ -564,17 +572,22 @@ function round(value: number): number {
  * band and so above the system — which page 1 hides inside the title block's reserved
  * height, and page 2 puts in the top margin (V3b).
  */
-export function rehearsalMark(value: string, x: number, top: number, size: number): SvgElement[] {
+export function rehearsalMark(
+  value: string,
+  x: number,
+  top: number,
+  size: number,
+  boxClass = 'se-rehearsalbox',
+  textClass = 'se-rehearsalmark',
+): SvgElement[] {
   const padX = size * 0.4;
   const padY = size * 0.28;
-  // The box is sized from the font size and the letter count rather than from a
-  // measurement, for the same reason nothing else here is measured.
-  const width = size * 0.72 * value.length + padX * 2;
+  const width = rehearsalBoxWidth(value, size);
   const height = size + padY * 2;
 
   return [
     el('rect', {
-      class: 'se-rehearsalbox',
+      class: boxClass,
       x,
       y: top,
       width,
@@ -590,7 +603,7 @@ export function rehearsalMark(value: string, x: number, top: number, size: numbe
       size,
       align: 'center',
       weight: 'bold',
-      class: 'se-rehearsalmark',
+      class: textClass,
     }),
   ];
 }

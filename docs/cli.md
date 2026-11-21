@@ -185,6 +185,11 @@ sbscore break set <id> <bar> [--join]                            # end the line 
 sbscore break rm  <id> <bar>
 ```
 
+A section's `--letter` and `--name` each draw as a box above the bar the section starts on, the name beside the
+letter (`--letter A --name HEAD` draws both; a name alone draws one box). A name that only repeats the letter is
+not boxed twice. The PDF and the browser draw the same bytes. MusicXML carries the letter as `<rehearsal>`; the
+name has no home there and stays a named lossy case.
+
 `bar add --after bar8` puts new empty bars after bar 8; every later bar's number goes up (and a section
 starting there moves with it), while ids stay. `bar rm` refuses a bar that holds notes, chords, text, an
 ending or a section start. Both are undoable.

@@ -52,6 +52,7 @@ import {
   DEFAULT_TEXT_FONT,
   chordSymbol,
   headerText,
+  rehearsalBoxWidth,
   rehearsalMark,
   text,
 } from './text.js';
@@ -316,11 +317,26 @@ function engraveBar(
 
       case 'rehearsalMark':
         hasRehearsalMark = true;
-        before.push(
-          // The top of the band, not a baseline: the box's own padding is the adapter's
-          // to allow for, and layout reserved the band from `bands.top` down.
-          ...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize),
-        );
+        // The top of the band, not a baseline: the box's own padding is the adapter's
+        // to allow for, and layout reserved the band from `bands.top` down.
+        if (item.text !== '') {
+          before.push(...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize));
+        }
+        // The section's name (SIB2-176) is boxed beside the letter, or alone when it has no letter.
+        if (item.name !== undefined) {
+          const letterWidth =
+            item.text === '' ? 0 : rehearsalBoxWidth(item.text, options.rehearsalFontSize) + options.rehearsalFontSize * 0.4;
+          before.push(
+            ...rehearsalMark(
+              item.name,
+              bar.x + letterWidth,
+              bands.top,
+              options.rehearsalFontSize,
+              'se-sectionnamebox',
+              'se-sectionname',
+            ),
+          );
+        }
         break;
 
       case 'barline':

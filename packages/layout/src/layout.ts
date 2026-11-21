@@ -118,7 +118,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         {
           bars,
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
-          hasRehearsalMark: bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null),
+          hasRehearsalMark: bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))),
         },
         spec,
       );
@@ -275,6 +275,11 @@ function buildHeader(score: Score, spec: PageSpec): LayoutText[] {
 // Bar contents
 // ---------------------------------------------------------------------------
 
+/** A section draws a mark when it has a letter or a name (SIB2-176); a name alone is boxed by itself. */
+function hasMark(section: { letter: string | null; name: string | null } | null): boolean {
+  return section !== null && (section.letter != null || (section.name != null && section.name !== ''));
+}
+
 function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
   const { bar } = entry;
   return {
@@ -310,8 +315,14 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
   }
 
   const section = sectionStartingAt(score, bar.number);
-  if (section !== null && section.letter !== null) {
-    items.push({ kind: 'rehearsalMark', sectionId: section.id, text: section.letter });
+  if (section !== null && hasMark(section)) {
+    items.push({
+      kind: 'rehearsalMark',
+      sectionId: section.id,
+      text: section.letter ?? '',
+      // A name that only repeats the letter ("A" beside A) adds nothing, so it is not boxed twice.
+      ...(section.name && section.name !== section.letter ? { name: section.name } : {}),
+    });
   }
 
   if (bar.ending !== null) {
