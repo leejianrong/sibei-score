@@ -1,6 +1,6 @@
 # ADR-0039: Product direction and schedule — lead sheets and agents first, then arrangers
 
-- **Status:** Accepted for decisions 1–8; decision 9 (push vs pull) is **Proposed**, pending the maintainer.
+- **Status:** Accepted — decisions 1–8 on 2026-11-22; decision 9 (pull) accepted by the maintainer the same day.
 - **Date:** 2026-11-22
 - **Deciders:** Jian, in design discussion
 - **Relates to:** [ADR-0021](0021-notation-coverage-boundary.md), [ADR-0030](0030-own-the-engraver.md),
@@ -43,7 +43,7 @@ D.S., page furniture, a full-band intro with grand staff and drum staff).
    or built in 2026 unless the launch date holds with room to spare.
 8. **Piano, drums and multi-staff are needed as soon as the model allows**, in service of the audio
    project's V4 (piano), V5 (drums), V6 (guitar) and V8 (multi-stem score).
-9. **Push vs pull for the audio worker — Proposed: pull.** The audio engine's GPU worker, a separate
+9. **Push vs pull for the audio worker — Accepted: pull.** The audio engine's GPU worker, a separate
    repo, claims jobs from our durable job table over authenticated HTTPS with a lease and heartbeat,
    and returns NoteEvents; bytes move by presigned URL. Reasons: a GPU host is typically behind NAT or
    preemptible, so it should call out, not be called in; claiming gives natural back-pressure, retries
