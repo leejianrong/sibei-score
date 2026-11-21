@@ -20,7 +20,7 @@
    */
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
-  import type { Paper } from '@sibei/layout';
+  import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
   import { displayTitle, formatKeySignature, formatPitch, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
   import type { Id, KeySignature, Score } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
@@ -32,6 +32,8 @@
     FORMATS,
     getScore,
     INSTRUMENTS,
+    NUMBER_FORMATS,
+    NUMBER_POSITIONS,
     OfflineError,
     PAPERS,
     redoScore,
@@ -89,6 +91,14 @@
 
   let paper = $state<Paper>(DEFAULT_PAPER);
   let font = $state<MusicFontName>(DEFAULT_MUSIC_FONT);
+  // Page numbers (SIB2-171): a render-time choice like the paper, off by default. The position is
+  // `none` or a corner/centre; the format and first-page flag only matter once one is chosen.
+  let numberPosition = $state<PageNumberPosition | 'none'>('none');
+  let numberFormat = $state<PageNumberFormat>('n');
+  let numberFirst = $state(true);
+  const pageNumbers = $derived<PageNumberSettings | null>(
+    numberPosition === 'none' ? null : { position: numberPosition, format: numberFormat, first: numberFirst },
+  );
   let zoom = $state(100);
 
   // The retained source scan, for the split-pane review (V14b, ADR-0019). A chart that came from an
@@ -179,11 +189,11 @@
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    renderScore === null ? [] : renderScorePages(renderScore, { paper }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers }, { font }),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
-  const route = $derived(exportRoute({ format, paper, font, instrument }));
+  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers }));
   const formatLabel = $derived(FORMATS.find((f) => f.value === format)?.label ?? 'PDF');
 
   // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
@@ -802,6 +812,35 @@
         <p class="control-note">Paper changes the line breaks, so the page above changes with it.</p>
       </div>
 
+      <div class="group control-row">
+        <h3>Page numbers</h3>
+        <select
+          class="part-select"
+          aria-label="Page number position"
+          value={numberPosition}
+          onchange={(event) => (numberPosition = (event.currentTarget as HTMLSelectElement).value as PageNumberPosition | 'none')}
+        >
+          <option value="none">None</option>
+          {#each NUMBER_POSITIONS as position (position)}
+            <option value={position}>{position.replace('-', ' ')}</option>
+          {/each}
+        </select>
+        {#if numberPosition !== 'none'}
+          <select
+            class="part-select"
+            aria-label="Page number format"
+            value={numberFormat}
+            onchange={(event) => (numberFormat = (event.currentTarget as HTMLSelectElement).value as PageNumberFormat)}
+          >
+            {#each NUMBER_FORMATS as option (option)}
+              <option value={option}>{option === 'n' ? '2' : option === 'page' ? 'Page 2' : 'Page 2 of 3'}</option>
+            {/each}
+          </select>
+          <label class="control-note"><input type="checkbox" bind:checked={numberFirst} /> Number the first page</label>
+        {/if}
+        <p class="control-note">Printed in the margin of every page of the PDF. Off by default; a render choice, not stored in the chart.</p>
+      </div>
+
       <div class="group">
         <h3>Part</h3>
         <select
@@ -838,7 +877,7 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
