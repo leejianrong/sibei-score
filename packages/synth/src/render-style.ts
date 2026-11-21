@@ -66,6 +66,10 @@ export function randomChordStyle(rng: Rng): ChordStyle {
     parenthesizeAlterations: rng.bool(0.7),
     stackAlterations: rng.bool(0.5),
     triangleScale: rng.weighted([1, 0.85, 0.75], [3, 1, 1]),
+    // Pinned, not drawn from the rng: the trained Stage-2b weights saw inline slashes, and drawing
+    // here would shift every later sample of every seeded corpus (SIB2-164). Widening the corpus to
+    // stacked slashes is a retraining decision, not this card's.
+    slash: 'inline',
   };
 }
 
