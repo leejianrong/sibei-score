@@ -40,6 +40,8 @@ export function limitsFromEnv(env: Record<string, string | undefined>): LimitsCo
     global: rate('SBSCORE_LIMIT_GLOBAL_PER_MIN', base.global!),
     workerFailIp: rate('SBSCORE_LIMIT_WORKER_FAIL_IP_PER_MIN', base.workerFailIp!),
     authIp: rate('SBSCORE_LIMIT_AUTH_IP_PER_MIN', base.authIp),
+    deviceStartIp: rate('SBSCORE_LIMIT_DEVICE_START_IP_PER_10MIN', base.deviceStartIp!),
+    deviceStart: rate('SBSCORE_LIMIT_DEVICE_START_PER_10MIN', base.deviceStart!),
     rates: {
       read: rate('SBSCORE_LIMIT_USER_READ_PER_MIN', base.rates.read!),
       write: rate('SBSCORE_LIMIT_USER_WRITE_PER_MIN', base.rates.write!),

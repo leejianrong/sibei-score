@@ -6,7 +6,7 @@
 #   bash scripts/smoke-hosted.sh                 # builds the API image (minutes the first time)
 #   KEEP=1 bash scripts/smoke-hosted.sh          # leave the stack running to poke at
 #
-# Needs Docker with the compose plugin, curl and jq. Uses loopback ports 18080 (the site) and 19000 (the fake
+# Needs Docker with the compose plugin, curl, jq and age. Uses loopback ports 18080 (the site) and 19000 (the fake
 # GitHub), a throwaway project name, and a throwaway env file with random secrets that is never printed.
 # The OMR worker is behind an opt-in compose profile and is not started; the test checks that a photo is
 # refused cleanly instead. It does NOT deploy anything: see docs/deploy-hosted.md for that.
@@ -124,14 +124,20 @@ printf '%s' "$photo" | head -1 | jq -e '.error.kind == "photo-import-unavailable
 [ "$(curl -s -b "$jar" "$SITE/v1/me" | jq -r '.photoImport')" = false ] || fail "/v1/me should say photoImport is false"
 ok "an image import is a 422 photo-import-unavailable, and /v1/me says so"
 
-step "a backup restores into a fresh database"
-bash deploy/backup.sh >/dev/null 2>&1 || fail "backup"
-latest="$(ls -1t backups/sibei-*.sql.gz | head -1)"
-bash deploy/restore.sh "$latest" sibei_restore >/dev/null || fail "restore"
+step "an encrypted backup restores into a fresh database (SIB2-208)"
+command -v age >/dev/null && command -v age-keygen >/dev/null || fail "this step needs age and age-keygen on the PATH (apt install age)"
+age-keygen -o "$work/backup-key.txt" >/dev/null 2>&1
+recipient="$(age-keygen -y "$work/backup-key.txt")"
+if env -u BACKUP_AGE_RECIPIENT bash deploy/backup.sh >/dev/null 2>&1; then fail "a backup with no BACKUP_AGE_RECIPIENT should refuse to run"; fi
+ok "with no recipient configured, backup.sh refuses to write a plaintext dump"
+BACKUP_AGE_RECIPIENT="$recipient" bash deploy/backup.sh >/dev/null 2>&1 || fail "backup"
+latest="$(ls -1t backups/sibei-*.sql.gz.age | head -1)"
+if gzip -t "$latest" 2>/dev/null || head -c 40 "$latest" | grep -q "PostgreSQL"; then fail "the backup is not encrypted"; fi
+BACKUP_AGE_IDENTITY="$work/backup-key.txt" bash deploy/restore.sh "$latest" sibei_restore >/dev/null || fail "restore"
 rows="$(docker compose exec -T postgres psql -U postgres -d sibei_restore -Atc 'SELECT count(*) FROM scores')"
 [ "$rows" = 1 ] || fail "the restored database has $rows scores, expected 1"
 rm -f "$latest"
-ok "pg_dump taken, restored into sibei_restore, and the chart is in it"
+ok "pg_dump encrypted with age, decrypted and restored into sibei_restore, and the chart is in it"
 
 step "deleting the account empties it"
 code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -H 'content-type: application/json' -X DELETE "$SITE/v1/auth/account" -d "{\"confirm\":\"$LOGIN\"}")"

@@ -18,7 +18,7 @@
 # Required variables (compose refuses to start without them, by name): see `deploy/hosted.env.example`.
 services:
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     restart: unless-stopped
     # The one place a port is published. HTTP_BIND is 0.0.0.0 on a VM and 127.0.0.1 for the local smoke
     # test; 80 is needed for the ACME challenge and the http-to-https redirect.
@@ -114,7 +114,7 @@ services:
       - backend
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.16-alpine@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
     restart: unless-stopped
     environment:
       # The superuser. Used by the init script to create the application role and by backups; never by the API.
@@ -135,10 +135,15 @@ services:
       - backend
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     restart: unless-stopped
     # Pub/sub and counters only; nothing here is the source of truth, so persistence is best effort.
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--appendfsync", "everysec"]
+    # The password comes from a generated config file (the `redis-conf` config below), not the command line:
+    # an argument is visible in `ps` on the host and in `docker inspect` (SIB2-209).
+    command: ["redis-server", "/etc/redis/redis.conf", "--appendonly", "yes", "--appendfsync", "everysec"]
+    configs:
+      - source: redis-conf
+        target: /etc/redis/redis.conf
     environment:
       # Read by redis-cli in the healthcheck, so the password is not on its command line.
       REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
@@ -151,6 +156,12 @@ services:
       retries: 20
     networks:
       - backend
+
+# Needs Docker Compose 2.23 or newer (`content:`).
+configs:
+  redis-conf:
+    content: |
+      requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD}
 
 volumes:
   caddy-data:

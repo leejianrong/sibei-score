@@ -21,8 +21,9 @@ sit on an `internal` Docker network with no route to the internet (`compose.host
 | A domain | Its A (and AAAA) record must point at the VM **before** the first start, or Caddy cannot get a certificate and will retry against Let's Encrypt's rate limits. |
 | Open ports | 80 and 443 from the internet (80 is the certificate challenge and the http-to-https redirect). Nothing else. |
 | A GitHub OAuth App | https://github.com/settings/developers, "New OAuth App". Homepage `https://<domain>`, callback `https://<domain>/v1/auth/github/callback`. Keep the client id and generate a client secret. |
-| Docker | Docker Engine with the compose plugin. |
+| Docker | Docker Engine with the compose plugin, version 2.23 or newer (the Redis password is delivered as a generated config). |
 | Somewhere to ship backups | An [rclone](https://rclone.org) remote (S3, B2, another box). A dump that only lives on the VM is not a backup. |
+| An `age` key pair for backups | `apt install age` on the VM; generate the pair **on your own machine** with `age-keygen -o key.txt`. Only the public key (`age1...`) goes on the VM. See Backups. |
 
 ## First deploy
 
@@ -61,10 +62,23 @@ Nightly, from cron on the VM:
 17 3 * * *  cd /home/<user>/sibei-score && ./deploy/backup.sh >> backups/backup.log 2>&1
 ```
 
-`deploy/backup.sh` writes `backups/sibei-<timestamp>.sql.gz`, deletes local dumps older than
+`deploy/backup.sh` writes `backups/sibei-<timestamp>.sql.gz.age`, deletes local dumps older than
 `BACKUP_KEEP_DAYS` (14), and copies the new one to `BACKUP_REMOTE` with rclone. Set `BACKUP_REMOTE` in `.env`
 (for example `offsite:sibei-backups`) and run `rclone config` once as the same user; until you do, the script
 says so on every run.
+
+**Backups are encrypted, and there is no plaintext mode.** The dump holds every user's charts, token hashes
+and sessions, so `backup.sh` pipes it through [age](https://age-encryption.org) to `BACKUP_AGE_RECIPIENT` before
+anything is written, and refuses to run if that is unset. Set it once:
+
+```sh
+age-keygen -o sibei-backup-key.txt      # on YOUR machine, not the VM; the public key is printed
+# put the printed `age1...` public key in .env as BACKUP_AGE_RECIPIENT=...
+```
+
+Keep `sibei-backup-key.txt` somewhere safe and **off the VM** (a password manager, a second location): it is the
+only way to read a backup, and anyone who has it plus a dump can read every user's data. Restoring needs it
+(see below). Rotating the key means changing `BACKUP_AGE_RECIPIENT`; older dumps still need the older key.
 
 What a backup covers: Postgres, which holds scores, op logs, jobs, users, tokens and the blob ledger. What
 it does not: the `api-blobs` volume (import scans and the export cache). Exports are re-derivable and scans
@@ -74,7 +88,7 @@ counters).
 **Prove a backup restores** before you trust it, and after any change to the schema:
 
 ```sh
-./deploy/restore.sh backups/sibei-<timestamp>.sql.gz            # loads into a NEW database, sibei_restore
+BACKUP_AGE_IDENTITY=./sibei-backup-key.txt ./deploy/restore.sh backups/sibei-<timestamp>.sql.gz.age   # loads into a NEW database, sibei_restore
 docker compose -f compose.hosted.yaml exec postgres psql -U postgres -d sibei_restore -c 'SELECT count(*) FROM scores'
 docker compose -f compose.hosted.yaml exec postgres psql -U postgres -c 'DROP DATABASE sibei_restore'
 ```
@@ -85,7 +99,7 @@ docker compose -f compose.hosted.yaml exec postgres psql -U postgres -c 'DROP DA
    data was written under only for Redis and the app role; the dump carries no role passwords).
 2. Stop the API so nothing writes: `docker compose -f compose.hosted.yaml stop api`.
 3. Replace the empty database: `docker compose -f compose.hosted.yaml exec postgres psql -U postgres -c 'DROP DATABASE sibei' -c 'CREATE DATABASE sibei OWNER sibei_app'`.
-4. `./deploy/restore.sh backups/<dump>.sql.gz sibei`.
+4. `BACKUP_AGE_IDENTITY=<path to your private key> ./deploy/restore.sh backups/<dump>.sql.gz.age sibei`.
 5. Start it: `docker compose -f compose.hosted.yaml start api`. Sessions and tokens are in the dump, so people stay
    signed in.
 
@@ -103,6 +117,15 @@ docker compose -f compose.hosted.yaml exec postgres psql -U postgres -c 'DROP DA
 The compose file restarts every service on failure (`unless-stopped`) and gives each a health check. For an
 external monitor, probe `https://<domain>/v1/health`.
 
+## HSTS
+
+Caddy sends `Strict-Transport-Security: max-age=31536000; includeSubDomains`. `includeSubDomains` means a
+browser that has seen the site refuses plain http on **every subdomain** of your domain for a year, so do not
+host an http-only service on a sibling subdomain. It is deliberately **not** `preload`: submitting the domain to
+the browser preload list is a one-way door that takes months to undo, and it needs `includeSubDomains` plus a
+`max-age` of a year or more. If you want it later, add `preload` to the header in `deploy/Caddyfile` and submit
+the domain at hstspreload.org once you are sure every subdomain is https.
+
 ## What this does not do yet
 
 - **No CI-built images.** The VM builds the API and worker images itself. Pushing prebuilt images to a
@@ -113,11 +136,13 @@ external monitor, probe `https://<domain>/v1/health`.
   behind the `photo-import` compose profile, so it is neither built nor started. Audio and NoteEvents `.json`
   import work. To enable it later (V26): build a worker image with weights, set `SBSCORE_PHOTO_IMPORT=on`,
   and `docker compose -f compose.hosted.yaml --profile photo-import up -d --build`.
+- **The API image is not slim.** It carries dev dependencies and a build toolchain and runs from source
+  (tracked as a follow-up card). Base images are pinned by version and digest; Dependabot proposes bumps.
 - **Off-box backup needs a destination you choose** (`BACKUP_REMOTE`).
 
 ## The local smoke test
 
 `bash scripts/smoke-hosted.sh` brings the whole stack up on loopback with a fake GitHub, signs in, creates and
-exports a chart, checks that only Caddy publishes a port and that a foreign Origin is refused, takes a backup
-and restores it into a fresh database, deletes the account, and tears everything down. It needs Docker, curl
-and jq, builds the API image (minutes the first time), and starts no worker (it also checks that a photo import is refused). It deploys nothing.
+exports a chart, checks that only Caddy publishes a port and that a foreign Origin is refused, takes an encrypted backup
+and restores it into a fresh database, deletes the account, and tears everything down. It needs Docker, curl,
+jq and age, builds the API image (minutes the first time), and starts no worker (it also checks that a photo import is refused). It deploys nothing.
