@@ -19,6 +19,7 @@ const base: BarStructure = {
   startBarline: 'none',
   endBarline: 'single',
   ending: null,
+  texts: [],
 };
 
 const edits = (over: Partial<StructureEdits> = {}): StructureEdits => ({

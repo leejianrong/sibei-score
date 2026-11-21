@@ -469,6 +469,8 @@ export type Operation =
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
+  | { type: 'text.set'; target: string; payload: { text: string } }
+  | { type: 'text.rm'; target: string }
   | { type: 'transpose'; payload: TransposePayload }
   | { type: 'section.set'; target: string; payload: SectionSetPayload }
   | { type: 'section.rm'; target: string }

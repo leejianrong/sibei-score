@@ -48,11 +48,14 @@
     /** Add an empty bar after this one, or remove this one (SIB2-186). */
     onaddbar: () => void;
     onrmbar: () => void;
+    /** Text directions (SIB2-169): set one at a beat of this bar, or remove one by id. */
+    onsettext: (beat: number, text: string) => void;
+    onrmtext: (id: string) => void;
     ondeselect: () => void;
     onreload: () => void;
   }
 
-  const { bar, conflict, saving, error, onsave, onaddbar, onrmbar, ondeselect, onreload }: Props = $props();
+  const { bar, conflict, saving, error, onsave, onaddbar, onrmbar, onsettext, onrmtext, ondeselect, onreload }: Props = $props();
 
   let letter = $state(untrack(() => bar.letter));
   let name = $state(untrack(() => bar.name));
@@ -61,6 +64,9 @@
   let role = $state<'none' | EndingRole>(untrack(() => bar.ending?.role ?? 'none'));
   let numbersInput = $state(untrack(() => (bar.ending === null ? '1' : bar.ending.numbers.join(', '))));
   let numbersError = $state<string | null>(null);
+  let textBeat = $state('1');
+  let textInput = $state('');
+  const textBeatValid = $derived(Number.isFinite(Number(textBeat)) && Number(textBeat) >= 1);
 
   const startDisplay = (o: StartBarline): string => START_OPTIONS.find((x) => x.value === o)?.label ?? String(o);
   const endDisplay = (o: EndBarline): string => END_OPTIONS.find((x) => x.value === o)?.label ?? String(o);
@@ -191,6 +197,47 @@
     {/if}
 
     <div class="field">
+      <span class="field-label">Text directions</span>
+      {#each bar.texts as direction (direction.id)}
+        <div class="field-row">
+          <span class="mini-label">beat {direction.beat}</span>
+          <span class="grow dir-text">{direction.text}</span>
+          <button
+            type="button"
+            class="btn btn-cancel"
+            aria-label={`Remove direction ${direction.text}`}
+            disabled={saving}
+            onclick={() => onrmtext(direction.id)}>Remove</button>
+        </div>
+      {/each}
+      <div class="field-row">
+        <input
+          class="txt letter"
+          aria-label="Direction beat"
+          inputmode="decimal"
+          value={textBeat}
+          oninput={(event) => (textBeat = (event.currentTarget as HTMLInputElement).value)}
+        />
+        <input
+          class="txt grow"
+          aria-label="Direction text"
+          placeholder="(unis.), solo on form, Swing…"
+          value={textInput}
+          oninput={(event) => (textInput = (event.currentTarget as HTMLInputElement).value)}
+        />
+        <button
+          type="button"
+          class="btn btn-cancel"
+          disabled={saving || textInput.trim() === '' || !textBeatValid}
+          onclick={() => {
+            onsettext(Number(textBeat), textInput.trim());
+            textInput = '';
+          }}>Add</button>
+      </div>
+      <p class="note">Printed above the staff at that beat. Adding at a beat that has one replaces it.</p>
+    </div>
+
+    <div class="field">
       <span class="field-label">Bars</span>
       <div class="field-row">
         <button type="button" class="btn btn-cancel" disabled={saving} onclick={onaddbar}>Add bar after</button>
@@ -251,6 +298,10 @@
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+  .dir-text {
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
   }
   .field-row .grow {
     flex: 1;
