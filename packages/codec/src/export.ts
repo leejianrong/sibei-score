@@ -51,6 +51,7 @@ const PROLOG = [
 
 /** Serialise a score to a MusicXML `score-partwise` document. Deterministic. */
 export function scoreToMusicXml(score: Score): string {
+  const marks = slurMarks(score);
   const root = elem('score-partwise', { version: '4.0' }, [
     work(score),
     identification(score),
@@ -60,7 +61,7 @@ export function scoreToMusicXml(score: Score): string {
     elem(
       'part',
       { id: 'P1' },
-      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1])),
+      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1], marks)),
     ),
   ]);
   return serialize(root, { prolog: PROLOG });
@@ -83,7 +84,13 @@ function identification(score: Score): XmlElement {
 // A measure
 // ---------------------------------------------------------------------------
 
-function measure(score: Score, bar: Bar, isFirst: boolean, previous: Bar | undefined): XmlElement {
+function measure(
+  score: Score,
+  bar: Bar,
+  isFirst: boolean,
+  previous: Bar | undefined,
+  slurs: SlurMarks,
+): XmlElement {
   const children: (XmlElement | null)[] = [];
 
   // A line ends after the previous bar (SIB2-174), so this measure opens a new system. `join` and the
@@ -117,7 +124,7 @@ function measure(score: Score, bar: Bar, isFirst: boolean, previous: Bar | undef
     children.push(words(annotation));
   }
 
-  for (const note of noteElements(bar)) children.push(note);
+  for (const note of noteElements(bar, slurs)) children.push(note);
 
   const right = rightBarline(bar);
   if (right !== null) children.push(right);
@@ -171,11 +178,52 @@ function attributes(score: Score): XmlElement {
 // Notes and rests
 // ---------------------------------------------------------------------------
 
-function noteElements(bar: Bar): XmlElement[] {
-  return bar.items.map((item) => (item.kind === 'note' ? noteElement(item, bar) : restElement(item, bar)));
+function noteElements(bar: Bar, slurs: SlurMarks): XmlElement[] {
+  return bar.items.map((item) =>
+    item.kind === 'note' ? noteElement(item, bar, slurs.get(item.id) ?? []) : restElement(item, bar),
+  );
 }
 
-function noteElement(note: Note, bar: Bar): XmlElement {
+/** A slur's start or stop on one note, as `<slur type number placement>` wants it. */
+interface SlurMark {
+  type: 'start' | 'stop';
+  number: number;
+  placement?: 'above' | 'below';
+}
+type SlurMarks = Map<string, SlurMark[]>;
+
+/**
+ * Number each slur and say which notes carry its start and stop (SIB2-167). MusicXML pairs a stop with
+ * its start by `number`, which only has to differ between slurs that overlap, so a slur takes the lowest
+ * number no still-open slur holds. Reading order is the score's own: bars then items.
+ */
+function slurMarks(score: Score): SlurMarks {
+  const marks: SlurMarks = new Map();
+  const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur');
+  if (spanners.length === 0) return marks;
+  const order = new Map<string, number>();
+  for (const bar of score.bars) for (const item of bar.items) order.set(item.id, order.size);
+  const placed = spanners
+    .map((spanner) => ({ spanner, from: order.get(spanner.startId), to: order.get(spanner.endId) }))
+    .filter((p): p is { spanner: typeof p.spanner; from: number; to: number } => p.from !== undefined && p.to !== undefined)
+    .sort((a, b) => a.from - b.from);
+  const open: { to: number; number: number }[] = [];
+  const push = (id: string, mark: SlurMark): void => {
+    marks.set(id, [...(marks.get(id) ?? []), mark]);
+  };
+  for (const { spanner, from, to } of placed) {
+    for (let i = open.length - 1; i >= 0; i -= 1) if ((open[i] as { to: number }).to < from) open.splice(i, 1);
+    let number = 1;
+    while (open.some((o) => o.number === number)) number += 1;
+    open.push({ to, number });
+    const placement = spanner.placement === undefined ? {} : { placement: spanner.placement };
+    push(spanner.startId, { type: 'start', number, ...placement });
+    push(spanner.endId, { type: 'stop', number });
+  }
+  return marks;
+}
+
+function noteElement(note: Note, bar: Bar, slurs: SlurMark[]): XmlElement {
   const tuplet = tupletOf(note.id, bar);
   const children: (XmlElement | null)[] = [
     pitchElement(note),
@@ -186,7 +234,7 @@ function noteElement(note: Note, bar: Bar): XmlElement {
     ...dots(note.duration.dots),
     accidentalElement(note),
     timeModification(tuplet),
-    notations(note, bar, tuplet),
+    notations(note, bar, tuplet, undefined, slurs),
   ];
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
 }
@@ -255,12 +303,23 @@ function notations(
   bar: Bar,
   tuplet: Tuplet | null,
   restId?: string,
+  slurs: SlurMark[] = [],
 ): XmlElement | null {
   const parts: XmlElement[] = [];
 
   if (note !== null) {
     if (note.tie === 'stop' || note.tie === 'both') parts.push(elem('tied', { type: 'stop' }));
     if (note.tie === 'start' || note.tie === 'both') parts.push(elem('tied', { type: 'start' }));
+  }
+
+  for (const slur of slurs) {
+    parts.push(
+      elem('slur', {
+        type: slur.type,
+        number: String(slur.number),
+        ...(slur.placement === undefined ? {} : { placement: slur.placement }),
+      }),
+    );
   }
 
   if (tuplet !== null) {

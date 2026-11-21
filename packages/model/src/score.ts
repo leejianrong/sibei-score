@@ -297,6 +297,33 @@ export interface PageFooter {
 
 export const MAX_FOOTER_LENGTH = 500;
 
+/**
+ * A curve between two objects, the shape ADR-0041's `spanners[]` lane adopts unchanged: a kind and the ids
+ * of the objects it starts and ends on, so it survives the model becoming parts x staves x voices (ids are
+ * stable, positions are not). Only `slur` exists so far; ottava and hairpins join as new kinds.
+ *
+ * A slur runs from one note to a later one, in this bar or another. It is a phrase mark, not a tie: a tie
+ * joins two notes of one pitch into one sound, a slur says "play these connected" over any pitches.
+ */
+export interface Spanner {
+  id: Id;
+  kind: SpannerKind;
+  /** The note it begins on. */
+  startId: Id;
+  /** The note it ends on, later in reading order than `startId`. */
+  endId: Id;
+  /** Which side of the staff it is drawn. Absent means by stem direction (see the engraver). */
+  placement?: SpannerPlacement;
+}
+
+export type SpannerKind = 'slur';
+
+export const SPANNER_KINDS: readonly SpannerKind[] = ['slur'];
+
+export type SpannerPlacement = 'above' | 'below';
+
+export const SPANNER_PLACEMENTS: readonly SpannerPlacement[] = ['above', 'below'];
+
 export interface Score {
   schemaVersion: number;
   id: Id;
@@ -304,4 +331,9 @@ export interface Score {
   /** In bar-number order. A pickup, when present, is `bars[0]` with number 0. */
   bars: Bar[];
   sections: Section[];
+  /**
+   * Slurs (SIB2-167), and later ottava and hairpins (ADR-0041). Optional-and-absent, so no document
+   * written before it changes shape and `SCHEMA_VERSION` stays (ADR-0028): a missing lane reads as empty.
+   */
+  spanners?: Spanner[];
 }
