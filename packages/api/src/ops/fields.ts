@@ -27,7 +27,7 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'rest.rm': [],
   'chord.set': ['text', 'spellingPinned', 'id'],
   'chord.rm': [],
-  'text.set': ['text', 'id'],
+  'text.set': ['text', 'until', 'id'],
   'text.rm': [],
   transpose: ['to'],
   'section.set': ['letter', 'name', 'id'],

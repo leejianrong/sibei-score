@@ -77,6 +77,8 @@ export interface MetaSetPayload {
  */
 export interface TextSetPayload {
   text: string;
+  /** A bar address (`bar8`) the dashed continuation line runs to (SIB2-170). Null removes the line; absent keeps it. */
+  until?: string | null;
   /** *Recorded.* The id the applier assigned (an existing direction at that beat keeps its own). */
   id?: Id;
 }

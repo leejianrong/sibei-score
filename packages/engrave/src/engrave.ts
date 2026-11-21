@@ -296,7 +296,17 @@ function engraveBar(
   // The prefix is drawn inside the room layout allocated for it, left to right.
   let prefixX = bar.x + units(0.6);
 
-  const chords: { anchorItemId: Id | null; onset: number; text: string; plain: boolean; flagged: boolean }[] = [];
+  const chords: {
+    anchorItemId: Id | null;
+    onset: number;
+    text: string;
+    plain: boolean;
+    flagged: boolean;
+    /** A text direction's dashed line, drawn after the text (SIB2-170). */
+    line?: { endsHere: boolean };
+  }[] = [];
+  /** Dashed-line segments that start at the bar's left edge: a direction from an earlier bar passing through. */
+  const lineSegments: { endsHere: boolean }[] = [];
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
@@ -393,7 +403,12 @@ function engraveBar(
           text: item.text,
           plain: true,
           flagged: item.flagged,
+          ...(item.line === undefined ? {} : { line: item.line }),
         });
+        break;
+
+      case 'directionLine':
+        lineSegments.push({ endsHere: item.endsHere });
         break;
 
       case 'tupletBracket':
@@ -508,8 +523,54 @@ function engraveBar(
     );
   }
 
+  // Dashed continuation lines after text directions (SIB2-170), above the chord row, so it never strikes through a chord: from the end of the text
+  // (this bar) or the bar's left edge (a later bar) to its right edge, with a hook down at a closing bar's end.
+  const lineY = bands.chordBaseline - options.chordFontSize * 1.1;
+  for (const [index, chord] of chords.entries()) {
+    if (chord.line === undefined) continue;
+    const x = chordXs[index] ?? bar.x + bar.prefixWidth + units(1);
+    const from = x + options.chordFontSize * CHORD_ADVANCE_EM * chord.text.length + units(0.6);
+    before.push(...directionLine(from, bar.x + bar.width, lineY, chord.line.endsHere, options.chordFontSize));
+  }
+  for (const segment of lineSegments) {
+    before.push(
+      ...directionLine(bar.x + bar.prefixWidth, bar.x + bar.width, lineY, segment.endsHere, options.chordFontSize),
+    );
+  }
+
   void skipped;
   return [...before, ...ink, ...beams, ...after];
+}
+
+/**
+ * A dashed line from `from` to `to`; a closing bar stops a little short of its barline and ends in a hook down
+ * toward the staff, so a reader sees where the instruction stops.
+ */
+function directionLine(from: number, to: number, y: number, closes: boolean, size: number): SvgElement[] {
+  const end = closes ? to - units(0.6) : to;
+  if (end <= from) return [];
+  const out: SvgElement[] = [
+    el('path', {
+      class: 'se-directionline',
+      d: `M${from} ${y}L${end} ${y}`,
+      fill: 'none',
+      stroke: '#000000',
+      'stroke-width': 1,
+      'stroke-dasharray': `${size * 0.4} ${size * 0.3}`,
+    }),
+  ];
+  if (closes) {
+    out.push(
+      el('path', {
+        class: 'se-directionhook',
+        d: `M${end} ${y}L${end} ${y + size * 0.8}`,
+        fill: 'none',
+        stroke: '#000000',
+        'stroke-width': 1,
+      }),
+    );
+  }
+  return out;
 }
 
 /** Estimated advance of a chord symbol, as in `flaggedChordShade` — never measured (ADR-0015). */

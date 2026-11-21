@@ -168,6 +168,12 @@ export interface Annotation {
   text: string;
   confidence: Confidence;
   review: Review;
+  /**
+   * A dashed continuation line after the text, to the end of the bar with this id (SIB2-170), closing with a hook:
+   * "cue ----|". Optional-and-absent, so no stored document changes and `SCHEMA_VERSION` stays (ADR-0028); a bar
+   * id rather than a number so a bar insert or removal does not move it. An id that no longer resolves draws nothing.
+   */
+  lineEndBarId?: Id;
 }
 
 export type StartBarline = 'none' | 'repeat-start';

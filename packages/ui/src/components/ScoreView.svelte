@@ -444,7 +444,12 @@
       lineBreak: bar.lineBreak ?? 'none',
       texts: [...bar.annotations]
         .sort((a, b) => a.onset - b.onset)
-        .map((a) => ({ id: a.id, beat: beatOfOnset(a.onset, score!.meta.time), text: a.text })),
+        .map((a) => ({
+          id: a.id,
+          beat: beatOfOnset(a.onset, score!.meta.time),
+          text: a.text,
+          until: score!.bars.find((b) => b.id === a.lineEndBarId)?.number ?? null,
+        })),
     };
   });
 
@@ -1226,8 +1231,14 @@
               onsave={handleStructureSave}
               onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
               onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
-              onsettext={(beat, text) =>
-                void runOps([{ type: 'text.set', target: `${barStructure!.addr}.beat${beat}`, payload: { text } }])}
+              onsettext={(beat, text, until) =>
+                void runOps([
+                  {
+                    type: 'text.set',
+                    target: `${barStructure!.addr}.beat${beat}`,
+                    payload: { text, until: until === null ? null : `bar${until}` },
+                  },
+                ])}
               onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
               ondeselect={deselect}
               onreload={handleReload}
