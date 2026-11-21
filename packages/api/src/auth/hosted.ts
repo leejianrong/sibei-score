@@ -311,6 +311,17 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
     return { provider: GITHUB, subject: String(id), login, name: typeof name === 'string' ? name : null };
   }
 
+  /** "Sign out everywhere": every session of the person asking, this one included. Cookie only, like approval. */
+  async function logoutEverywhere(request: IncomingMessage, response: ServerResponse): Promise<number> {
+    const userId = await sessionUser(request);
+    if (userId === null) return send(response, problem(401, 'unauthenticated', 'not signed in'));
+    await auth.deleteSessionsOf(userId);
+    response.setHeader('set-cookie', clearSession());
+    response.setHeader('cache-control', 'no-store');
+    response.writeHead(204).end();
+    return 204;
+  }
+
   async function logout(request: IncomingMessage, response: ServerResponse): Promise<number> {
     const token = readSession(request);
     if (token !== undefined) await auth.deleteSession(hashToken(token));
@@ -347,6 +358,9 @@ export function createHostedAuth(options: HostedAuthOptions): HostedAuth {
       }
       if (path === `${AUTH_PATH}/callback`) {
         return method === 'GET' ? callback(request, response) : notAllowed(response, 'GET');
+      }
+      if (path === '/v1/auth/logout-all') {
+        return method === 'POST' ? logoutEverywhere(request, response) : notAllowed(response, 'POST');
       }
       if (path === '/v1/auth/logout') {
         return method === 'POST' ? logout(request, response) : notAllowed(response, 'POST');

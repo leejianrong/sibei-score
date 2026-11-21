@@ -589,9 +589,39 @@ export function authStoreConformance(label: string, open: OpenHarness): void {
         scopes: ['read'],
         createdAt: expect.any(String),
         expiresAt: '2026-11-01T00:00:00Z',
+        lastUsedAt: null,
       });
       expect(await auth.findToken('h1', T0)).toEqual({ id: 'tok_1', userId: user.id, scopes: ['read'] });
       expect(await auth.findToken('h2', T0)).toBeNull();
+    });
+
+    it('records when a token last authenticated, at most every few minutes, and shows it in the listing', async () => {
+      const { auth } = await fresh();
+      const user = await aUser(auth);
+      await auth.createToken({ id: 'tok_1', tokenHash: 'h1', userId: user.id, name: 'x', scopes: ['read'], expiresAt: '2026-11-01T00:00:00Z' });
+      expect((await auth.listTokens(user.id))[0]!.lastUsedAt).toBeNull();
+      await auth.findToken('h1', '2026-08-01T10:00:00Z');
+      await auth.findToken('h1', '2026-08-01T10:02:00Z'); // inside the window: not rewritten
+      expect((await auth.listTokens(user.id))[0]!.lastUsedAt).toBe('2026-08-01T10:00:00Z');
+      await auth.findToken('h1', '2026-08-01T10:06:00Z');
+      expect((await auth.listTokens(user.id))[0]!.lastUsedAt).toBe('2026-08-01T10:06:00Z');
+      await auth.findToken('nope', '2026-08-01T11:00:00Z');
+      expect((await auth.listTokens(user.id))[0]!.lastUsedAt).toBe('2026-08-01T10:06:00Z');
+    });
+
+    it('signs a user out everywhere without touching their tokens or anyone else', async () => {
+      const { auth } = await fresh();
+      const alice = await aUser(auth);
+      const bob = await auth.signIn({ ...octocat, subject: '2', login: 'bob' });
+      await auth.createSession('s1', alice.id, '2026-12-01T00:00:00Z');
+      await auth.createSession('s2', alice.id, '2026-12-01T00:00:00Z');
+      await auth.createSession('s3', bob.id, '2026-12-01T00:00:00Z');
+      await auth.createToken({ id: 'tok_1', tokenHash: 'h1', userId: alice.id, name: 'x', scopes: ['read'], expiresAt: '2026-11-01T00:00:00Z' });
+      expect(await auth.deleteSessionsOf(alice.id)).toBe(2);
+      expect(await auth.findSession('s1', T0)).toBeNull();
+      expect(await auth.findSession('s2', T0)).toBeNull();
+      expect(await auth.findSession('s3', T0)).not.toBeNull();
+      expect(await auth.findToken('h1', T0)).not.toBeNull();
     });
 
     it('treats a token as gone from the instant it expires, with no purge needed', async () => {

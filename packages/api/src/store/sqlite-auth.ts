@@ -40,14 +40,18 @@ interface TokenRow {
   scopes: string;
   created_at: string;
   expires_at: string;
+  last_used_at: string | null;
 }
 
 function scopesOf(stored: string): TokenScope[] {
   return stored.split(' ').filter((s): s is TokenScope => (TOKEN_SCOPES as readonly string[]).includes(s));
 }
 
+/** How stale `last_used_at` may be before a request refreshes it. */
+const LAST_USED_GRANULARITY_MS = 5 * 60 * 1000;
+
 function toToken(row: TokenRow): ApiToken {
-  return { id: row.id, name: row.name, scopes: scopesOf(row.scopes), createdAt: row.created_at, expiresAt: row.expires_at };
+  return { id: row.id, name: row.name, scopes: scopesOf(row.scopes), createdAt: row.created_at, expiresAt: row.expires_at, lastUsedAt: row.last_used_at };
 }
 
 export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore {
@@ -96,9 +100,11 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
       `SELECT id, user_id, scopes FROM api_tokens WHERE token_hash = ? AND expires_at > ?`,
     ),
     tokens: db.prepare<[string], TokenRow>(
-      `SELECT id, name, scopes, created_at, expires_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, rowid DESC`,
+      `SELECT id, name, scopes, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, rowid DESC`,
     ),
     revoke: db.prepare(`DELETE FROM api_tokens WHERE id = ? AND user_id = ?`),
+    touchToken: db.prepare(`UPDATE api_tokens SET last_used_at = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)`),
+    deleteSessionsOf: db.prepare(`DELETE FROM sessions WHERE user_id = ?`),
     purgeDevices: db.prepare(`DELETE FROM device_codes WHERE expires_at <= ?`),
     purgeTokens: db.prepare(`DELETE FROM api_tokens WHERE expires_at <= ?`),
     insertCode: db.prepare(
@@ -180,6 +186,9 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
       // identities, sessions, device_codes, api_tokens and oauth_codes all cascade from users.
       return statements.deleteUser.run(id).changes === 1;
     },
+    async deleteSessionsOf(userId) {
+      return statements.deleteSessionsOf.run(userId).changes;
+    },
     async deleteSession(tokenHash) {
       return statements.deleteSession.run(tokenHash).changes === 1;
     },
@@ -201,10 +210,12 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
     async createToken(token): Promise<ApiToken> {
       const createdAt = timestamp(now);
       statements.insertToken.run(token.id, token.tokenHash, token.userId, token.name, token.scopes.join(' '), createdAt, token.expiresAt);
-      return { id: token.id, name: token.name, scopes: token.scopes, createdAt, expiresAt: token.expiresAt };
+      return { id: token.id, name: token.name, scopes: token.scopes, createdAt, expiresAt: token.expiresAt, lastUsedAt: null };
     },
     async findToken(tokenHash, at): Promise<TokenPrincipal | null> {
       const row = statements.token.get(tokenHash, at);
+      // Recorded at most once per `LAST_USED_GRANULARITY_MS`, so a busy token is not a write per request.
+      if (row !== undefined) statements.touchToken.run(at, row.id, new Date(Date.parse(at) - LAST_USED_GRANULARITY_MS).toISOString().replace(/\.\d{3}Z$/, 'Z'));
       return row === undefined ? null : { id: row.id, userId: row.user_id, scopes: scopesOf(row.scopes) };
     },
     async listTokens(userId) {

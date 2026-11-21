@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startHosted } from './hosted-support.js';
 import type { Hosted } from './hosted-support.js';
@@ -34,5 +35,20 @@ describe('the boundary', () => {
     const reply = await h.request('/v1/scores/%E0%A4%A', { headers: { cookie } });
     expect(reply.status).toBe(400);
     expect(reply.json().error.kind).toBe('malformed-path');
+  });
+});
+
+describe('sign out everywhere', () => {
+  it('ends every session of the caller, and only the caller', async () => {
+    h = await startHosted();
+    const mallory = await h.signIn('mallory');
+    await h.auth.createSession(createHash('sha256').update('second-session').digest('hex'), mallory.userId, '2099-01-01T00:00:00Z');
+    expect((await h.request('/v1/me', { headers: { cookie: 'sb_session=second-session' } })).status).toBe(200);
+    const other = await h.signIn('other');
+    expect((await h.request('/v1/auth/logout-all', { method: 'POST' })).status).toBe(401);
+    expect((await h.request('/v1/auth/logout-all', { method: 'POST', headers: { cookie: mallory.cookie } })).status).toBe(204);
+    expect((await h.request('/v1/me', { headers: { cookie: mallory.cookie } })).status).toBe(401);
+    expect((await h.request('/v1/me', { headers: { cookie: 'sb_session=second-session' } })).status).toBe(401);
+    expect((await h.request('/v1/me', { headers: { cookie: other.cookie } })).status).toBe(200);
   });
 });

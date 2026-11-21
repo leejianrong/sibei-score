@@ -1014,6 +1014,7 @@ describe('listing and revoking tokens', () => {
       scopes: ['read'],
       createdAt: expect.any(String),
       expiresAt: expect.any(String),
+      lastUsedAt: null,
     });
     expect(reply.body).not.toContain(first.token);
     expect(reply.headers['cache-control']).toBe('no-store');

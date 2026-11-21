@@ -118,6 +118,7 @@ export interface ApiTokenView {
   scopes: string[];
   createdAt: string;
   expiresAt: string;
+  lastUsedAt: string | null;
 }
 
 export async function approveDevice(approval: { userCode: string; name: string; scopes: readonly string[] }): Promise<void> {

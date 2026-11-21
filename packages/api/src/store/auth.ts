@@ -65,6 +65,8 @@ export interface AuthStore {
   findSession(tokenHash: string, now: string): Promise<Session | null>;
   /** End a session. `false` when there was none, which signing out twice must not make an error. */
   deleteSession(tokenHash: string): Promise<boolean>;
+  /** End every session this user has ("sign out everywhere"). Returns how many. API tokens are untouched. */
+  deleteSessionsOf(userId: UserId): Promise<number>;
   /** Drop every session expired as of `now`. Returns how many. Housekeeping; `findSession` never relies on it. */
   purgeExpiredSessions(now: string): Promise<number>;
 
@@ -164,6 +166,8 @@ export interface ApiToken {
   scopes: readonly TokenScope[];
   createdAt: string;
   expiresAt: string;
+  /** When it last authenticated a request, to the nearest few minutes; `null` if it never has (SEC, low). */
+  lastUsedAt: string | null;
 }
 
 /** Who a live token acts as. */

@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 10;
+export const TABLE_SCHEMA_VERSION = 11;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -184,7 +184,8 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   name        TEXT NOT NULL,
   scopes      TEXT NOT NULL,
   created_at  TEXT NOT NULL,
-  expires_at  TEXT NOT NULL
+  expires_at  TEXT NOT NULL,
+  last_used_at TEXT
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
@@ -286,6 +287,8 @@ export function migrateTables(db: Database): void {
   //   v8 (V22a): oauth_codes — likewise.
   //   v9 (SIB2-137): audio_jobs — likewise.
   //   v10 (SIB2-139): audio_usage — likewise.
+  //   v11 (SEC, low): `api_tokens.last_used_at` — NULL on every older token.
+  ensureColumn(db, 'api_tokens', 'last_used_at', 'TEXT');
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
 }
