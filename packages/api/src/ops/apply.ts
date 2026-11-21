@@ -27,6 +27,9 @@ import {
   keyInterval,
   transposePitch,
   AddressError,
+  durationTicks,
+  itemTicks,
+  tupletOf,
 } from '@sibei/model';
 import type {
   AccidentalDisplay,
@@ -49,6 +52,7 @@ import type {
   StartBarline,
   TieRole,
   TimeSignature,
+  Tuplet,
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
@@ -56,6 +60,7 @@ import { isControlOperation } from './operations.js';
 import type {
   ChordSetPayload,
   TextSetPayload,
+  TupletSetPayload,
   MetaSetPayload,
   NoteAddPayload,
   BarAddPayload,
@@ -173,6 +178,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setEnding(score, operation.target, operation.payload);
     case 'ending.rm':
       return removeEnding(score, operation.target);
+    case 'tuplet.set':
+      return setTuplet(score, operation.target, operation.payload);
+    case 'tuplet.rm':
+      return removeTuplet(score, operation.target);
     case 'break.set':
       return setBreak(score, operation.target, operation.payload ?? {});
     case 'break.rm':
@@ -503,6 +512,115 @@ function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applie
     })),
     operation: kind === 'note' ? { type: 'note.rm', target } : { type: 'rest.rm', target },
     changed: [id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// tuplet.set, tuplet.rm
+// ---------------------------------------------------------------------------
+
+/** Re-lay a bar's items after a tuplet change: `memberIds` back to back from the first, later items shifted by the delta. */
+function relayRun(bar: Bar, memberIds: readonly Id[], tuplets: Tuplet[]): Bar {
+  const probe: Bar = { ...bar, tuplets };
+  const members = bar.items.filter((item) => memberIds.includes(item.id)).sort((a, b) => a.onset - b.onset);
+  const first = members[0] as BarItem;
+  const last = members[members.length - 1] as BarItem;
+  const oldEnd = last.onset + itemTicks(last, bar);
+  let cursor = first.onset;
+  const moved = new Map<Id, number>();
+  for (const member of members) {
+    moved.set(member.id, cursor);
+    cursor += itemTicks(member, probe);
+  }
+  const delta = cursor - oldEnd;
+  return {
+    ...bar,
+    tuplets,
+    items: bar.items.map((item) => {
+      const onset = moved.get(item.id);
+      if (onset !== undefined) return { ...item, onset };
+      return item.onset >= oldEnd ? { ...item, onset: item.onset + delta } : item;
+    }),
+  };
+}
+
+function validTupletNumber(value: unknown, field: 'actual' | 'normal'): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 32) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `tuplet ${field} is a whole number from 1 to 32, e.g. actual 3 in normal 2 for a triplet`,
+    });
+  }
+  return value;
+}
+
+function setTuplet(score: Score, target: string, payload: TupletSetPayload): Applied {
+  const actual = validTupletNumber(payload.actual, 'actual');
+  const normal = validTupletNumber(payload.normal, 'normal');
+  if (actual < 2 || actual === normal) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'a tuplet writes at least 2 notes in the time of a different number, e.g. 3 in 2',
+    });
+  }
+  const resolved = resolveAddress(score, target, 'item');
+  const bar = resolved.bar;
+  const ordered = [...bar.items].sort((a, b) => a.onset - b.onset);
+  const from = ordered.findIndex((item) => item.id === resolved.target.id);
+  const count = payload.count === undefined ? actual : payload.count;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1) {
+    throw new OperationError({ kind: 'validation', detail: 'a tuplet spans a whole number of items' });
+  }
+  const members = ordered.slice(from, from + count);
+  if (members.length < count) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} has only ${members.length} item${members.length === 1 ? '' : 's'} from there to the end of bar ${bar.number}, not ${count}`,
+    });
+  }
+  const nested = members.find((item) => tupletOf(item.id, bar) !== null);
+  if (nested !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${nested.id} is already in a tuplet; remove that one first (tuplets do not nest)`,
+    });
+  }
+  const fractional = members.find((item) => (durationTicks(item.duration) * normal) % actual !== 0);
+  if (fractional !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${actual} in ${normal} would put ${fractional.id} on a fractional tick; use shorter or longer note values`,
+    });
+  }
+
+  const id = payload.id ?? nextId(score, 'tuplet');
+  const tuplet: Tuplet = { id, actual, normal, memberIds: members.map((m) => m.id) };
+  return {
+    score: mapBar(score, bar.id, (b) => relayRun(b, tuplet.memberIds, [...b.tuplets, tuplet])),
+    operation: { type: 'tuplet.set', target, payload: { ...payload, count, id } },
+    changed: [id, ...tuplet.memberIds],
+  };
+}
+
+function removeTuplet(score: Score, target: string): Applied {
+  const resolved = resolveAddress(score, target, 'item');
+  const tuplet = tupletOf(resolved.target.id, resolved.bar);
+  if (tuplet === null) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} is not in a tuplet, so there is nothing to remove`,
+    });
+  }
+  return {
+    score: mapBar(score, resolved.bar.id, (b) =>
+      relayRun(
+        b,
+        tuplet.memberIds,
+        b.tuplets.filter((t) => t.id !== tuplet.id),
+      ),
+    ),
+    operation: { type: 'tuplet.rm', target },
+    changed: [tuplet.id, ...tuplet.memberIds],
   };
 }
 

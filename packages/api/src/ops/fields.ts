@@ -35,6 +35,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'barline.set': ['start', 'end'],
   'ending.set': ['numbers', 'role'],
   'ending.rm': [],
+  'tuplet.set': ['actual', 'normal', 'count', 'id'],
+  'tuplet.rm': [],
   'break.set': ['kind'],
   'break.rm': [],
   'bar.add': ['count', 'ids'],
