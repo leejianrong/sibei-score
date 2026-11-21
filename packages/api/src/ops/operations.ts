@@ -183,6 +183,19 @@ export type EndingRmPayload = Record<string, never>;
  * mangles fields, and one accept/reject tells it nothing. It reaches the log only through the
  * `duplicate` lifecycle call (V8c) and, later, the import pipeline (v0.2), both server-owned.
  */
+/**
+ * Add bars after a score is created (SIB2-186). The optional target is a whole-bar address; the new
+ * bars go **after** it, so `bar8` makes bar 9 and every later bar and section start moves up by
+ * `count`. With no target the bars are appended after the last bar. Bar numbers are the address
+ * (ADR-0007), which is why inserting renumbers: a later bar's address changes, its id does not.
+ */
+export interface BarAddPayload {
+  /** How many bars to add. Defaults to 1. */
+  count?: number;
+  /** *Recorded.* The ids the applier assigned, in order. */
+  ids?: Id[];
+}
+
 export interface ScoreImportPayload {
   document: Score;
 }
@@ -218,7 +231,9 @@ export type Operation =
   | { type: 'section.rm'; target: string; payload?: SectionRmPayload }
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
-  | { type: 'ending.rm'; target: string; payload?: EndingRmPayload };
+  | { type: 'ending.rm'; target: string; payload?: EndingRmPayload }
+  | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
+  | { type: 'bar.rm'; target: string };
 
 export type OperationType = Operation['type'];
 
@@ -238,6 +253,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'barline.set',
   'ending.set',
   'ending.rm',
+  'bar.add',
+  'bar.rm',
 ];
 
 /**

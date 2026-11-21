@@ -297,7 +297,7 @@ export async function reparseScore(id: Id, engine?: string): Promise<ImportJobVi
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
  * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
  * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
- * `ending.set`/`ending.rm`. `note.add` on its own, `score.create` and `meta.set` exist on the
+ * `ending.set`/`ending.rm`; SIB2-186 `bar.add`/`bar.rm`. `note.add` on its own, `score.create` and `meta.set` exist on the
  * server and have no UI control yet — that is booked debt (Q79), not a gap this file is meant to
  * close.
  */
@@ -352,7 +352,9 @@ export type Operation =
   | { type: 'section.rm'; target: string }
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
-  | { type: 'ending.rm'; target: string };
+  | { type: 'ending.rm'; target: string }
+  | { type: 'bar.add'; target?: string }
+  | { type: 'bar.rm'; target: string };
 
 export interface Batch {
   operations: readonly Operation[];
