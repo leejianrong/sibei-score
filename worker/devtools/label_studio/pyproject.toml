@@ -1,0 +1,23 @@
+[project]
+name = "label-studio"
+version = "0.1.0-dev"
+description = "Dev-only labelling studio: pre-label real PDF pages with the bespoke OMR engine, correct them by hand, persist derived structural labels only (ADR-0036). Never a product runtime dependency."
+requires-python = ">=3.11,<3.12"
+
+# Same isolation as omr_viz (EPIC-228): its own venv, never worker/pyproject.toml's dependency
+# list (ADR-0024's offline guarantee is only as strong as that list is short). It imports
+# `sibei_omr.engines.bespoke` via sys.path, never an editable install of `sibei-omr`.
+#
+#   uv venv --python 3.11
+#   uv pip install -e /home/jianlee/projects/abang-ai/indah-python-ui
+#   uv pip install -e .
+#
+# Pins mirror omr_viz's so the two decode identically. PDF rasterizing shells out to poppler
+# (`pdftoppm`, `pdfinfo`, `pdftotext`) — a system package, not a Python dependency.
+dependencies = [
+  "indah",
+  "onnxruntime==1.16.3",
+  "numpy==1.26.4",
+  "opencv-python-headless<5",
+  "pillow",
+]
