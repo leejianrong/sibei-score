@@ -199,6 +199,18 @@ job waits `queued` until a worker takes it. Nothing else is affected while no wo
 server the file goes straight to object storage by a presigned URL; locally it goes through the API. The
 browser's equivalent is the Audio page (`#/audio`, "Transcribe audio" in the library).
 
+```sh
+sbscore audio usage          # audio-seconds transcribed this month, and the allowance if there is one
+```
+
+The operator configures the worker and the allowance in the server's environment, not in code:
+`SBSCORE_AUDIO_WORKER_TOKENS` (comma-separated `sbsw_…` credentials for the pulling worker; without it there is
+no worker surface and jobs wait), `SBSCORE_AUDIO_LEASE_SECONDS` and `SBSCORE_AUDIO_MAX_ATTEMPTS` (defaults 120
+and 3), `SBSCORE_AUDIO_FREE_SECONDS` (what each user may have transcribed per calendar month, UTC; unset means
+no cap) and `SBSCORE_AUDIO_PLANS` (`usr_abc=unlimited,usr_def=7200` overrides by user id). At the cap the next
+job is refused with `quota-exceeded` and a message that says when the allowance renews. The protocol the audio
+worker speaks is "Audio worker protocol v1" in ADR-0034's amendment.
+
 ## Concurrency
 
 Every write names the version it expects (ADR-0003). Pass **`--if-version N`** — the version you read

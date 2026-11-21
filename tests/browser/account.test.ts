@@ -122,6 +122,23 @@ describe('signed in', () => {
   });
 });
 
+describe('a 401 on the library', () => {
+  it('says signed out with the sign-in link, not the generic refusal', async () => {
+    const page = await open((route) => json(route, 200, { mode: 'hosted', user: ALICE }), async (p) => {
+      await p.route('**/v1/scores', (route) => json(route, 401, unauthenticated));
+    });
+    try {
+      await page.waitForSelector('.state a');
+      const text = await page.locator('.state').innerText();
+      expect(text).toContain('You have been signed out');
+      expect(text).not.toContain('refused');
+      expect(await page.locator('.state a').getAttribute('href')).toBe('/v1/auth/github/login');
+    } finally {
+      await page.close();
+    }
+  });
+});
+
 describe('a local install', () => {
   it('draws no gate and no account chrome, exactly as before', async () => {
     const page = await open((route) => json(route, 200, { mode: 'local' }));

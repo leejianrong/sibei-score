@@ -137,6 +137,8 @@ export interface AudioUsageWire {
   periodStart: string;
   periodEnd: string;
   seconds: number;
+  /** The allowance for the period in audio-seconds, or null when this user has none. */
+  capSeconds: number | null;
   jobs: number;
 }
 

@@ -105,7 +105,7 @@
     {#if usage !== null}
       <p class="usage" data-testid="audio-usage">
         This month: {Math.round(usage.seconds * 10) / 10} seconds of audio transcribed across {usage.jobs}
-        {usage.jobs === 1 ? 'job' : 'jobs'}.
+        {usage.jobs === 1 ? 'job' : 'jobs'}{#if usage.capSeconds !== null}, of {Math.round(usage.capSeconds / 60)} minutes allowed{/if}.
       </p>
     {/if}
 
