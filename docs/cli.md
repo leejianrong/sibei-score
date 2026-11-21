@@ -81,6 +81,7 @@ sbscore open <id>                            # the full document, as JSON
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
+sbscore import --note-events FILE            # a NoteEvents v1 file (audio engine) into a draft (ADR-0040)
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
@@ -97,6 +98,15 @@ and prints the new chart's id. **Every parse is a draft** (ADR-0019): open it, f
 to 4/4 and never detects sections (ADR-0021), so the four-bar layout is wrong until you add them
 (ADR-0015). An image with no staff fails with exit 2 and creates nothing (ADR-0018). The source images
 are kept forever (ADR-0019), so a chart can be re-parsed later by a better engine.
+
+`import --note-events FILE` takes the audio engine's **NoteEvents v1** JSON (ADR-0040) instead of an
+image, and needs **no worker**. The seconds are quantized to bars (using the file's beat grid if it has
+one), the key is guessed, and the result is a draft like any other: notes the transcriber was unsure of
+are flagged `!` (with their confidence, `c5/4!41`), and **bar 1 is flagged when the file marks no
+downbeats**, because then where the bars start is a guess. The engine's warnings are printed under the
+success line and kept on the import record. Voice and bass only (one melody staff, ADR-0021). A file that
+is not valid v1, has a `schema_version` other than 1, or names another instrument is refused with
+exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.
 
 `reparse` is that re-parse: it re-runs OMR on the scans an import kept (no new upload — the server
 reuses the retained images, V14e) and lands the result as a **new** draft, printing its id; the

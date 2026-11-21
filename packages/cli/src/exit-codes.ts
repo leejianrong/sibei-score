@@ -97,6 +97,8 @@ export function exitCodeForKind(kind: string): ExitCode {
     // A re-parse of a chart with no scan behind it (V14e): the request was readable, there is simply
     // nothing to re-run — the same "readable, cannot be produced" class as an unsupported export value.
     case 'no-source-to-reparse':
+    // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
+    case 'invalid-note-events':
     // The device flow (V21a). A code that is not eight letters and digits, a scope that does not exist, and
     // a code that expired or was already used are requests that were readable and cannot be fulfilled: the
     // same class as `validation`, and the fix is to start again or correct the value.

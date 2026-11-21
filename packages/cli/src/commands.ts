@@ -86,6 +86,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
+  sbscore import --note-events FILE        a NoteEvents v1 file from the audio engine into a draft (no worker needed)
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
               (produces a NEW draft — the original and its corrections survive; no re-upload)
@@ -460,6 +461,7 @@ async function importChart(
   cwd: string,
 ): Promise<ExitCode> {
   const paths = flags.positional.slice(1);
+  if (flags.switches.has('note-events')) return importNoteEvents(paths, client, io, json, cwd);
   if (paths.length === 0) {
     throw new CliError(EXIT.usage, 'usage', 'import needs at least one image file: `sbscore import chart.png`');
   }
@@ -491,6 +493,35 @@ async function importChart(
     json
       ? JSON.stringify(job)
       : `imported ${pages} to ${job.scoreId} — a draft: open it, check the flagged bars, set key/meter/sections`,
+  );
+  return EXIT.ok;
+}
+
+/**
+ * `sbscore import --note-events FILE` — a NoteEvents v1 document from the audio engine becomes a draft
+ * (ADR-0040). Needs no OMR worker. The bytes go up unchanged and the server validates; a refused file is
+ * exit 2 (validation) and creates nothing. The draft's barring and doubtful notes are flagged for review.
+ */
+async function importNoteEvents(paths: string[], client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
+  if (paths.length !== 1) {
+    throw new CliError(EXIT.usage, 'usage', 'import --note-events takes exactly one file: `sbscore import --note-events take1.json`');
+  }
+  const path = paths[0]!;
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+  const job = await client.importNoteEvents(bytes);
+  if (job.status === 'failed') {
+    throw new CliError(EXIT.validation, 'import-failed', `import failed: ${job.diagnostic ?? 'unknown error'}`);
+  }
+  io.out(
+    json
+      ? JSON.stringify(job)
+      : `imported NoteEvents to ${job.scoreId} — a draft: open it, check the flagged bars and notes, set key/meter/sections` +
+          (job.diagnostic === null ? '' : `\n${job.diagnostic}`),
   );
   return EXIT.ok;
 }
