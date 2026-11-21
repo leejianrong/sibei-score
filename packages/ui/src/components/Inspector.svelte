@@ -17,7 +17,7 @@
    * number wearing a disguise.
    */
   import { parsePitch } from '@sibei/model';
-  import type { AccidentalDisplay, Dots, Duration, Id, NoteValue, TieRole } from '@sibei/model';
+  import type { AccidentalDisplay, Dots, Duration, Id, NoteValue, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
 
@@ -58,12 +58,30 @@
     saving: boolean;
     /** A validation message this component could not resolve on its own — an unparseable pitch. */
     error: string | null;
+    /** Set when a second note is shift-clicked beside this one: the slur Add slur would make (SIB2-168). */
+    pendingSlur?: { with: Id } | null;
+    /** The slurs that begin or end on this note, each removable. */
+    slurs?: readonly Spanner[];
+    onslur?: (placement: 'auto' | 'above' | 'below') => void;
+    onrmslur?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
     ondeselect: () => void;
     onreload: () => void;
   }
 
-  const { selection, conflict, saving, error, onsave, ondeselect, onreload }: Props = $props();
+  const {
+    selection,
+    conflict,
+    saving,
+    error,
+    pendingSlur = null,
+    slurs = [],
+    onslur,
+    onrmslur,
+    onsave,
+    ondeselect,
+    onreload,
+  }: Props = $props();
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOT_COUNTS: readonly Dots[] = [0, 1, 2];
@@ -81,6 +99,7 @@
   );
   let spellingPinned = $state(untrack(() => (selection.kind === 'note' ? selection.spellingPinned : false)));
   let pitchError = $state<string | null>(null);
+  let slurPlacement = $state<'auto' | 'above' | 'below'>('auto');
 
   const tieHint = $derived(selection.kind === 'note' ? hintFor(selection.tie) : null);
 
@@ -189,6 +208,35 @@
       </label>
     {/if}
 
+    {#if selection.kind === 'note'}
+      <div class="field slur-field">
+        <span class="field-label">Slur</span>
+        {#if pendingSlur !== null}
+          <p class="inspector-note">Slur this note to {pendingSlur.with}.</p>
+          <SegmentedControl
+            label="Slur placement"
+            options={['auto', 'above', 'below'] as const}
+            value={slurPlacement}
+            display={(option) => option.charAt(0).toUpperCase() + option.slice(1)}
+            onselect={(chosen) => (slurPlacement = chosen)}
+          />
+          <button type="button" class="btn btn-save" disabled={saving} onclick={() => onslur?.(slurPlacement)}>
+            Add slur
+          </button>
+        {:else}
+          <p class="inspector-note">Shift-click a second note to slur from one to the other.</p>
+        {/if}
+        {#each slurs as slur (slur.id)}
+          <div class="slur-row">
+            <span>{slur.id} · {slur.startId} to {slur.endId}</span>
+            <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmslur?.(slur.id)}>
+              Remove
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     {#if tieHint !== null}
       <p class="inspector-note">{tieHint}</p>
     {/if}
@@ -288,6 +336,22 @@
     background: var(--accent);
     border-color: var(--accent);
     color: var(--on-accent);
+  }
+
+  .slur-field .btn {
+    flex: none;
+  }
+  .slur-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .slur-row .btn {
+    flex: none;
+    padding: 4px 8px;
   }
 
   .inspector-actions {

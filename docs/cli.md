@@ -177,7 +177,11 @@ same pair again only changes `--placement` (`auto`, the default, means by stem d
 end note removes the slur. `show` lists them as `slur  bar1.n2 -> bar2.n3 slur-1`, and `slur rm` takes that
 id or the note a single slur starts on. Both ends must be notes, not rests. MusicXML carries a slur as
 `<slur type number placement>` and reads one back. Charts written before slurs have no `spanners` field and
-need no migration. Undoable like any edit.
+need no migration. Undoable like any edit. A slur draws on the notehead side (above a run of down stems,
+below a run of up stems, above when mixed) unless `--placement` chose, rises just enough to clear the notes
+and stems under it, stays under the chord band, and splits into two halves where it crosses a line break.
+In the browser, select a note, shift-click a second one, and press Add slur in the Selected panel (the same
+panel lists and removes a note's slurs).
 
 ## Transpose, structure
 
