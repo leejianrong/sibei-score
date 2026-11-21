@@ -31,7 +31,7 @@ services:
 
   # V23: a throwaway Redis for `pnpm test:redis`. Loopback only, no persistence.
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "127.0.0.1:54331:6379"
