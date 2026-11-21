@@ -142,6 +142,8 @@ whatever you write.
 
 ```sh
 sbscore transpose <id> --to Eb                                   # change the concert key (ADR-0016)
+sbscore bar add <id> [--after <bar>] [--count N]                 # add empty bars, default at the end
+sbscore bar rm  <id> <bar>                                       # remove an empty bar
 sbscore section set <id> <bar> [--letter A] [--name Bridge]      # a section boundary (ADR-0021)
 sbscore section rm  <id> <bar>
 sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|final|repeat-end]
@@ -149,6 +151,10 @@ sbscore repeat set <id> <startBar> <endBar>                      # a repeat pair
 sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
 sbscore ending rm  <id> <bar>
 ```
+
+`bar add --after bar8` puts new empty bars after bar 8; every later bar's number goes up (and a section
+starting there moves with it), while ids stay. `bar rm` refuses a bar that holds notes, chords, text, an
+ending or a section start. Both are undoable.
 
 ## Undo, redo and batches
 
