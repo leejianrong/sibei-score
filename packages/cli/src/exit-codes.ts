@@ -27,6 +27,8 @@ export const EXIT = {
   refused: 7,
   /** A score with that id already exists. */
   exists: 8,
+  /** A rate limit or a quota (V23): too fast, or too much. A script may back off on this and retry later. */
+  limited: 9,
 } as const;
 
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
@@ -122,6 +124,9 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'insufficient-scope': // V21a: a token that lacks the scope for what it asked to do
     case 'wrong-audience': // V22a: an MCP token presented at the /v1/ API
       return EXIT.refused;
+    case 'rate-limited': // V23: too fast; wait for Retry-After
+    case 'quota-exceeded': // V23: too much; delete something or wait for the daily window
+      return EXIT.limited;
     default:
       return EXIT.usage;
   }

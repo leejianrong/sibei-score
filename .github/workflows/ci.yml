@@ -102,7 +102,19 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
+      # V23: the Redis suite (`tests/redis/`) rides in this job rather than a new one, so no required-check
+      # name changes: it is opt-in by `SBSCORE_TEST_REDIS_URL` exactly as the Postgres one is.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     env:
+      SBSCORE_TEST_REDIS_URL: redis://localhost:6379
       # A superuser, on purpose: the tests only use it to create databases and the ordinary `sibei_app`
       # role, then connect as that role (see tests/postgres/support.ts).
       SBSCORE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
@@ -115,6 +127,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec vitest run --project postgres
+      - run: pnpm exec vitest run --project redis
 
   # V2's demo, run the way a person would run it: start the server, author a chart from the CLI,
   # then check the stale-version case exits 4. The suite covers this too, but a demo that only
