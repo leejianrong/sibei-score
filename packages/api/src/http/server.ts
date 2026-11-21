@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import type { BlobStore } from '../blob/blob-store.js';
+import type { ManagedBlobStore } from '../blob/blob-store.js';
+import { createAudioService } from '../audio/service.js';
+import type { AudioLimits } from '../audio/service.js';
+import { memoryAudioJobStore } from '../store/memory-audio-job-store.js';
+import type { AudioJobStore } from '../store/audio-jobs.js';
 import { memoryBlobStore } from '../blob/memory-blob-store.js';
 import { createChangeBus, publishingApplier, publishingLibrary } from '../events/change-bus.js';
 import { createJobBus } from '../events/job-bus.js';
@@ -53,7 +57,17 @@ export interface ApiOptions {
    * honest default: a cache that outlives the process needs a directory, and a directory is the
    * caller's to name — this package takes a port, never a path (ADR-0001).
    */
-  blobs?: BlobStore;
+  blobs?: ManagedBlobStore;
+  /**
+   * The audio-job queue (SIB2-137). Defaults to a process-lifetime in-memory store, like `jobs`; `sbscore
+   * serve` supplies the SQLite or Postgres one. Audio jobs are accepted whether or not any audio worker
+   * is running.
+   */
+  audioJobs?: AudioJobStore;
+  /** Upload limits for audio; the defaults are `DEFAULT_AUDIO_LIMITS`. Configuration, not code. */
+  audioLimits?: Partial<AudioLimits>;
+  /** How long a presigned audio upload URL lives, seconds (default 900). */
+  audioUploadTtlSeconds?: number;
   /**
    * The durable import-job queue (V10, ADR-0001). Defaults to a process-lifetime in-memory store —
    * the honest default, since a queue that outlives the process needs a database and a database is
@@ -242,6 +256,13 @@ export function createApi(options: ApiOptions): Api {
     streams: jobStreams,
   };
 
+  const audio = createAudioService({
+    jobs: options.audioJobs ?? memoryAudioJobStore(),
+    blobs,
+    ...(options.audioLimits === undefined ? {} : { limits: options.audioLimits }),
+    ...(options.audioUploadTtlSeconds === undefined ? {} : { uploadUrlTtlSeconds: options.audioUploadTtlSeconds }),
+  });
+
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
     void handle(request, response)
@@ -322,6 +343,7 @@ export function createApi(options: ApiOptions): Api {
         exporter,
         events,
         imports,
+        audio,
         owner: principal.owner,
         ...(options.assets === undefined ? {} : { assets: options.assets }),
       });

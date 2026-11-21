@@ -247,10 +247,11 @@ describe('the migration', () => {
     const pool = await rawAppPool();
     const flags = await pool.query(
       `SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class
-        WHERE relname IN ('scores', 'operations', 'import_jobs', 'users', 'identities', 'sessions', 'device_codes', 'api_tokens') ORDER BY relname`,
+        WHERE relname IN ('audio_jobs', 'scores', 'operations', 'import_jobs', 'users', 'identities', 'sessions', 'device_codes', 'api_tokens') ORDER BY relname`,
     );
     expect(flags.rows).toEqual([
       { relname: 'api_tokens', relrowsecurity: true, relforcerowsecurity: true },
+      { relname: 'audio_jobs', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'device_codes', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'identities', relrowsecurity: true, relforcerowsecurity: true },
       { relname: 'import_jobs', relrowsecurity: true, relforcerowsecurity: true },

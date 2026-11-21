@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 7;
+export const TABLE_SCHEMA_VERSION = 8;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -176,6 +176,36 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
+
+-- Audio jobs (table schema version 8, SIB2-137, ADR-0034 amendment). The second kind of job beside
+-- import_jobs, in its own table: it has a lease and a pulling worker, an upload that happens after the
+-- row exists, and a NoteEvents result. Purely additive. \`audio_key\` names the blob while it lives (it is
+-- deleted when the job ends, decision 16); the lease columns are filled by the worker protocol (SIB2-138).
+CREATE TABLE IF NOT EXISTS audio_jobs (
+  id                        TEXT NOT NULL PRIMARY KEY,
+  owner                     TEXT NOT NULL,
+  status                    TEXT NOT NULL,
+  audio_key                 TEXT NOT NULL,
+  content_type              TEXT NOT NULL,
+  filename                  TEXT,
+  size_bytes                INTEGER NOT NULL,
+  instrument                TEXT,
+  declared_duration_seconds REAL,
+  attempts                  INTEGER NOT NULL,
+  diagnostic_kind           TEXT,
+  diagnostic                TEXT,
+  progress                  TEXT,
+  duration_seconds          REAL,
+  result                    TEXT CHECK (result IS NULL OR json_valid(result)),
+  score_id                  TEXT,
+  lease_token               TEXT,
+  lease_expires_at          TEXT,
+  version                   INTEGER NOT NULL,
+  created_at                TEXT NOT NULL,
+  updated_at                TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audio_jobs_owner_created ON audio_jobs (owner, created_at DESC);
+CREATE INDEX IF NOT EXISTS audio_jobs_status_created ON audio_jobs (status, created_at ASC);
 `;
 
 /**
@@ -215,6 +245,7 @@ export function migrateTables(db: Database): void {
   ensureColumn(db, 'import_jobs', 'engine', 'TEXT');
   //   v6 (V20): users, identities, sessions — new tables, created by the DDL above; nothing to alter.
   //   v7 (V21a): device_codes, api_tokens — likewise.
+  //   v8 (SIB2-137): audio_jobs — likewise.
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
 }

@@ -36,8 +36,8 @@ function scratchFile(): string {
 }
 
 describe('table schema version 6', () => {
-  it('has moved on to the version that adds API tokens (V21a), which is additive over identity', () => {
-    expect(TABLE_SCHEMA_VERSION).toBe(7);
+  it('has moved on to the version that adds audio jobs (SIB2-137), additive over API tokens and identity', () => {
+    expect(TABLE_SCHEMA_VERSION).toBe(8);
   });
 
   it('takes a v5 library to v6 without losing a score or a log row, and then signs somebody in', async () => {

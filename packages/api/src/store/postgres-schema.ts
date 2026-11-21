@@ -25,13 +25,13 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 3;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 4;
 
 /**
  * Lineage: v1 (V19) scores, operations, import_jobs. v2 (V20, ADR-0034) adds users, identities and
  * sessions — purely additive, so `migratePostgres` takes a v1 database to v2 by creating three tables
  * and touching none of the existing rows. v3 (V21a, ADR-0034 decision 4) adds device_codes and api_tokens,
- * likewise additive.
+ * likewise additive. v4 (SIB2-137) adds audio_jobs, likewise.
  */
 
 /**
@@ -155,6 +155,33 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, seq DESC);
 CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
 
+-- Audio jobs (table version 4, SIB2-137): the second kind of job, with a lease for the pulling worker.
+CREATE TABLE IF NOT EXISTS audio_jobs (
+  id                        text NOT NULL PRIMARY KEY,
+  owner                     text NOT NULL,
+  status                    text NOT NULL,
+  audio_key                 text NOT NULL,
+  content_type              text NOT NULL,
+  filename                  text,
+  size_bytes                integer NOT NULL,
+  instrument                text,
+  declared_duration_seconds double precision,
+  attempts                  integer NOT NULL,
+  diagnostic_kind           text,
+  diagnostic                text,
+  progress                  text,
+  duration_seconds          double precision,
+  result                    text CHECK (result IS NULL OR (result::jsonb) IS NOT NULL),
+  score_id                  text,
+  lease_token               text,
+  lease_expires_at          text,
+  version                   integer NOT NULL,
+  created_at                text NOT NULL,
+  updated_at                text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audio_jobs_owner_created ON audio_jobs (owner, created_at DESC);
+CREATE INDEX IF NOT EXISTS audio_jobs_status_created ON audio_jobs (status, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key    text    NOT NULL PRIMARY KEY,
   value  integer NOT NULL
@@ -176,6 +203,8 @@ ALTER TABLE operations  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE operations  FORCE  ROW LEVEL SECURITY;
 ALTER TABLE import_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_jobs FORCE  ROW LEVEL SECURITY;
+ALTER TABLE audio_jobs  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audio_jobs  FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS owner_isolation ON scores;
 CREATE POLICY owner_isolation ON scores
@@ -185,6 +214,9 @@ CREATE POLICY owner_isolation ON operations
   USING (${OWNER_POLICY}) WITH CHECK (${OWNER_POLICY});
 DROP POLICY IF EXISTS owner_isolation ON import_jobs;
 CREATE POLICY owner_isolation ON import_jobs
+  USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
+DROP POLICY IF EXISTS owner_isolation ON audio_jobs;
+CREATE POLICY owner_isolation ON audio_jobs
   USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
 
 ALTER TABLE users      ENABLE ROW LEVEL SECURITY;
