@@ -145,6 +145,9 @@ describe('a fake worker, end to end', () => {
     await worker('POST', `/jobs/${id}/fail`, { leaseToken: first.leaseToken, kind: 'engine-error', retryable: false });
     expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 0, jobs: 0 });
 
+    // SIB2-200: Retry is refused once the audio is gone, so put it back to stand in for the user's re-upload.
+    const audioKey = (await http('GET', `/v1/audio/jobs/${id}`)).body.job.audioKey;
+    await blobs.put(audioKey, Buffer.alloc(8, 1));
     await http('POST', `/v1/audio/jobs/${id}/retry`);
     importer = { importResult: async () => ({ ok: false, kind: 'invalid-result', message: 'bad' }) };
     // The retried job's audio was dropped when it failed; the user would re-upload in practice. Here we only
@@ -152,6 +155,7 @@ describe('a fake worker, end to end', () => {
     const second = (await worker('POST', '/claim', {})).body.job;
     await worker('POST', `/jobs/${id}/complete`, { leaseToken: second.leaseToken, durationSeconds: 5, result: { inline: {} } });
     expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 0, jobs: 0 });
+    await blobs.put(audioKey, Buffer.alloc(8, 1));
     await http('POST', `/v1/audio/jobs/${id}/retry`);
     importer = { importResult: async (job) => ({ ok: true, scoreId: `s-${job.id}` }) };
     const third = (await worker('POST', '/claim', {})).body.job;
@@ -177,7 +181,10 @@ describe('a fake worker, end to end', () => {
     const view = (await http('GET', `/v1/audio/jobs/${id}`)).body.job;
     expect(view).toMatchObject({ status: 'failed', diagnosticKind: 'unsupported-audio', diagnostic: 'no stream' });
     expect(await blobs.stat(view.audioKey)).toBeNull();
-    // The owner can retry a failed job, and a worker can pick it up again.
+    // The audio is gone, so Retry is refused (SIB2-200); with it held again, the owner can retry.
+    const refused = await http('POST', `/v1/audio/jobs/${id}/retry`);
+    expect(refused).toMatchObject({ status: 409, body: { error: { kind: 'audio-gone' } } });
+    await blobs.put(view.audioKey, Buffer.alloc(8, 1));
     expect((await http('POST', `/v1/audio/jobs/${id}/retry`)).body.job.status).toBe('queued');
   });
 
