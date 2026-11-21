@@ -260,6 +260,24 @@ function positiveEnv(name: string, fallback: number): number {
   return value;
 }
 
+/**
+ * GitHub's endpoints, overridable for the compose smoke test only (V24): `SBSCORE_GITHUB_BASE_URL` points
+ * the whole code flow at a fake GitHub (`scripts/fake-github.ts`). It is operator configuration like every
+ * other variable here, and unset (the only production setting) means github.com. `serve` says so loudly when
+ * it is set, because sign-in against anything but GitHub is never what a real deployment wants.
+ */
+function githubEndpoints(): { authorizeUrl: string; tokenUrl: string; userUrl: string } | Record<string, never> {
+  const base = process.env.SBSCORE_GITHUB_BASE_URL;
+  if (base === undefined || base === '') return {};
+  const root = base.replace(/\/+$/, '');
+  console.error(`sbscore: GitHub sign-in is pointed at ${root}, not github.com (SBSCORE_GITHUB_BASE_URL). Test use only.`);
+  return {
+    authorizeUrl: `${root}/login/oauth/authorize`,
+    tokenUrl: `${root}/login/oauth/access_token`,
+    userUrl: `${root}/user`,
+  };
+}
+
 /** What hosted mode needs to sign anybody in (V20, ADR-0034). */
 export interface HostedConfig {
   publicUrl: string;
@@ -595,7 +613,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
             hosted: {
               auth: authStore,
               publicUrl: hostedConfig.publicUrl,
-              github: { clientId: hostedConfig.clientId, clientSecret: hostedConfig.clientSecret },
+              github: { clientId: hostedConfig.clientId, clientSecret: hostedConfig.clientSecret, ...githubEndpoints() },
             },
           }),
       blobs,
