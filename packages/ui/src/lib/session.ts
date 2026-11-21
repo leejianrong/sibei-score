@@ -90,7 +90,7 @@ export function takeReturn(shelf: Shelf): string | null {
   try {
     const hash = shelf.getItem(RETURN_KEY);
     shelf.removeItem(RETURN_KEY);
-    return hash !== null && /^#\/[A-Za-z0-9._~%/-]*$/.test(hash) ? hash : null;
+    return hash !== null && /^#\/[A-Za-z0-9._~%/?&=+:@,-]*$/.test(hash) ? hash : null;
   } catch {
     return null;
   }

@@ -120,6 +120,15 @@ export async function approveDevice(approval: { userCode: string; name: string; 
   await sendBody('POST', `${V1}/auth/device/approve`, approval);
 }
 
+/**
+ * Say yes or no to an MCP client's authorisation request (V22a). The server validates the request again
+ * and answers where to send the browser — the client's redirect URI with a code, or with `access_denied`.
+ * The page navigates there; nothing here sees the code.
+ */
+export async function decideAuthorization(params: Record<string, string>, approve: boolean): Promise<string> {
+  return (await postJson<{ redirectTo: string }>(`${V1}/auth/oauth/approve`, { ...params, approve })).redirectTo;
+}
+
 export async function listApiTokens(): Promise<ApiTokenView[]> {
   return (await getJson<{ tokens: ApiTokenView[] }>(`${V1}/auth/tokens`)).tokens;
 }

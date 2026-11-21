@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolConfig } from 'pg';
 import { TOKEN_SCOPES } from './auth.js';
-import type { ApiToken, AuthStore, DevicePoll, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './auth.js';
+import type { ApiToken, AuthCodeGrant, AuthStore, DevicePoll, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './auth.js';
 import { assertRlsEnforced, migratePostgres } from './postgres-schema.js';
 import { asSystem, closeHandle, poolFor } from './postgres-session.js';
 import { timestamp } from './store-shared.js';
@@ -243,7 +243,47 @@ export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): 
       return asSystem(pool, async (client) => {
         const devices = await client.query(`DELETE FROM device_codes WHERE expires_at COLLATE "C" <= $1 COLLATE "C"`, [at]);
         const tokens = await client.query(`DELETE FROM api_tokens WHERE expires_at COLLATE "C" <= $1 COLLATE "C"`, [at]);
-        return (devices.rowCount ?? 0) + (tokens.rowCount ?? 0);
+        const codes = await client.query(`DELETE FROM oauth_codes WHERE expires_at COLLATE "C" <= $1 COLLATE "C"`, [at]);
+        return (devices.rowCount ?? 0) + (tokens.rowCount ?? 0) + (codes.rowCount ?? 0);
+      });
+    },
+
+    async createAuthCode(code) {
+      await asSystem(pool, async (client) => {
+        await client.query(
+          `INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, scopes, name, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [code.codeHash, code.clientId, code.userId, code.redirectUri, code.codeChallenge, code.scopes.join(' '), code.name, code.expiresAt],
+        );
+      });
+    },
+
+    async consumeAuthCode(codeHash, at): Promise<AuthCodeGrant | null> {
+      return asSystem(pool, async (client) => {
+        // DELETE ... RETURNING is atomic: of two concurrent exchanges only one gets the row back.
+        const result = await client.query<{
+          client_id: string;
+          user_id: string;
+          redirect_uri: string;
+          code_challenge: string;
+          scopes: string;
+          name: string;
+          expires_at: string;
+        }>(
+          `DELETE FROM oauth_codes WHERE code_hash = $1
+           RETURNING client_id, user_id, redirect_uri, code_challenge, scopes, name, expires_at`,
+          [codeHash],
+        );
+        const row = result.rows[0];
+        if (row === undefined || row.expires_at <= at) return null;
+        return {
+          clientId: row.client_id,
+          userId: row.user_id,
+          redirectUri: row.redirect_uri,
+          codeChallenge: row.code_challenge,
+          scopes: scopesOf(row.scopes),
+          name: row.name,
+        };
       });
     },
 

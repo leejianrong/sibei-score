@@ -3,7 +3,7 @@ import type { Database } from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { migrateTables } from './sqlite-schema.js';
 import { TOKEN_SCOPES } from './auth.js';
-import type { ApiToken, AuthStore, DevicePoll, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './auth.js';
+import type { ApiToken, AuthCodeGrant, AuthStore, DevicePoll, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './auth.js';
 import { timestamp } from './store-shared.js';
 
 /**
@@ -100,7 +100,33 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
     revoke: db.prepare(`DELETE FROM api_tokens WHERE id = ? AND user_id = ?`),
     purgeDevices: db.prepare(`DELETE FROM device_codes WHERE expires_at <= ?`),
     purgeTokens: db.prepare(`DELETE FROM api_tokens WHERE expires_at <= ?`),
+    insertCode: db.prepare(
+      `INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, scopes, name, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    code: db.prepare<
+      [string],
+      { client_id: string; user_id: string; redirect_uri: string; code_challenge: string; scopes: string; name: string; expires_at: string }
+    >(`SELECT client_id, user_id, redirect_uri, code_challenge, scopes, name, expires_at FROM oauth_codes WHERE code_hash = ?`),
+    deleteCode: db.prepare(`DELETE FROM oauth_codes WHERE code_hash = ?`),
+    purgeCodes: db.prepare(`DELETE FROM oauth_codes WHERE expires_at <= ?`),
   };
+
+  // Read, delete and decide in one synchronous transaction: nothing can interleave, so a code is spent once.
+  const consumeTx = db.transaction((codeHash: string, at: string): AuthCodeGrant | null => {
+    const row = statements.code.get(codeHash);
+    if (row === undefined) return null;
+    statements.deleteCode.run(codeHash);
+    if (row.expires_at <= at) return null;
+    return {
+      clientId: row.client_id,
+      userId: row.user_id,
+      redirectUri: row.redirect_uri,
+      codeChallenge: row.code_challenge,
+      scopes: scopesOf(row.scopes),
+      name: row.name,
+    };
+  });
 
   // One synchronous transaction: read the row, decide, and (when authorised) delete it, with nothing able
   // to interleave. SQLite never yields mid-write, so two polls cannot both collect the same approval.
@@ -183,7 +209,15 @@ export function openSqliteAuthStore(options: SqliteAuthStoreOptions): AuthStore 
       return statements.revoke.run(id, userId).changes === 1;
     },
     async purgeExpiredCredentials(at) {
-      return statements.purgeDevices.run(at).changes + statements.purgeTokens.run(at).changes;
+      return statements.purgeDevices.run(at).changes + statements.purgeTokens.run(at).changes + statements.purgeCodes.run(at).changes;
+    },
+    async createAuthCode(code) {
+      statements.insertCode.run(
+        code.codeHash, code.clientId, code.userId, code.redirectUri, code.codeChallenge, code.scopes.join(' '), code.name, code.expiresAt,
+      );
+    },
+    async consumeAuthCode(codeHash, at) {
+      return consumeTx(codeHash, at);
     },
     async close() {
       db.close();
