@@ -209,6 +209,16 @@ export function resolvePhotoImport(hosted: boolean, env: NodeJS.ProcessEnv = pro
   return chosen === '' ? !hosted : chosen === 'on';
 }
 
+/**
+ * The redirect hosts the MCP consent page treats as known clients (SIB2-207): `SBSCORE_MCP_KNOWN_HOSTS`,
+ * comma-separated hostnames (`*.example.com` for subdomains), or `undefined` for the API's default list.
+ */
+export function resolveMcpKnownHosts(env: NodeJS.ProcessEnv = process.env): string[] | undefined {
+  const raw = (env.SBSCORE_MCP_KNOWN_HOSTS ?? '').trim();
+  if (raw === '') return undefined;
+  return raw.split(',').map((h) => h.trim().toLowerCase()).filter((h) => h !== '');
+}
+
 export function resolveUiDirectory(flags: Flags): string | undefined {
   const chosen = flags.options.get('ui') ?? process.env.SBSCORE_UI;
   if (chosen === undefined || chosen === '') return undefined;
@@ -555,6 +565,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   // its own connection (ADR-0006).
   const hostedConfig = resolveHostedConfig(flags);
   const photoImport = resolvePhotoImport(hostedConfig !== undefined);
+  const mcpKnownHosts = resolveMcpKnownHosts();
   // Photo import off (SIB2-201) means no OMR worker is wired even if a URL is set: nothing may call it.
   const workerUrl = photoImport ? resolveWorkerUrl(flags) : undefined;
   const worker: WorkerClient | undefined =
@@ -633,6 +644,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       blobs,
       ...(worker === undefined ? {} : { worker }),
       ...(photoImport ? {} : { photoImport: false }),
+      ...(mcpKnownHosts === undefined ? {} : { mcpKnownHosts }),
       ...(assets === undefined ? {} : { assets }),
     });
   } catch (error) {

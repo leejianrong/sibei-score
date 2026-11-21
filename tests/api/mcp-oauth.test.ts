@@ -280,7 +280,7 @@ describe('the token exchange', () => {
     expect(body.token_type).toBe('Bearer');
     expect(body.access_token).toMatch(/^sbs_/);
     expect(body.scope).toBe('mcp:read mcp:write');
-    expect(body.expires_in).toBe(90 * 24 * 60 * 60);
+    expect(body.expires_in).toBe(30 * 24 * 60 * 60); // SIB2-207: shorter than a CLI token
 
     // It is an ordinary V21 token: it is listed under the person's tokens, named for the client, by cookie.
     const listed = (await h.request('/v1/auth/tokens', { headers: { cookie: g.cookie } })).json().tokens;

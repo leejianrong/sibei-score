@@ -5,7 +5,7 @@ import { MALFORMED, MAX_BODY_BYTES, queryOf, readJsonBody, send, sendJson } from
 import { MCP_SCOPES } from '../store/auth.js';
 import type { AuthStore, TokenScope, UserId } from '../store/auth.js';
 import { timestamp } from '../store/store-shared.js';
-import { TOKEN_PREFIX, TOKEN_TTL_MS } from './device.js';
+import { TOKEN_PREFIX } from './device.js';
 import { hashToken, pkceChallenge, randomToken, sameSecret } from './secrets.js';
 
 /**
@@ -15,14 +15,15 @@ import { hashToken, pkceChallenge, randomToken, sameSecret } from './secrets.js'
  * registers itself, sends the person to a consent page and exchanges a code for a bearer token. This file
  * is that authorisation server, and it is deliberately the smallest one the MCP authorisation spec accepts:
  * authorisation-code grant only, PKCE `S256` mandatory, public clients only (`none` authentication), no
- * refresh tokens (the token lives 90 days like every V21 token and is revocable from the token page).
+ * refresh tokens (the token lives 30 days, a third of a CLI token's life because the client behind it is
+ * self-registered and unverified, and is revocable from the token page).
  *
  * ### What it reuses
  *
  * Consent reuses the GitHub **session**: the authorise endpoint sends the browser to the SPA's consent page
  * (`#/authorize`), which is behind the same sign-in gate as everything else, and approval is a
  * cookie-authenticated POST — **never a token**, for the reason `device.ts` gives. The token it mints is an
- * ordinary V21 `sbs_` token, stored hashed, listed and revocable on the token page, expiring in 90 days.
+ * ordinary V21 `sbs_` token, stored hashed, listed and revocable on the token page, expiring in 30 days (`MCP_TOKEN_TTL_MS`).
  *
  * ### Audience
  *
@@ -43,6 +44,14 @@ import { hashToken, pkceChallenge, randomToken, sameSecret } from './secrets.js'
 export const MCP_PATH = '/mcp';
 const OAUTH = '/v1/auth/oauth';
 const CODE_TTL_MS = 5 * 60 * 1000;
+/** Shorter than a CLI token (SIB2-207): anyone can register an MCP client under any name, so access lapses sooner. */
+export const MCP_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * Redirect hosts the consent page treats as a known MCP client (SIB2-207). Everything else gets a visible
+ * warning, because registration is open and the name is the client's own claim. `*.example.com` matches any
+ * subdomain; an entry is a hostname, never a URL. Overridable with `SBSCORE_MCP_KNOWN_HOSTS` (comma-separated).
+ */
+export const DEFAULT_MCP_KNOWN_HOSTS: readonly string[] = ['claude.ai', '*.claude.ai', 'localhost', '127.0.0.1', '[::1]'];
 const MAX_REDIRECTS = 5;
 const MAX_CLIENT_ID = 4096;
 const MAX_NAME = 60;
@@ -340,14 +349,14 @@ export function createOAuthRoutes(options: OAuthRoutesOptions): OAuthRoutes {
       userId: grant.userId,
       name: grant.name,
       scopes: grant.scopes,
-      expiresAt: timestamp(() => new Date(at.getTime() + TOKEN_TTL_MS)),
+      expiresAt: timestamp(() => new Date(at.getTime() + MCP_TOKEN_TTL_MS)),
     });
     response.setHeader('cache-control', 'no-store');
     response.setHeader('pragma', 'no-cache');
     return sendJson(response, 200, {
       access_token: accessToken,
       token_type: 'Bearer',
-      expires_in: Math.floor(TOKEN_TTL_MS / 1000),
+      expires_in: Math.floor(MCP_TOKEN_TTL_MS / 1000),
       scope: made.scopes.join(' '),
     });
   }

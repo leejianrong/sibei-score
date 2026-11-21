@@ -93,6 +93,8 @@ export interface Me {
   user?: { id: string; login: string; name: string | null };
   /** Present, and `false`, only when this service takes no photos (SIB2-201). Absent means yes. */
   photoImport?: boolean;
+  /** Hosted only (SIB2-207): redirect hosts the server treats as known MCP clients. The consent page warns on the rest. */
+  mcpKnownHosts?: string[];
 }
 
 export async function getMe(): Promise<Me> {

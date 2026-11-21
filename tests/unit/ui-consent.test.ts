@@ -22,7 +22,25 @@ describe('describing an authorisation request', () => {
     expect(describeRequest(params)).toEqual({
       clientName: 'Test agent',
       destination: '127.0.0.1:7777',
+      origin: 'http://127.0.0.1:7777',
+      known: false,
       grants: ['Read your charts'],
+    });
+  });
+
+  it('leads with the destination origin, and marks it known only when the server listed its host (SIB2-207)', () => {
+    const hosts = ['claude.ai', '*.claude.ai', '127.0.0.1'];
+    const at = (redirect_uri: string) => describeRequest({ ...params, redirect_uri }, hosts);
+    expect(at('https://claude.ai/api/mcp/auth_callback')).toMatchObject({ origin: 'https://claude.ai', known: true });
+    expect(at('https://eu.claude.ai/cb')?.known).toBe(true);
+    expect(at('http://127.0.0.1:7777/callback')?.known).toBe(true);
+    // Look-alikes, and a claimed name that says "Claude", are not on the list.
+    expect(at('https://claude.ai.evil.example/cb')?.known).toBe(false);
+    expect(at('https://evilclaude.ai/cb')?.known).toBe(false);
+    expect(describeRequest({ ...params, redirect_uri: 'https://evil.example/cb', client_name: 'Claude' }, hosts)).toMatchObject({
+      clientName: 'Claude',
+      origin: 'https://evil.example',
+      known: false,
     });
   });
 
@@ -31,6 +49,8 @@ describe('describing an authorisation request', () => {
     expect(view).toEqual({
       clientName: 'An MCP client',
       destination: 'com.example.app:',
+      origin: 'com.example.app:',
+      known: false,
       grants: ['Read your charts', 'Create and change your charts'],
     });
   });
