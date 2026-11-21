@@ -4,7 +4,9 @@ import type { Duration } from '@sibei/model';
 import { TICKS_PER_QUARTER, durationTicks } from '@sibei/model';
 import type { MusicFont, MusicGlyphName } from './font.js';
 import { units } from './font.js';
+import { writtenPitch } from '@sibei/layout';
 import { restFor } from './rests.js';
+import { ledgerPositions, staffPosition } from './staff.js';
 import { dotsWidth, noteheadFor } from './stems.js';
 
 /**
@@ -149,12 +151,39 @@ export function musicLeft(font: MusicFont, bar: LayoutBar): number {
   return x + LEFT_PAD;
 }
 
+/**
+ * Extra room between two noteheads whose ledger lines would run together (SIB2-153). A ledger line sticks
+ * out `ledgerExtension` past its head on each side, so two neighbours sharing a line need
+ * `2 * extension` plus a visible gap between the heads' edges; `MIN_GAP` alone leaves them touching
+ * (0.7 against 0.8 spaces in Bravura). Only a pair that shares a ledger line pays it.
+ */
+const LEDGER_GAP = units(0.25);
+
+function ledgerSet(item: NoteItem | RestItem): Set<number> {
+  if (item.kind !== 'note') return new Set();
+  return new Set(ledgerPositions(staffPosition(writtenPitch(item.pitch, item.ottava))));
+}
+
+function shareLedgerLine(a: Set<number>, b: Set<number>): boolean {
+  for (const line of a) if (b.has(line)) return true;
+  return false;
+}
+
 export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
   const cells: Cell[] = [];
   for (const item of bar.items) {
     if (item.kind === 'note' || item.kind === 'rest') cells.push(cellFor(font, item));
   }
   if (cells.length === 0) return [];
+
+  const ledgers = cells.map((cell) => ledgerSet(cell.item));
+  for (const [index, cell] of cells.entries()) {
+    const mine = ledgers[index];
+    const next = ledgers[index + 1];
+    if (mine !== undefined && next !== undefined && shareLedgerLine(mine, next)) {
+      cell.rigid += Math.max(2 * font.ink.ledgerExtension + LEDGER_GAP - MIN_GAP, 0);
+    }
+  }
 
   const left = musicLeft(font, bar);
   const available = Math.max(bar.x + bar.width - RIGHT_PAD - left, 0);

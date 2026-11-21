@@ -85,6 +85,34 @@ export function estimateBarWidth(score: Score, bar: Bar, prefix: BarPrefix): num
 }
 
 /**
+ * The least a bar's music can be drawn in without glyphs touching (SIB2-153): the engraver's rigid width
+ * per onset (notehead or rest, minimum gap, accidental, dots) plus its left and right padding, as a
+ * conservative estimate in units — layout cannot measure glyphs (ADR-0015), so these are the engraver's
+ * numbers rounded. Only ever used as a floor in `distribute`, and only for a bar that would otherwise
+ * overflow its box, so a bar with room to spare is allocated exactly as before.
+ */
+const RIGID_NOTE = 19;
+const RIGID_REST = 19;
+const RIGID_ACCIDENTAL = 12;
+const RIGID_DOT = 5;
+const RIGID_PADDING = 28;
+
+export function rigidBarWidth(score: Score, bar: Bar, prefix: BarPrefix): number {
+  const keyAccidentals = keySignatureAccidentals(score.meta.key);
+  let width = RIGID_PADDING;
+  for (const item of bar.items) {
+    if (item.kind === 'rest') {
+      width += RIGID_REST;
+      continue;
+    }
+    const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
+    const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
+    width += RIGID_NOTE + (drawsAccidental ? RIGID_ACCIDENTAL : 0) + item.duration.dots * RIGID_DOT;
+  }
+  return prefixWidth(score, prefix) + width;
+}
+
+/**
  * A pickup is sized to its contents, not to a share of the system. Two things follow
  * from that, and both are what a chart looks like: the pickup stays visibly a lead-in
  * rather than a bar, and its notes sit snug instead of being justified across a box
@@ -164,7 +192,10 @@ export function allocateWidths(
   const weights = system.bars.map(
     (bar, index) => estimateBarWidth(score, bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
   );
-  const widths = distribute(weights, remaining, spec);
+  const mins = system.bars.map(
+    (bar, index) => rigidBarWidth(score, bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
+  );
+  const widths = withContentFloor(distribute(weights, remaining, spec), mins, remaining);
 
   for (const [index, bar] of system.bars.entries()) {
     const isLast = index === system.bars.length - 1;
@@ -216,4 +247,23 @@ function distribute(weights: readonly number[], total: number, spec: PageSpec): 
   const flooredTotal = floored.reduce((sum, w) => sum + w, 0);
   const scale = flooredTotal === 0 ? 1 : total / flooredTotal;
   return floored.map((width) => width * scale);
+}
+
+/**
+ * Hold a bar at its rigid width when the grid share would make its glyphs collide (SIB2-153), and take
+ * the difference from the bars that have room, in proportion to their surplus. Nothing changes unless
+ * some bar falls below its floor, and if the floors cannot all be met the system keeps the plain
+ * distribution: an overfull system runs long rather than being rearranged (ADR-0013).
+ */
+function withContentFloor(widths: readonly number[], mins: readonly number[], total: number): number[] {
+  if (widths.every((width, index) => width >= (mins[index] ?? 0))) return [...widths];
+  if (mins.reduce((sum, m) => sum + m, 0) > total) return [...widths];
+
+  const result = widths.map((width, index) => Math.max(width, mins[index] ?? 0));
+  const excess = result.reduce((sum, width) => sum + width, 0) - total;
+  const donors = result.map((width, index) => Math.max(width - (mins[index] ?? 0), 0));
+  const surplus = donors.reduce((sum, d) => sum + d, 0);
+  if (excess <= 1e-9 || surplus <= 1e-9) return result;
+  const take = Math.min(excess, surplus);
+  return result.map((width, index) => width - (take * (donors[index] ?? 0)) / surplus);
 }

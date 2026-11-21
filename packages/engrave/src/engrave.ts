@@ -54,6 +54,7 @@ import {
   CANONICAL_CHORD_STYLE,
   chordStyleForPreset,
   DEFAULT_TEXT_FONT,
+  chordGlyphText,
   chordSymbol,
   headerText,
   rehearsalBoxWidth,
@@ -593,7 +594,7 @@ function engraveBar(
   // A chord sits at its beat, not just at the nearest note: when no item starts on its onset it is
   // interpolated across the anchor's span, so two chords over one half note or a whole rest read as
   // two (SIB2-165). Symbols that still touch are pushed right, never left over their own beat.
-  const chordXs = chordPositions(chords, placed, bar, options.chordFontSize);
+  const chordXs = chordPositions(chords, placed, bar, options.chordFontSize, options.chordStyle);
   for (const [index, chord] of chords.entries()) {
     const x = chordXs[index] ?? bar.x + bar.prefixWidth + units(1);
     // A flagged chord symbol or annotation gets a wash behind it (ADR-0019). Its box is
@@ -669,10 +670,11 @@ const CHORD_ADVANCE_EM = 0.6;
 const CHORD_GAP_EM = 0.5;
 
 function chordPositions(
-  chords: { anchorItemId: Id | null; onset: number; text: string }[],
+  chords: { anchorItemId: Id | null; onset: number; text: string; plain: boolean }[],
   placed: PlacedItem[],
   bar: LayoutBar,
   size: number,
+  style: ChordStyle,
 ): number[] {
   const fallback = bar.x + bar.prefixWidth + units(1);
   const right = bar.x + bar.width - units(1);
@@ -691,7 +693,12 @@ function chordPositions(
     return anchor.slotX + fraction * (endX - anchor.slotX);
   });
 
-  // Push apart in onset order; the array is returned in the original order.
+  // Push apart in onset order; the array is returned in the original order. The width is of what is
+  // drawn (`EbΔ7(♯11)`, not `Ebmaj7#11`), because a raised extension adds glyphs the source text lacks
+  // (SIB2-153: `A7b9` drew six glyphs against four estimated and touched the next chord).
+  const widthOf = (chord: { text: string; plain: boolean }): number =>
+    size * CHORD_ADVANCE_EM * (chord.plain ? chord.text.length : chordGlyphText(chord.text, style).length);
+  const gap = size * CHORD_GAP_EM;
   const order = chords.map((_, i) => i).sort((a, b) => (chords[a]?.onset ?? 0) - (chords[b]?.onset ?? 0));
   let edge = Number.NEGATIVE_INFINITY;
   for (const i of order) {
@@ -699,7 +706,26 @@ function chordPositions(
     if (chord === undefined) continue;
     const x = Math.max(xs[i] ?? fallback, edge);
     xs[i] = x;
-    edge = x + size * (CHORD_ADVANCE_EM * chord.text.length + CHORD_GAP_EM);
+    edge = x + widthOf(chord) + gap;
+  }
+
+  // The last symbol must not run out of its bar into the next bar's first chord: if the forward pass
+  // pushed it past the barline, pull the run back left, as far as the bar's own left edge allows.
+  let limit = right;
+  for (const i of [...order].reverse()) {
+    const chord = chords[i];
+    if (chord === undefined) continue;
+    const x = Math.min(xs[i] ?? fallback, limit - widthOf(chord));
+    xs[i] = Math.max(x, fallback);
+    limit = x - gap;
+  }
+  // Pulling left can break the left bound for early symbols; one more forward pass restores order.
+  edge = Number.NEGATIVE_INFINITY;
+  for (const i of order) {
+    const chord = chords[i];
+    if (chord === undefined) continue;
+    xs[i] = Math.max(xs[i] ?? fallback, edge);
+    edge = (xs[i] ?? fallback) + widthOf(chord) + gap;
   }
   return xs;
 }
