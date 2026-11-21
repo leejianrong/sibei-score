@@ -15,6 +15,7 @@ import { MALFORMED, readJsonBody, send, sendJson } from './routes.js';
  *   GET    /v1/audio/jobs/:id           one job, with its result once there is one
  *   POST   /v1/audio/jobs/:id/retry     requeue a failed job
  *   DELETE /v1/audio/jobs/:id           remove the job and its audio
+ *   GET    /v1/audio/usage              this owner's audio-seconds this period (SIB2-139)
  *
  * Every one is owner-scoped through the service, and none can reach the worker's lease token: a job is
  * handed to a user without it (`withoutLease`). The worker's own routes are a separate family under
@@ -34,6 +35,11 @@ export async function audioRoute(
     if (method === 'GET') return sendJson(response, 200, { jobs: await audio.reader.list(owner) });
     if (method === 'POST') return await declare(request, response, owner, audio);
     return notAllowed(response, ['GET', 'POST']);
+  }
+
+  if (path === '/v1/audio/usage') {
+    if (method !== 'GET') return notAllowed(response, ['GET']);
+    return sendJson(response, 200, { usage: await audio.usage(owner) });
   }
 
   const parts = /^\/v1\/audio\/jobs\/([^/]+)(?:\/(content|uploaded|retry))?$/.exec(path);

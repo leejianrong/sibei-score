@@ -62,4 +62,12 @@ describe('sbscore audio', () => {
     const id = (JSON.parse(out) as { job: { id: string } }).job.id;
     expect((await sbscore('audio', 'retry', id)).code).toBe(EXIT.validation);
   });
+
+  it('reports this month\'s audio-seconds from the ledger', async () => {
+    const text = await sbscore('audio', 'usage');
+    expect(text.code).toBe(EXIT.ok);
+    expect(text.out).toMatch(/^0 audio seconds in 0 jobs this month/);
+    const json = JSON.parse((await sbscore('audio', 'usage', '--json')).out) as { usage: { seconds: number; jobs: number } };
+    expect(json.usage).toMatchObject({ seconds: 0, jobs: 0 });
+  });
 });

@@ -15,6 +15,7 @@ export function memoryAudioJobStore(options: MemoryAudioJobStoreOptions = {}): A
   const now = options.now ?? (() => new Date());
   const newId = options.newId ?? (() => randomUUID());
   const jobs = new Map<AudioJobId, AudioJob>();
+  const usage = new Map<AudioJobId, { owner: string; seconds: number; recordedAt: string }>();
   const stamp = () => `${now().toISOString().slice(0, 19)}Z`;
   const leaseUntil = (at: Date, seconds: number) => `${new Date(at.getTime() + seconds * 1000).toISOString().slice(0, 19)}Z`;
 
@@ -157,6 +158,22 @@ export function memoryAudioJobStore(options: MemoryAudioJobStoreOptions = {}): A
       return job === undefined || job.status !== 'succeeded'
         ? null
         : update(job, { status: 'failed', diagnosticKind: kind, diagnostic: message });
+    },
+    async recordUsage(owner, jobId, seconds) {
+      if (usage.has(jobId)) return false;
+      usage.set(jobId, { owner, seconds, recordedAt: stamp() });
+      return true;
+    },
+    async usageSince(owner, sinceIso) {
+      let seconds = 0;
+      let count = 0;
+      for (const row of usage.values()) {
+        if (row.owner === owner && row.recordedAt >= sinceIso) {
+          seconds += row.seconds;
+          count += 1;
+        }
+      }
+      return { seconds, jobs: count };
     },
     async close() {},
   };

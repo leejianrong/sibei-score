@@ -163,6 +163,23 @@ export interface AudioJobWorkerStore {
   rejectResult(id: AudioJobId, kind: string, message: string): Promise<AudioJob | null>;
 }
 
-export interface AudioJobStore extends AudioJobReader, AudioJobWriter, AudioJobWorkerStore {
+/**
+ * The audio-second ledger (SIB2-139, decision 17): how much audio each user has had transcribed. Written
+ * once per job by the worker side, read by its owner (the Audio page, `sbscore audio usage`) and, with
+ * SIB2-140, by the cap check that runs when a job is created. Money is not here: this is the input to
+ * whatever pricing decision follows.
+ */
+export interface AudioUsageLedger {
+  /**
+   * Add `seconds` for this job, **once**: the key is the job id, so recording it again — a retried
+   * `complete`, a result the importer refused and a re-run that then succeeded — changes nothing and
+   * answers `false`. Not owner-scoped on the way in (the worker holds no owner), but the owner is stored.
+   */
+  recordUsage(owner: Owner, jobId: AudioJobId, seconds: number): Promise<boolean>;
+  /** This owner's total since `sinceIso` (inclusive), and how many jobs made it up. */
+  usageSince(owner: Owner, sinceIso: string): Promise<{ seconds: number; jobs: number }>;
+}
+
+export interface AudioJobStore extends AudioJobReader, AudioJobWriter, AudioJobWorkerStore, AudioUsageLedger {
   close(): Promise<void>;
 }

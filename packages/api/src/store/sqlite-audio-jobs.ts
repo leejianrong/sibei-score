@@ -77,6 +77,14 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
     ),
     delete: db.prepare<[string, string], AudioJobRow>(`DELETE FROM audio_jobs WHERE owner = ? AND id = ? RETURNING *`),
 
+    // The ledger (SIB2-139). INSERT OR IGNORE on the job id is the idempotency.
+    recordUsage: db.prepare<[string, string, number, string]>(
+      `INSERT OR IGNORE INTO audio_usage (job_id, owner, seconds, recorded_at) VALUES (?, ?, ?, ?)`,
+    ),
+    usageSince: db.prepare<[string, string], { seconds: number | null; jobs: number }>(
+      `SELECT SUM(seconds) AS seconds, COUNT(*) AS jobs FROM audio_usage WHERE owner = ? AND recorded_at >= ?`,
+    ),
+
     // The worker half (SIB2-138). Not owner-scoped.
     claim: db.prepare<[string, string, string], AudioJobRow>(
       // One conditional UPDATE with a subquery, as the import queue's claim is: oldest queued job to
@@ -219,6 +227,13 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
     async rejectResult(id, kind, message) {
       const row = statements.rejectResult.get(kind, message, timestamp(now), id);
       return row === undefined ? null : toAudioJob(row);
+    },
+    async recordUsage(owner, jobId, seconds) {
+      return statements.recordUsage.run(jobId, owner, seconds, timestamp(now)).changes === 1;
+    },
+    async usageSince(owner, sinceIso) {
+      const row = statements.usageSince.get(owner, sinceIso)!;
+      return { seconds: row.seconds ?? 0, jobs: row.jobs };
     },
     async close() {
       db.close();

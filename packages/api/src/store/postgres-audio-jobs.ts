@@ -255,6 +255,28 @@ export async function openPostgresAudioJobStore(options: PostgresAudioJobStoreOp
       });
     },
 
+    async recordUsage(owner, jobId, seconds): Promise<boolean> {
+      return asSystem(pool, async (client) => {
+        const result = await client.query(
+          `INSERT INTO audio_usage (job_id, owner, seconds, recorded_at) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (job_id) DO NOTHING`,
+          [jobId, owner, seconds, timestamp(now)],
+        );
+        return result.rowCount === 1;
+      });
+    },
+
+    async usageSince(owner, sinceIso): Promise<{ seconds: number; jobs: number }> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<{ seconds: number | null; jobs: string }>(
+          `SELECT SUM(seconds) AS seconds, COUNT(*) AS jobs FROM audio_usage WHERE owner = $1 AND recorded_at >= $2`,
+          [owner, sinceIso],
+        );
+        const row = result.rows[0]!;
+        return { seconds: Number(row.seconds ?? 0), jobs: Number(row.jobs) };
+      });
+    },
+
     async close(): Promise<void> {
       await closeHandle(handle);
     },

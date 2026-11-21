@@ -93,6 +93,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (produces a NEW draft — the original and its corrections survive; no re-upload)
   sbscore audio submit <file> [--instrument piano]   upload audio to be transcribed; prints the job id
   sbscore audio list|show <id>|retry <id>|rm <id>    look at, requeue or delete an audio job
+  sbscore audio usage                      audio-seconds transcribed this month
               (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
@@ -640,6 +641,15 @@ async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: s
       io.out(json ? JSON.stringify({ job }) : line(job));
       return EXIT.ok;
     }
+    case 'usage': {
+      const { usage } = await client.audioUsage();
+      io.out(
+        json
+          ? JSON.stringify({ usage })
+          : `${Math.round(usage.seconds * 10) / 10} audio seconds in ${usage.jobs} ${usage.jobs === 1 ? 'job' : 'jobs'} this month (${usage.periodStart.slice(0, 10)} to ${usage.periodEnd.slice(0, 10)})`,
+      );
+      return EXIT.ok;
+    }
     case 'rm': {
       const id = requiredPositional(flags, 2, 'an audio job id', 'audio rm');
       await client.audioRemove(id);
@@ -647,7 +657,7 @@ async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: s
       return EXIT.ok;
     }
     default:
-      throw new CliError(EXIT.usage, 'usage', 'audio needs submit, list, show, retry or rm');
+      throw new CliError(EXIT.usage, 'usage', 'audio needs submit, list, show, retry, rm or usage');
   }
 }
 
