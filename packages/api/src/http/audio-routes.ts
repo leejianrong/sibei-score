@@ -84,6 +84,7 @@ export async function audioRoute(
   }
 
   const job = await audio.retry(owner, id);
+  if (job !== null && 'kind' in job) return send(response, problem(409, 'audio-gone', job.message));
   if (job === null) {
     const existing = await audio.reader.get(owner, id);
     if (existing === null) return send(response, noSuchJob(id));
