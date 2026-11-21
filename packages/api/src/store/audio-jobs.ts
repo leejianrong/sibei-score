@@ -117,12 +117,74 @@ export interface AudioJobWriter {
    */
   delete(owner: Owner, id: AudioJobId): Promise<AudioJob | null>;
   /**
-   * Delete every audio job this owner has and return their audio keys (V25, account deletion), so the
-   * caller can delete the objects too. Not a request-path operation.
+   * Delete every audio job this owner has and return each one's id and audio key (V25, account deletion), so
+   * the caller can delete the audio and result objects too. Not a request-path operation.
    */
-  deleteAll(owner: Owner): Promise<BlobKey[]>;
+  deleteAll(owner: Owner): Promise<{ id: AudioJobId; audioKey: BlobKey }[]>;
 }
 
-export interface AudioJobStore extends AudioJobReader, AudioJobWriter {
+/**
+ * What a transition under a lease answers (SIB2-138, the worker protocol in ADR-0034):
+ *   - `ok`         the lease holder's call took effect.
+ *   - `already`    the same lease token already did this (a repeated `complete` or `fail`), so the answer is
+ *                  the same and nothing changed: the idempotency a worker that lost a response relies on.
+ *   - `lease-lost` the token is not the current holder's (the job was re-queued and perhaps claimed by
+ *                  another worker, or deleted): abandon the work.
+ */
+export type LeaseOutcome = { outcome: 'ok' | 'already'; job: AudioJob } | { outcome: 'lease-lost' };
+
+/**
+ * The half only the pulling worker's service holds (decision 14). Not owner-scoped: a worker takes the
+ * oldest queued job across all users, which is the system actor (Postgres admits it by `app.system` on
+ * this table only, and never to a score). Every call but `claim` and `expireLeases` is guarded on the
+ * lease token inside the store, so a stale worker cannot move a job that was re-queued.
+ */
+export interface AudioJobWorkerStore {
+  /** Take the oldest `queued` job into `running` with a fresh lease, or `null` when nothing is waiting. */
+  claim(leaseSeconds: number): Promise<AudioJob | null>;
+  /** Extend the lease (and record progress). `lease-lost` unless the token holds a running job. */
+  heartbeat(id: AudioJobId, leaseToken: string, leaseSeconds: number, progress: AudioProgress | null): Promise<LeaseOutcome>;
+  /** `running` → `succeeded`, storing the result and the decoded duration. */
+  complete(id: AudioJobId, leaseToken: string, result: unknown, durationSeconds: number): Promise<LeaseOutcome>;
+  /**
+   * End an attempt that failed. `retryable` with attempts left re-queues it (the lease token stays on the
+   * row so a repeated `fail` is `already`); otherwise it is `failed` for good with this kind and message.
+   */
+  fail(
+    id: AudioJobId,
+    leaseToken: string,
+    failure: { kind: string; message: string; retryable: boolean; maxAttempts: number },
+  ): Promise<LeaseOutcome>;
+  /**
+   * Re-queue every `running` job whose lease has passed, or fail it as `worker-lost` once it has used
+   * `maxAttempts`. Returns the jobs it moved so the caller can drop the audio of the ones now failed.
+   */
+  expireLeases(maxAttempts: number): Promise<{ requeued: AudioJob[]; failed: AudioJob[] }>;
+  /** A job by id, any owner: the worker service's own read. Never reachable from a user route. */
+  getById(id: AudioJobId): Promise<AudioJob | null>;
+  /** Record the score the import hook produced from the result. */
+  attachScore(id: AudioJobId, scoreId: Id): Promise<AudioJob | null>;
+  /** The import hook refused the result: `succeeded` → `failed` (non-retryable), keeping the result. */
+  rejectResult(id: AudioJobId, kind: string, message: string): Promise<AudioJob | null>;
+}
+
+/**
+ * The audio-second ledger (SIB2-139, decision 17): how much audio each user has had transcribed. Written
+ * once per job by the worker side, read by its owner (the Audio page, `sbscore audio usage`) and, with
+ * SIB2-140, by the cap check that runs when a job is created. Money is not here: this is the input to
+ * whatever pricing decision follows.
+ */
+export interface AudioUsageLedger {
+  /**
+   * Add `seconds` for this job, **once**: the key is the job id, so recording it again — a retried
+   * `complete`, a result the importer refused and a re-run that then succeeded — changes nothing and
+   * answers `false`. Not owner-scoped on the way in (the worker holds no owner), but the owner is stored.
+   */
+  recordUsage(owner: Owner, jobId: AudioJobId, seconds: number): Promise<boolean>;
+  /** This owner's total since `sinceIso` (inclusive), and how many jobs made it up. */
+  usageSince(owner: Owner, sinceIso: string): Promise<{ seconds: number; jobs: number }>;
+}
+
+export interface AudioJobStore extends AudioJobReader, AudioJobWriter, AudioJobWorkerStore, AudioUsageLedger {
   close(): Promise<void>;
 }

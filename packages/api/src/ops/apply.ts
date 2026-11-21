@@ -44,6 +44,7 @@ import type {
   ChordSetPayload,
   MetaSetPayload,
   NoteAddPayload,
+  BarAddPayload,
   BarlineSetPayload,
   EndingSetPayload,
   LoggedOperation,
@@ -153,6 +154,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setEnding(score, operation.target, operation.payload);
     case 'ending.rm':
       return removeEnding(score, operation.target);
+    case 'bar.add':
+      return addBars(score, operation.target, operation.payload ?? {});
+    case 'bar.rm':
+      return removeBar(score, operation.target);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.
@@ -615,6 +620,91 @@ function removeEnding(score: Score, target: string): Applied {
   return {
     score: mapBar(score, bar.id, (b) => ({ ...b, ending: null })),
     operation: { type: 'ending.rm', target },
+    changed: [bar.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// bar.add, bar.rm (SIB2-186)
+// ---------------------------------------------------------------------------
+
+/**
+ * Bars are addressed by number (ADR-0007), so adding or removing one renumbers everything after it,
+ * and a section's `startBar` is a bar number too, so it moves with them. Ids never change. Both
+ * moves are pure functions of the document and the payload, and the new ids are recorded, so replay
+ * (and undo, which is replay) reproduces them exactly.
+ */
+function shiftBars(score: Score, after: number, by: number): Pick<Score, 'bars' | 'sections'> {
+  return {
+    bars: score.bars.map((bar) => (bar.number > after ? { ...bar, number: bar.number + by } : bar)),
+    sections: score.sections.map((s) => (s.startBar > after ? { ...s, startBar: s.startBar + by } : s)),
+  };
+}
+
+function addBars(score: Score, target: string | undefined, payload: BarAddPayload): Applied {
+  const count = payload.count ?? 1;
+  if (!Number.isInteger(count) || count < 1 || count > 1000) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar.add count must be a whole number between 1 and 1000, not ${JSON.stringify(count)}`,
+    });
+  }
+  const after =
+    target === undefined
+      ? Math.max(0, ...score.bars.map((bar) => bar.number))
+      : resolveBar(score, target).number;
+
+  const ids = payload.ids ?? newBarIds(score, count);
+  if (ids.length !== count) {
+    throw new OperationError({ kind: 'validation', detail: 'bar.add ids must name exactly count bars' });
+  }
+  const added = ids.map((id, offset) => makeBar({ id, number: after + 1 + offset }));
+
+  const shifted = shiftBars(score, after, count);
+  const at = shifted.bars.filter((bar) => bar.number <= after).length;
+  const bars = [...shifted.bars.slice(0, at), ...added, ...shifted.bars.slice(at)];
+
+  return {
+    score: { ...score, bars, sections: shifted.sections },
+    operation: { type: 'bar.add', ...(target === undefined ? {} : { target }), payload: { ...payload, ids } },
+    changed: ids,
+  };
+}
+
+function newBarIds(score: Score, count: number): Id[] {
+  const first = Number(nextId(score, 'bar').slice('bar-'.length));
+  return Array.from({ length: count }, (_, offset) => `bar-${first + offset}`);
+}
+
+/**
+ * Remove an **empty** bar. A bar holding notes, chords or text is refused rather than deleted: the
+ * undo is there, but a caller that did not mean to lose music should be told, and `note rm` is
+ * already the verb for clearing one. A bar that starts a section is refused for the same reason.
+ */
+function removeBar(score: Score, target: string): Applied {
+  const bar = resolveBar(score, target);
+  if (score.bars.length === 1) {
+    throw new OperationError({ kind: 'validation', detail: 'a chart needs at least one bar' });
+  }
+  const holds = [
+    bar.items.length > 0 ? 'notes or rests' : null,
+    bar.chords.length > 0 ? 'chords' : null,
+    bar.annotations.length > 0 ? 'text' : null,
+    bar.ending !== null ? 'an ending' : null,
+    score.sections.some((s) => s.startBar === bar.number) ? 'a section start' : null,
+  ].filter((what): what is string => what !== null);
+  if (holds.length > 0) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar ${bar.number} holds ${holds.join(', ')}; clear it first, bar rm only removes an empty bar`,
+    });
+  }
+
+  const remaining = { ...score, bars: score.bars.filter((b) => b.id !== bar.id) };
+  const shifted = shiftBars(remaining, bar.number, -1);
+  return {
+    score: { ...score, bars: shifted.bars, sections: shifted.sections },
+    operation: { type: 'bar.rm', target },
     changed: [bar.id],
   };
 }

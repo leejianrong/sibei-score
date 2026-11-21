@@ -1,5 +1,6 @@
 import type { BlobStore, ManagedBlobStore } from '../blob/blob-store.js';
 import type { BlobLedger } from '../store/blob-ledger.js';
+import { resultKey } from '../audio/worker-service.js';
 import type { AudioJobStore } from '../store/audio-jobs.js';
 import type { JobStore } from '../store/jobs.js';
 import type { Owner, ScoreLibrary } from '../store/repository.js';
@@ -46,7 +47,8 @@ export function createOwnerEraser(options: OwnerEraserOptions): OwnerEraser {
       const held = await ledger.list(owner);
       const jobCount = (await jobs.list(owner)).length;
       const sourceKeys = await jobs.deleteAll(owner);
-      const audioKeys = await audio.deleteAll(owner);
+      // Each audio job holds two objects: the upload, and the NoteEvents result the worker put beside it.
+      const audioKeys = (await audio.deleteAll(owner)).flatMap((job) => [job.audioKey, resultKey(job.id)]);
       const scores = await library.deleteAll(owner);
 
       const keys = new Set([...held.map((ref) => ref.key), ...sourceKeys, ...audioKeys]);

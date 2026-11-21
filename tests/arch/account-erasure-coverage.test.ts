@@ -17,6 +17,7 @@ const COVERED: Record<string, string> = {
   operations: 'cascade from scores',
   import_jobs: 'JobStore.deleteAll',
   audio_jobs: 'AudioJobStore.deleteAll (returns the audio keys, deleted with the blobs)',
+  audio_usage: 'AudioJobStore.deleteAll (the metering ledger goes with the account)',
   blob_refs: 'BlobLedger.forgetAll, after the blobs it names are deleted',
   identities: 'cascade from users (AuthStore.deleteUser)',
   sessions: 'cascade from users',

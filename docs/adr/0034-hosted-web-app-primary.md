@@ -164,11 +164,11 @@ it; `Beat.is_downbeat` may be `null`). The API stores it and hands it to the imp
 define the schema.
 
 **Auth.** Every worker call carries `Authorization: Bearer sbsw_<random>`. Worker credentials are minted by
-the operator (`SBSCORE_WORKER_TOKENS`, comma-separated; the API keeps only their SHA-256) and are not
+the operator (`SBSCORE_AUDIO_WORKER_TOKENS`, comma-separated, each `sbsw_` plus at least 32 characters; the API keeps only their SHA-256) and are not
 users: no owner, no session, no scopes. A `sbsw_` credential is accepted on `/v1/worker/*` **only**
 (anywhere else: `403 forbidden`), and a user token or cookie on `/v1/worker/*` is `403 forbidden`. A worker
 therefore cannot list, read or write any user's scores, library or other jobs; it sees only the job it
-holds a lease on. Over TLS only in hosted mode. Content type is `application/json` both ways.
+holds a lease on. A missing or unknown credential is `401 unauthenticated`. Over TLS only in hosted mode. Content type is `application/json` both ways.
 
 **Lifecycle.** `queued -> running (leased) -> succeeded | failed`, plus `running -> queued` when a lease is
 lost or a worker reports a retryable failure. Each claim increments `attempt`; the job fails for good
@@ -194,6 +194,8 @@ job. No job: `204`, no body (poll again with back-off). A job: `200`
     "audio": {
       "url": "https://bucket.example/...signed...",
       "method": "GET",
+      "headers": {},
+      "viaApi": false,
       "expiresAt": "2026-12-01T11:00:00.000Z",
       "contentType": "audio/mpeg",
       "sizeBytes": 4123456
@@ -203,6 +205,7 @@ job. No job: `204`, no body (poll again with back-off). A job: `200`
       "url": "https://bucket.example/...signed...",
       "method": "PUT",
       "headers": { "Content-Type": "application/json" },
+      "viaApi": false,
       "expiresAt": "2026-12-01T13:00:00.000Z"
     }
   }
@@ -225,13 +228,19 @@ on it afterwards.
 `progress` is optional, shown to the user as-is (`stage` is a short label, `fraction` 0-1). `200`:
 
 ```json
-{ "leaseExpiresAt": "2026-12-01T10:04:00.000Z", "cancelled": false, "audio": null }
+{ "leaseExpiresAt": "2026-12-01T10:04:00Z", "cancelled": false, "audio": { "url": "...", "method": "GET", "headers": {}, "viaApi": false } }
 ```
 
 Each heartbeat sets the lease to now + **120 s**; send one every `heartbeatIntervalSeconds` (**30 s**). A
-lease also has an absolute cap of **2 hours** per attempt, after which it expires regardless. If the user
-deleted the job, `cancelled` is `true`: stop and discard (a later `complete` is `409 lease-lost`). When
-`audio.url` has under 10 minutes left, `audio` carries a fresh `{url,expiresAt}` and is otherwise `null`.
+lease runs only while heartbeats keep arriving (there is no absolute cap in v1). If the user deleted the
+job the answer is still `200` but `cancelled` is `true` and `leaseExpiresAt` is `null`: stop and discard (a
+later `complete` is `409 lease-lost`). With object storage every heartbeat carries a freshly signed
+`audio` GET, so a long job never works against a lapsed URL; with the local store `audio` is `null`.
+Timestamps are second-resolution UTC (`2026-12-01T10:04:00Z`).
+
+Local mode (no object storage) has nothing to sign: the claim's `audio` is `{ url: "/v1/worker/audio/jobs/{id}/content",
+method: "GET", headers: { "x-lease-token": "..." }, viaApi: true }`, fetched with the worker credential
+plus that header, and `resultUpload` is absent so the result goes inline.
 
 **3. Complete** — `POST /v1/worker/audio/jobs/{id}/complete`
 
@@ -244,10 +253,13 @@ deleted the job, `cancelled` is `true`: stop and discard (a later `complete` is 
 ```
 
 or, after `PUT`ting the NoteEvents JSON to `resultUpload`, `"result": { "uploaded": true }`. Inline bodies
-are limited to **8 MiB** (`413 payload-too-large`; use the upload for more). `durationSeconds` is the audio
+are limited to **8 MiB** (`413 body-too-large`; use the upload for more). `durationSeconds` is the audio
 length the worker decoded; it is the metering input (decision 17) and the API cross-checks it against the
-file. `200 { "status": "succeeded" }`; the API stores the document and runs the import hook, which may
-still fail the job as non-retryable `invalid-result` if the document does not validate.
+file. `200 { "status": "succeeded" }`; the API stores the document and runs the import hook. If the hook
+refuses the document (it does not validate as NoteEvents v1) the job becomes `failed`, non-retryable, with
+kind `invalid-result`, the result is kept for diagnosis, and the same call answers `200 { "status": "failed" }`:
+the worker's work was delivered, the document was the problem, so there is nothing to retry. An upload
+that is not there yet is `400 bad-request`; one that is not a JSON object is `422 invalid-result`.
 **Complete is idempotent**: a repeat with the same `leaseToken` after success returns the same `200`
 (plus `"alreadyCompleted": true`) and changes nothing, so a worker that lost the response can simply retry.
 A `leaseToken` that is not the current holder's is `409 lease-lost`.
@@ -269,10 +281,10 @@ dead, so a returning stale worker gets `409 lease-lost` on its next call and mus
 otherwise the job fails with kind `worker-lost`. The worker has no obligation to clean anything up on loss.
 
 **Errors.** `{ "error": { "kind": "...", "message": "..." } }` with ADR-0008's shape, HTTP status by
-kind: `400 bad-request`, `401 unauthorized` (missing/unknown credential), `403 forbidden` (wrong kind of
-credential for the route), `404 not-found` (no such job, or not yours: the same answer, so ids reveal
-nothing), `409 lease-lost`, `413 payload-too-large`, `422 invalid-result`, `503 unavailable` (retry with
-back-off). `429` carries `Retry-After`. Network errors and `5xx` are retried by the worker with
+kind: `400 bad-request`, `401 unauthenticated` (missing/unknown credential), `403 forbidden` (wrong kind of
+credential for the route), `404 no-such-audio-job` (no such job, or not this lease's: the same answer, so ids reveal
+nothing), `409 lease-lost`, `413 body-too-large`, `422 invalid-result`. `5xx` and `429` (`Retry-After`) are
+retried with back-off. Network errors and `5xx` are retried by the worker with
 exponential back-off; `complete` and `fail` are safe to retry.
 
 ## Consequences

@@ -45,11 +45,14 @@
     saving: boolean;
     error: string | null;
     onsave: (edits: StructureEdits) => void;
+    /** Add an empty bar after this one, or remove this one (SIB2-186). */
+    onaddbar: () => void;
+    onrmbar: () => void;
     ondeselect: () => void;
     onreload: () => void;
   }
 
-  const { bar, conflict, saving, error, onsave, ondeselect, onreload }: Props = $props();
+  const { bar, conflict, saving, error, onsave, onaddbar, onrmbar, ondeselect, onreload }: Props = $props();
 
   let letter = $state(untrack(() => bar.letter));
   let name = $state(untrack(() => bar.name));
@@ -186,6 +189,15 @@
     {#if error !== null}
       <p class="field-error">{error}</p>
     {/if}
+
+    <div class="field">
+      <span class="field-label">Bars</span>
+      <div class="field-row">
+        <button type="button" class="btn btn-cancel" disabled={saving} onclick={onaddbar}>Add bar after</button>
+        <button type="button" class="btn btn-cancel" disabled={saving} onclick={onrmbar}>Remove bar</button>
+      </div>
+      <p class="note">Later bars renumber. Only an empty bar can be removed; undo brings either back.</p>
+    </div>
 
     <div class="actions">
       <button type="button" class="btn btn-save" disabled={saving} onclick={save}>

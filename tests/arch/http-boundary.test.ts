@@ -269,3 +269,34 @@ describe('the logs (ADR-0029)', () => {
     expect(log).not.toMatch(/\.stack\b/);
   });
 });
+
+describe('the audio worker surface (SIB2-138, ADR-0034 amendment decision 14)', () => {
+  const WORKER_FILES = [
+    'packages/api/src/http/worker-routes.ts',
+    'packages/api/src/audio/worker-service.ts',
+  ];
+
+  it('is handed no score, library, applier or user-job capability, so a worker credential cannot reach user data', () => {
+    // The credential is not a user. The only way it could read a score is if the code it reaches could
+    // name one; so neither the worker's routes nor its service may mention any of these.
+    for (const file of WORKER_FILES) {
+      const code = codeOf(join(REPO, file));
+      expect(code, file).not.toMatch(/\b(ScoreReader|ScoreLibrary|ScoreStore|ScoreWriter|Applier|ImportService|JobReader|AuthStore)\b/);
+      expect(code, file).not.toMatch(/store\/(repository|jobs|auth)\.js/);
+    }
+  });
+
+  it('judges the worker credential in server.ts ahead of any user principal, and keeps it off every other route', () => {
+    const server = codeOf(join(REPO, SERVER));
+    const workerAt = server.indexOf('audioWorker.authenticate(');
+    expect(workerAt).toBeGreaterThan(-1);
+    expect(workerAt).toBeLessThan(server.indexOf('await authenticate(request)'));
+    expect(server).toMatch(/startsWith\('Bearer sbsw_'\)/);
+  });
+
+  it('never logs a credential or a lease token', () => {
+    for (const file of WORKER_FILES) {
+      expect(codeOf(join(REPO, file)), file).not.toMatch(/logger\.|console\./);
+    }
+  });
+});

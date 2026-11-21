@@ -786,18 +786,19 @@ export const MALFORMED = Symbol('malformed');
 export async function readJsonBody(
   request: IncomingMessage,
   response: ServerResponse,
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<unknown | typeof MALFORMED> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = chunk as Buffer;
     size += buffer.length;
-    if (size > MAX_BODY_BYTES) {
+    if (size > maxBytes) {
       // Answer and hang up. Without closing the connection the client goes on sending the rest of a
       // body we have already refused, and the request sits there until a timeout — which turns a
       // rejection into a stall, and a stall is a worse failure than the one being prevented.
       response.setHeader('connection', 'close');
-      send(response, problem(413, 'body-too-large', `a request body is capped at ${MAX_BODY_BYTES} bytes`));
+      send(response, problem(413, 'body-too-large', `a request body is capped at ${maxBytes} bytes`));
       request.destroy();
       return MALFORMED;
     }

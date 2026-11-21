@@ -93,6 +93,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (produces a NEW draft — the original and its corrections survive; no re-upload)
   sbscore audio submit <file> [--instrument piano]   upload audio to be transcribed; prints the job id
   sbscore audio list|show <id>|retry <id>|rm <id>    look at, requeue or delete an audio job
+  sbscore audio usage                      audio-seconds transcribed this month
               (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
@@ -104,6 +105,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore chord set <id> <address> --text F#m7b5 [--spell]
   sbscore chord rm  <id> <address>
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
+  sbscore bar add <id> [--after <bar>] [--count N]   add empty bars (default: at the end); later bars renumber
+  sbscore bar rm  <id> <bar>               remove an empty bar; later bars renumber
   sbscore section set <id> <bar> [--letter A] [--name Bridge]   a section boundary (ADR-0021)
   sbscore section rm  <id> <bar>
   sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|final|repeat-end]
@@ -262,6 +265,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return chord(flags, client, io, json);
     case 'transpose':
       return transpose(flags, client, io, json);
+    case 'bar':
+      return bar(flags, client, io, json);
     case 'section':
       return section(flags, client, io, json);
     case 'barline':
@@ -636,6 +641,15 @@ async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: s
       io.out(json ? JSON.stringify({ job }) : line(job));
       return EXIT.ok;
     }
+    case 'usage': {
+      const { usage } = await client.audioUsage();
+      io.out(
+        json
+          ? JSON.stringify({ usage })
+          : `${Math.round(usage.seconds * 10) / 10} audio seconds in ${usage.jobs} ${usage.jobs === 1 ? 'job' : 'jobs'} this month (${usage.periodStart.slice(0, 10)} to ${usage.periodEnd.slice(0, 10)})`,
+      );
+      return EXIT.ok;
+    }
     case 'rm': {
       const id = requiredPositional(flags, 2, 'an audio job id', 'audio rm');
       await client.audioRemove(id);
@@ -643,7 +657,7 @@ async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: s
       return EXIT.ok;
     }
     default:
-      throw new CliError(EXIT.usage, 'usage', 'audio needs submit, list, show, retry or rm');
+      throw new CliError(EXIT.usage, 'usage', 'audio needs submit, list, show, retry, rm or usage');
   }
 }
 
@@ -800,6 +814,31 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
 /** A bare number names a bar as `bar12` does (SIB2-189); anything else passes through for the server to judge. */
 function barTarget(raw: string): string {
   return /^\d+$/.test(raw) ? `bar${raw}` : raw;
+}
+
+/**
+ * `sbscore bar add <id> [--after <bar>] [--count N]` and `bar rm <id> <bar>` (SIB2-186). Bars are
+ * addressed by number, so an insert or a removal renumbers every later bar (and section start) —
+ * the ids stay. `add` with no `--after` appends; `rm` refuses a bar that holds anything.
+ */
+async function bar(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `bar ${sub}`);
+  if (sub === 'add') {
+    const after = flags.options.get('after');
+    const count = optionalNumber(flags, 'count');
+    const op = {
+      type: 'bar.add',
+      ...(after === undefined ? {} : { target: barTarget(after) }),
+      ...(count === undefined ? {} : { payload: { count } }),
+    } as Operation;
+    return submit(flags, client, io, json, id, [op]);
+  }
+  if (sub === 'rm') {
+    const target = barTarget(requiredPositional(flags, 3, 'a bar like 5 or bar5', 'bar rm'));
+    return submit(flags, client, io, json, id, [{ type: 'bar.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'bar takes add or rm');
 }
 
 /**

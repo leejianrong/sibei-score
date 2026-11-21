@@ -775,6 +775,138 @@ export function audioJobStoreConformance(label: string, open: OpenHarness): void
       expect(await audio.delete('alice', job.id)).toBeNull();
     });
   });
+
+  /** A clock the test moves by hand, so a lease can be seen to expire. */
+  function manual(startIso = '2026-12-01T10:00:00Z') {
+    const clock = { at: Date.parse(startIso) };
+    return { clock, now: () => new Date(clock.at) };
+  }
+  async function queued(audio: AudioJobStore, owner = 'alice', name = 'a.wav') {
+    const job = await audio.create(owner, upload(name));
+    return (await audio.markUploaded(owner, job.id, 10))!;
+  }
+
+  describe(`${label}: the audio job store, worker half (SIB2-138)`, () => {
+    it('claims the oldest queued job across owners, with a fresh lease, and nothing else', async () => {
+      const { clock, now } = manual();
+      const { audio } = await fresh({ now });
+      expect(await audio.claim(120)).toBeNull();
+      await audio.create('alice', upload('not-uploaded.wav')); // awaiting-upload: not claimable
+      const older = await queued(audio, 'alice', 'old.wav');
+      clock.at += 1000;
+      const newer = await queued(audio, 'bob', 'new.wav');
+      const first = await audio.claim(120);
+      expect(first).toMatchObject({ id: older.id, status: 'running', attempts: 1, leaseExpiresAt: '2026-12-01T10:02:01Z' });
+      expect(first!.leaseToken).toBeTruthy();
+      expect((await audio.claim(120))?.id).toBe(newer.id);
+      expect(await audio.claim(120)).toBeNull();
+    });
+
+    it('lets many claimers race and hands each a different job', async () => {
+      const { audio } = await fresh();
+      for (let i = 0; i < 6; i += 1) await queued(audio, 'alice', `k${i}.wav`);
+      const claims = await Promise.all(Array.from({ length: 6 }, () => audio.claim(120)));
+      expect(new Set(claims.map((c) => c?.id)).size).toBe(6);
+    });
+
+    it('extends a lease and records progress, only for the token that holds it', async () => {
+      const { clock, now } = manual();
+      const { audio } = await fresh({ now });
+      await queued(audio);
+      const job = (await audio.claim(120))!;
+      clock.at += 60_000;
+      const beat = await audio.heartbeat(job.id, job.leaseToken!, 120, { stage: 'transcribing', fraction: 0.4 });
+      expect(beat).toMatchObject({ outcome: 'ok', job: { leaseExpiresAt: '2026-12-01T10:03:00Z', progress: { stage: 'transcribing', fraction: 0.4 } } });
+      expect(await audio.heartbeat(job.id, 'not-the-token', 120, null)).toEqual({ outcome: 'lease-lost' });
+      expect(await audio.heartbeat('nope', job.leaseToken!, 120, null)).toEqual({ outcome: 'lease-lost' });
+    });
+
+    it('completes once, and a repeat with the same token is the same answer and changes nothing', async () => {
+      const { audio } = await fresh();
+      await queued(audio);
+      const job = (await audio.claim(120))!;
+      const result = { schema_version: 1, notes: [] };
+      const done = await audio.complete(job.id, job.leaseToken!, result, 12.25);
+      expect(done).toMatchObject({ outcome: 'ok', job: { status: 'succeeded', durationSeconds: 12.25, result } });
+      const again = await audio.complete(job.id, job.leaseToken!, { schema_version: 1, notes: ['different'] }, 99);
+      expect(again).toMatchObject({ outcome: 'already', job: { status: 'succeeded', durationSeconds: 12.25, result } });
+      expect(await audio.complete(job.id, 'other-token', result, 1)).toEqual({ outcome: 'lease-lost' });
+    });
+
+    it('re-queues a retryable failure until attempts run out, then fails it for good', async () => {
+      const { audio } = await fresh();
+      await queued(audio);
+      const failure = { kind: 'engine-error', message: 'boom', retryable: true, maxAttempts: 2 };
+      const first = (await audio.claim(120))!;
+      expect(await audio.fail(first.id, first.leaseToken!, failure)).toMatchObject({ outcome: 'ok', job: { status: 'queued', attempts: 1 } });
+      // The same lease repeating itself is not a second failure.
+      expect(await audio.fail(first.id, first.leaseToken!, failure)).toMatchObject({ outcome: 'already', job: { status: 'queued' } });
+      const second = (await audio.claim(120))!;
+      expect(second.attempts).toBe(2);
+      expect(await audio.complete(first.id, first.leaseToken!, {}, 1)).toEqual({ outcome: 'lease-lost' }); // the old lease is dead
+      expect(await audio.fail(second.id, second.leaseToken!, failure)).toMatchObject({
+        outcome: 'ok',
+        job: { status: 'failed', diagnosticKind: 'engine-error', diagnostic: 'boom' },
+      });
+    });
+
+    it('fails a non-retryable failure at once', async () => {
+      const { audio } = await fresh();
+      await queued(audio);
+      const job = (await audio.claim(120))!;
+      const out = await audio.fail(job.id, job.leaseToken!, { kind: 'unsupported-audio', message: 'no audio stream', retryable: false, maxAttempts: 3 });
+      expect(out).toMatchObject({ outcome: 'ok', job: { status: 'failed', diagnosticKind: 'unsupported-audio' } });
+    });
+
+    it('expires a stalled lease: re-queued while attempts remain, failed as worker-lost after', async () => {
+      const { clock, now } = manual();
+      const { audio } = await fresh({ now });
+      await queued(audio);
+      const job = (await audio.claim(120))!;
+      expect(await audio.expireLeases(2)).toEqual({ requeued: [], failed: [] }); // not yet
+      clock.at += 121_000;
+      const first = await audio.expireLeases(2);
+      expect(first.requeued.map((j) => j.id)).toEqual([job.id]);
+      expect(first.failed).toEqual([]);
+      expect(await audio.heartbeat(job.id, job.leaseToken!, 120, null)).toEqual({ outcome: 'lease-lost' });
+
+      const again = (await audio.claim(120))!;
+      expect(again.attempts).toBe(2);
+      clock.at += 121_000;
+      const last = await audio.expireLeases(2);
+      expect(last.failed.map((j) => [j.id, j.status, j.diagnosticKind])).toEqual([[job.id, 'failed', 'worker-lost']]);
+    });
+
+    it('keeps an audio-second ledger: one row per job, idempotent, per owner, counted from a date', async () => {
+      const { clock, now } = manual('2026-12-01T10:00:00Z');
+      const { audio } = await fresh({ now });
+      expect(await audio.usageSince('alice', '2026-12-01T00:00:00Z')).toEqual({ seconds: 0, jobs: 0 });
+      expect(await audio.recordUsage('alice', 'job-1', 12.5)).toBe(true);
+      expect(await audio.recordUsage('alice', 'job-1', 99)).toBe(false); // a retry adds nothing, not even a corrected figure
+      clock.at += 86_400_000;
+      expect(await audio.recordUsage('alice', 'job-2', 7.5)).toBe(true);
+      expect(await audio.recordUsage('bob', 'job-3', 100)).toBe(true);
+      expect(await audio.usageSince('alice', '2026-12-01T00:00:00Z')).toEqual({ seconds: 20, jobs: 2 });
+      expect(await audio.usageSince('alice', '2026-12-02T00:00:00Z')).toEqual({ seconds: 7.5, jobs: 1 });
+      expect(await audio.usageSince('bob', '2026-12-01T00:00:00Z')).toEqual({ seconds: 100, jobs: 1 });
+    });
+
+    it('records the score an import produced, or rejects a result the importer refused', async () => {
+      const { audio } = await fresh();
+      await queued(audio);
+      const job = (await audio.claim(120))!;
+      await audio.complete(job.id, job.leaseToken!, { ok: true }, 3);
+      expect((await audio.attachScore(job.id, 'score-1'))?.scoreId).toBe('score-1');
+      expect(await audio.rejectResult(job.id, 'invalid-result', 'not NoteEvents')).toMatchObject({
+        status: 'failed',
+        diagnosticKind: 'invalid-result',
+        result: { ok: true },
+      });
+      expect(await audio.rejectResult(job.id, 'invalid-result', 'again')).toBeNull(); // no longer succeeded
+      expect((await audio.getById(job.id))?.status).toBe('failed');
+      expect(await audio.getById('nope')).toBeNull();
+    });
+  });
 }
 
 /**
@@ -823,10 +955,19 @@ export function accountErasureConformance(label: string, open: OpenHarness): voi
       await audio.create('alice', { ...job, audioKey: 'audio:a1' });
       await audio.create('alice', { ...job, audioKey: 'audio:a2' });
       const bobs = await audio.create('bob', { ...job, audioKey: 'audio:b1' });
-      expect((await audio.deleteAll('alice')).sort()).toEqual(['audio:a1', 'audio:a2']);
+      expect((await audio.deleteAll('alice')).map((job) => job.audioKey).sort()).toEqual(['audio:a1', 'audio:a2']);
       expect(await audio.list('alice')).toEqual([]);
       expect((await audio.get('bob', bobs.id))?.audioKey).toBe('audio:b1');
       expect(await audio.deleteAll('alice')).toEqual([]);
+    });
+
+    it("deletes an owner's metering ledger with their audio jobs", async () => {
+      const { audio } = await fresh();
+      await audio.recordUsage('alice', 'job-a', 30);
+      await audio.recordUsage('bob', 'job-b', 60);
+      await audio.deleteAll('alice');
+      expect((await audio.usageSince('alice', '1970-01-01T00:00:00Z')).seconds).toBe(0);
+      expect((await audio.usageSince('bob', '1970-01-01T00:00:00Z')).seconds).toBe(60);
     });
 
     it('deletes a user with their identities, sessions and tokens, and answers false the second time', async () => {

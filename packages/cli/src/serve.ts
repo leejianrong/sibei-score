@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { consoleLogger, createApi, createHttpWorkerClient, createLimits, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
-import type { Api, AssetSource, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
+import type { Api, AssetSource, AudioWorkerOptions, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresBlobLedger, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteBlobLedger, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import type { AudioJobStore, AuthStore, BlobLedger, JobStore, ScoreStore } from '@sibei/api';
@@ -335,6 +335,45 @@ export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): S3BlobSto
   };
 }
 
+/**
+ * The audio worker's credentials (SIB2-138): `SBSCORE_AUDIO_WORKER_TOKENS`, comma-separated, each
+ * `sbsw_` followed by at least 32 characters. Environment only — a credential does not belong in argv. With
+ * none set there is no `/v1/worker/` surface and audio jobs wait `queued`. Lease timing is tunable
+ * (`SBSCORE_AUDIO_LEASE_SECONDS`, `SBSCORE_AUDIO_MAX_ATTEMPTS`) and defaults to the protocol's 120 s and 3.
+ */
+export function resolveAudioWorker(env: NodeJS.ProcessEnv = process.env): AudioWorkerOptions | undefined {
+  const raw = (env.SBSCORE_AUDIO_WORKER_TOKENS ?? '')
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token !== '');
+  if (raw.length === 0) return undefined;
+  for (const token of raw) {
+    if (!/^sbsw_[A-Za-z0-9_-]{32,}$/.test(token)) {
+      throw new CliError(
+        EXIT.usage,
+        'bad-audio-worker-config',
+        'every SBSCORE_AUDIO_WORKER_TOKENS entry must be `sbsw_` followed by at least 32 letters, digits, `_` or `-` (try `sbsw_$(openssl rand -hex 24)`)',
+      );
+    }
+  }
+  const number = (name: string): number | undefined => {
+    const value = env[name];
+    if (value === undefined || value === '') return undefined;
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new CliError(EXIT.usage, 'bad-audio-worker-config', `${name} must be a whole number of at least 1`);
+    }
+    return parsed;
+  };
+  const leaseSeconds = number('SBSCORE_AUDIO_LEASE_SECONDS');
+  const maxAttempts = number('SBSCORE_AUDIO_MAX_ATTEMPTS');
+  return {
+    tokens: raw,
+    ...(leaseSeconds === undefined ? {} : { leaseSeconds }),
+    ...(maxAttempts === undefined ? {} : { maxAttempts }),
+  };
+}
+
 /** The two stores, and how to release them, whichever database they sit on. */
 interface OpenedStores {
   store: ScoreStore;
@@ -455,6 +494,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
 
   const hostedConfig = resolveHostedConfig(flags);
   const s3Config = resolveS3Config();
+  const audioWorker = resolveAudioWorker();
 
   // Rate limits and quotas (V23): on in hosted mode, off for a local install (one user on loopback has
   // nobody to be limited against), and overridable either way with SBSCORE_LIMITS=on|off.
@@ -511,6 +551,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
       jobs: jobStore,
       blobLedger,
       audioJobs: audioJobStore,
+      ...(audioWorker === undefined ? {} : { audioWorker }),
       ...(hostedConfig === undefined || authStore === undefined
         ? {}
         : {

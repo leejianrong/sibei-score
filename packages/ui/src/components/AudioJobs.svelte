@@ -10,8 +10,8 @@
    * Material 3, tokens only (`m3.css`).
    */
   import { onMount } from 'svelte';
-  import { deleteAudio, listAudioJobs, retryAudio, submitAudio } from '../lib/api.js';
-  import type { AudioJobView } from '../lib/api.js';
+  import { deleteAudio, getAudioUsage, listAudioJobs, retryAudio, submitAudio } from '../lib/api.js';
+  import type { AudioJobView, AudioUsageView } from '../lib/api.js';
   import { relativeTime } from '../lib/format.js';
   import { hashOf, LIBRARY } from '../lib/routing.js';
 
@@ -25,6 +25,7 @@
   };
 
   let jobs = $state<AudioJobView[] | null>(null);
+  let usage = $state<AudioUsageView | null>(null);
   let failure = $state<string | null>(null);
   let uploading = $state(false);
   let instrument = $state('');
@@ -37,6 +38,7 @@
   async function load(): Promise<void> {
     try {
       jobs = await listAudioJobs();
+      usage = await getAudioUsage().catch(() => usage);
       failure = null;
     } catch {
       failure = 'Could not load your audio jobs. Check the server is reachable and try again.';
@@ -99,6 +101,13 @@
       Upload a recording and a transcription worker turns it into notes you can edit. The same thing from a
       terminal: <span class="cmd">sbscore audio submit take.wav</span>
     </p>
+
+    {#if usage !== null}
+      <p class="usage" data-testid="audio-usage">
+        This month: {Math.round(usage.seconds * 10) / 10} seconds of audio transcribed across {usage.jobs}
+        {usage.jobs === 1 ? 'job' : 'jobs'}.
+      </p>
+    {/if}
 
     <div class="upload">
       <label>
@@ -188,6 +197,11 @@
     margin: 0;
     font: var(--md-sys-typescale-body-medium);
     color: var(--md-sys-color-on-surface-variant);
+  }
+  .usage {
+    margin: 0;
+    font: var(--md-sys-typescale-body-medium);
+    color: var(--md-sys-color-on-surface);
   }
   .cmd {
     padding: 2px 8px;

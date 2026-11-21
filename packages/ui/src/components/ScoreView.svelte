@@ -892,6 +892,8 @@
               {saving}
               error={saveError}
               onsave={handleStructureSave}
+              onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
+              onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
               ondeselect={deselect}
               onreload={handleReload}
             />
@@ -901,6 +903,16 @@
             Nothing selected. Click a note or a rest to edit it, a bar or its barline to set its
             structure, or the band above a bar to add a chord.
           </p>
+          {#if editable}
+            <button
+              type="button"
+              class="add-bar"
+              disabled={saving}
+              onclick={() => void runOps([{ type: 'bar.add' }])}
+            >
+              Add a bar at the end
+            </button>
+          {/if}
         {/if}
       </div>
     </aside>
@@ -1111,6 +1123,22 @@
     color: var(--ink-faint);
     line-height: 1.6;
     margin: 0;
+  }
+
+  .add-bar {
+    margin-top: 10px;
+    font: inherit;
+    font-size: 12.5px;
+    border-radius: 6px;
+    padding: 6px 12px;
+    cursor: pointer;
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink-soft);
+  }
+  .add-bar:hover:not(:disabled) {
+    color: var(--ink);
+    border-color: var(--ink-faint);
   }
 
   .control-row {

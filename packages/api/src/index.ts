@@ -32,7 +32,9 @@ export type {
   AudioJobStore,
   AudioJobSummary,
   AudioJobWriter,
+  AudioJobWorkerStore,
   AudioProgress,
+  LeaseOutcome,
   NewAudioJob,
 } from './store/audio-jobs.js';
 export { memoryAudioJobStore } from './store/memory-audio-job-store.js';
@@ -48,6 +50,14 @@ export type {
   PresignOptions,
   PresigningBlobStore,
 } from './blob/blob-store.js';
+export { createAudioWorkerService, WORKER_TOKEN_PREFIX } from './audio/worker-service.js';
+export type {
+  AudioResultImporter,
+  AudioWorkerOptions,
+  AudioWorkerService,
+  ClaimedJob,
+  WorkerTransfer,
+} from './audio/worker-service.js';
 export { createAudioService, DEFAULT_AUDIO_LIMITS } from './audio/service.js';
 export type { AudioLimits, AudioService, CreateAudioInput, UploadTarget } from './audio/service.js';
 export { isPresigning } from './blob/blob-store.js';

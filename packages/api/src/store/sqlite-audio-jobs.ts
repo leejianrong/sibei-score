@@ -76,7 +76,64 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
         WHERE owner = ? AND id = ? AND status = 'failed' RETURNING *`,
     ),
     delete: db.prepare<[string, string], AudioJobRow>(`DELETE FROM audio_jobs WHERE owner = ? AND id = ? RETURNING *`),
-    deleteAll: db.prepare<[string], { audio_key: string }>(`DELETE FROM audio_jobs WHERE owner = ? RETURNING audio_key`),
+    deleteUsage: db.prepare<[string]>(`DELETE FROM audio_usage WHERE owner = ?`),
+    deleteAll: db.prepare<[string], { id: string; audio_key: string }>(`DELETE FROM audio_jobs WHERE owner = ? RETURNING id, audio_key`),
+
+    // The ledger (SIB2-139). INSERT OR IGNORE on the job id is the idempotency.
+    recordUsage: db.prepare<[string, string, number, string]>(
+      `INSERT OR IGNORE INTO audio_usage (job_id, owner, seconds, recorded_at) VALUES (?, ?, ?, ?)`,
+    ),
+    usageSince: db.prepare<[string, string], { seconds: number | null; jobs: number }>(
+      `SELECT SUM(seconds) AS seconds, COUNT(*) AS jobs FROM audio_usage WHERE owner = ? AND recorded_at >= ?`,
+    ),
+
+    // The worker half (SIB2-138). Not owner-scoped.
+    claim: db.prepare<[string, string, string], AudioJobRow>(
+      // One conditional UPDATE with a subquery, as the import queue's claim is: oldest queued job to
+      // `running` in a single statement, so even several processes cannot take one twice.
+      `UPDATE audio_jobs
+          SET status = 'running', attempts = attempts + 1, lease_token = ?, lease_expires_at = ?, progress = NULL,
+              version = version + 1, updated_at = ?
+        WHERE id = (SELECT id FROM audio_jobs WHERE status = 'queued' ORDER BY created_at ASC, id ASC LIMIT 1)
+      RETURNING *`,
+    ),
+    heartbeat: db.prepare<[string, string | null, string, string, string], AudioJobRow>(
+      `UPDATE audio_jobs
+          SET lease_expires_at = ?, progress = COALESCE(?, progress), version = version + 1, updated_at = ?
+        WHERE id = ? AND lease_token = ? AND status = 'running' RETURNING *`,
+    ),
+    complete: db.prepare<[string, number, string, string, string], AudioJobRow>(
+      `UPDATE audio_jobs
+          SET status = 'succeeded', result = ?, duration_seconds = ?, progress = NULL, diagnostic = NULL,
+              diagnostic_kind = NULL, version = version + 1, updated_at = ?
+        WHERE id = ? AND lease_token = ? AND status = 'running' RETURNING *`,
+    ),
+    failTerminal: db.prepare<[string, string, string, string, string], AudioJobRow>(
+      `UPDATE audio_jobs
+          SET status = 'failed', diagnostic_kind = ?, diagnostic = ?, progress = NULL, version = version + 1, updated_at = ?
+        WHERE id = ? AND lease_token = ? AND status = 'running' RETURNING *`,
+    ),
+    failRequeue: db.prepare<[string, string, string], AudioJobRow>(
+      `UPDATE audio_jobs SET status = 'queued', progress = NULL, version = version + 1, updated_at = ?
+        WHERE id = ? AND lease_token = ? AND status = 'running' RETURNING *`,
+    ),
+    expireRequeue: db.prepare<[string, string, number], AudioJobRow>(
+      `UPDATE audio_jobs SET status = 'queued', progress = NULL, version = version + 1, updated_at = ?
+        WHERE status = 'running' AND lease_expires_at < ? AND attempts < ? RETURNING *`,
+    ),
+    expireFail: db.prepare<[string, string, string, string, number], AudioJobRow>(
+      `UPDATE audio_jobs
+          SET status = 'failed', diagnostic_kind = ?, diagnostic = ?, progress = NULL, version = version + 1, updated_at = ?
+        WHERE status = 'running' AND lease_expires_at < ? AND attempts >= ? RETURNING *`,
+    ),
+    attachScore: db.prepare<[string, string, string], AudioJobRow>(
+      `UPDATE audio_jobs SET score_id = ?, version = version + 1, updated_at = ? WHERE id = ? RETURNING *`,
+    ),
+    rejectResult: db.prepare<[string, string, string, string], AudioJobRow>(
+      `UPDATE audio_jobs
+          SET status = 'failed', diagnostic_kind = ?, diagnostic = ?, version = version + 1, updated_at = ?
+        WHERE id = ? AND status = 'succeeded' RETURNING *`,
+    ),
   };
 
   return {
@@ -115,7 +172,75 @@ export function openSqliteAudioJobStore(options: SqliteAudioJobStoreOptions): Au
       return row === undefined ? null : toAudioJob(row);
     },
     async deleteAll(owner) {
-      return statements.deleteAll.all(owner).map((row) => row.audio_key);
+      // The metering ledger is the account's too: nothing addressed by its id may outlive it (V25).
+      statements.deleteUsage.run(owner);
+      return statements.deleteAll.all(owner).map((row) => ({ id: row.id, audioKey: row.audio_key }));
+    },
+    async claim(leaseSeconds) {
+      const at = now();
+      const row = statements.claim.get(randomUUID(), leaseUntil(at, leaseSeconds), stamp(at));
+      return row === undefined ? null : toAudioJob(row);
+    },
+    async heartbeat(id, leaseToken, leaseSeconds, progress) {
+      const at = now();
+      const row = statements.heartbeat.get(
+        leaseUntil(at, leaseSeconds),
+        progress === null ? null : JSON.stringify(progress),
+        stamp(at),
+        id,
+        leaseToken,
+      );
+      return row === undefined ? { outcome: 'lease-lost' } : { outcome: 'ok', job: toAudioJob(row) };
+    },
+    async complete(id, leaseToken, result, durationSeconds) {
+      const row = statements.complete.get(JSON.stringify(result), durationSeconds, timestamp(now), id, leaseToken);
+      if (row !== undefined) return { outcome: 'ok', job: toAudioJob(row) };
+      const existing = statements.byId.get(id);
+      return existing !== undefined && existing.lease_token === leaseToken && existing.status === 'succeeded'
+        ? { outcome: 'already', job: toAudioJob(existing) }
+        : { outcome: 'lease-lost' };
+    },
+    async fail(id, leaseToken, failure) {
+      const current = statements.byId.get(id);
+      if (current === undefined || current.lease_token !== leaseToken) return { outcome: 'lease-lost' };
+      if (current.status !== 'running') {
+        // The same lease already ended this attempt: a repeat is the same answer.
+        return current.status === 'failed' || current.status === 'queued'
+          ? { outcome: 'already', job: toAudioJob(current) }
+          : { outcome: 'lease-lost' };
+      }
+      const requeue = failure.retryable && current.attempts < failure.maxAttempts;
+      const row = requeue
+        ? statements.failRequeue.get(timestamp(now), id, leaseToken)
+        : statements.failTerminal.get(failure.kind, failure.message, timestamp(now), id, leaseToken);
+      return row === undefined ? { outcome: 'lease-lost' } : { outcome: 'ok', job: toAudioJob(row) };
+    },
+    async expireLeases(maxAttempts) {
+      const at = timestamp(now);
+      const requeued = statements.expireRequeue.all(at, at, maxAttempts).map(toAudioJob);
+      const failed = statements.expireFail
+        .all('worker-lost', 'the transcription worker stopped responding', at, at, maxAttempts)
+        .map(toAudioJob);
+      return { requeued, failed };
+    },
+    async getById(id) {
+      const row = statements.byId.get(id);
+      return row === undefined ? null : toAudioJob(row);
+    },
+    async attachScore(id, scoreId) {
+      const row = statements.attachScore.get(scoreId, timestamp(now), id);
+      return row === undefined ? null : toAudioJob(row);
+    },
+    async rejectResult(id, kind, message) {
+      const row = statements.rejectResult.get(kind, message, timestamp(now), id);
+      return row === undefined ? null : toAudioJob(row);
+    },
+    async recordUsage(owner, jobId, seconds) {
+      return statements.recordUsage.run(jobId, owner, seconds, timestamp(now)).changes === 1;
+    },
+    async usageSince(owner, sinceIso) {
+      const row = statements.usageSince.get(owner, sinceIso)!;
+      return { seconds: row.seconds ?? 0, jobs: row.jobs };
     },
     async close() {
       db.close();
@@ -154,6 +279,15 @@ function toAudioSummary(row: Omit<AudioJobRow, 'result' | 'lease_token'> & Parti
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** The lease deadline, in the same second-resolution text the rest of the table uses (compares as text). */
+function leaseUntil(at: Date, seconds: number): string {
+  return stamp(new Date(at.getTime() + seconds * 1000));
+}
+
+function stamp(at: Date): string {
+  return `${at.toISOString().slice(0, 19)}Z`;
 }
 
 /** ISO-8601 to the second. Sortable as text, which is what the listing index relies on. */
