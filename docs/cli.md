@@ -89,6 +89,7 @@ sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4
                       [--footer TEXT] [--footer-pages first|last|all]
                       [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
+                      [--tempo 4=120]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
@@ -111,6 +112,12 @@ path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`)
 `-7♭5`), `words` (`maj7`, `min7`, `min7♭5`, `dim`, `aug`) or `real-book` (`MA7`, `MI7`, `MI7♭5`). It is
 a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
 carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
+
+`--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (`4=120`, `4.=60` for a
+dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text
+`--style` line, and it is notation only: nothing plays. MusicXML carries it as a `<metronome>` and a
+`<sound tempo>` (in quarter notes a minute) on the first measure, and reads it back. It is a logged, undoable
+edit, it shows in `show` as `tempo: 4=120`, and the score view's rail has a Tempo control.
 
 `import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
 stack); without one it is a 503 and every other feature still works (Q80). It takes several files as

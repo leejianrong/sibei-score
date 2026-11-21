@@ -118,7 +118,10 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         {
           bars,
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
-          hasRehearsalMark: bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null),
+          hasRehearsalMark:
+            bars.some((bar) => sectionStartingAt(score, bar.number)?.letter != null) ||
+            // The tempo mark takes the same band as a rehearsal letter (SIB2-177).
+            (index === 0 && score.meta.tempo !== undefined),
         },
         spec,
       );
@@ -312,6 +315,10 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
   const section = sectionStartingAt(score, bar.number);
   if (section !== null && section.letter !== null) {
     items.push({ kind: 'rehearsalMark', sectionId: section.id, text: section.letter });
+  }
+
+  if (score.meta.tempo !== undefined && bar.id === score.bars[0]?.id) {
+    items.push({ kind: 'tempo', unit: score.meta.tempo.unit, bpm: score.meta.tempo.bpm });
   }
 
   if (bar.ending !== null) {
