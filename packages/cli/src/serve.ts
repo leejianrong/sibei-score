@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createApi, createHttpWorkerClient, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import { consoleLogger, createApi, createHttpWorkerClient, createLimits, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
 import type { Api, AssetSource, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAudioJobStore, openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAudioJobStore, openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
@@ -452,10 +452,57 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
   const hostedConfig = resolveHostedConfig(flags);
   const s3Config = resolveS3Config();
 
+  // Rate limits and quotas (V23): on in hosted mode, off for a local install (one user on loopback has
+  // nobody to be limited against), and overridable either way with SBSCORE_LIMITS=on|off.
+  const limitsSwitch = (process.env.SBSCORE_LIMITS ?? '').toLowerCase();
+  if (limitsSwitch !== '' && limitsSwitch !== 'on' && limitsSwitch !== 'off') {
+    throw new CliError(EXIT.usage, 'bad-limits-config', 'SBSCORE_LIMITS must be `on` or `off`');
+  }
+  const limitsOn = limitsSwitch === 'on' || (limitsSwitch === '' && hostedConfig !== undefined);
+  let limitsConfig: ReturnType<typeof limitsFromEnv> | undefined;
+  try {
+    limitsConfig = limitsOn ? limitsFromEnv(process.env) : undefined;
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'bad-limits-config', error instanceof Error ? error.message : String(error));
+  }
+  const allowedHosts = (flags.options.get('allowed-hosts') ?? process.env.SBSCORE_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter((host) => host !== '');
+
+  // Redis (V23): the cross-process change/job buses and shared rate-limit counters. Absent means the
+  // in-process ones — the local case, and a single replica.
+  const redisUrl = [flags.options.get('redis-url'), process.env.SBSCORE_REDIS_URL].find((v) => v !== undefined && v !== '');
+  let redis: Awaited<ReturnType<(typeof import('@sibei/api/redis'))['openRedis']>> | undefined;
+  if (redisUrl !== undefined) {
+    const { openRedis } = await import('@sibei/api/redis');
+    try {
+      redis = await openRedis({ url: redisUrl, onError: (message, error) => consoleLogger.error(message, error) });
+    } catch (error) {
+      // The URL can carry a password; say where it was aimed, redacted, and not what the driver quoted.
+      throw new CliError(
+        EXIT.usage,
+        'redis-unavailable',
+        `${(error instanceof Error ? error.message : String(error)).split(redisUrl).join('redis (url hidden)')}`,
+      );
+    }
+  }
+  const limits =
+    limitsConfig === undefined
+      ? undefined
+      : createLimits({
+          config: limitsConfig,
+          limiter: redis?.limiter ?? memoryRateLimiter(),
+          onError: (message, error) => consoleLogger.error(message, error),
+        });
+
   const { store, jobStore, audioJobStore, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
   let api: Api;
   try {
     api = createApi({
+      ...(limits === undefined ? {} : { limits }),
+      ...(redis === undefined ? {} : { changeBus: redis.changeBus(), jobBus: redis.jobBus() }),
+      ...(allowedHosts.length === 0 ? {} : { allowedHosts }),
       store,
       jobs: jobStore,
       audioJobs: audioJobStore,
@@ -474,7 +521,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     });
   } catch (error) {
     // A refused configuration (a plain-http public URL, say) is a usage error, not a crash.
-    await Promise.all([jobStore.close(), audioJobStore.close(), store.close(), authStore?.close()]);
+    await Promise.all([jobStore.close(), audioJobStore.close(), store.close(), authStore?.close(), redis?.close()]);
     throw new CliError(EXIT.usage, 'bad-hosted-config', error instanceof Error ? error.message : String(error));
   }
   const bound = await api.listen(port, bindHost);
@@ -495,6 +542,8 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
           ...(workerUrl === undefined ? {} : { worker: workerUrl }),
           ...(hostedConfig === undefined ? {} : { hosted: hostedConfig.publicUrl }),
+          ...(redis === undefined ? {} : { redis: true }),
+          ...(limits === undefined ? {} : { limits: true }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
@@ -504,6 +553,8 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           `  cached exports in ${blobDirectory}\n` +
           (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
           (hostedConfig === undefined ? '' : `  hosted mode: GitHub sign-in required, served as ${hostedConfig.publicUrl}\n`) +
+          (redis === undefined ? '' : '  Redis: change streams and rate limits are shared across processes\n') +
+          (limits === undefined ? '' : '  rate limits and quotas are on\n') +
           (workerUrl === undefined
             ? '  no OMR worker configured — import is unavailable (set --worker or SBSCORE_WORKER_URL)\n'
             : `  OMR worker at ${workerUrl}\n`) +
@@ -515,7 +566,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     // drained would cut off whatever it was still flushing.
     void api
       .close()
-      .then(() => Promise.all([jobStore.close(), store.close(), authStore?.close()]))
+      .then(() => Promise.all([jobStore.close(), audioJobStore.close(), store.close(), authStore?.close(), redis?.close()]))
       .then(() => {
         process.exit(EXIT.ok);
       });

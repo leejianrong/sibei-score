@@ -72,6 +72,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
                --worker is the OMR worker's URL — without one, import is unavailable and all else works;
                --database-url URL serves from Postgres instead of the local SQLite file, and --blobs DIR
                places the scans and export cache; see docs/hosting.md;
+               --redis-url URL (SBSCORE_REDIS_URL) shares change streams and rate limits across API
+               processes; --allowed-hosts a,b (SBSCORE_ALLOWED_HOSTS) admits more hostnames;
+               rate limits and quotas are on in hosted mode, tuned by SBSCORE_LIMIT_* / SBSCORE_QUOTA_*;
                hosted mode — GitHub sign-in, one library per user — is on only when --public-url,
                --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
@@ -143,7 +146,7 @@ Signing in (hosted servers only; a local one has no accounts):  a credential is 
   SBSCORE_TOKEN supplies one instead — what a CI job uses — and wins over the file.
 
 Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version conflict
-             5 not found · 6 no server · 7 refused · 8 already exists
+             5 not found · 6 no server · 7 refused · 8 already exists · 9 rate limit or quota
 `;
 
 export async function run(argv: readonly string[], options: RunOptions): Promise<ExitCode> {
