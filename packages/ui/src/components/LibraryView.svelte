@@ -24,6 +24,8 @@
     submitImport,
     submitNoteEvents,
     isNoteEventsFile,
+    submitMusicXml,
+    isMusicXmlFile,
   } from '../lib/api.js';
   import { UNTITLED } from '@sibei/model';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
@@ -60,6 +62,8 @@
   let fileInput = $state<HTMLInputElement | null>(null);
   let importing = $state(false);
   let importNote = $state('');
+  // What a MusicXML import could not keep (SIB2-152): shown, with a way in, instead of opening the draft silently.
+  let importReport = $state<{ scoreId: string; lines: string[] } | null>(null);
   // Whether this service takes photos (SIB2-201). Optimistic until `/v1/me` says otherwise, so a local
   // install never flashes the notice; when it is off the picker offers only a NoteEvents .json.
   let photoImport = $state(true);
@@ -151,13 +155,21 @@
     if (files.length === 0 || importing) return;
     importing = true;
     actionError = null;
+    importReport = null;
+    const musicXml = files.length === 1 && isMusicXmlFile(files[0]!);
     // A single .json is an audio engine's NoteEvents (ADR-0040): quick, and no recogniser involved.
     const noteEvents = files.length === 1 && isNoteEventsFile(files[0]!);
-    importNote = noteEvents
+    importNote = musicXml
+      ? 'Reading the MusicXML file…'
+      : noteEvents
       ? 'Reading the NoteEvents file…'
       : `Recognising ${files.length === 1 ? 'the page' : `${files.length} pages`}… this can take a minute.`;
     try {
-      let job: ImportJobView = noteEvents ? await submitNoteEvents(files[0]!) : await submitImport(files);
+      let job: ImportJobView = musicXml
+        ? await submitMusicXml(files[0]!)
+        : noteEvents
+          ? await submitNoteEvents(files[0]!)
+          : await submitImport(files);
       while (job.status === 'queued' || job.status === 'running') {
         await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
         job = await getImport(job.id);
@@ -168,6 +180,11 @@
       }
       // A draft landed. Re-read the list so it appears, then open it for correction.
       await load();
+      if (musicXml && job.scoreId !== null && job.diagnostic !== null && job.diagnostic !== '') {
+        // Lossy: say what was dropped before the person is taken into a chart that looks complete.
+        importReport = { scoreId: job.scoreId, lines: job.diagnostic.split('\n') };
+        return;
+      }
       if (job.scoreId !== null) open(job.scoreId);
     } catch (error) {
       actionError = messageFor(error, 'import');
@@ -200,7 +217,7 @@
   <input
     class="file-picker"
     type="file"
-    accept={photoImport ? 'image/png,image/jpeg,application/json,.json' : 'application/json,.json'}
+    accept={photoImport ? 'image/png,image/jpeg,application/json,.json,.musicxml,.xml,.mxl' : 'application/json,.json,.musicxml,.xml,.mxl'}
     multiple={photoImport}
     bind:this={fileInput}
     onchange={onFilesChosen}
@@ -224,7 +241,7 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
             <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
           </svg>
-          {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import NoteEvents'}
+          {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import a file'}
         </button>
         <a class="import-btn" href={hashOf(AUDIO)}>Transcribe audio</a>
       {/if}
@@ -237,8 +254,21 @@
     </div>
   {/if}
 
+  {#if importReport !== null}
+    <div class="import-note import-report" role="status">
+      <div>
+        <strong>Imported from MusicXML, with some parts left out:</strong>
+        <ul>
+          {#each importReport.lines as line (line)}<li>{line}</li>{/each}
+        </ul>
+        <button class="import-btn" onclick={() => importReport !== null && open(importReport.scoreId)}>Open the draft</button>
+        <button class="import-btn" onclick={() => (importReport = null)}>Dismiss</button>
+      </div>
+    </div>
+  {/if}
+
   {#if !photoImport && failure === null}
-    <div class="import-note" role="note">Photo import is not available on this service yet. You can still transcribe audio or import a NoteEvents .json file.</div>
+    <div class="import-note" role="note">Photo import is not available on this service yet. You can still transcribe audio or import a NoteEvents .json or MusicXML file.</div>
   {/if}
 
   {#if failure !== null}
@@ -272,7 +302,7 @@
       <h2>No charts yet.</h2>
       <p>
         {#if photoImport}Import a photo or scan of a lead sheet to turn it into an editable draft (every parse is a
-        draft you correct, ADR-0019){:else}Transcribe audio or import a NoteEvents file into an editable draft{/if}
+        draft you correct, ADR-0019), or a MusicXML file{:else}Transcribe audio or import a NoteEvents or MusicXML file into an editable draft{/if}
         — or author one in the terminal. Both talk to the same API, so a
         chart made either way opens here immediately.
       </p>
@@ -280,7 +310,7 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
           <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
         </svg>
-        {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import NoteEvents'}
+        {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import a file'}
       </button>
       <div class="term"><span class="prompt">{'$ '}</span>{NEW_CHART_COMMAND}</div>
     </div>
@@ -502,6 +532,10 @@
     color: var(--ink-soft);
     background: var(--accent-wash);
     border: 1px solid var(--rule);
+  }
+  .import-report ul {
+    margin: 6px 0 10px;
+    padding-left: 18px;
   }
   .spinner {
     width: 12px;

@@ -123,17 +123,28 @@ function escapeAttr(value: string): string {
 // ---------------------------------------------------------------------------
 
 /** Parse a document to its root element, skipping the prolog, doctype and comments around it. */
-export function parseXml(source: string): XmlElement {
-  const scanner = new Scanner(source);
+export function parseXml(source: string, options: ParseOptions = {}): XmlElement {
+  const scanner = new Scanner(source, options.maxDepth ?? DEFAULT_MAX_DEPTH);
   scanner.skipProlog();
   const root = scanner.readElement();
   scanner.skipTrailing();
   return root;
 }
 
+/** Element nesting deeper than this is refused: real MusicXML is ~10 deep, and recursion must not be attacker-sized. */
+export const DEFAULT_MAX_DEPTH = 64;
+
+export interface ParseOptions {
+  maxDepth?: number;
+}
+
 class Scanner {
   private i = 0;
-  constructor(private readonly s: string) {}
+  private depth = 0;
+  constructor(
+    private readonly s: string,
+    private readonly maxDepth: number,
+  ) {}
 
   skipProlog(): void {
     for (;;) {
@@ -171,7 +182,10 @@ class Scanner {
     if (this.s[this.i] !== '>') throw new XmlError(`malformed tag <${name}> at offset ${this.i}`);
     this.i += 1;
 
+    this.depth += 1;
+    if (this.depth > this.maxDepth) throw new XmlError(`elements are nested more than ${this.maxDepth} deep`);
     const children = this.readChildren(name);
+    this.depth -= 1;
     return { name, attrs, children };
   }
 
@@ -289,13 +303,15 @@ function decodeEntities(raw: string): string {
           return codePoint(parseInt(body.slice(2), 16));
         }
         if (body.startsWith('#')) return codePoint(parseInt(body.slice(1), 10));
-        return whole; // An unknown named entity: leave it verbatim rather than drop it.
+        // A named entity other than the five XML defines is left verbatim: a DOCTYPE's internal subset is
+        // skipped, never read, so a declared entity (the "billion laughs" shape) is never expanded.
+        return whole;
     }
   });
 }
 
 function codePoint(value: number): string {
-  return Number.isFinite(value) && value >= 0 ? String.fromCodePoint(value) : '';
+  return Number.isInteger(value) && value >= 0 && value <= 0x10ffff ? String.fromCodePoint(value) : '';
 }
 
 // ---------------------------------------------------------------------------

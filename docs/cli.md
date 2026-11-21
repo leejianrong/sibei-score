@@ -83,6 +83,7 @@ sbscore show <id>                            # the text projection — a four-ba
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
 sbscore import --note-events FILE            # a NoteEvents v1 file (audio engine) into a draft (ADR-0040)
+sbscore import FILE.musicxml|.xml|.mxl       # a MusicXML file into an editable draft (SIB2-152; `--musicxml` forces it)
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
@@ -136,6 +137,15 @@ downbeats**, because then where the bars start is a guess. The engine's warnings
 success line and kept on the import record. Voice and bass only (one melody staff, ADR-0021). A file that
 is not valid v1, has a `schema_version` other than 1, or names another instrument is refused with
 exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.
+
+`import FILE.musicxml` (also `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any file name)
+reads **MusicXML** through the codec into an editable draft with a fresh history, and needs **no worker**.
+It is single-voice, single-staff, and **never silent about what it drops**: extra parts or staves, a second
+voice, chord tones, lyrics, dynamics, grace notes, a mid-piece key or meter change, unsupported
+articulations and the like are listed under the success line (and are the job's `diagnostic` in `--json`).
+The file is untrusted, so it is bounded (10 MB of XML, an `.mxl` may not expand past that, nesting is capped,
+declared entities are never expanded). A file that is not MusicXML, is `score-timewise`, or is too large is
+refused with exit 2 (`invalid-musicxml` / `unsupported-musicxml`, never retryable) and creates nothing.
 
 `reparse` is that re-parse: it re-runs OMR on the scans an import kept (no new upload — the server
 reuses the retained images, V14e) and lands the result as a **new** draft, printing its id; the

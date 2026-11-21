@@ -367,6 +367,34 @@ export function isNoteEventsFile(file: File): boolean {
   return file.type === 'application/json' || file.name.toLowerCase().endsWith('.json');
 }
 
+/**
+ * Import a MusicXML file (SIB2-152): `.musicxml`, `.xml` or a compressed `.mxl`. The bytes go up with a MusicXML
+ * media type and the server validates and unpacks them; a refused file is a 422 whose message becomes the import
+ * error. No OMR worker is involved. What the codec dropped comes back as the finished job's `diagnostic`.
+ */
+export async function submitMusicXml(file: File): Promise<ImportJobView> {
+  let response: Response;
+  try {
+    response = await fetch(`${V1}/imports`, {
+      method: 'POST',
+      body: file,
+      headers: {
+        'content-type': file.name.toLowerCase().endsWith('.mxl') ? 'application/vnd.recordare.musicxml' : 'application/vnd.recordare.musicxml+xml',
+        accept: 'application/json',
+      },
+    });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) throw await failureFrom(response);
+  return ((await response.json()) as { job: ImportJobView }).job;
+}
+
+/** A chosen file is MusicXML: by extension or media type, never by content (the server decides). */
+export function isMusicXmlFile(file: File): boolean {
+  return /\.(musicxml|xml|mxl)$/i.test(file.name) || /xml|musicxml/.test(file.type);
+}
+
 export async function getImport(id: Id): Promise<ImportJobView> {
   const body = await getJson<{ job: ImportJobView }>(`${V1}/imports/${encodeURIComponent(id)}`);
   return body.job;
