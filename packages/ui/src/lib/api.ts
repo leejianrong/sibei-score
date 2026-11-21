@@ -415,7 +415,7 @@ export async function reparseScore(id: Id, engine?: string): Promise<ImportJobVi
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
  * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
  * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
- * `ending.set`/`ending.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163 `meta.set` for the page footer and chord style only. `note.add` on its own and `score.create` exist on the
+ * `ending.set`/`ending.rm`; SIB2-166 `tuplet.set`/`tuplet.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163/178 `meta.set` for the title block, page footer and chord style. `note.add` on its own and `score.create` exist on the
  * server and have no UI control yet — that is booked debt (Q79), not a gap this file is meant to
  * close.
  */
@@ -461,6 +461,10 @@ export interface EndingSetPayload {
 
 /** The page footer on `meta.set` (SIB2-172) — the one meta field the score view edits. Empty or null removes it. */
 export interface MetaSetPayload {
+  /** The title block (SIB2-178). An empty style (null) removes the line. */
+  title?: string;
+  composer?: string;
+  style?: string | null;
   footer?: string | null;
   footerPages?: 'first' | 'last' | 'all';
   /** Where the clef and key signature are drawn (SIB2-173). */
@@ -469,6 +473,8 @@ export interface MetaSetPayload {
   barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163); `standard` clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
+  /** The tempo mark (SIB2-177); null removes it. */
+  tempo?: { unit: { value: number; dots: number }; bpm: number } | null;
 }
 
 export type Operation =
@@ -485,6 +491,8 @@ export type Operation =
   | { type: 'barline.set'; target: string; payload: BarlineSetPayload }
   | { type: 'ending.set'; target: string; payload: EndingSetPayload }
   | { type: 'ending.rm'; target: string }
+  | { type: 'tuplet.set'; target: string; payload: { actual: number; normal: number; count?: number } }
+  | { type: 'tuplet.rm'; target: string }
   | { type: 'break.set'; target: string; payload: { kind: 'after' | 'join' } }
   | { type: 'break.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }

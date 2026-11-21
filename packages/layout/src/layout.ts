@@ -118,7 +118,10 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         {
           bars,
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
-          hasRehearsalMark: bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))),
+          hasRehearsalMark:
+            bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))) ||
+            // The tempo mark takes the same band as a rehearsal letter (SIB2-177).
+            (index === 0 && score.meta.tempo !== undefined),
         },
         spec,
       );
@@ -323,6 +326,12 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
       // A name that only repeats the letter ("A" beside A) adds nothing, so it is not boxed twice.
       ...(section.name && section.name !== section.letter ? { name: section.name } : {}),
     });
+  }
+
+  // On the first numbered bar, not a pickup: a pickup is a stub of a bar, and a mark that long would run into the
+  // next bar's rehearsal box. A pickup chart's mark therefore starts just after the pickup.
+  if (score.meta.tempo !== undefined && bar.id === (score.bars.find((b) => b.number !== 0) ?? score.bars[0])?.id) {
+    items.push({ kind: 'tempo', unit: score.meta.tempo.unit, bpm: score.meta.tempo.bpm });
   }
 
   if (bar.ending !== null) {

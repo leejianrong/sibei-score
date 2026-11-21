@@ -81,13 +81,13 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F04 | Parenthesised chord alterations | S | S | S | P | P | S | S | S | `@sibei/music` rejects `7(#11)`, `7(b5)`, `7(#5)`, `(MA7)`. Stored verbatim, flagged for review, drawn as plain text; MusicXML gets text only |
 | F05 | Stacked slash chords | S | S | S | P | S | S | S | S | Engraver draws root and bass inline on one baseline, not stacked |
 | F06 | Parenthesised alternate chords | P | S | S | P | P | S | S | S | Parser rejects the parentheses, so the chord is flagged; no "alternate" notion |
-| F07 | Tuplet brackets | S | M | S | S | S | M | M | M | No op creates one (`operations.ts`: "belongs to a later slice"); only import and fixtures make tuplets. A `tuplet` field on `note.add` is silently dropped |
+| F07 | Tuplet brackets | S | S | S | S | S | S | S | M | Closed by SIB2-166: `tuplet.set`/`tuplet.rm`, `sbscore tuplet`, the Tuplet section of the item inspector. Nested tuplets are out of scope |
 | F08 | Slurs | M | M | M | M | M | M | M | M | Nothing exists. A tie is the only curve |
 | F09 | Text directions in a bar | S | M | S | S | M | M | M | M | `Annotation` exists (import makes it) with no op; chord band only; MusicXML drops it |
 | F10 | Whole-bar rests | S | S | S | S | S | S | S | S | Works (`rest add --dur 1`) |
 | F11 | Ties | S | S | S | S | S | S | P | S | UI sets a tie on an existing note; it cannot add a note |
 | F12 | Non-grid system breaks | P | P | P | S | - | M | M | M | `BARS_PER_SYSTEM` is 4 and a section forces a break; no way to say "five bars here" or let a section share a line |
-| F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; `meta.set` has no UI control |
+| F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; the rail now has a Title block (SIB2-178) |
 | F14 | Free page text / copyright | M | M | M | M | M | M | M | M | No page-level text object |
 | F15 | Segno, coda, D.S., D.C., Fine | M | M | M | M | M | M | M | M | Excluded by ADR-0021 |
 | F16 | Rehearsal and named boxes | S | S | S | S | P | S | S | S | Closed by SIB2-176: `Section.name` draws as a second box beside the letter (or alone). MusicXML keeps the letter only |
@@ -98,7 +98,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F20 | Fermata | M | M | M | M | M | M | M | M | |
 | F21 | Ottava line | M | M | M | M | M | M | M | M | |
 | F22 | Dashed continuation line | M | M | M | M | M | M | M | M | |
-| F23 | Metronome mark | P | S | P | P | M | S | M | S | Style text can hold `q=278`; no note glyph, no placement |
+| F23 | Metronome mark | S | S | S | S | S | S | S | S | Closed by SIB2-177: `meta.tempo`, `meta set --tempo 4=120`, drawn above the first bar, `<sound tempo>` in MusicXML, a rail control |
 | F24 | Extra title-block fields | M | M | M | M | P | M | M | M | `meta` has title, composer, style only |
 | F25 | Empty staves at page bottom | M | M | M | M | - | M | M | M | |
 | F26 | Parenthesised accidentals | P | P | P | M | M | M | M | M | `accidental: show` draws one; no parenthesised form; `note set` has no accidental flag |

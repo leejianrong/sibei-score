@@ -5,7 +5,7 @@ import type { Id, Score } from './score.js';
  * A factory rather than a global counter, so a render or a test is deterministic.
  */
 
-export type IdPrefix = 'score' | 'bar' | 'note' | 'rest' | 'chord' | 'tuplet' | 'section' | 'annotation';
+export type IdPrefix = 'score' | 'bar' | 'note' | 'rest' | 'chord' | 'tuplet' | 'section' | 'annotation' | 'slur';
 
 export interface IdFactory {
   next(prefix: IdPrefix): Id;
@@ -43,6 +43,7 @@ export function idsOf(score: Score): Id[] {
     for (const annotation of bar.annotations) ids.push(annotation.id);
   }
   for (const section of score.sections) ids.push(section.id);
+  for (const spanner of score.spanners ?? []) ids.push(spanner.id);
   return ids;
 }
 

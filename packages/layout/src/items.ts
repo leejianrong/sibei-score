@@ -56,6 +56,13 @@ export interface RehearsalMarkItem {
   name?: string;
 }
 
+/** The tempo mark (SIB2-177): on the score's first bar only, above the staff, after any rehearsal box. */
+export interface TempoItem {
+  kind: 'tempo';
+  unit: { value: number; dots: number };
+  bpm: number;
+}
+
 export interface NoteItem {
   kind: 'note';
   noteId: Id;
@@ -146,6 +153,7 @@ export type LayoutBarItem =
   | TimeSignatureItem
   | BarNumberItem
   | RehearsalMarkItem
+  | TempoItem
   | NoteItem
   | RestItem
   | ChordSymbolItem
@@ -167,6 +175,7 @@ export const LAYOUT_BAR_ITEM_KINDS: readonly LayoutBarItemKind[] = [
   'timeSignature',
   'barNumber',
   'rehearsalMark',
+  'tempo',
   'note',
   'rest',
   'chordSymbol',

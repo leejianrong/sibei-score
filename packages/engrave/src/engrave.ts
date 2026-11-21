@@ -56,6 +56,7 @@ import {
   rehearsalMark,
   text,
 } from './text.js';
+import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
 /**
@@ -280,6 +281,7 @@ function engraveBar(
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
+  let rehearsalRight: number | null = null;
 
   for (const item of bar.items) {
     switch (item.kind) {
@@ -315,7 +317,23 @@ function engraveBar(
         );
         break;
 
-      case 'rehearsalMark':
+      case 'tempo': {
+        hasRehearsalMark = true;
+        // After the clef, key and time signature, and clear of a rehearsal box on the same bar.
+        const afterBox = rehearsalRight === null ? 0 : rehearsalRight - bar.x + units(1);
+        before.push(
+          ...tempoMark(
+            font,
+            item,
+            bar.x + Math.max(bar.prefixWidth + units(0.5), afterBox),
+            bands.top,
+            options.rehearsalFontSize,
+          ),
+        );
+        break;
+      }
+
+      case 'rehearsalMark': {
         hasRehearsalMark = true;
         // The top of the band, not a baseline: the box's own padding is the adapter's
         // to allow for, and layout reserved the band from `bands.top` down.
@@ -323,9 +341,14 @@ function engraveBar(
           before.push(...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize));
         }
         // The section's name (SIB2-176) is boxed beside the letter, or alone when it has no letter.
+        const letterWidth =
+          item.text === '' ? 0 : rehearsalBoxWidth(item.text, options.rehearsalFontSize) + options.rehearsalFontSize * 0.4;
+        // Where the boxes end, so a tempo mark on the same bar starts clear of them.
+        rehearsalRight =
+          bar.x +
+          letterWidth +
+          (item.name === undefined ? 0 : rehearsalBoxWidth(item.name, options.rehearsalFontSize));
         if (item.name !== undefined) {
-          const letterWidth =
-            item.text === '' ? 0 : rehearsalBoxWidth(item.text, options.rehearsalFontSize) + options.rehearsalFontSize * 0.4;
           before.push(
             ...rehearsalMark(
               item.name,
@@ -338,6 +361,7 @@ function engraveBar(
           );
         }
         break;
+      }
 
       case 'barline':
         // After the clef and key signature, not before them: a repeat sign belongs to

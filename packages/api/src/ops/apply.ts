@@ -3,10 +3,15 @@ import {
   DEFAULT_KEY,
   DEFAULT_TIME,
   FOOTER_PAGES,
+  MAX_TEMPO,
+  MIN_TEMPO,
+  TEMPO_UNITS,
   LINE_BREAKS,
   MAX_BARS_PER_SYSTEM,
   MIN_BARS_PER_SYSTEM,
   SIGNATURE_POLICIES,
+  SPANNER_PLACEMENTS,
+  orderedItems,
   MAX_FOOTER_LENGTH,
   SCHEMA_VERSION,
   makeBar,
@@ -27,6 +32,9 @@ import {
   keyInterval,
   transposePitch,
   AddressError,
+  durationTicks,
+  itemTicks,
+  tupletOf,
 } from '@sibei/model';
 import type {
   AccidentalDisplay,
@@ -46,9 +54,12 @@ import type {
   Review,
   Score,
   SignaturePolicy,
+  Spanner,
+  Tempo,
   StartBarline,
   TieRole,
   TimeSignature,
+  Tuplet,
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
@@ -56,6 +67,7 @@ import { isControlOperation } from './operations.js';
 import type {
   ChordSetPayload,
   TextSetPayload,
+  TupletSetPayload,
   MetaSetPayload,
   NoteAddPayload,
   BarAddPayload,
@@ -69,6 +81,7 @@ import type {
   ScoreCreatePayload,
   ScoreImportPayload,
   SectionSetPayload,
+  SlurSetPayload,
   StoredOperation,
   TransposePayload,
 } from './operations.js';
@@ -173,10 +186,18 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setEnding(score, operation.target, operation.payload);
     case 'ending.rm':
       return removeEnding(score, operation.target);
+    case 'tuplet.set':
+      return setTuplet(score, operation.target, operation.payload);
+    case 'tuplet.rm':
+      return removeTuplet(score, operation.target);
     case 'break.set':
       return setBreak(score, operation.target, operation.payload ?? {});
     case 'break.rm':
       return removeBreak(score, operation.target);
+    case 'slur.set':
+      return setSlur(score, operation.target, operation.payload);
+    case 'slur.rm':
+      return removeSlur(score, operation.target);
     case 'bar.add':
       return addBars(score, operation.target, operation.payload ?? {});
     case 'bar.rm':
@@ -286,7 +307,15 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const policy = nextSignaturePolicy(score, payload);
   const chordStyle = nextChordStyle(score, payload);
   const perSystem = nextBarsPerSystem(score, payload);
-  const { footer: _footer, signaturePolicy: _policy, chordStyle: _style, barsPerSystem: _bars, ...rest } = score.meta;
+  const tempo = nextTempo(score, payload);
+  const {
+    footer: _footer,
+    signaturePolicy: _policy,
+    chordStyle: _style,
+    barsPerSystem: _bars,
+    tempo: _tempo,
+    ...rest
+  } = score.meta;
   const next: Score = {
     ...score,
     meta: {
@@ -300,6 +329,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       ...(policy === undefined ? {} : { signaturePolicy: policy }),
       ...(chordStyle === undefined ? {} : { chordStyle }),
       ...(perSystem === undefined ? {} : { barsPerSystem: perSystem }),
+      ...(tempo === undefined ? {} : { tempo }),
     },
   };
 
@@ -326,6 +356,28 @@ function nextSignaturePolicy(score: Score, payload: MetaSetPayload): SignaturePo
     });
   }
   return asked === 'every' ? undefined : asked;
+}
+
+/** The tempo mark after a `meta.set` (SIB2-177): untouched unless named; null removes it. */
+function nextTempo(score: Score, payload: MetaSetPayload): Tempo | undefined {
+  const asked = payload.tempo;
+  if (asked === undefined) return score.meta.tempo;
+  if (asked === null) return undefined;
+  const value = asked.unit?.value;
+  const dots = asked.unit?.dots ?? 0;
+  if (!(TEMPO_UNITS as readonly unknown[]).includes(value) || (dots !== 0 && dots !== 1)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'tempo unit must be a whole, half, quarter or eighth note, optionally dotted',
+    });
+  }
+  if (!Number.isInteger(asked.bpm) || asked.bpm < MIN_TEMPO || asked.bpm > MAX_TEMPO) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `tempo must be a whole number from ${MIN_TEMPO} to ${MAX_TEMPO} beats per minute`,
+    });
+  }
+  return { unit: { value: value as Tempo['unit']['value'], dots: dots as 0 | 1 }, bpm: asked.bpm };
 }
 
 /** Bars per line after a `meta.set` (SIB2-174): 1 to 8; 4, the grid, is stored as absent. */
@@ -493,8 +545,10 @@ function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applie
 
   // A removed item may be a tuplet member. Dropping it from the grouping keeps the bar coherent;
   // a tuplet left holding a dangling id would be a document that says something untrue.
+  // A slur names its notes by id, so removing either end takes the slur with it (SIB2-167).
+  const without = withoutSlursOn(score, id);
   return {
-    score: mapBar(score, resolved.bar.id, (bar) => ({
+    score: mapBar(without, resolved.bar.id, (bar) => ({
       ...bar,
       items: bar.items.filter((item) => item.id !== id),
       tuplets: bar.tuplets
@@ -503,6 +557,115 @@ function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applie
     })),
     operation: kind === 'note' ? { type: 'note.rm', target } : { type: 'rest.rm', target },
     changed: [id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// tuplet.set, tuplet.rm
+// ---------------------------------------------------------------------------
+
+/** Re-lay a bar's items after a tuplet change: `memberIds` back to back from the first, later items shifted by the delta. */
+function relayRun(bar: Bar, memberIds: readonly Id[], tuplets: Tuplet[]): Bar {
+  const probe: Bar = { ...bar, tuplets };
+  const members = bar.items.filter((item) => memberIds.includes(item.id)).sort((a, b) => a.onset - b.onset);
+  const first = members[0] as BarItem;
+  const last = members[members.length - 1] as BarItem;
+  const oldEnd = last.onset + itemTicks(last, bar);
+  let cursor = first.onset;
+  const moved = new Map<Id, number>();
+  for (const member of members) {
+    moved.set(member.id, cursor);
+    cursor += itemTicks(member, probe);
+  }
+  const delta = cursor - oldEnd;
+  return {
+    ...bar,
+    tuplets,
+    items: bar.items.map((item) => {
+      const onset = moved.get(item.id);
+      if (onset !== undefined) return { ...item, onset };
+      return item.onset >= oldEnd ? { ...item, onset: item.onset + delta } : item;
+    }),
+  };
+}
+
+function validTupletNumber(value: unknown, field: 'actual' | 'normal'): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 32) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `tuplet ${field} is a whole number from 1 to 32, e.g. actual 3 in normal 2 for a triplet`,
+    });
+  }
+  return value;
+}
+
+function setTuplet(score: Score, target: string, payload: TupletSetPayload): Applied {
+  const actual = validTupletNumber(payload.actual, 'actual');
+  const normal = validTupletNumber(payload.normal, 'normal');
+  if (actual < 2 || actual === normal) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'a tuplet writes at least 2 notes in the time of a different number, e.g. 3 in 2',
+    });
+  }
+  const resolved = resolveAddress(score, target, 'item');
+  const bar = resolved.bar;
+  const ordered = [...bar.items].sort((a, b) => a.onset - b.onset);
+  const from = ordered.findIndex((item) => item.id === resolved.target.id);
+  const count = payload.count === undefined ? actual : payload.count;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1) {
+    throw new OperationError({ kind: 'validation', detail: 'a tuplet spans a whole number of items' });
+  }
+  const members = ordered.slice(from, from + count);
+  if (members.length < count) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} has only ${members.length} item${members.length === 1 ? '' : 's'} from there to the end of bar ${bar.number}, not ${count}`,
+    });
+  }
+  const nested = members.find((item) => tupletOf(item.id, bar) !== null);
+  if (nested !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${nested.id} is already in a tuplet; remove that one first (tuplets do not nest)`,
+    });
+  }
+  const fractional = members.find((item) => (durationTicks(item.duration) * normal) % actual !== 0);
+  if (fractional !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${actual} in ${normal} would put ${fractional.id} on a fractional tick; use shorter or longer note values`,
+    });
+  }
+
+  const id = payload.id ?? nextId(score, 'tuplet');
+  const tuplet: Tuplet = { id, actual, normal, memberIds: members.map((m) => m.id) };
+  return {
+    score: mapBar(score, bar.id, (b) => relayRun(b, tuplet.memberIds, [...b.tuplets, tuplet])),
+    operation: { type: 'tuplet.set', target, payload: { ...payload, count, id } },
+    changed: [id, ...tuplet.memberIds],
+  };
+}
+
+function removeTuplet(score: Score, target: string): Applied {
+  const resolved = resolveAddress(score, target, 'item');
+  const tuplet = tupletOf(resolved.target.id, resolved.bar);
+  if (tuplet === null) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} is not in a tuplet, so there is nothing to remove`,
+    });
+  }
+  return {
+    score: mapBar(score, resolved.bar.id, (b) =>
+      relayRun(
+        b,
+        tuplet.memberIds,
+        b.tuplets.filter((t) => t.id !== tuplet.id),
+      ),
+    ),
+    operation: { type: 'tuplet.rm', target },
+    changed: [tuplet.id, ...tuplet.memberIds],
   };
 }
 
@@ -790,6 +953,103 @@ function removeEnding(score: Score, target: string): Applied {
     score: mapBar(score, bar.id, (b) => ({ ...b, ending: null })),
     operation: { type: 'ending.rm', target },
     changed: [bar.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// slur.set, slur.rm (SIB2-167)
+// ---------------------------------------------------------------------------
+
+function withoutSlursOn(score: Score, noteId: Id): Score {
+  const spanners = score.spanners;
+  if (spanners === undefined) return score;
+  const kept = spanners.filter((spanner) => spanner.startId !== noteId && spanner.endId !== noteId);
+  if (kept.length === spanners.length) return score;
+  const { spanners: _old, ...rest } = score;
+  return kept.length === 0 ? rest : { ...rest, spanners: kept };
+}
+
+/** Reading-order index of every item, so "later" means the same on every bar. */
+function readingOrder(score: Score): Map<Id, number> {
+  const order = new Map<Id, number>();
+  for (const bar of score.bars) for (const item of orderedItems(bar)) order.set(item.id, order.size);
+  return order;
+}
+
+/**
+ * Slur from the target note to `to`. Both must be notes, distinct, and in reading order; a rest cannot
+ * carry a slur. Re-setting the same pair is an upsert that keeps the id and changes only the placement.
+ */
+function setSlur(score: Score, target: string, payload: SlurSetPayload): Applied {
+  if (typeof payload.to !== 'string' || payload.to.trim() === '') {
+    throw new OperationError({ kind: 'validation', detail: 'a slur needs an end note: slur set <start> <end>' });
+  }
+  const placement = payload.placement;
+  if (placement !== undefined && placement !== 'auto' && !SPANNER_PLACEMENTS.includes(placement)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a slur's placement is ${SPANNER_PLACEMENTS.join(', ')} or auto, not ${JSON.stringify(placement)}`,
+    });
+  }
+  const start = resolveAddress(score, target, 'note').target;
+  const end = resolveAddress(score, payload.to, 'note').target;
+  const order = readingOrder(score);
+  if (start.id === end.id || (order.get(start.id) ?? 0) > (order.get(end.id) ?? 0)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a slur runs from a note to a later one; ${target} to ${payload.to} does not`,
+    });
+  }
+  const spanners = score.spanners ?? [];
+  const existing = spanners.find(
+    (spanner) => spanner.kind === 'slur' && spanner.startId === start.id && spanner.endId === end.id,
+  );
+  const id = existing?.id ?? payload.id ?? nextId(score, 'slur');
+  const chosen = placement === undefined ? existing?.placement : placement === 'auto' ? undefined : placement;
+  const slur: Spanner = {
+    id,
+    kind: 'slur',
+    startId: start.id,
+    endId: end.id,
+    ...(chosen === undefined ? {} : { placement: chosen }),
+  };
+  return {
+    score: { ...score, spanners: [...spanners.filter((spanner) => spanner.id !== id), slur] },
+    operation: { type: 'slur.set', target, payload: { ...payload, id } },
+    changed: [id, start.id, end.id],
+  };
+}
+
+function removeSlur(score: Score, target: string): Applied {
+  const spanners = score.spanners ?? [];
+  const slurs = spanners.filter((spanner) => spanner.kind === 'slur');
+  let found: Spanner[] = slurs.filter((spanner) => spanner.id === target);
+  if (found.length === 0) {
+    // Not an id: a note address names the slur that starts there.
+    let noteId: Id | null = null;
+    try {
+      noteId = resolveAddress(score, target, 'note').target.id;
+    } catch {
+      noteId = null;
+    }
+    if (noteId !== null) found = slurs.filter((spanner) => spanner.startId === noteId);
+  }
+  if (found.length !== 1) {
+    throw new OperationError({
+      kind: 'validation',
+      detail:
+        found.length === 0
+          ? `there is no slur at ${target}; name one by its id (slur-1, which show prints) or the note it starts on`
+          : `${found.length} slurs start at ${target} (${found.map((s) => s.id).join(', ')}); name one by its id`,
+    });
+  }
+  const gone = found[0] as Spanner;
+  const kept = spanners.filter((spanner) => spanner.id !== gone.id);
+  const { spanners: _old, ...rest } = score;
+  return {
+    score: kept.length === 0 ? rest : { ...rest, spanners: kept },
+    operation: { type: 'slur.rm', target },
+    changed: [gone.id],
   };
 }
 

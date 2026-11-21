@@ -100,6 +100,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
               [--signature-policy every|first|page] [--bars-per-system N]   bars to a line (1-8, default 4)
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
+              [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--spell|--unspell]
@@ -119,6 +120,10 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]   bracket --over items from <address>: --notes in the time of --in
+  sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
+  sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
+  sbscore slur rm  <id> <slur-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
   sbscore break rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
@@ -288,6 +293,10 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'tuplet':
+      return tuplet(flags, client, io, json);
+    case 'slur':
+      return slur(flags, client, io, json);
     case 'break':
       return lineBreak(flags, client, io, json);
     case 'ending':
@@ -765,13 +774,15 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
     }
     payload.barsPerSystem = perSystem === '' ? null : Number(perSystem);
   }
+  const tempo = flags.options.get('tempo');
+  if (tempo !== undefined) payload.tempo = tempo === '' ? null : parseTempo(tempo);
   const chordStyle = flags.options.get('chord-style');
   if (chordStyle !== undefined) payload.chordStyle = chordStyle as NonNullable<MetaSetPayload['chordStyle']>;
   if (Object.keys(payload).length === 0) {
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system',
+      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
@@ -1007,6 +1018,56 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
 }
 
 /**
+ * `sbscore tuplet set <id> bar3.beat2 --notes 3 --in 2 --over 3` and `tuplet rm <id> bar3.beat2`
+ * (SIB2-166). `--notes` written in the time of `--in` (a triplet is 3 in 2); `--in` defaults to the
+ * power of two just below `--notes`, so `--notes 3` is a triplet and `--notes 5` a quintuplet in 4.
+ * `--over` is how many items the bracket spans from the address, default `--notes`. The server re-lays
+ * the run and judges the ratio; `rm` takes any member's address.
+ */
+async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `tuplet ${sub}`);
+  const target = requiredPositional(flags, 3, 'an address', `tuplet ${sub}`);
+
+  if (sub === 'set') {
+    const actual = optionalNumber(flags, 'notes');
+    if (actual === undefined) throw new CliError(EXIT.usage, 'usage', 'tuplet set needs --notes, e.g. --notes 3');
+    const normal = optionalNumber(flags, 'in') ?? 2 ** Math.floor(Math.log2(Math.max(actual - 1, 1)));
+    const count = optionalNumber(flags, 'over') ?? actual;
+    return submit(flags, client, io, json, id, [
+      { type: 'tuplet.set', target, payload: { actual, normal, count } } as Operation,
+    ]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'tuplet.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'tuplet takes set or rm');
+}
+
+/**
+ * `sbscore slur set <id> <from> <to> [--placement above|below|auto]` and `slur rm <id> <slur-id|from>`
+ * (SIB2-167). The two note addresses are the ones `show` prints (`bar1.n2`, `note-7`); a slur may cross
+ * bars. `rm` takes the `slur-N` id `show` prints, or the note a single slur starts on. The server judges
+ * order and that both are notes.
+ */
+async function slur(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `slur ${sub}`);
+  if (sub === 'set') {
+    const target = requiredPositional(flags, 3, 'the note it starts on', 'slur set');
+    const to = requiredPositional(flags, 4, 'the note it ends on', 'slur set');
+    const placement = flags.options.get('placement');
+    const payload = { to, ...(placement === undefined ? {} : { placement }) };
+    return submit(flags, client, io, json, id, [{ type: 'slur.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    const target = requiredPositional(flags, 3, 'a slur id or the note it starts on', 'slur rm');
+    return submit(flags, client, io, json, id, [{ type: 'slur.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'slur takes set or rm');
+}
+
+/**
  * `sbscore break set <id> <bar> [--join]` and `break rm <id> <bar>` (SIB2-174): override the four-bar
  * grid. `break set <id> bar6` ends the line after bar 6; `--join` on a bar that begins a section lets it
  * share the previous line. The server judges whether a join makes sense.
@@ -1188,6 +1249,15 @@ function parseTime(spec: string): TimeSignature {
     throw new CliError(EXIT.usage, 'usage', `${JSON.stringify(spec)} is not a time signature; write 4/4`);
   }
   return { beats: Number(match[1]), beatValue: Number(match[2]) as NoteValue };
+}
+
+/** `4=120`, `4.=60`: a beat unit (1, 2, 4 or 8, a dot for dotted) and beats per minute (SIB2-177). */
+function parseTempo(spec: string): NonNullable<MetaSetPayload['tempo']> {
+  const match = /^(\d+)(\.?)=(\d+)$/.exec(spec.trim());
+  if (match === null) {
+    throw new CliError(EXIT.usage, 'usage', `${JSON.stringify(spec)} is not a tempo; write 4=120 (4.=60 for a dotted beat)`);
+  }
+  return { unit: { value: Number(match[1]), dots: match[2] === '.' ? 1 : 0 }, bpm: Number(match[3]) };
 }
 
 /** A readable, sortable default id. Only used when `--id` is not given. */

@@ -98,7 +98,7 @@ export function everyGlyphChart(): Score {
       .build(),
   ];
 
-  return makeScore({
+  const score = makeScore({
     id: 'score-every-glyph',
     title: 'Every Glyph',
     composer: 'sibei-score',
@@ -109,6 +109,9 @@ export function everyGlyphChart(): Score {
       makeSection({ id: ids.next('section'), startBar: 5, letter: 'B' }),
     ],
   });
+  // The tempo mark (SIB2-177) shares bar 1 with rehearsal letter A, so the proof covers their meeting.
+  score.meta.tempo = { unit: { value: 4, dots: 0 }, bpm: 72 };
+  return score;
 }
 
 /**
