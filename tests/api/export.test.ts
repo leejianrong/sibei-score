@@ -368,6 +368,27 @@ describe('the page and the face are the reader’s choice (Q38, ADR-0030)', () =
   });
 });
 
+describe('exporting a chart as SVG, a page at a time (SIB2-190)', () => {
+  it('answers with the page markup and says how many pages there are', async () => {
+    await aChart();
+    const first = await download('/v1/scores/score-1/export?format=svg');
+    expect(first.status).toBe(200);
+    expect(first.headers.get('content-type')).toBe('image/svg+xml');
+    expect(first.headers.get('x-sibei-pages')).toBe('1');
+    expect(first.headers.get('content-disposition')).toBe('attachment; filename="Body and Soul - page 1.svg"');
+    expect(first.bytes.toString('utf8').startsWith('<svg')).toBe(true);
+  });
+
+  it('422s a page past the end or not a number, naming what there is', async () => {
+    await aChart();
+    const past = await fetch(`${base}/v1/scores/score-1/export?format=svg&page=4`);
+    expect(past.status).toBe(422);
+    expect((await past.json() as { error: unknown }).error).toMatchObject({ kind: 'unsupported-page' });
+    const junk = await fetch(`${base}/v1/scores/score-1/export?format=svg&page=zero`);
+    expect(junk.status).toBe(422);
+  });
+});
+
 describe('a format or an instrument this build cannot produce (ADR-0008)', () => {
   it('422s an unknown format and lists what there is', async () => {
     await aChart();
@@ -375,7 +396,7 @@ describe('a format or an instrument this build cannot produce (ADR-0008)', () =>
     expect(response.status).toBe(422);
     expect((await response.json() as { error: unknown }).error).toMatchObject({
       kind: 'unsupported-format',
-      detail: { kind: 'unsupported-format', requested: 'midi', supported: ['pdf', 'musicxml'] },
+      detail: { kind: 'unsupported-format', requested: 'midi', supported: ['pdf', 'musicxml', 'svg'] },
     });
   });
 

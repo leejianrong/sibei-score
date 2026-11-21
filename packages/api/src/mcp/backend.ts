@@ -101,7 +101,8 @@ function exportRequest(choices: ExportChoices) {
     );
   };
   const format = parseExportFormat(choices.format ?? null);
-  if (format === null) throw refuse('format', choices.format, EXPORT_FORMATS);
+  // SVG is one page at a time and the MCP tool has no page choice, so it stays a CLI/HTTP format (SIB2-190).
+  if (format === null || format === 'svg') throw refuse('format', choices.format, EXPORT_FORMATS.filter((f) => f !== 'svg'));
   const instrument = parseExportInstrument(choices.instrument ?? null);
   if (instrument === null) throw refuse('instrument', choices.instrument, EXPORT_INSTRUMENTS);
   const paper = parseExportPaper(choices.paper ?? null);

@@ -86,6 +86,7 @@ export {
   parseExportBarNumbers,
   parseExportBlankStaves,
   parseExportFont,
+  parseExportPage,
   parseExportFormat,
   parseExportInstrument,
   parseExportPaper,

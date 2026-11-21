@@ -288,7 +288,7 @@ the browser's multi-edit actions — undoes as a single step. In the browser, ct
 ## Export
 
 ```sh
-sbscore export <id> [--pdf | --musicxml] [-o PATH]
+sbscore export <id> [--pdf | --musicxml | --svg] [-o PATH]
                     [--paper a4|letter] [--font normal|jazz]
                     [--page-numbers[=top-right]] [--page-number-format n|page|of]
                     [--page-number-first yes|no] [--blank-staves] [--no-bar-numbers]
@@ -317,6 +317,17 @@ the browser preview shows the same staves (the rail's Blank staves tick). Nothin
 `--no-bar-numbers` leaves the bar number off the head of each line in the PDF (they are drawn by default, on
 every line but the first, and never on a pickup). Nothing else moves. It is a page choice like paper, not stored
 in the chart, so MusicXML ignores it; the rail's Bar numbers tick drives the preview the same way.
+
+`--svg` writes each page as an SVG file, one per page, named `Body and Soul - page 1.svg`, `... - page 2.svg`. It
+is the browser's own page markup, byte for byte (one render path, ADR-0014): the server renders it with the same
+`layout` and engraver the browser composes, honours `--paper`, `--font`, `--for` and `--page-numbers`, and an agent
+can open the result to look at what it made. Give `-o` a directory (end it with `/`) for a chart of several
+pages; a single file name is refused for more than one page, before anything is written. Over HTTP it is
+`GET /v1/scores/:id/export?format=svg&page=N` (1 by default), answering with the page count in `x-sibei-pages`; a
+page past the end is a 422. **There is no `--png`**: a rasteriser is a native binding, and none ships in the CLI
+or the server (ADR-0031 keeps `resvg` a build-time tool), so `--png` is refused with a pointer here. Turn the
+SVG into a picture with whatever you have, for instance `rsvg-convert -z 2 page.svg -o page.png`. The MCP
+`export_score` tool does not offer SVG, since it has no page choice.
 
 ## Audio
 
