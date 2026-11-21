@@ -1,6 +1,6 @@
 # ADR-0034: The hosted web app becomes the primary surface
 
-- **Status:** Proposed — 2026-09-30, revised the same day after design discussion. V18 (async ports),
+- **Status:** Proposed — 2026-09-30 (amended 2026-11-22: audio jobs, decisions 14-17), revised the same day after design discussion. V18 (async ports),
   V19a (tenancy keys), V19 (the Postgres adapter) and V20a (the identity backend) are built; the rest of SLICES v0.4 (V20–V26) is the plan.
 - **Date:** 2026-09-30
 - **Deciders:** Jian, in design discussion
@@ -110,6 +110,50 @@ slice is therefore a no-behaviour-change refactor of the ports, not an adapter.
     binary talks to local or hosted. The README and UI lead with the hosted app.
 13. **`/v1` becomes additive-only from the first hosted deploy** (ADR-0022). New auth and MCP routes are
     additive.
+
+## Amendment 2026-11-22: audio jobs (SIB2-135)
+
+[ADR-0039](0039-product-direction-and-schedule.md) puts audio in the 2026 hosted launch. The audio
+engine is a separate repo (music-audio-transcriber) that runs on a GPU; its output contract is
+NoteEvents v1, owned there. This amendment settles the queue, the storage and the retention; billing is
+deliberately **not** decided (ADR-0039 decision 7).
+
+14. **The audio worker pulls (supersedes the "worker is a push client" assumption for audio only).**
+    A second job kind, `audio`, lives in the same durable job table as import (ADR-0001). The worker
+    holds a **worker credential** (`sbsw_` prefix, stored hashed, configured by the operator, never a
+    user token) and calls out over HTTPS: `POST /v1/worker/claim` takes the oldest queued audio job and
+    grants a **lease**; `POST /v1/worker/jobs/:id/heartbeat` extends it; `POST .../complete` or
+    `.../fail` ends it. A lease that is not renewed within its timeout is expired and the job goes back
+    to `queued` with its attempt count incremented, up to a bounded number of attempts, after which it
+    fails with a diagnostic. A GPU host is behind NAT or preemptible, so it calls out; claiming gives
+    back-pressure, retry after a lost lease and several workers for free. The OMR worker stays push
+    (ADR-0005): the two are not unified. The worker credential can reach **only** `/v1/worker/*`: it has
+    no owner, no scores, no library, and `tests/arch/http-boundary.test.ts` keeps the worker routes out
+    of the user principal path. A job claimed by a worker is addressed by job id alone; the lease
+    token returned by claim must accompany every later call, so a stale worker cannot complete a job
+    that was re-queued and claimed by another.
+15. **Bytes move by presigned URL, never through the API.** The API mints a presigned `PUT` for the
+    upload (browser or CLI to the object store) and a presigned `GET` for the worker to fetch it; the
+    worker uploads nothing but a small result document, which travels in the `complete` request body
+    (NoteEvents is JSON and bounded). This amends decision 6: the S3-compatible `BlobStore` adapter is
+    no longer deferred, because presigned transfer is the first real reason. The port gains an optional
+    `presign` capability; the directory adapter does not implement it and local mode keeps proxying
+    through the API exactly as before. The upload is validated at the boundary (ADR-0029): declared
+    content type and a size cap are signed into the URL, and the job moves to `queued` only when the
+    client confirms and the object's existence and size are checked.
+16. **Retention of uploaded audio.** Audio is copyright-sensitive. It is private to the account, never
+    shared and never a training corpus (ADR-0001). The audio object is deleted as soon as the job
+    reaches a terminal state (succeeded, failed for good, or cancelled) and in any case no later than
+    **24 hours** after upload (a sweep removes orphans, configurable); it is not kept for re-parse, as
+    photo sources are, because the result document is the product. The NoteEvents result is kept with
+    the job as long as the job exists. Account deletion (decision 11) removes jobs and any remaining
+    audio objects in the same operation.
+17. **The metering unit is audio-seconds.** When a job succeeds, the duration the worker reports (and
+    the API cross-checks against the file's declared duration within a tolerance) is recorded once in a
+    per-user ledger, idempotent on the job id, so a retried or redelivered completion adds nothing.
+    A free-tier cap is configuration (audio-seconds per period) checked when a job is created. **How
+    seconds become money, the plans and the provider are not decided here**; the ledger is the input to
+    whichever decision follows.
 
 ## Consequences
 
