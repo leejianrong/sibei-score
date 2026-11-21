@@ -56,6 +56,8 @@ export type MusicGlyphName =
   | 'accidentalNatural'
   | 'accidentalSharp'
   | 'accidentalDoubleSharp'
+  | 'accidentalParensLeft'
+  | 'accidentalParensRight'
   | 'augmentationDot'
   | 'restWhole'
   | 'restHalf'

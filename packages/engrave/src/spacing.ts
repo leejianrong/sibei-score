@@ -124,7 +124,9 @@ function cellFor(font: MusicFont, item: NoteItem | RestItem): Cell {
   const leadIn =
     item.accidentalGlyph === null
       ? 0
-      : font.width(accidentalGlyph(item.accidentalGlyph)) + ACCIDENTAL_GAP;
+      : font.width(accidentalGlyph(item.accidentalGlyph)) +
+        ACCIDENTAL_GAP +
+        (item.accidental === 'parens' ? parensWidth(font) : 0);
 
   return {
     item,
@@ -185,6 +187,11 @@ export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
     }
   }
   return placed;
+}
+
+/** Room a parenthesised accidental's two brackets take beside the accidental (SIB2-182). */
+export function parensWidth(font: MusicFont): number {
+  return font.width('accidentalParensLeft') + font.width('accidentalParensRight');
 }
 
 /**

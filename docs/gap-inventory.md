@@ -101,7 +101,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F23 | Metronome mark | S | S | S | S | S | S | S | S | Closed by SIB2-177: `meta.tempo`, `meta set --tempo 4=120`, drawn above the first bar, `<sound tempo>` in MusicXML, a rail control |
 | F24 | Extra title-block fields | M | M | M | M | P | M | M | M | `meta` has title, composer, style only |
 | F25 | Empty staves at page bottom | M | M | M | M | - | M | M | M | |
-| F26 | Parenthesised accidentals | P | P | P | M | M | M | M | M | `accidental: show` draws one; no parenthesised form; `note set` has no accidental flag |
+| F26 | Parenthesised accidentals | S | S | S | S | S | S | S | M | Closed by SIB2-182: the `parens` display, `--accidental paren`, the inspector control, MusicXML `parentheses="yes"` |
 | F27 | Grace notes | M | M | M | M | M | M | M | M | |
 | F28 | Multi-staff system | M | M | M | M | M | M | M | M | Single staff and voice by design (ADR-0021); ADR-0039 d3 plans the model |
 | F29 | Bass clef | M | M | M | M | M | M | M | M | `Clef = 'treble'` |

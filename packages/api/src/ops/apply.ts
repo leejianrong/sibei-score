@@ -1311,7 +1311,7 @@ function reflag(bar: Bar): Bar {
 
 const NOTE_VALUES = [1, 2, 4, 8, 16, 32];
 
-const ACCIDENTAL_DISPLAYS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide'];
+const ACCIDENTAL_DISPLAYS: readonly AccidentalDisplay[] = ['auto', 'show', 'hide', 'parens'];
 const TIE_ROLES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 
 // These three used to be spread through raw, so `accidental: "cautionary"` was stored and answered
