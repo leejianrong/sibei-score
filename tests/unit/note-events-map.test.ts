@@ -84,10 +84,11 @@ describe('splitTicks', () => {
   it('keeps one legal note where it can and ties where it cannot', () => {
     expect(splitTicks(0, 960)).toEqual([{ value: 2, dots: 0 }]);
     expect(splitTicks(0, 720)).toEqual([{ value: 4, dots: 1 }]);
-    // a half note may not start on beat 2: quarter, then a half on beat 3
-    expect(splitTicks(480, 1440)).toEqual([{ value: 4, dots: 0 }, { value: 2, dots: 0 }]);
-    // a quarter may start on the half-beat (syncopation)
+    // syncopation stays one note: a half on beat 2, a quarter on the half-beat
+    expect(splitTicks(480, 960)).toEqual([{ value: 2, dots: 0 }]);
     expect(splitTicks(240, 480)).toEqual([{ value: 4, dots: 0 }]);
+    // but a dotted half starts on a half-bar point: from beat 2 it is a half then a quarter
+    expect(splitTicks(480, 1440)).toEqual([{ value: 2, dots: 0 }, { value: 4, dots: 0 }]);
     expect(splitTicks(0, 600).map((d) => d.value)).toEqual([4, 16]);
   });
 });
