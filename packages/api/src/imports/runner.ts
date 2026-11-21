@@ -1,4 +1,4 @@
-import { OmrMappingError, mapOmrToScore } from '@sibei/model';
+import { NoteEventsError, OmrMappingError, mapNoteEventsToScore, mapOmrToScore, parseNoteEvents } from '@sibei/model';
 import type { Id, OmrDocument, Score } from '@sibei/model';
 import { correctChord } from '@sibei/music';
 import type { BlobStore } from '../blob/blob-store.js';
@@ -6,6 +6,7 @@ import type { JobPublisher } from '../events/job-bus.js';
 import { OperationError } from '../ops/errors.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
 import type { Owner } from '../store/repository.js';
+import { NOTE_EVENTS_SOURCE } from './note-events.js';
 import { imageFormatOf } from './upload.js';
 import { WorkerError } from './worker-client.js';
 import type { WorkerClient } from './worker-client.js';
@@ -145,6 +146,10 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     publisher.publish(job.owner, { jobId: job.id, status: 'running' });
 
     try {
+      if (job.engine === NOTE_EVENTS_SOURCE) {
+        await processNoteEvents(job);
+        return;
+      }
       const results: OmrDocument[] = [];
       for (const [index, key] of job.imageKeys.entries()) {
         const bytes = await blobs.get(key);
@@ -188,10 +193,26 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
       if (failed !== null) publisher.publish(failed.owner, { jobId: failed.id, status: 'failed' });
       // Worker failure (Q80) and "no staff detected" (ADR-0018/Q28) are both expected outcomes,
       // recorded as a diagnostic, not surfaced as an API bug. Anything else is unexpected.
-      if (!(error instanceof WorkerError) && !(error instanceof OmrMappingError)) {
+      if (!(error instanceof WorkerError) && !(error instanceof OmrMappingError) && !(error instanceof NoteEventsError)) {
         onError('an import job failed unexpectedly', error);
       }
     }
+  }
+
+  /**
+   * A NoteEvents job (ADR-0040): no worker. Read the stored document back, run the pure mapper, land the
+   * draft through the same server-only import path as OMR (idempotently, `land`), and complete the job
+   * with the audio engine's warnings as its diagnostic. A job whose blob has vanished or no longer
+   * validates fails like any other (Q80), committing nothing.
+   */
+  async function processNoteEvents(job: ImportJob): Promise<void> {
+    const bytes = await blobs.get(job.imageKeys[0]!);
+    if (bytes === null) throw new WorkerError('the NoteEvents document is missing from the blob store');
+    const events = parseNoteEvents(JSON.parse(bytes.toString('utf8')));
+    const { score, diagnostics } = mapNoteEventsToScore(events, { id: `import-${job.id}` });
+    const scoreId = await land(job, score);
+    const done = await jobs.complete(job.id, [], scoreId, diagnostics.length === 0 ? null : diagnostics.join('\n'));
+    if (done !== null) publisher.publish(done.owner, { jobId: done.id, status: 'succeeded' });
   }
 
   return {

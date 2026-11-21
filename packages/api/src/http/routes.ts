@@ -11,6 +11,7 @@ import {
   parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
+import { validateNoteEventsUpload } from '../imports/note-events.js';
 import { multipartBoundary, parseMultipartImages, validateUpload } from '../imports/upload.js';
 import type { UploadRejection } from '../imports/upload.js';
 import type { Applier } from '../ops/applier.js';
@@ -79,6 +80,11 @@ export interface ImportService {
    * job for them, returning the queued job.
    */
   submit(owner: Owner, images: Buffer[]): Promise<ImportJob>;
+  /**
+   * Store an already-validated NoteEvents document (ADR-0040) and enqueue a job for it. Needs no OMR
+   * worker, so it works whether or not `available` — the runner maps it with a pure function.
+   */
+  submitNoteEvents(owner: Owner, document: Buffer): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
   retry(owner: Owner, id: JobId): Promise<ImportJob | null>;
   /**
@@ -400,12 +406,22 @@ async function submitImport(
   response: ServerResponse,
   context: RouteContext,
 ): Promise<number> {
-  if (context.imports === undefined || !context.imports.available) {
+  const isNoteEvents = (request.headers['content-type'] ?? '').toLowerCase().startsWith('application/json');
+  // A NoteEvents document (ADR-0040) needs no OMR worker, so it skips the worker-availability check.
+  if (context.imports === undefined || (!isNoteEvents && !context.imports.available)) {
     return send(response, noImportPipeline());
   }
 
   const bytes = await readRawBody(request, response);
   if (bytes === TOO_LARGE) return 413;
+
+  if (isNoteEvents) {
+    const check = validateNoteEventsUpload(bytes);
+    if (!check.ok) return send(response, badNoteEvents(check.reason, check.message, check.problems));
+    const job = await context.imports.submitNoteEvents(context.owner, bytes);
+    response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
+    return sendJson(response, 202, { job });
+  }
 
   // Several pages in one `multipart/form-data` upload (Q26), or a single raw image body (the V10
   // shape, still accepted). Either way every page is validated by *decoding* it (ADR-0029) before a
@@ -700,6 +716,18 @@ function noImportPipeline(): Problem {
 function badUpload(reason: UploadRejection, message: string): Problem {
   const status = reason === 'too-large' ? 413 : 422;
   return problem(status, `bad-upload-${reason}`, message, { detail: { kind: 'bad-upload', reason } });
+}
+
+/**
+ * A refused NoteEvents document (ADR-0040): always a 422, and each reason its own kind so a client can
+ * tell a corrupt file from an engine that is ahead of us from an instrument we cannot notate yet. None
+ * is retryable — the same bytes would be refused again — and none creates a job.
+ */
+function badNoteEvents(reason: 'malformed' | 'unsupported-version' | 'unsupported-instrument', message: string, problems: string[]): Problem {
+  const detail = { kind: reason, problems };
+  if (reason === 'unsupported-version') return problem(422, 'unsupported-note-events-version', message, { detail });
+  if (reason === 'unsupported-instrument') return problem(422, 'unsupported-note-events-instrument', message, { detail });
+  return problem(422, 'invalid-note-events', message, { detail });
 }
 
 function match(path: string, pattern: RegExp): Id | null {
