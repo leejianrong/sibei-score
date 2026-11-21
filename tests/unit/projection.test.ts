@@ -520,9 +520,11 @@ describe('it is lossy by design', () => {
       }),
     ]);
     const projection = projectScore(score);
-    for (const dropped of ['0.42', 'spellingPinned', 'repeat', 'solo break', 'ending']) {
+    for (const dropped of ['0.42', 'spellingPinned', 'repeat', 'ending']) {
       expect(projection).not.toContain(dropped);
     }
+    // A text direction is not dropped any more (SIB2-169): it has a verb, so it has to be readable.
+    expect(projection).toContain('"solo break" annotation-1');
     // The spelling itself is not lost, because that is the note's identity rather than its metadata.
     expect(projection).toContain('db5');
   });

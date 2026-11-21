@@ -105,18 +105,22 @@ describe('the CLI and the browser flag the same objects (V14)', () => {
     expect(sorted(cli)).toEqual(sorted(browser));
   });
 
-  it('excludes annotations, the one flag the projection is lossy about (ADR-0009)', () => {
-    // Bar 3's annotation is flagged and the browser draws it flagged, but the projection drops
-    // annotations, so it is browser-only by design. This is why the parity above is scoped to
-    // bars/notes/chords — and pinning it here stops that scope from being read as an accident.
+  it('shows an annotation, flag included, on its own text line (SIB2-169 reversed the old exclusion)', () => {
+    // Annotations used to be browser-only: the projection dropped them. Text directions are authored
+    // now (`text set`), and an agent cannot remove what it cannot see, so the projection prints each on
+    // a `text` line with its beat and id. The parity above stays scoped to bars/notes/chords, whose
+    // flags it compares; this pins that the annotation's own flag is now visible to the CLI too.
     const score = reviewChart();
     const flaggedAnnotation = score.bars
       .flatMap((bar) => bar.annotations)
       .find((annotation) => annotation.review.flagged);
     expect(flaggedAnnotation, 'the review fixture carries a flagged annotation').toBeDefined();
 
-    // The browser derivation would surface it; the projection does not represent it at all.
     expect(flaggedAnnotation!.review.flagged).toBe(true);
-    expect(projectScore(score)).not.toContain(flaggedAnnotation!.text);
+    const line = projectScore(score)
+      .split('\n')
+      .find((l) => l.includes(JSON.stringify(flaggedAnnotation!.text)));
+    expect(line, 'the projection prints the annotation').toBeDefined();
+    expect(line).toMatch(/!/);
   });
 });

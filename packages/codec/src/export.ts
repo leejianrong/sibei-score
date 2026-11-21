@@ -16,6 +16,7 @@
 
 import { TICKS_PER_QUARTER, itemTicks, keyFifths, tupletOf } from '@sibei/model';
 import type {
+  Annotation,
   Bar,
   Chord,
   Ending,
@@ -103,6 +104,11 @@ function measure(score: Score, bar: Bar, isFirst: boolean): XmlElement {
     children.push(harmony(chord));
   }
 
+  // Text directions (SIB2-169) ride as `<words>` above the staff, offset to their beat like a harmony.
+  for (const annotation of [...bar.annotations].sort((a, b) => a.onset - b.onset)) {
+    children.push(words(annotation));
+  }
+
   for (const note of noteElements(bar)) children.push(note);
 
   const right = rightBarline(bar);
@@ -116,6 +122,13 @@ function measure(score: Score, bar: Bar, isFirst: boolean): XmlElement {
 function rehearsal(letter: string): XmlElement {
   return elem('direction', { placement: 'above' }, [
     elem('direction-type', {}, [leaf('rehearsal', letter)]),
+  ]);
+}
+
+function words(annotation: Annotation): XmlElement {
+  return elem('direction', { placement: 'above' }, [
+    elem('direction-type', {}, [leaf('words', annotation.text)]),
+    annotation.onset === 0 ? null : leaf('offset', annotation.onset),
   ]);
 }
 
