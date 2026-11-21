@@ -108,6 +108,8 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'audio-too-large':
     case 'audio-not-uploaded':
     case 'audio-job-not-retryable':
+    // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
+    case 'invalid-note-events':
     // The device flow (V21a). A code that is not eight letters and digits, a scope that does not exist, and
     // a code that expired or was already used are requests that were readable and cannot be fulfilled: the
     // same class as `validation`, and the fix is to start again or correct the value.

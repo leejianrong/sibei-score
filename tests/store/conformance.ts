@@ -332,6 +332,15 @@ export function jobStoreConformance(label: string, open: OpenHarness): void {
       expect(await jobs.complete(job.id, [], 'score-2')).toBeNull(); // terminal: cannot move twice
     });
 
+    it('can record a diagnostic on a succeeded job (NoteEvents warnings, ADR-0040)', async () => {
+      const { jobs } = await fresh();
+      const job = await jobs.create('alice', ['a'], 'note-events');
+      await jobs.claim();
+      const done = await jobs.complete(job.id, [], 'score-1', 'silent_input: no audible signal');
+      expect(done).toMatchObject({ status: 'succeeded', engine: 'note-events', diagnostic: 'silent_input: no audible signal' });
+      expect((await jobs.get('alice', job.id))?.diagnostic).toBe('silent_input: no audible signal');
+    });
+
     it('fails only a running job, with a diagnostic', async () => {
       const { jobs } = await fresh();
       const job = await jobs.create('alice', ['a']);

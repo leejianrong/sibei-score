@@ -86,6 +86,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
+  sbscore import --note-events FILE        a NoteEvents v1 file from the audio engine into a draft (no worker needed)
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
               (produces a NEW draft — the original and its corrections survive; no re-upload)
@@ -108,7 +109,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
-  sbscore batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
   sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
@@ -266,7 +267,7 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
-      return batch(flags, client, io, json);
+      return batch(flags, client, io, json, options.readStdin ?? readAllStdin);
     case 'undo':
       return move('undo', flags, client, io, json);
     case 'redo':
@@ -464,6 +465,7 @@ async function importChart(
   cwd: string,
 ): Promise<ExitCode> {
   const paths = flags.positional.slice(1);
+  if (flags.switches.has('note-events')) return importNoteEvents(paths, client, io, json, cwd);
   if (paths.length === 0) {
     throw new CliError(EXIT.usage, 'usage', 'import needs at least one image file: `sbscore import chart.png`');
   }
@@ -495,6 +497,35 @@ async function importChart(
     json
       ? JSON.stringify(job)
       : `imported ${pages} to ${job.scoreId} — a draft: open it, check the flagged bars, set key/meter/sections`,
+  );
+  return EXIT.ok;
+}
+
+/**
+ * `sbscore import --note-events FILE` — a NoteEvents v1 document from the audio engine becomes a draft
+ * (ADR-0040). Needs no OMR worker. The bytes go up unchanged and the server validates; a refused file is
+ * exit 2 (validation) and creates nothing. The draft's barring and doubtful notes are flagged for review.
+ */
+async function importNoteEvents(paths: string[], client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
+  if (paths.length !== 1) {
+    throw new CliError(EXIT.usage, 'usage', 'import --note-events takes exactly one file: `sbscore import --note-events take1.json`');
+  }
+  const path = paths[0]!;
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+  const job = await client.importNoteEvents(bytes);
+  if (job.status === 'failed') {
+    throw new CliError(EXIT.validation, 'import-failed', `import failed: ${job.diagnostic ?? 'unknown error'}`);
+  }
+  io.out(
+    json
+      ? JSON.stringify(job)
+      : `imported NoteEvents to ${job.scoreId} — a draft: open it, check the flagged bars and notes, set key/meter/sections` +
+          (job.diagnostic === null ? '' : `\n${job.diagnostic}`),
   );
   return EXIT.ok;
 }
@@ -846,9 +877,26 @@ function parseEndingNumbers(raw: string): number[] {
  * `batch` is the whole of what a document-patch endpoint would have bought, without the
  * whole-document read or the structural risk (ADR-0008). One invalid operation applies none of them.
  */
-async function batch(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+async function batch(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  readStdin: () => Promise<string>,
+): Promise<ExitCode> {
   const id = requiredPositional(flags, 1, 'a score id', 'batch');
-  const raw = required(flags, 'ops', 'batch');
+  // `--ops @file` and `--ops -` (stdin) keep a long chart out of argv (SIB2-187).
+  const given = required(flags, 'ops', 'batch');
+  let raw = given;
+  if (given === '-') {
+    raw = await readStdin();
+  } else if (given.startsWith('@')) {
+    try {
+      raw = readFileSync(given.slice(1), 'utf8');
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', `--ops: cannot read ${given.slice(1)}`);
+    }
+  }
   let operations: Operation[];
   try {
     const parsed: unknown = JSON.parse(raw);
