@@ -126,6 +126,19 @@ export interface AnnotationItem {
   text: string;
   anchorItemId: Id | null;
   flagged: boolean;
+  /** A dashed line begins after this text (SIB2-170); `endsHere` when it closes in this same bar. */
+  line?: { endsHere: boolean };
+}
+
+/**
+ * The middle or end of a text direction's dashed line (SIB2-170), on each later bar it covers. Segments abut across
+ * barlines and across a system break, so a line that wraps simply continues on the next system's first bar.
+ */
+export interface DirectionLineItem {
+  kind: 'directionLine';
+  annotationId: Id;
+  /** The bar the line closes on: it ends with a hook rather than running on to the barline. */
+  endsHere: boolean;
 }
 
 export interface TupletBracketItem {
@@ -165,6 +178,7 @@ export type LayoutBarItem =
   | RestItem
   | ChordSymbolItem
   | AnnotationItem
+  | DirectionLineItem
   | TupletBracketItem
   | BarlineItem
   | EndBarlineItem
@@ -187,6 +201,7 @@ export const LAYOUT_BAR_ITEM_KINDS: readonly LayoutBarItemKind[] = [
   'rest',
   'chordSymbol',
   'annotation',
+  'directionLine',
   'tupletBracket',
   'barline',
   'endBarline',

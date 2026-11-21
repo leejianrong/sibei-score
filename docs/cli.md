@@ -161,7 +161,7 @@ sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
 sbscore chord set <id> <address> --text "F#m7b5" [--spell]      # upsert a chord symbol
 sbscore chord rm  <id> <address>
-sbscore text set <id> <address> --text "(unis.)"                # a text direction above the staff
+sbscore text set <id> <address> --text "(unis.)" [--until bar8]   # a text direction above the staff, optional dashed line
 sbscore text rm  <id> <address|annotation-id>
 sbscore fermata set <id> <address>                               # a fermata over a note or rest
 sbscore fermata rm  <id> <address>
@@ -180,6 +180,13 @@ A **text direction** — a cue, a tempo, "unis.", "solo on form" — is free tex
 band beside any chord at that beat, and `show` lists it under its bar with the beat and an `annotation-N`
 id, which `text rm` takes as well as the beat. MusicXML carries it as `<words>`. In the browser, select a
 bar: the Structure panel has a Text directions field.
+
+`--until bar8` (or a bare `8`) adds a **dashed continuation line** after the text, running to the end of bar 8
+and closing with a small hook: `text set <id> bar4.beat1 --text 'solo' --until bar8`. The line crosses barlines and
+carries on at the start of the next system when it wraps. An empty `--until ''` removes it; leaving `--until` out
+on a later `text set` keeps it. The end is stored as the bar's id, so adding or removing bars does not move it, and
+`show` prints `---> bar8` after the text. MusicXML carries it as `<dashes type="start|stop">`. The Structure panel
+has a "Dashed line ends at bar" field beside the text direction.
 
 A **fermata** is a hold sign over a note or a rest: `sbscore fermata set <id> bar4.n2`, `fermata rm` to take it
 off (refused where there is none). It draws above the staff and above the note's own ink, centred on the

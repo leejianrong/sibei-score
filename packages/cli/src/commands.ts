@@ -110,7 +110,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore rest rm  <id> <address>
   sbscore chord set <id> <address> --text F#m7b5 [--spell]
   sbscore chord rm  <id> <address>
-  sbscore text set <id> <address> --text '(unis.)'   a text direction above the staff, at a beat
+  sbscore text set <id> <address> --text '(unis.)' [--until bar8]   a text direction above the staff; --until adds a dashed line to bar 8's end
   sbscore text rm  <id> <address|annotation-id>
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore bar add <id> [--after <bar>] [--count N]   add empty bars (default: at the end); later bars renumber
@@ -885,7 +885,10 @@ async function text(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const target = requiredPositional(flags, 3, 'an address', `text ${sub}`);
 
   if (sub === 'set') {
-    const payload = { text: required(flags, 'text', 'text set') };
+    const payload: { text: string; until?: string | null } = { text: required(flags, 'text', 'text set') };
+    // A dashed continuation line to the end of a bar (SIB2-170); an empty --until removes it.
+    const until = flags.options.get('until');
+    if (until !== undefined) payload.until = until === '' ? null : barTarget(until);
     return submit(flags, client, io, json, id, [{ type: 'text.set', target, payload } as Operation]);
   }
   if (sub === 'rm') {

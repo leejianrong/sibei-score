@@ -55,7 +55,7 @@
     onaddbar: () => void;
     onrmbar: () => void;
     /** Text directions (SIB2-169): set one at a beat of this bar, or remove one by id. */
-    onsettext: (beat: number, text: string) => void;
+    onsettext: (beat: number, text: string, until: number | null) => void;
     onrmtext: (id: string) => void;
     ondeselect: () => void;
     onreload: () => void;
@@ -73,6 +73,10 @@
   let numbersError = $state<string | null>(null);
   let textBeat = $state('1');
   let textInput = $state('');
+  let textUntil = $state('');
+  const textUntilValid = $derived(
+    textUntil.trim() === '' || (Number.isInteger(Number(textUntil)) && Number(textUntil) >= bar.barNumber),
+  );
   const textBeatValid = $derived(Number.isFinite(Number(textBeat)) && Number(textBeat) >= 1);
 
   const startDisplay = (o: StartBarline): string => START_OPTIONS.find((x) => x.value === o)?.label ?? String(o);
@@ -224,7 +228,7 @@
       {#each bar.texts as direction (direction.id)}
         <div class="field-row">
           <span class="mini-label">beat {direction.beat}</span>
-          <span class="grow dir-text">{direction.text}</span>
+          <span class="grow dir-text">{direction.text}{direction.until === null ? '' : ` - - -| bar ${direction.until}`}</span>
           <button
             type="button"
             class="btn btn-cancel"
@@ -251,11 +255,23 @@
         <button
           type="button"
           class="btn btn-cancel"
-          disabled={saving || textInput.trim() === '' || !textBeatValid}
+          disabled={saving || textInput.trim() === '' || !textBeatValid || !textUntilValid}
           onclick={() => {
-            onsettext(Number(textBeat), textInput.trim());
+            onsettext(Number(textBeat), textInput.trim(), textUntil.trim() === '' ? null : Number(textUntil));
             textInput = '';
+            textUntil = '';
           }}>Add</button>
+      </div>
+      <div class="field-row">
+        <input
+          class="txt letter"
+          aria-label="Dashed line ends at bar"
+          inputmode="numeric"
+          placeholder="bar"
+          value={textUntil}
+          oninput={(event) => (textUntil = (event.currentTarget as HTMLInputElement).value)}
+        />
+        <span class="note">Optional: a dashed line after the text, closing with a hook at the end of that bar.</span>
       </div>
       <p class="note">Printed above the staff at that beat. Adding at a beat that has one replaces it.</p>
     </div>

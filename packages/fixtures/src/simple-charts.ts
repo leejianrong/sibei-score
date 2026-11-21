@@ -98,6 +98,10 @@ export function everyGlyphChart(): Score {
       .build(),
   ];
 
+  // The "solo break" direction's dashed line (SIB2-170) runs to bar 6, across the system break after bar 4.
+  const direction = bars[2]!.annotations[0]!;
+  bars[2] = { ...bars[2]!, annotations: [{ ...direction, lineEndBarId: bars[6]!.id }] };
+
   const score = makeScore({
     id: 'score-every-glyph',
     title: 'Every Glyph',

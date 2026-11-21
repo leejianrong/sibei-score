@@ -122,6 +122,16 @@ function measure(
   // Text directions (SIB2-169) ride as `<words>` above the staff, offset to their beat like a harmony.
   for (const annotation of [...bar.annotations].sort((a, b) => a.onset - b.onset)) {
     children.push(words(annotation));
+    // A dashed continuation line (SIB2-170) opens right after its words and closes in the end bar.
+    if (annotation.lineEndBarId !== undefined && score.bars.some((b) => b.id === annotation.lineEndBarId)) {
+      children.push(dashes('start', annotation.id, bar));
+    }
+  }
+  for (const earlier of score.bars) {
+    if (earlier.number > bar.number) continue;
+    for (const annotation of earlier.annotations) {
+      if (annotation.lineEndBarId === bar.id) children.push(dashes('stop', annotation.id, bar));
+    }
   }
 
   for (const note of noteElements(bar, slurs)) children.push(note);
@@ -154,6 +164,14 @@ function tempoDirection(tempo: Tempo): XmlElement {
 function rehearsal(letter: string): XmlElement {
   return elem('direction', { placement: 'above' }, [
     elem('direction-type', {}, [leaf('rehearsal', letter)]),
+  ]);
+}
+
+/** The number pairs a start with its stop; the annotation's position in the whole score keeps it unique. */
+function dashes(type: 'start' | 'stop', annotationId: string, _bar: Bar): XmlElement {
+  const digits = (((Number(annotationId.replace(/\D/g, '')) || 1) - 1) % 16) + 1;
+  return elem('direction', { placement: 'above' }, [
+    elem('direction-type', {}, [elem('dashes', { type, number: digits })]),
   ]);
 }
 

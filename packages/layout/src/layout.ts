@@ -389,6 +389,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
   }
 
   for (const annotation of bar.annotations) {
+    const end = annotation.lineEndBarId === undefined ? undefined : score.bars.find((b) => b.id === annotation.lineEndBarId);
     items.push({
       kind: 'annotation',
       annotationId: annotation.id,
@@ -397,7 +398,19 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
       text: annotation.text,
       anchorItemId: anchorFor(bar, annotation.onset),
       flagged: annotation.review.flagged,
+      ...(end !== undefined && end.number >= bar.number ? { line: { endsHere: end.number === bar.number } } : {}),
     });
+  }
+
+  // The bars a dashed line passes through or closes on (SIB2-170), from any earlier bar's direction.
+  for (const earlier of score.bars) {
+    if (earlier.number >= bar.number) continue;
+    for (const annotation of earlier.annotations) {
+      const end = annotation.lineEndBarId === undefined ? undefined : score.bars.find((b) => b.id === annotation.lineEndBarId);
+      if (end !== undefined && end.number >= bar.number) {
+        items.push({ kind: 'directionLine', annotationId: annotation.id, endsHere: end.number === bar.number });
+      }
+    }
   }
 
   for (const tuplet of bar.tuplets) {

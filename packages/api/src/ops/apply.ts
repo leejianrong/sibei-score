@@ -753,7 +753,11 @@ function setText(score: Score, target: string, payload: TextSetPayload): Applied
   const text = payload.text.trim();
   const existing = position.bar.annotations.find((annotation) => annotation.onset === position.onset);
   const id = existing?.id ?? payload.id ?? nextId(score, 'annotation');
-  const annotation = makeAnnotation({ id, onset: position.onset, text });
+  const lineEndBarId = nextLineEnd(score, position.bar, existing, payload);
+  const annotation = {
+    ...makeAnnotation({ id, onset: position.onset, text }),
+    ...(lineEndBarId === undefined ? {} : { lineEndBarId }),
+  };
   return {
     score: mapBar(score, position.bar.id, (bar) => ({
       ...bar,
@@ -764,6 +768,28 @@ function setText(score: Score, target: string, payload: TextSetPayload): Applied
     operation: { type: 'text.set', target, payload: { ...payload, text, id } },
     changed: [id],
   };
+}
+
+/** The bar a direction's dashed line ends on after a `text.set` (SIB2-170): kept unless `until` says otherwise. */
+function nextLineEnd(
+  score: Score,
+  start: Bar,
+  existing: Annotation | undefined,
+  payload: TextSetPayload,
+): Id | undefined {
+  if (payload.until === undefined) return existing?.lineEndBarId;
+  if (payload.until === null) return undefined;
+  if (typeof payload.until !== 'string') {
+    throw new OperationError({ kind: 'validation', detail: 'until must be a bar address such as bar8, or null' });
+  }
+  const end = resolveBar(score, payload.until);
+  if (end.number < start.number) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `the line cannot end at bar ${end.number}, before the direction's own bar ${start.number}`,
+    });
+  }
+  return end.id;
 }
 
 /** Remove a direction by its id (`annotation-3`, which `show` prints) or by the beat it sits on. */
@@ -1222,7 +1248,23 @@ function removeBar(score: Score, target: string): Applied {
     });
   }
 
-  const remaining = { ...score, bars: score.bars.filter((b) => b.id !== bar.id) };
+  // A direction's dashed line that ended on the removed bar loses its end rather than dangling (SIB2-170).
+  const remaining = {
+    ...score,
+    bars: score.bars
+      .filter((b) => b.id !== bar.id)
+      .map((b) =>
+        b.annotations.some((a) => a.lineEndBarId === bar.id)
+          ? {
+              ...b,
+              annotations: b.annotations.map((a) => {
+                const { lineEndBarId: _end, ...rest } = a;
+                return a.lineEndBarId === bar.id ? rest : a;
+              }),
+            }
+          : b,
+      ),
+  };
   const shifted = shiftBars(remaining, bar.number, -1);
   return {
     score: { ...score, bars: shifted.bars, sections: shifted.sections },
