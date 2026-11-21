@@ -4,10 +4,15 @@ import {
   EXPORT_FONTS,
   EXPORT_FORMATS,
   EXPORT_INSTRUMENTS,
+  EXPORT_PAGE_NUMBER_FORMATS,
+  EXPORT_PAGE_NUMBER_POSITIONS,
   EXPORT_PAPERS,
   parseExportFont,
   parseExportFormat,
   parseExportInstrument,
+  parseExportPageNumberFirst,
+  parseExportPageNumberFormat,
+  parseExportPageNumberPosition,
   parseExportPaper,
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
@@ -656,11 +661,27 @@ async function exportScore(
   const font = parseExportFont(query.get('font'));
   if (font === null) return send(response, unsupported('font', query.get('font'), EXPORT_FONTS));
 
+  // Page numbers (SIB2-171): off unless a position is named. The format and the first-page choice only
+  // matter with a position, but a bad value is a 422 either way — no silent fallback.
+  const position = parseExportPageNumberPosition(query.get('pagenumbers'));
+  if (position === undefined) {
+    return send(response, unsupported('pagenumbers', query.get('pagenumbers'), ['none', ...EXPORT_PAGE_NUMBER_POSITIONS]));
+  }
+  const numberFormat = parseExportPageNumberFormat(query.get('pagenumberformat'));
+  if (numberFormat === null) {
+    return send(response, unsupported('pagenumberformat', query.get('pagenumberformat'), EXPORT_PAGE_NUMBER_FORMATS));
+  }
+  const numberFirst = parseExportPageNumberFirst(query.get('pagenumberfirst'));
+  if (numberFirst === null) {
+    return send(response, unsupported('pagenumberfirst', query.get('pagenumberfirst'), ['yes', 'no']));
+  }
+
   const outcome = await context.exporter.export(context.owner, scoreId, {
     format,
     instrument,
     paper,
     font,
+    pageNumbers: position === null ? null : { position, format: numberFormat, first: numberFirst },
   });
   if (!outcome.ok) return send(response, noSuchScore(scoreId));
   return sendArtefact(response, outcome.artefact);

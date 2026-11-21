@@ -84,6 +84,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore show <id>                        the text projection
   sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
   sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
+              [--page-numbers[=top-right|…]] [--page-number-format n|page|of] [--page-number-first yes|no]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
@@ -135,7 +136,10 @@ Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
 Export:  --pdf (the default) or --musicxml. MusicXML is a codec at the edges (ADR-0004);
-  it is lossy in known ways and ignores --paper and --font, which are page choices.
+  it is lossy in known ways and ignores --paper, --font and --page-numbers, which are page choices.
+  --page-numbers prints a number on each PDF page (off by default): bare it is top-right, or name a
+  place — top|bottom with left|center|right, as top-center. --page-number-format is n (2), page
+  (Page 2) or of (Page 2 of 3); --page-number-first no leaves page 1 bare.
   Without -o the file is written to the working directory, named after the chart's
   title — "Body and Soul" becomes ./Body and Soul.pdf. -o takes a file path, or a
   directory to put that name in.
@@ -420,6 +424,14 @@ async function exportScore(
   // paper and face, the server judges the name and 422s an unknown one; the CLI just forwards it.
   const instrument = flags.options.get('for');
   if (instrument !== undefined) query.instrument = instrument;
+  // Page numbers (SIB2-171): bare `--page-numbers` is top-right; `--page-numbers=bottom-center` names a place.
+  // `--page-numbers=none` is spelled out too. The server judges every value.
+  const numbers = flags.options.get('page-numbers') ?? (flags.switches.has('page-numbers') ? 'top-right' : undefined);
+  if (numbers !== undefined) query.pagenumbers = numbers;
+  const numberFormat = flags.options.get('page-number-format');
+  if (numberFormat !== undefined) query.pagenumberformat = numberFormat;
+  const numberFirst = flags.options.get('page-number-first');
+  if (numberFirst !== undefined) query.pagenumberfirst = numberFirst;
 
   const artefact = await client.exportScore(id, query);
   const path = outputPathFor({

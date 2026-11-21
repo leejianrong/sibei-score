@@ -5,3 +5,4 @@ export * from './grid.js';
 export * from './widths.js';
 export * from './vertical.js';
 export * from './layout.js';
+export * from './furniture.js';

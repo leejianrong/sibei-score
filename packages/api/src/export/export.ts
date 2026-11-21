@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_MUSIC_FONT, MUSIC_FONT_NAMES } from '@sibei/engrave';
 import type { MusicFontName } from '@sibei/engrave';
-import { PAPER_SIZES } from '@sibei/layout';
-import type { Paper } from '@sibei/layout';
+import {
+  DEFAULT_PAGE_NUMBERS,
+  PAGE_NUMBER_FORMATS,
+  PAGE_NUMBER_POSITIONS,
+  PAPER_SIZES,
+} from '@sibei/layout';
+import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
 import type { Id, Score } from '@sibei/model';
 import { scoreToMusicXml } from '@sibei/codec';
 import { renderScoreToPdf } from '@sibei/pdf';
@@ -65,6 +70,8 @@ export interface ExportRequest {
   instrument: ExportInstrument;
   paper: Paper;
   font: MusicFontName;
+  /** Page numbers on the PDF (SIB2-171). Absent or null: none, as before. A render choice, not part of the score. */
+  pageNumbers?: PageNumberSettings | null;
 }
 
 export interface Artefact {
@@ -141,6 +148,11 @@ export function exportBlobKey(
     request.paper,
     request.font,
     request.format,
+    // The last component, and absent when there are none, so every key made before page numbers existed is
+    // still the key for the same bytes. A PDF's page numbers change them; MusicXML ignores them.
+    ...(request.format === 'pdf' && request.pageNumbers
+      ? [`pn-${request.pageNumbers.position}-${request.pageNumbers.format}-${request.pageNumbers.first ? 'first' : 'skip'}`]
+      : []),
   ].join(':');
 }
 
@@ -194,7 +206,7 @@ function render(score: Score, request: ExportRequest): Promise<Buffer> {
       // The page spec and the render options, straight through. Nothing here decides anything
       // about the page — that is `layout`'s, and the seam only holds while the API stays a
       // conduit for the choice rather than a second opinion about it (ADR-0014).
-      return renderScoreToPdf(score, { paper: request.paper }, { font: request.font });
+      return renderScoreToPdf(score, { paper: request.paper, pageNumbers: request.pageNumbers ?? null }, { font: request.font });
     case 'musicxml':
       // A codec at the edge (ADR-0004), not a render: MusicXML is text off the score, so paper and
       // font do not enter into it. `writtenPart` already applied above, so a part exports transposed.
@@ -251,4 +263,27 @@ export function parseExportPaper(raw: string | null): Paper | null {
 export function parseExportFont(raw: string | null): MusicFontName | null {
   if (raw === null || raw === '') return DEFAULT_FONT;
   return EXPORT_FONTS.find((font) => font === raw) ?? null;
+}
+
+export const EXPORT_PAGE_NUMBER_POSITIONS = PAGE_NUMBER_POSITIONS;
+export const EXPORT_PAGE_NUMBER_FORMATS = PAGE_NUMBER_FORMATS;
+
+/**
+ * `pagenumbers=none|top-right|…` — none unless asked for (SIB2-171), so existing output is
+ * unchanged. Returns `undefined` for a position that is not one (a 422), `null` for none.
+ */
+export function parseExportPageNumberPosition(raw: string | null): PageNumberPosition | null | undefined {
+  if (raw === null || raw === '' || raw === 'none') return null;
+  return EXPORT_PAGE_NUMBER_POSITIONS.find((position) => position === raw);
+}
+
+export function parseExportPageNumberFormat(raw: string | null): PageNumberFormat | null {
+  if (raw === null || raw === '') return DEFAULT_PAGE_NUMBERS.format;
+  return EXPORT_PAGE_NUMBER_FORMATS.find((format) => format === raw) ?? null;
+}
+
+/** `yes` (the default) or `no`: whether page 1 carries a number. */
+export function parseExportPageNumberFirst(raw: string | null): boolean | null {
+  if (raw === null || raw === '' || raw === 'yes') return true;
+  return raw === 'no' ? false : null;
 }

@@ -10,6 +10,8 @@ import {
 } from '@sibei/model';
 import { resolveBarAccidentals } from './accidentals.js';
 import { planSystems } from './grid.js';
+import { buildFurniture } from './furniture.js';
+import type { LayoutFurniture } from './furniture.js';
 import type { LayoutBarItem, LayoutText, LayoutTie } from './items.js';
 import type { PageSpec, PageSpecInput } from './page.js';
 import { resolvePageSpec } from './page.js';
@@ -68,6 +70,8 @@ export interface LayoutPage {
   height: number;
   /** The title block, on the first page only. */
   header: LayoutText[];
+  /** Page numbers and other furniture, in the margin bands (SIB2-171). Empty by default. */
+  furniture: LayoutFurniture[];
   systems: LayoutSystem[];
 }
 
@@ -159,6 +163,8 @@ function paginate(score: Score, systems: LayoutSystem[], spec: PageSpec): Layout
   }
 
   pages.push(page);
+  // The page count is only known now, and "Page 2 of 3" needs it.
+  for (const each of pages) each.furniture = buildFurniture(each.index, pages.length, spec);
   return pages;
 }
 
@@ -170,6 +176,7 @@ function emptyPage(index: number, score: Score, spec: PageSpec): LayoutPage {
     width: spec.width,
     height: spec.height,
     header: index === 0 ? buildHeader(score, spec) : [],
+    furniture: [],
     systems: [],
   };
 }

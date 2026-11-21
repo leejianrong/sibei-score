@@ -10,6 +10,7 @@ import type {
 import { LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
 import type { Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
+import { furnitureText } from './furniture.js';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
 import type { BeamMember } from './beams.js';
 import { applyBeam, beamElements, beamLine } from './beams.js';
@@ -140,6 +141,8 @@ export function engravePage(
   const font = musicFontNamed(opts.font);
   const skipped = new Map<LayoutBarItemKind, number>();
   const children: SvgElement[] = page.header.map((item) => headerText(item, opts.textFont));
+
+  children.push(...page.furniture.map((item) => furnitureText(item, opts.textFont)));
 
   for (const system of page.systems) {
     children.push(...engraveSystem(font, system, result.time, opts, skipped));
