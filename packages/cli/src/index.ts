@@ -15,6 +15,7 @@ export {
   resolveBindHost,
   resolveDatabaseUrl,
   resolveHostedConfig,
+  resolvePhotoImport,
   resolveUiDirectory,
 } from './serve.js';
 export type { DataDirectoryAdoption, HostedConfig } from './serve.js';
