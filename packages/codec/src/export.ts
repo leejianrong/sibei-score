@@ -234,7 +234,7 @@ function noteElement(note: Note, bar: Bar, slurs: SlurMark[]): XmlElement {
     ...dots(note.duration.dots),
     accidentalElement(note),
     timeModification(tuplet),
-    notations(note, bar, tuplet, undefined, slurs),
+    notations(note, bar, tuplet, undefined, slurs, note.fermata === true),
   ];
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
 }
@@ -248,7 +248,7 @@ function restElement(rest: Rest, bar: Bar): XmlElement {
     leaf('type', NOTE_TYPE[rest.duration.value]),
     ...dots(rest.duration.dots),
     timeModification(tuplet),
-    notations(null, bar, tuplet, rest.id),
+    notations(null, bar, tuplet, rest.id, [], rest.fermata === true),
   ].filter((c): c is XmlElement => c !== null));
 }
 
@@ -307,6 +307,7 @@ function notations(
   tuplet: Tuplet | null,
   restId?: string,
   slurs: SlurMark[] = [],
+  held = false,
 ): XmlElement | null {
   const parts: XmlElement[] = [];
 
@@ -314,6 +315,9 @@ function notations(
     if (note.tie === 'stop' || note.tie === 'both') parts.push(elem('tied', { type: 'stop' }));
     if (note.tie === 'start' || note.tie === 'both') parts.push(elem('tied', { type: 'start' }));
   }
+
+  // `<fermata type="upright"/>` is the hold above the note or rest (SIB2-183).
+  if (held) parts.push(elem('fermata', { type: 'upright' }));
 
   for (const slur of slurs) {
     parts.push(

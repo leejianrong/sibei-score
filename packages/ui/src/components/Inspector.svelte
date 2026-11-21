@@ -30,12 +30,15 @@
     tie: TieRole;
     /** Whether this note's spelling is pinned against transposition (ADR-0017). V6e. */
     spellingPinned: boolean;
+    /** Whether a fermata sits over this note (SIB2-183). */
+    fermata: boolean;
   }
 
   export interface RestSelection {
     kind: 'rest';
     id: Id;
     duration: Duration;
+    fermata: boolean;
   }
 
   export type Selection = NoteSelection | RestSelection;
@@ -68,6 +71,7 @@
     pendingSlur?: { with: Id } | null;
     /** The slurs that begin or end on this note, each removable. */
     slurs?: readonly Spanner[];
+    onfermata?: (on: boolean) => void;
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
@@ -88,6 +92,7 @@
     error,
     pendingSlur = null,
     slurs = [],
+    onfermata,
     onslur,
     onrmslur,
     onsave,
@@ -239,6 +244,19 @@
         </span>
       </label>
     {/if}
+
+    <label class="pin">
+      <input
+        type="checkbox"
+        checked={selection.fermata}
+        disabled={saving}
+        onchange={(event) => onfermata?.((event.currentTarget as HTMLInputElement).checked)}
+      />
+      <span class="pin-text">
+        Fermata
+        <em>A hold sign over this {selection.kind}. Applies at once, like the slur controls.</em>
+      </span>
+    </label>
 
     {#if selection.kind === 'note'}
       <div class="field slur-field">

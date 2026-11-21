@@ -118,6 +118,11 @@ export interface Note {
   tie: TieRole;
   /** An explicit spelling that survives transposition (ADR-0017). */
   spellingPinned: boolean;
+  /**
+   * A fermata (hold) over this note (SIB2-183). Optional-and-absent — `true` or missing, never `false` — so no
+   * stored document changes shape and `SCHEMA_VERSION` stays (ADR-0028). Playback length is not modelled.
+   */
+  fermata?: boolean;
   confidence: Confidence;
   review: Review;
 }
@@ -128,6 +133,8 @@ export interface Rest {
   id: Id;
   onset: number;
   duration: Duration;
+  /** A fermata over this rest (SIB2-183); optional-and-absent like a note's. */
+  fermata?: boolean;
   confidence: Confidence;
   review: Review;
 }

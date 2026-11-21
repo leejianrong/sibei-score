@@ -359,6 +359,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
         tie: item.tie,
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,
+        ...(item.fermata === true ? { fermata: true } : {}),
       });
     } else {
       items.push({
@@ -369,6 +370,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
         duration: item.duration,
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,
+        ...(item.fermata === true ? { fermata: true } : {}),
       });
     }
   }

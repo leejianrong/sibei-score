@@ -223,6 +223,8 @@ class PartReader {
             break;
           }
           const parsed = this.readNote(child, cursor);
+          const notations = firstChild(child, 'notations');
+          if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
           items.push(parsed.item);
           this.readSlurs(child, parsed.item);
           openTuplet = this.trackTuplet(openTuplet, tuplets, parsed);

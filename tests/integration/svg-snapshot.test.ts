@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, everyGlyphChart, longFormChart, nastyChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, everyGlyphChart, longFormChart, nastyChart, marksChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -65,6 +65,12 @@ describe('rendered SVG', () => {
     // SIB2-168: the fixture of record for slurs — above and below by stem direction, across a
     // barline, a half-slur pair across the system break, over a leap and a tie, and a chosen side.
     snapshotScore(slurChart(), 'slurs');
+  });
+
+  it('matches the committed snapshot for the marks chart', () => {
+    // SIB2-183: fermatas over a low note, a high one, a rest and a whole note, with the chord band
+    // lifted to clear them. Articulations (SIB2-179) join this fixture.
+    snapshotScore(marksChart(), 'marks');
   });
 
   it('matches the committed snapshot for the untitled chart', () => {
