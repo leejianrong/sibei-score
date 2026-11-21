@@ -1,4 +1,5 @@
 import type { Id, Score } from '@sibei/model';
+import { rejectUnknownFields } from './fields.js';
 import { applyOperation, replay, resolveLog } from './apply.js';
 import { OperationError } from './errors.js';
 import { OPERATION_VERSION, isCreateBatch } from './operations.js';
@@ -124,6 +125,11 @@ export function createApplier(
         if (operation.type === 'score.import') {
           throw new OperationError({ kind: 'unknown-operation', type: 'score.import' });
         }
+      }
+
+      // A field the applier would silently ignore is refused on a new write; replay never asks (fields.ts).
+      for (const [index, operation] of batch.operations.entries()) {
+        rejectUnknownFields(operation, batch.operations.length > 1 ? index : undefined);
       }
 
       if (isCreateBatch(batch)) return await create(store, owner, batch, now);
