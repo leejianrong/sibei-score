@@ -26,7 +26,7 @@
 import { TICKS_PER_WHOLE, durationTicks } from './duration.js';
 import { makeBar, makeNote, makeRest, makeScore } from './build.js';
 import type { NoteEvents } from './note-events.js';
-import { quantizeNoteEvents } from './note-events-quantize.js';
+import { GRID_TICKS, quantizeNoteEvents } from './note-events-quantize.js';
 import type { QuantizedItem } from './note-events-quantize.js';
 import { SEMITONE_OF_STEP } from './pitch.js';
 import { spellPitchAt } from './spelling.js';
@@ -144,9 +144,9 @@ const CANDIDATES: ReadonlyArray<{ duration: Duration; ticks: number; base: numbe
 ).sort((a, b) => b.ticks - a.ticks);
 
 /**
- * Greedy split of `ticks` starting at `onset` into legal durations, largest first. A piece longer than a
- * beat must start on a half-bar point (beat 1 or 3 in 4/4), so a half note never starts on beat 2; one up
- * to a beat long may start on the half-beat, which keeps syncopation as one note.
+ * Greedy split of `ticks` starting at `onset` into legal durations, largest first. A piece up to a half
+ * note may start on any sixteenth, which keeps syncopation as one note (a swung jazz line is mostly
+ * that); a longer one (dotted half, whole) must start on a half-bar point.
  * Total for any multiple of a sixteenth, which the quantizer guarantees.
  */
 export function splitTicks(onset: number, ticks: number): Duration[] {
@@ -154,7 +154,7 @@ export function splitTicks(onset: number, ticks: number): Duration[] {
   let at = onset;
   let left = ticks;
   while (left > 0) {
-    const pick = CANDIDATES.find((c) => c.ticks <= left && at % (c.ticks <= 480 ? c.base / 2 : 960) === 0);
+    const pick = CANDIDATES.find((c) => c.ticks <= left && at % (c.ticks <= 960 ? GRID_TICKS : 960) === 0);
     if (pick === undefined) throw new Error(`cannot split ${left} ticks at ${at}`);
     out.push(pick.duration);
     at += pick.ticks;
