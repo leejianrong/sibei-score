@@ -51,7 +51,7 @@
   import type { ChordBox } from '../lib/chord-hit.js';
   import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
   import { renderScorePages } from '../lib/render.js';
-  import { removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
+  import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
   import type { SlurChoice } from '../lib/slur-edits.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
@@ -330,6 +330,7 @@
         // The pin is not a layout property (it changes no ink), so it is read from the model note.
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
+        articulations: item.articulations ?? [],
       };
     }
     return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
@@ -381,6 +382,14 @@
     return slurOp(score, selectedId, rangeId, 'auto') === null ? null : { with: rangeId };
   });
   const slursHere = $derived(score === null || selectedId === null ? [] : slursOnNote(score, selectedId));
+
+  // Ottava lines (SIB2-184) share the two-note selection the slur control uses.
+  const ottavasHere = $derived(score === null || selectedId === null ? [] : ottavasOnNote(score, selectedId));
+  async function handleOttava(shift: 'up' | 'down'): Promise<void> {
+    if (score === null || selectedId === null || rangeId === null) return;
+    const operation = ottavaOp(score, selectedId, rangeId, shift);
+    if (operation !== null) await runOps([operation]);
+  }
 
   async function handleSlur(placement: SlurChoice): Promise<void> {
     if (score === null || selectedId === null || rangeId === null) return;
@@ -447,7 +456,12 @@
       lineBreak: bar.lineBreak ?? 'none',
       texts: [...bar.annotations]
         .sort((a, b) => a.onset - b.onset)
-        .map((a) => ({ id: a.id, beat: beatOfOnset(a.onset, score!.meta.time), text: a.text })),
+        .map((a) => ({
+          id: a.id,
+          beat: beatOfOnset(a.onset, score!.meta.time),
+          text: a.text,
+          until: score!.bars.find((b) => b.id === a.lineEndBarId)?.number ?? null,
+        })),
     };
   });
 
@@ -1223,6 +1237,9 @@
                 void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
+              ottavas={ottavasHere}
+              onottava={(shift) => void handleOttava(shift)}
+              onrmottava={(id) => void runOps([removeOttavaOp(id)])}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}
@@ -1241,8 +1258,14 @@
               onsave={handleStructureSave}
               onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
               onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
-              onsettext={(beat, text) =>
-                void runOps([{ type: 'text.set', target: `${barStructure!.addr}.beat${beat}`, payload: { text } }])}
+              onsettext={(beat, text, until) =>
+                void runOps([
+                  {
+                    type: 'text.set',
+                    target: `${barStructure!.addr}.beat${beat}`,
+                    payload: { text, until: until === null ? null : `bar${until}` },
+                  },
+                ])}
               onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
               ondeselect={deselect}
               onreload={handleReload}

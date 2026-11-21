@@ -483,7 +483,7 @@ export type Operation =
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
-  | { type: 'text.set'; target: string; payload: { text: string } }
+  | { type: 'text.set'; target: string; payload: { text: string; until?: string | null } }
   | { type: 'text.rm'; target: string }
   | { type: 'transpose'; payload: TransposePayload }
   | { type: 'section.set'; target: string; payload: SectionSetPayload }
@@ -499,6 +499,8 @@ export type Operation =
   | { type: 'fermata.rm'; target: string }
   | { type: 'slur.set'; target: string; payload: { to: string; placement?: 'above' | 'below' } }
   | { type: 'slur.rm'; target: string }
+  | { type: 'ottava.set'; target: string; payload: { to: string; shift: 'up' | 'down' } }
+  | { type: 'ottava.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };

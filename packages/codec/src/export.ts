@@ -52,6 +52,7 @@ const PROLOG = [
 /** Serialise a score to a MusicXML `score-partwise` document. Deterministic. */
 export function scoreToMusicXml(score: Score): string {
   const marks = slurMarks(score);
+  const ottavas = ottavaMarks(score);
   const root = elem('score-partwise', { version: '4.0' }, [
     work(score),
     identification(score),
@@ -61,7 +62,7 @@ export function scoreToMusicXml(score: Score): string {
     elem(
       'part',
       { id: 'P1' },
-      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1], marks)),
+      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1], marks, ottavas)),
     ),
   ]);
   return serialize(root, { prolog: PROLOG });
@@ -90,6 +91,7 @@ function measure(
   isFirst: boolean,
   previous: Bar | undefined,
   slurs: SlurMarks,
+  ottavas: OttavaMarks,
 ): XmlElement {
   const children: (XmlElement | null)[] = [];
 
@@ -122,9 +124,19 @@ function measure(
   // Text directions (SIB2-169) ride as `<words>` above the staff, offset to their beat like a harmony.
   for (const annotation of [...bar.annotations].sort((a, b) => a.onset - b.onset)) {
     children.push(words(annotation));
+    // A dashed continuation line (SIB2-170) opens right after its words and closes in the end bar.
+    if (annotation.lineEndBarId !== undefined && score.bars.some((b) => b.id === annotation.lineEndBarId)) {
+      children.push(dashes('start', annotation.id, bar));
+    }
+  }
+  for (const earlier of score.bars) {
+    if (earlier.number > bar.number) continue;
+    for (const annotation of earlier.annotations) {
+      if (annotation.lineEndBarId === bar.id) children.push(dashes('stop', annotation.id, bar));
+    }
   }
 
-  for (const note of noteElements(bar, slurs)) children.push(note);
+  for (const note of noteElements(bar, slurs, ottavas)) children.push(note);
 
   const right = rightBarline(bar);
   if (right !== null) children.push(right);
@@ -157,6 +169,14 @@ function rehearsal(letter: string): XmlElement {
   ]);
 }
 
+/** The number pairs a start with its stop; the annotation's position in the whole score keeps it unique. */
+function dashes(type: 'start' | 'stop', annotationId: string, _bar: Bar): XmlElement {
+  const digits = (((Number(annotationId.replace(/\D/g, '')) || 1) - 1) % 16) + 1;
+  return elem('direction', { placement: 'above' }, [
+    elem('direction-type', {}, [elem('dashes', { type, number: digits })]),
+  ]);
+}
+
 function words(annotation: Annotation): XmlElement {
   return elem('direction', { placement: 'above' }, [
     elem('direction-type', {}, [leaf('words', annotation.text)]),
@@ -178,10 +198,36 @@ function attributes(score: Score): XmlElement {
 // Notes and rests
 // ---------------------------------------------------------------------------
 
-function noteElements(bar: Bar, slurs: SlurMarks): XmlElement[] {
-  return bar.items.map((item) =>
-    item.kind === 'note' ? noteElement(item, bar, slurs.get(item.id) ?? []) : restElement(item, bar),
-  );
+/** An ottava line's start before, or stop after, one note (SIB2-184): `<octave-shift>` in a `<direction>`. */
+type OttavaMarks = Map<string, { starts: XmlElement[]; stops: XmlElement[] }>;
+
+function ottavaMarks(score: Score): OttavaMarks {
+  const marks: OttavaMarks = new Map();
+  const at = (id: string): { starts: XmlElement[]; stops: XmlElement[] } => {
+    const found = marks.get(id) ?? { starts: [], stops: [] };
+    marks.set(id, found);
+    return found;
+  };
+  for (const line of score.spanners ?? []) {
+    if (line.kind !== 'ottava' || line.octaveShift === undefined) continue;
+    // MusicXML's `down` is a notes-printed-lower line, which is our 8va.
+    const type = line.octaveShift === 'up' ? 'down' : 'up';
+    const direction = (kind: string): XmlElement =>
+      elem('direction', { placement: line.octaveShift === 'up' ? 'above' : 'below' }, [
+        elem('direction-type', {}, [elem('octave-shift', { type: kind, size: 8, number: 1 })]),
+      ]);
+    at(line.startId).starts.push(direction(type));
+    at(line.endId).stops.push(direction('stop'));
+  }
+  return marks;
+}
+
+function noteElements(bar: Bar, slurs: SlurMarks, ottavas: OttavaMarks): XmlElement[] {
+  return bar.items.flatMap((item) => {
+    if (item.kind !== 'note') return [restElement(item, bar)];
+    const lines = ottavas.get(item.id);
+    return [...(lines?.starts ?? []), noteElement(item, bar, slurs.get(item.id) ?? []), ...(lines?.stops ?? [])];
+  });
 }
 
 /** A slur's start or stop on one note, as `<slur type number placement>` wants it. */
@@ -314,6 +360,11 @@ function notations(
   if (note !== null) {
     if (note.tie === 'stop' || note.tie === 'both') parts.push(elem('tied', { type: 'stop' }));
     if (note.tie === 'start' || note.tie === 'both') parts.push(elem('tied', { type: 'start' }));
+    // Staccato, accent and marcato (SIB2-179). MusicXML's marcato is the strong accent.
+    const marks = (note.articulations ?? []).map((mark) =>
+      mark === 'staccato' ? elem('staccato', {}) : mark === 'accent' ? elem('accent', {}) : elem('strong-accent', { type: 'up' }),
+    );
+    if (marks.length > 0) parts.push(elem('articulations', {}, marks));
   }
 
   // `<fermata type="upright"/>` is the hold above the note or rest (SIB2-183).

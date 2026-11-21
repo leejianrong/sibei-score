@@ -7,7 +7,7 @@ import type {
   NoteItem,
   RestItem,
 } from '@sibei/layout';
-import { LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
+import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, writtenPitch } from '@sibei/layout';
 import type { Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
 import { furnitureText } from './furniture.js';
@@ -46,7 +46,7 @@ import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
 import { slur } from './slurs.js';
-import { fermata } from './marks.js';
+import { articulations, fermata } from './marks.js';
 import type { ChordStyle } from './text.js';
 import {
   CANONICAL_CHORD_STYLE,
@@ -58,6 +58,7 @@ import {
   rehearsalMark,
   text,
 } from './text.js';
+import { ottavaLine } from './ottava.js';
 import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
@@ -262,6 +263,32 @@ export function engraveSystem(
     if (curve !== null) children.push(curve);
   }
 
+  // Ottava lines (SIB2-184): 8va above the staff, 8vb below, at the height layout reserved for them.
+  for (const line of system.ottavas) {
+    const y =
+      line.shift === 'up'
+        ? system.ottavaAboveOffset === undefined
+          ? undefined
+          : system.staveY - system.ottavaAboveOffset
+        : system.ottavaBelowOffset === undefined
+          ? undefined
+          : system.staveY + units(4) + system.ottavaBelowOffset;
+    if (y === undefined) continue;
+    const from = line.fromNoteId === null ? undefined : anchors.get(line.fromNoteId);
+    const to = line.toNoteId === null ? undefined : anchors.get(line.toNoteId);
+    children.push(
+      ...ottavaLine({
+        shift: line.shift,
+        from: from === undefined ? musicLeft : from.x,
+        to: to === undefined ? system.x + system.width : to.x + to.noteheadWidth,
+        y,
+        labelled: line.labelled,
+        hooked: line.toNoteId !== null,
+        size: options.chordFontSize * 0.9,
+      }),
+    );
+  }
+
   return children;
 }
 
@@ -303,7 +330,17 @@ function engraveBar(
   // The prefix is drawn inside the room layout allocated for it, left to right.
   let prefixX = bar.x + units(0.6);
 
-  const chords: { anchorItemId: Id | null; onset: number; text: string; plain: boolean; flagged: boolean }[] = [];
+  const chords: {
+    anchorItemId: Id | null;
+    onset: number;
+    text: string;
+    plain: boolean;
+    flagged: boolean;
+    /** A text direction's dashed line, drawn after the text (SIB2-170). */
+    line?: { endsHere: boolean };
+  }[] = [];
+  /** Dashed-line segments that start at the bar's left edge: a direction from an earlier bar passing through. */
+  const lineSegments: { endsHere: boolean }[] = [];
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
@@ -420,7 +457,12 @@ function engraveBar(
           text: item.text,
           plain: true,
           flagged: item.flagged,
+          ...(item.line === undefined ? {} : { line: item.line }),
         });
+        break;
+
+      case 'directionLine':
+        lineSegments.push({ endsHere: item.endsHere });
         break;
 
       case 'tupletBracket':
@@ -485,6 +527,18 @@ function engraveBar(
     // sized from the notehead's own box rather than a measurement (ADR-0015).
     if (entry.item.flagged) shading.push(flaggedItemShade(note.x, font.width(note.glyph), staveY));
     ink.push(...noteInk(font, note, staveY, beamed.has(entry)));
+    if (entry.item.kind === 'note' && entry.item.articulations !== undefined && entry.item.articulations.length > 0) {
+      ink.push(
+        ...articulations(font, {
+          x: note.x,
+          width: font.width(note.glyph),
+          y: positionY(note.position, staveY),
+          staveY,
+          stem: note.stem?.direction ?? stemDirection(note.position),
+          marks: entry.item.articulations,
+        }),
+      );
+    }
     if (entry.item.fermata === true) {
       const headTop = positionY(note.position, staveY) - units(0.5);
       const up = note.stem !== null && note.stem.direction === 'up';
@@ -493,7 +547,12 @@ function engraveBar(
           x: note.x,
           width: font.width(note.glyph),
           staveY,
-          inkTopY: entry.item.kind === 'rest' ? null : up && note.stem !== null ? Math.min(headTop, note.stem.endY) : headTop,
+          inkTopY:
+            entry.item.kind === 'rest'
+              ? null
+              : (up && note.stem !== null ? Math.min(headTop, note.stem.endY) : headTop) -
+                // Marks over a down-stemmed head push the fermata up past them (SIB2-179).
+                (up ? 0 : (entry.item.articulations?.length ?? 0) * ARTICULATION_BAND),
         }),
       );
     }
@@ -547,8 +606,54 @@ function engraveBar(
     );
   }
 
+  // Dashed continuation lines after text directions (SIB2-170), above the chord row, so it never strikes through a chord: from the end of the text
+  // (this bar) or the bar's left edge (a later bar) to its right edge, with a hook down at a closing bar's end.
+  const lineY = bands.chordBaseline - options.chordFontSize * 1.1;
+  for (const [index, chord] of chords.entries()) {
+    if (chord.line === undefined) continue;
+    const x = chordXs[index] ?? bar.x + bar.prefixWidth + units(1);
+    const from = x + options.chordFontSize * CHORD_ADVANCE_EM * chord.text.length + units(0.6);
+    before.push(...directionLine(from, bar.x + bar.width, lineY, chord.line.endsHere, options.chordFontSize));
+  }
+  for (const segment of lineSegments) {
+    before.push(
+      ...directionLine(bar.x + bar.prefixWidth, bar.x + bar.width, lineY, segment.endsHere, options.chordFontSize),
+    );
+  }
+
   void skipped;
   return [...before, ...ink, ...beams, ...after];
+}
+
+/**
+ * A dashed line from `from` to `to`; a closing bar stops a little short of its barline and ends in a hook down
+ * toward the staff, so a reader sees where the instruction stops.
+ */
+function directionLine(from: number, to: number, y: number, closes: boolean, size: number): SvgElement[] {
+  const end = closes ? to - units(0.6) : to;
+  if (end <= from) return [];
+  const out: SvgElement[] = [
+    el('path', {
+      class: 'se-directionline',
+      d: `M${from} ${y}L${end} ${y}`,
+      fill: 'none',
+      stroke: '#000000',
+      'stroke-width': 1,
+      'stroke-dasharray': `${size * 0.4} ${size * 0.3}`,
+    }),
+  ];
+  if (closes) {
+    out.push(
+      el('path', {
+        class: 'se-directionhook',
+        d: `M${end} ${y}L${end} ${y + size * 0.8}`,
+        fill: 'none',
+        stroke: '#000000',
+        'stroke-width': 1,
+      }),
+    );
+  }
+  return out;
 }
 
 /** Estimated advance of a chord symbol, as in `flaggedChordShade` — never measured (ADR-0015). */
@@ -611,7 +716,7 @@ function engraveItem(
   }
 
   const glyph = noteheadFor(item.duration);
-  const position = staffPosition(item.pitch);
+  const position = staffPosition(writtenPitch(item.pitch, item.ottava));
   return {
     item,
     x: entry.x,

@@ -123,9 +123,20 @@ export interface Note {
    * stored document changes shape and `SCHEMA_VERSION` stays (ADR-0028). Playback length is not modelled.
    */
   fermata?: boolean;
+  /**
+   * Staccato, accent and marcato marks on this note (SIB2-179), in `ARTICULATIONS` order and without repeats.
+   * Optional-and-absent when there are none, so no stored document changes shape (ADR-0028). Jazz
+   * articulations (fall, doit, scoop) are not modelled.
+   */
+  articulations?: Articulation[];
   confidence: Confidence;
   review: Review;
 }
+
+export type Articulation = 'staccato' | 'accent' | 'marcato';
+
+/** In the order they stack away from the notehead: staccato nearest, marcato furthest. */
+export const ARTICULATIONS: readonly Articulation[] = ['staccato', 'accent', 'marcato'];
 
 /** A first-class object, not an implied gap — metric validity depends on it (ADR-0013). */
 export interface Rest {
@@ -179,6 +190,12 @@ export interface Annotation {
   text: string;
   confidence: Confidence;
   review: Review;
+  /**
+   * A dashed continuation line after the text, to the end of the bar with this id (SIB2-170), closing with a hook:
+   * "cue ----|". Optional-and-absent, so no stored document changes and `SCHEMA_VERSION` stays (ADR-0028); a bar
+   * id rather than a number so a bar insert or removal does not move it. An id that no longer resolves draws nothing.
+   */
+  lineEndBarId?: Id;
 }
 
 export type StartBarline = 'none' | 'repeat-start';
@@ -325,11 +342,22 @@ export interface Spanner {
   endId: Id;
   /** Which side of the staff it is drawn. Absent means by stem direction (see the engraver). */
   placement?: SpannerPlacement;
+  /**
+   * An `ottava` only (SIB2-184): `up` is 8va, the notes sound an octave above what is written, and the line is
+   * drawn above the staff; `down` is 8vb, sounding an octave below what is written, drawn below. The notes keep
+   * their sounding pitch (what every chord, part and MusicXML pitch already means); only the engraver and the
+   * hit test draw them shifted. Optional on the shared shape so ADR-0041's lane takes it unchanged.
+   */
+  octaveShift?: OctaveShift;
 }
 
-export type SpannerKind = 'slur';
+export type OctaveShift = 'up' | 'down';
 
-export const SPANNER_KINDS: readonly SpannerKind[] = ['slur'];
+export const OCTAVE_SHIFTS: readonly OctaveShift[] = ['up', 'down'];
+
+export type SpannerKind = 'slur' | 'ottava';
+
+export const SPANNER_KINDS: readonly SpannerKind[] = ['slur', 'ottava'];
 
 export type SpannerPlacement = 'above' | 'below';
 

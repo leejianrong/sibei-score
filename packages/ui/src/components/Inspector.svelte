@@ -16,8 +16,8 @@
    * one that owns the conflict recovery rule (ADR-0003): reload, never retry with the server's
    * number wearing a disguise.
    */
-  import { parsePitch } from '@sibei/model';
-  import type { AccidentalDisplay, Dots, Duration, Id, NoteValue, Spanner, TieRole } from '@sibei/model';
+  import { ARTICULATIONS, parsePitch } from '@sibei/model';
+  import type { AccidentalDisplay, Articulation, Dots, Duration, Id, NoteValue, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
 
@@ -32,6 +32,8 @@
     spellingPinned: boolean;
     /** Whether a fermata sits over this note (SIB2-183). */
     fermata: boolean;
+    /** Staccato, accent and marcato marks on this note (SIB2-179). */
+    articulations: readonly Articulation[];
   }
 
   export interface RestSelection {
@@ -54,6 +56,7 @@
     duration: Duration;
     accidental: AccidentalDisplay;
     spellingPinned: boolean;
+    articulations: Articulation[];
   }
 
   export interface RestEdits {
@@ -74,6 +77,10 @@
     onfermata?: (on: boolean) => void;
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
+    /** Ottava lines (SIB2-184) covering this note, and the controls that add one over the two selected notes. */
+    ottavas?: readonly Spanner[];
+    onottava?: (shift: 'up' | 'down') => void;
+    onrmottava?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
     /** The tuplet holding this item, or null. */
     tuplet?: TupletInfo | null;
@@ -95,6 +102,9 @@
     onfermata,
     onslur,
     onrmslur,
+    ottavas = [],
+    onottava,
+    onrmottava,
     onsave,
     tuplet = null,
     onsettuplet,
@@ -135,7 +145,12 @@
     untrack(() => (selection.kind === 'note' ? selection.accidental : 'auto')),
   );
   let spellingPinned = $state(untrack(() => (selection.kind === 'note' ? selection.spellingPinned : false)));
+  let marks = $state<Articulation[]>(untrack(() => (selection.kind === 'note' ? [...selection.articulations] : [])));
   let pitchError = $state<string | null>(null);
+
+  function toggleMark(mark: Articulation): void {
+    marks = marks.includes(mark) ? marks.filter((m) => m !== mark) : ARTICULATIONS.filter((m) => m === mark || marks.includes(m));
+  }
   let slurPlacement = $state<'auto' | 'above' | 'below'>('auto');
 
   const tieHint = $derived(selection.kind === 'note' ? hintFor(selection.tie) : null);
@@ -161,7 +176,7 @@
       return;
     }
     pitchError = null;
-    onsave({ pitch: pitchInput, duration, accidental, spellingPinned });
+    onsave({ pitch: pitchInput, duration, accidental, spellingPinned, articulations: marks });
   }
 </script>
 
@@ -232,6 +247,17 @@
         />
       </div>
 
+      <div class="field">
+        <span class="field-label">Articulation</span>
+        <div class="dots" role="group" aria-label="Articulation">
+          {#each ARTICULATIONS as mark (mark)}
+            <button type="button" class="mark" aria-pressed={marks.includes(mark)} onclick={() => toggleMark(mark)}>
+              {mark.charAt(0).toUpperCase() + mark.slice(1)}
+            </button>
+          {/each}
+        </div>
+      </div>
+
       <label class="pin">
         <input
           type="checkbox"
@@ -280,6 +306,27 @@
           <div class="slur-row">
             <span>{slur.id} · {slur.startId} to {slur.endId}</span>
             <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmslur?.(slur.id)}>
+              Remove
+            </button>
+          </div>
+        {/each}
+      </div>
+
+      <div class="field slur-field">
+        <span class="field-label">Ottava</span>
+        {#if pendingSlur !== null}
+          <p class="inspector-note">Put an 8va or 8vb line over the notes from this one to {pendingSlur.with}.</p>
+          <div class="slur-row">
+            <button type="button" class="btn btn-save" disabled={saving} onclick={() => onottava?.('up')}>8va</button>
+            <button type="button" class="btn btn-save" disabled={saving} onclick={() => onottava?.('down')}>8vb</button>
+          </div>
+        {:else}
+          <p class="inspector-note">Shift-click a second note to put an 8va or 8vb line over the run.</p>
+        {/if}
+        {#each ottavas as line (line.id)}
+          <div class="slur-row">
+            <span>{line.id} · {line.octaveShift === 'down' ? '8vb' : '8va'}</span>
+            <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmottava?.(line.id)}>
               Remove
             </button>
           </div>
@@ -449,6 +496,11 @@
   .slur-row .btn {
     flex: none;
     padding: 4px 8px;
+  }
+
+  .dots button.mark {
+    width: auto;
+    padding: 0 8px;
   }
 
   .inspector-actions {
