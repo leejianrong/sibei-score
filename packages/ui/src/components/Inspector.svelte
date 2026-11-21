@@ -34,6 +34,8 @@
     fermata: boolean;
     /** Staccato, accent and marcato marks on this note (SIB2-179). */
     articulations: readonly Articulation[];
+    /** The grace notes before this note (SIB2-185), each removable. */
+    graces: readonly { id: Id; pitch: string; value: 8 | 16 | 32; slashed: boolean }[];
   }
 
   export interface RestSelection {
@@ -81,6 +83,9 @@
     ottavas?: readonly Spanner[];
     onottava?: (shift: 'up' | 'down') => void;
     onrmottava?: (id: Id) => void;
+    /** Grace notes (SIB2-185): add one before this note, or remove one by its id. Both apply at once. */
+    ongraceadd?: (grace: { pitch: string; value: 8 | 16 | 32; slashed: boolean }) => void;
+    ongracerm?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
     /** The tuplet holding this item, or null. */
     tuplet?: TupletInfo | null;
@@ -105,6 +110,8 @@
     ottavas = [],
     onottava,
     onrmottava,
+    ongraceadd,
+    ongracerm,
     onsave,
     tuplet = null,
     onsettuplet,
@@ -128,6 +135,24 @@
   function pickPreset(index: number): void {
     presetIndex = index;
     tupletCount = TUPLET_PRESETS[index]?.actual ?? 3;
+  }
+
+  // The grace note being composed (SIB2-185): a pitch, a flag value and whether it is slashed.
+  let gracePitch = $state('');
+  let graceValue = $state<8 | 16 | 32>(8);
+  let graceSlashed = $state(true);
+  let graceError = $state<string | null>(null);
+
+  function addGrace(): void {
+    try {
+      parsePitch(gracePitch);
+    } catch {
+      graceError = `${JSON.stringify(gracePitch)} is not a pitch — try Eb4, F#5, or C4`;
+      return;
+    }
+    graceError = null;
+    ongraceadd?.({ pitch: gracePitch, value: graceValue, slashed: graceSlashed });
+    gracePitch = '';
   }
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
@@ -312,6 +337,51 @@
         {/each}
       </div>
 
+      {#if ongraceadd !== undefined}
+        <div class="field slur-field" role="group" aria-label="Grace notes">
+          <span class="field-label">Grace notes</span>
+          {#each selection.graces as grace (grace.id)}
+            <div class="slur-row">
+              <span>{grace.pitch} · {grace.value}{grace.slashed ? ' · slashed' : ''}</span>
+              <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => ongracerm?.(grace.id)}>
+                Remove
+              </button>
+            </div>
+          {/each}
+          <div class="slur-row">
+            <input
+              class="grace-pitch"
+              aria-label="Grace note name"
+              placeholder="D5"
+              value={gracePitch}
+              oninput={(event) => (gracePitch = (event.currentTarget as HTMLInputElement).value)}
+            />
+            <select
+              aria-label="Grace note length"
+              value={graceValue}
+              onchange={(event) => (graceValue = Number((event.currentTarget as HTMLSelectElement).value) as 8 | 16 | 32)}
+            >
+              <option value={8}>8th</option>
+              <option value={16}>16th</option>
+              <option value={32}>32nd</option>
+            </select>
+            <label class="grace-slash">
+              <input
+                type="checkbox"
+                checked={graceSlashed}
+                onchange={(event) => (graceSlashed = (event.currentTarget as HTMLInputElement).checked)}
+              />
+              Slashed
+            </label>
+          </div>
+          <button type="button" class="btn btn-save" disabled={saving || gracePitch === ''} onclick={addGrace}>
+            Add grace note
+          </button>
+          {#if graceError !== null}<p class="inspector-note" role="alert">{graceError}</p>{/if}
+          <p class="inspector-note">Played just before this note and takes no time. Applies at once (<code>grace add</code>).</p>
+        </div>
+      {/if}
+
       <div class="field slur-field">
         <span class="field-label">Ottava</span>
         {#if pendingSlur !== null}
@@ -492,6 +562,16 @@
     gap: 8px;
     font-size: 11px;
     color: var(--ink-soft);
+  }
+  .grace-pitch {
+    width: 56px;
+    font: inherit;
+    font-size: 11px;
+  }
+  .grace-slash {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .slur-row .btn {
     flex: none;

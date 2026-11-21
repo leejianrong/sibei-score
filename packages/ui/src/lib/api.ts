@@ -531,6 +531,8 @@ export type Operation =
   | { type: 'slur.rm'; target: string }
   | { type: 'ottava.set'; target: string; payload: { to: string; shift: 'up' | 'down' } }
   | { type: 'ottava.rm'; target: string }
+  | { type: 'grace.add'; target: string; payload: { pitch: string; value: 8 | 16 | 32; slashed: boolean } }
+  | { type: 'grace.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };

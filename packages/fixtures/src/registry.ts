@@ -2,6 +2,7 @@ import type { Score } from '@sibei/model';
 import { beamRules34Chart, beamRules68Chart, beamRulesChart, beamRulesCutChart } from './beam-rules-charts.js';
 import { crowdedChordsChart } from './crowded-chords-chart.js';
 import { denseSpacingChart } from './dense-spacing-chart.js';
+import { graceNotesChart } from './grace-notes-chart.js';
 import { aabaChart } from './aaba-chart.js';
 import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
@@ -42,5 +43,6 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   slurs: slurChart,
   marks: marksChart,
   articulations: articulationsChart,
+  'grace-notes': graceNotesChart,
   'title-block': titleBlockChart,
 };

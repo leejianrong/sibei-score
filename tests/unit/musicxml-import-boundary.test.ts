@@ -67,11 +67,18 @@ describe('every lossy case is named in the warnings', () => {
     expect(warnings(wrap('<direction><direction-type><dynamics><f/></dynamics></direction-type></direction>' + note()))).toContain(
       'dynamics were dropped',
     ));
-  it('grace notes', () => {
+  it('grace notes are read onto the note after them (SIB2-185), not dropped', () => {
     const grace = '<note><grace/><pitch><step>D</step><octave>4</octave></pitch><type>eighth</type></note>';
     const result = musicXmlToScore(wrap(grace + note()));
-    expect(result.warnings).toContain('grace notes were dropped: no grace-note model');
+    expect(result.warnings).toEqual([]);
     expect(result.score.bars[0]!.items).toHaveLength(1);
+    const first = result.score.bars[0]!.items[0];
+    expect(first?.kind === 'note' ? first.graces?.length : 0).toBe(1);
+  });
+  it('a grace note with no note after it is dropped with a warning', () => {
+    const grace = '<note><grace/><pitch><step>D</step><octave>4</octave></pitch><type>eighth</type></note>';
+    const result = musicXmlToScore(wrap(note() + grace));
+    expect(result.warnings).toContain('grace notes with no note after them were dropped');
   });
   it('a second voice and a chord tone', () => {
     expect(warnings(wrap(note() + '<backup><duration>4</duration></backup>' + note()))).toContain(
