@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, everyGlyphChart, longFormChart, nastyChart, reviewChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, everyGlyphChart, longFormChart, nastyChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -59,6 +59,12 @@ describe('rendered SVG', () => {
     // first A with 1st/2nd endings, a double bar and a final bar. This is where the barline and
     // ending glyphs are recorded under real user-set structure, so a change to any of them shows.
     snapshotScore(aabaChart(), 'aaba-chart');
+  });
+
+  it('matches the committed snapshot for the slur chart', () => {
+    // SIB2-168: the fixture of record for slurs — above and below by stem direction, across a
+    // barline, a half-slur pair across the system break, over a leap and a tie, and a chosen side.
+    snapshotScore(slurChart(), 'slurs');
   });
 
   it('matches the committed snapshot for the untitled chart', () => {
