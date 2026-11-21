@@ -7,6 +7,7 @@ import type { AudioQuotaConfig } from '../audio/quota.js';
 import { createAudioResultImporter } from '../audio/importer.js';
 import { guardLanding } from '../account/landing.js';
 import { createAudioWorkerService } from '../audio/worker-service.js';
+import type { AudioHoldCaps } from '../audio/service.js';
 import type { AudioResultImporter, AudioWorkerOptions } from '../audio/worker-service.js';
 import { workerRoute } from './worker-routes.js';
 import type { AudioLimits } from '../audio/service.js';
@@ -20,8 +21,9 @@ import type { JobBus } from '../events/job-bus.js';
 import { quotaApplier } from '../limits/quota.js';
 import type { Limits, LimitRefusal } from '../limits/limits.js';
 import { createHostedAuth } from '../auth/hosted.js';
+import { DEFAULT_MCP_KNOWN_HOSTS } from '../auth/oauth.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
-import { createOwnerEraser } from '../account/erase.js';
+import { createOwnerEraser, isManaged } from '../account/erase.js';
 import { createExporter } from '../export/export.js';
 import { MUSICXML_SOURCE } from '../imports/musicxml.js';
 import { NOTE_EVENTS_SOURCE } from '../imports/note-events.js';
@@ -47,6 +49,7 @@ import { problem, problemForUnknown } from './problems.js';
 import type { Problem } from './problems.js';
 import { pathOf, route, send, sendJson } from './routes.js';
 import type { ImportService } from './routes.js';
+import { setSecurityHeaders } from './security-headers.js';
 import type { AssetSource } from './static.js';
 import { consoleLogger } from './log.js';
 import type { Logger } from './log.js';
@@ -89,6 +92,8 @@ export interface ApiOptions {
    * with the worker stopped or not yet deployed. Configuration, never a default credential.
    */
   audioWorker?: AudioWorkerOptions;
+  /** Per-user in-flight audio jobs and bytes (SEC H4). Absent means none; `sbscore serve` sets them in hosted mode. */
+  audioHold?: AudioHoldCaps;
   /**
    * Where a succeeded job's NoteEvents result goes next: validate, quantize, import as a draft. Defaults to
    * `createAudioResultImporter` over the announcing applier; injected only so a test can stub the join.
@@ -125,6 +130,12 @@ export interface ApiOptions {
    * the affordance; NoteEvents and audio are unaffected. Default `true`: a local install is unchanged.
    */
   photoImport?: boolean;
+  /**
+   * Redirect hosts the MCP consent page treats as known clients (SIB2-207), told to the browser by hosted
+   * `GET /v1/me`. Default `DEFAULT_MCP_KNOWN_HOSTS`. The browser cannot be trusted to bring its own list: the
+   * consent link is built by whoever registered the client.
+   */
+  mcpKnownHosts?: readonly string[];
   /**
    * Which account owns which stored blob (V25), so account deletion and the sweep can find them. Defaults
    * to a process-lifetime in-memory ledger; `sbscore serve` supplies the SQLite or Postgres one beside the
@@ -233,7 +244,17 @@ export function createApi(options: ApiOptions): Api {
 
   // Narrowed on the way in: the exporter is handed the store as a `ScoreReader`, so the export
   // path is a read by construction and not by intention (ADR-0003).
-  const exporter = createExporter(store, blobs, (owner, key) => ledger.record(owner, key, 'export'));
+  const exporter = createExporter(store, blobs, async (owner, key) => {
+    await ledger.record(owner, key, 'export');
+    const cap = limits?.config.quotas.maxExportCacheEntries;
+    if (cap === undefined || !isManaged(blobs)) return;
+    // Past the per-user bound the oldest cached artefacts go (SEC M6). They are derived and re-creatable.
+    const held = (await ledger.list(owner)).filter((ref) => ref.kind === 'export');
+    for (const ref of held.slice(0, Math.max(0, held.length - cap))) {
+      await blobs.delete(ref.key);
+      await ledger.forget(owner, ref.key);
+    }
+  });
 
   // The import pipeline (V10). Its own change bus and streams, the sibling of the score ones — a job
   // moving is announced the same way a score moving is (ADR-0001's "subscribe"). The job store and
@@ -320,8 +341,11 @@ export function createApi(options: ApiOptions): Api {
       // The validated document is the source, kept in the BlobStore with the job so a better
       // quantizer can re-derive the draft later (ADR-0019's re-parse argument). Content-addressed like
       // the images. The job's `engine` marks it for the runner (see `NOTE_EVENTS_SOURCE`).
-      const key = `note-events-source:${createHash('sha256').update(document).digest('hex')}`;
+      // Per owner and ledgered, like the MusicXML source below (SEC M1): erasing one account must not delete
+      // another's file, and the sweep and account deletion have to be able to find it.
+      const key = `note-events-source:${encodeURIComponent(owner)}:${createHash('sha256').update(document).digest('hex')}`;
       await blobs.put(key, document);
+      await ledger.record(owner, key, 'import-source');
       const job = await jobs.create(owner, [key], NOTE_EVENTS_SOURCE);
       runner.wake();
       return job;
@@ -421,6 +445,7 @@ export function createApi(options: ApiOptions): Api {
     ledger,
     ...(options.audioWorker?.now === undefined ? {} : { now: options.audioWorker.now }),
     ...(options.audioQuota === undefined ? {} : { quota: options.audioQuota }),
+    ...(options.audioHold === undefined ? {} : { hold: options.audioHold }),
     ...(options.audioLimits === undefined ? {} : { limits: options.audioLimits }),
     ...(options.audioUploadTtlSeconds === undefined ? {} : { uploadUrlTtlSeconds: options.audioUploadTtlSeconds }),
   });
@@ -431,6 +456,7 @@ export function createApi(options: ApiOptions): Api {
       : createAudioWorkerService({
           jobs: audioJobs,
           blobs,
+          ledger,
           worker: options.audioWorker,
           // The join (SIB2-E10): by default a completed job becomes a draft, landed server-only under its owner.
           importer: options.audioImporter ?? createAudioResultImporter({ applier: landing }),
@@ -456,9 +482,19 @@ export function createApi(options: ApiOptions): Api {
   });
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<number> {
+    // Framing, sniffing and script-source policy on every response, refusals included (SIB2-206).
+    setSecurityHeaders(response);
     // The guards run *before* routing, so an unrouted path cannot become a way past them.
-    const host = checkHost(request, hostedHosts);
+    const host =checkHost(request, hostedHosts);
     if (!host.ok) return send(response, problem(403, 'foreign-host', host.reason));
+
+    // A malformed percent escape (`%E0%A4%A`) would throw out of `decodeURIComponent` in a route and surface
+    // as a 500 with a log line. It is a bad request, answered here once for every route (SEC, low).
+    try {
+      decodeURIComponent(pathOf(request));
+    } catch {
+      return send(response, problem(400, 'malformed-path', 'the request path has a malformed percent escape'));
+    }
 
     const origin = checkOrigin(request, hostedHosts);
     if (!origin.ok) return send(response, problem(403, 'foreign-origin', origin.reason));
@@ -580,7 +616,10 @@ export function createApi(options: ApiOptions): Api {
       const capabilities = options.photoImport === false ? { photoImport: false } : {};
       return hosted === undefined
         ? sendJson(response, 200, { mode: 'local', ...capabilities })
-        : await hosted.me(response, principal.owner, capabilities);
+        : await hosted.me(response, principal.owner, {
+            ...capabilities,
+            mcpKnownHosts: options.mcpKnownHosts ?? DEFAULT_MCP_KNOWN_HOSTS,
+          });
     }
 
     // A live-update stream is held open for as long as a tab is (KAN-602), so it is capped per user rather

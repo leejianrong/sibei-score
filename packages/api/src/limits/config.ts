@@ -17,6 +17,7 @@ import type { LimitsConfig, Rate } from './limits.js';
  *   SBSCORE_QUOTA_MAX_SCORES            scores held                     (200)
  *   SBSCORE_QUOTA_IMPORT_PAGES_PER_DAY  import pages per day            (30)
  *   SBSCORE_QUOTA_IMPORT_MB_PER_DAY     import megabytes per day        (100)
+ *   SBSCORE_QUOTA_EXPORT_CACHE_ENTRIES  cached exports held            (100)
  *   SBSCORE_QUOTA_MAX_STREAMS           concurrent event streams        (8)
  *   SBSCORE_TRUST_PROXY                 `1`/`true`: client address from the proxy's X-Forwarded-For
  */
@@ -50,6 +51,7 @@ export function limitsFromEnv(env: Record<string, string | undefined>): LimitsCo
       importPagesPerDay: positive('SBSCORE_QUOTA_IMPORT_PAGES_PER_DAY') ?? base.quotas.importPagesPerDay,
       importBytesPerDay: mb === undefined ? base.quotas.importBytesPerDay : mb * 1024 * 1024,
       maxStreams: positive('SBSCORE_QUOTA_MAX_STREAMS') ?? base.quotas.maxStreams,
+      maxExportCacheEntries: positive('SBSCORE_QUOTA_EXPORT_CACHE_ENTRIES') ?? base.quotas.maxExportCacheEntries!,
     },
     trustProxy: proxy === '1' || proxy === 'true',
   };

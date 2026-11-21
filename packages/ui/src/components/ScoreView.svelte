@@ -341,6 +341,12 @@
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
         articulations: item.articulations ?? [],
+        graces: (item.graces ?? []).map((grace) => ({
+          id: grace.graceId,
+          pitch: formatPitch(grace.pitch),
+          value: grace.value,
+          slashed: grace.slashed,
+        })),
       };
     }
     return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
@@ -1258,6 +1264,9 @@
               ottavas={ottavasHere}
               onottava={(shift) => void handleOttava(shift)}
               onrmottava={(id) => void runOps([removeOttavaOp(id)])}
+              ongraceadd={(grace) =>
+                void runOps([{ type: 'grace.add', target: selection!.id, payload: grace } as Operation])}
+              ongracerm={(id) => void runOps([{ type: 'grace.rm', target: id } as Operation])}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}

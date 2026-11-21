@@ -43,14 +43,18 @@ interface TokenRow {
   scopes: string;
   created_at: string;
   expires_at: string;
+  last_used_at: string | null;
 }
 
 function scopesOf(stored: string): TokenScope[] {
   return stored.split(' ').filter((s): s is TokenScope => (TOKEN_SCOPES as readonly string[]).includes(s));
 }
 
+/** How stale `last_used_at` may be before a request refreshes it. */
+const LAST_USED_GRANULARITY_MS = 5 * 60 * 1000;
+
 function toToken(row: TokenRow): ApiToken {
-  return { id: row.id, name: row.name, scopes: scopesOf(row.scopes), createdAt: row.created_at, expiresAt: row.expires_at };
+  return { id: row.id, name: row.name, scopes: scopesOf(row.scopes), createdAt: row.created_at, expiresAt: row.expires_at, lastUsedAt: row.last_used_at };
 }
 
 export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): Promise<AuthStore> {
@@ -142,6 +146,10 @@ export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): 
       });
     },
 
+    async deleteSessionsOf(userId) {
+      return asSystem(pool, async (client) => (await client.query(`DELETE FROM sessions WHERE user_id = $1`, [userId])).rowCount ?? 0);
+    },
+
     async deleteSession(tokenHash) {
       return asSystem(pool, async (client) => {
         const result = await client.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
@@ -215,7 +223,7 @@ export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): 
           [token.id, token.tokenHash, token.userId, token.name, token.scopes.join(' '), createdAt, token.expiresAt],
         );
       });
-      return { id: token.id, name: token.name, scopes: token.scopes, createdAt, expiresAt: token.expiresAt };
+      return { id: token.id, name: token.name, scopes: token.scopes, createdAt, expiresAt: token.expiresAt, lastUsedAt: null };
     },
 
     async findToken(tokenHash, at): Promise<TokenPrincipal | null> {
@@ -226,6 +234,13 @@ export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): 
           [tokenHash, at],
         );
         const row = result.rows[0];
+        // At most once per `LAST_USED_GRANULARITY_MS`, so a busy token is not a write per request.
+        if (row !== undefined) {
+          await client.query(
+            `UPDATE api_tokens SET last_used_at = $1 WHERE id = $2 AND (last_used_at IS NULL OR last_used_at COLLATE "C" < $3 COLLATE "C")`,
+            [at, row.id, new Date(Date.parse(at) - LAST_USED_GRANULARITY_MS).toISOString().replace(/\.\d{3}Z$/, 'Z')],
+          );
+        }
         return row === undefined ? null : { id: row.id, userId: row.user_id, scopes: scopesOf(row.scopes) };
       });
     },
@@ -233,7 +248,7 @@ export async function openPostgresAuthStore(options: PostgresAuthStoreOptions): 
     async listTokens(userId) {
       return asSystem(pool, async (client) => {
         const result = await client.query<TokenRow>(
-          `SELECT id, name, scopes, created_at, expires_at FROM api_tokens WHERE user_id = $1 ORDER BY seq DESC`,
+          `SELECT id, name, scopes, created_at, expires_at, last_used_at FROM api_tokens WHERE user_id = $1 ORDER BY seq DESC`,
           [userId],
         );
         return result.rows.map(toToken);

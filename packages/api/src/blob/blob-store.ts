@@ -48,6 +48,12 @@ export interface ManagedBlobStore extends BlobStore {
   stat(key: BlobKey): Promise<{ size: number } | null>;
   /** Removes the object. Removing what is not there is not an error. */
   delete(key: BlobKey): Promise<void>;
+  /**
+   * Server-side copy: `to` becomes a new object holding `from`'s bytes, without them crossing the API. `false`
+   * when `from` is not there. Used to move an upload that a presigned URL wrote (a key the client can keep
+   * writing to) onto a key only the server can (SEC M1).
+   */
+  copy(from: BlobKey, to: BlobKey): Promise<boolean>;
 }
 
 export interface PresignOptions {

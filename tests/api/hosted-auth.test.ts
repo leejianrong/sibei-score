@@ -507,6 +507,8 @@ describe('GET /v1/me says who is signed in', () => {
     const body = reply.json();
     expect(body.mode).toBe('hosted');
     expect(body.user).toEqual({ id: expect.stringMatching(/^usr_/), login: 'alice', name: 'Alice A' });
+    // The consent page's list of known MCP client hosts comes from the server, not the link (SIB2-207).
+    expect(body.mcpKnownHosts).toEqual(expect.arrayContaining(['claude.ai', 'localhost']));
     // Nothing that identifies the session or the provider account travels with it.
     expect(reply.body).not.toContain(cookie.replace('sb_session=', ''));
     expect(Object.keys(body.user).sort()).toEqual(['id', 'login', 'name']);
@@ -1012,6 +1014,7 @@ describe('listing and revoking tokens', () => {
       scopes: ['read'],
       createdAt: expect.any(String),
       expiresAt: expect.any(String),
+      lastUsedAt: null,
     });
     expect(reply.body).not.toContain(first.token);
     expect(reply.headers['cache-control']).toBe('no-store');

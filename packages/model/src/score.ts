@@ -129,8 +129,32 @@ export interface Note {
    * articulations (fall, doit, scoop) are not modelled.
    */
   articulations?: Articulation[];
+  /**
+   * Grace notes played just before this note, in reading order (SIB2-185). They take no time: they are not bar
+   * items, so they never reach the bar's metric validity (ADR-0013), onsets or addressing, and they ride with the
+   * principal note they belong to. Optional-and-absent when there are none, so no stored document changes shape and
+   * `SCHEMA_VERSION` stays (ADR-0028, ADR-0041).
+   */
+  graces?: GraceNote[];
   confidence: Confidence;
   review: Review;
+}
+
+/** The written value of a grace note: an eighth, sixteenth or thirty-second. It sets the flags and beams only. */
+export type GraceValue = 8 | 16 | 32;
+
+export const GRACE_VALUES: readonly GraceValue[] = [8, 16, 32];
+
+/**
+ * A grace note (SIB2-185). `slashed` is an acciaccatura (the stem struck through); unslashed is an appoggiatura.
+ * It carries a pitch and an accidental display like a note, but no onset or duration in the bar.
+ */
+export interface GraceNote {
+  id: Id;
+  pitch: Pitch;
+  value: GraceValue;
+  slashed: boolean;
+  accidental: AccidentalDisplay;
 }
 
 export type Articulation = 'staccato' | 'accent' | 'marcato';

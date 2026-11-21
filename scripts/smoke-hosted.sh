@@ -6,7 +6,7 @@
 #   bash scripts/smoke-hosted.sh                 # builds the API image (minutes the first time)
 #   KEEP=1 bash scripts/smoke-hosted.sh          # leave the stack running to poke at
 #
-# Needs Docker with the compose plugin, curl and jq. Uses loopback ports 18080 (the site) and 19000 (the fake
+# Needs Docker with the compose plugin, curl, jq and age. Uses loopback ports 18080 (the site) and 19000 (the fake
 # GitHub), a throwaway project name, and a throwaway env file with random secrets that is never printed.
 # The OMR worker is behind an opt-in compose profile and is not started; the test checks that a photo is
 # refused cleanly instead. It does NOT deploy anything: see docs/deploy-hosted.md for that.
@@ -64,9 +64,26 @@ step "bring the stack up (no worker)"
 docker compose up -d --build --wait >/dev/null || fail "the stack did not become healthy"
 ok "caddy, api, postgres, redis and the fake GitHub are up and healthy"
 
+step "no secrets or backups are baked into the API image (SIB2-205)"
+# Put decoys where the runbook puts the real files, rebuild, and look inside. They are removed again
+# whatever happens. A decoy .env with a marker, never a real one.
+printf 'DECOY=smoke\n' >.env.smoke-decoy
+mkdir -p backups && printf 'decoy' >backups/smoke-decoy.sql.gz
+cleanup_decoys() { rm -f .env.smoke-decoy backups/smoke-decoy.sql.gz; rmdir backups 2>/dev/null || true; }
+trap 'cleanup_decoys; cleanup' EXIT
+docker compose build api >/dev/null || fail "rebuilding the api image with decoys in the context"
+leaked="$(docker run --rm --entrypoint sh "${API_IMAGE:-sibei-score-api:local}" -c 'ls -A /app/.env* /app/backups /app/deploy /app/tools/runpod 2>/dev/null' || true)"
+cleanup_decoys
+[ -z "$leaked" ] || fail "the api image contains secret-bearing paths: $leaked"
+ok "the image has no .env*, backups/, deploy/ or tools/runpod/"
+
 step "the edge answers, and only the edge"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$SITE/v1/health")" = 200 ] || fail "/v1/health through Caddy"
 ok "GET /v1/health through Caddy is 200"
+page_headers="$(curl -s -D - -o /dev/null "$SITE/" | tr -d '\r')"
+printf '%s' "$page_headers" | grep -qi "^content-security-policy:.*frame-ancestors 'none'" || fail "the page has no CSP with frame-ancestors 'none'"
+printf '%s' "$page_headers" | grep -qi '^x-frame-options: DENY' || fail "the page has no X-Frame-Options: DENY"
+ok "the page carries a CSP (frame-ancestors 'none') and X-Frame-Options: DENY through Caddy"
 published="$(docker compose ps --format json | jq -rs '[.[] | select((.Publishers // []) | any(.PublishedPort > 0)) | .Service] | sort | join(",")')"
 [ "$published" = "caddy,fake-github" ] || fail "services publishing ports: [$published] (expected only caddy, plus the smoke-only fake-github)"
 ok "only caddy publishes a port (and the smoke-only fake GitHub)"
@@ -107,14 +124,20 @@ printf '%s' "$photo" | head -1 | jq -e '.error.kind == "photo-import-unavailable
 [ "$(curl -s -b "$jar" "$SITE/v1/me" | jq -r '.photoImport')" = false ] || fail "/v1/me should say photoImport is false"
 ok "an image import is a 422 photo-import-unavailable, and /v1/me says so"
 
-step "a backup restores into a fresh database"
-bash deploy/backup.sh >/dev/null 2>&1 || fail "backup"
-latest="$(ls -1t backups/sibei-*.sql.gz | head -1)"
-bash deploy/restore.sh "$latest" sibei_restore >/dev/null || fail "restore"
+step "an encrypted backup restores into a fresh database (SIB2-208)"
+command -v age >/dev/null && command -v age-keygen >/dev/null || fail "this step needs age and age-keygen on the PATH (apt install age)"
+age-keygen -o "$work/backup-key.txt" >/dev/null 2>&1
+recipient="$(age-keygen -y "$work/backup-key.txt")"
+if env -u BACKUP_AGE_RECIPIENT bash deploy/backup.sh >/dev/null 2>&1; then fail "a backup with no BACKUP_AGE_RECIPIENT should refuse to run"; fi
+ok "with no recipient configured, backup.sh refuses to write a plaintext dump"
+BACKUP_AGE_RECIPIENT="$recipient" bash deploy/backup.sh >/dev/null 2>&1 || fail "backup"
+latest="$(ls -1t backups/sibei-*.sql.gz.age | head -1)"
+if gzip -t "$latest" 2>/dev/null || head -c 40 "$latest" | grep -q "PostgreSQL"; then fail "the backup is not encrypted"; fi
+BACKUP_AGE_IDENTITY="$work/backup-key.txt" bash deploy/restore.sh "$latest" sibei_restore >/dev/null || fail "restore"
 rows="$(docker compose exec -T postgres psql -U postgres -d sibei_restore -Atc 'SELECT count(*) FROM scores')"
 [ "$rows" = 1 ] || fail "the restored database has $rows scores, expected 1"
 rm -f "$latest"
-ok "pg_dump taken, restored into sibei_restore, and the chart is in it"
+ok "pg_dump encrypted with age, decrypted and restored into sibei_restore, and the chart is in it"
 
 step "deleting the account empties it"
 code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -H 'content-type: application/json' -X DELETE "$SITE/v1/auth/account" -d "{\"confirm\":\"$LOGIN\"}")"

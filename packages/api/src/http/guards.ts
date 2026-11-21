@@ -108,7 +108,15 @@ export function checkOrigin(request: IncomingMessage, hostedHosts: ReadonlySet<s
   if (!isStateChanging(request.method)) return { ok: true };
 
   const origin = request.headers.origin;
-  if (origin === undefined || origin === '' || origin === 'null') return { ok: true };
+  if (origin === undefined || origin === '') return { ok: true };
+  if (origin === 'null') {
+    // An opaque origin (a sandboxed iframe, a data: page, a file: page) is not a client we can vouch for. With
+    // no cookie there is no ambient authority to abuse, so it stays admitted (the CLI is not a browser); with a
+    // session cookie it is a page driving a signed-in browser, and is refused (SEC, low).
+    return /(^|;\s*)(__Host-)?sb_session=/.test(request.headers.cookie ?? '')
+      ? { ok: false, reason: 'a state-changing request from an opaque origin carrying a session was rejected' }
+      : { ok: true };
+  }
 
   let hostname: string;
   try {

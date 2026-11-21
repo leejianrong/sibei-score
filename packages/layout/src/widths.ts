@@ -1,4 +1,4 @@
-import type { Bar, Score } from '@sibei/model';
+import type { Alter, Bar, Note, Score, Step } from '@sibei/model';
 import { keySignatureAccidentals } from '@sibei/model';
 import type { PageSpec } from './page.js';
 import type { PlannedSystem } from './grid.js';
@@ -35,6 +35,7 @@ const NOTE_WIDTH = 26;
 const REST_WIDTH = 24;
 const ACCIDENTAL_WIDTH = 14;
 const DOT_WIDTH = 6;
+const GRACE_WIDTH = 16;
 const CHORD_CHARACTER_WIDTH = 7;
 const CHORD_GAP = 14;
 
@@ -73,7 +74,7 @@ export function estimateBarWidth(score: Score, bar: Bar, prefix: BarPrefix): num
     }
     const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
     const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
-    notes += NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH;
+    notes += NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH + graceWidth(item, keyAccidentals, GRACE_WIDTH, ACCIDENTAL_WIDTH / 2);
   }
 
   let chords = 0;
@@ -95,6 +96,7 @@ const RIGID_NOTE = 19;
 const RIGID_REST = 19;
 const RIGID_ACCIDENTAL = 12;
 const RIGID_DOT = 5;
+const RIGID_GRACE = 13;
 const RIGID_PADDING = 28;
 
 export function rigidBarWidth(score: Score, bar: Bar, prefix: BarPrefix): number {
@@ -107,7 +109,7 @@ export function rigidBarWidth(score: Score, bar: Bar, prefix: BarPrefix): number
     }
     const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
     const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
-    width += RIGID_NOTE + (drawsAccidental ? RIGID_ACCIDENTAL : 0) + item.duration.dots * RIGID_DOT;
+    width += RIGID_NOTE + (drawsAccidental ? RIGID_ACCIDENTAL : 0) + item.duration.dots * RIGID_DOT + graceWidth(item, keyAccidentals, RIGID_GRACE, RIGID_ACCIDENTAL / 2);
   }
   return prefixWidth(score, prefix) + width;
 }
@@ -266,4 +268,19 @@ function withContentFloor(widths: readonly number[], mins: readonly number[], to
   if (excess <= 1e-9 || surplus <= 1e-9) return result;
   const take = Math.min(excess, surplus);
   return result.map((width, index) => width - (take * (donors[index] ?? 0)) / surplus);
+}
+
+/** What a note's grace notes add (SIB2-185): `perGrace` each, plus `accidental` for any that leave the key. */
+function graceWidth(
+  item: Note,
+  keyAccidentals: ReadonlyMap<Step, Alter>,
+  perGrace: number,
+  accidental: number,
+): number {
+  let width = 0;
+  for (const grace of item.graces ?? []) {
+    const departs = grace.accidental === 'show' || grace.accidental === 'parens' || grace.pitch.alter !== (keyAccidentals.get(grace.pitch.step) ?? 0);
+    width += perGrace + (departs ? accidental : 0);
+  }
+  return width;
 }

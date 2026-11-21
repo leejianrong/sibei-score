@@ -35,6 +35,7 @@ function countingBlobStore(): CountingBlobStore {
     },
     stat: (key) => inner.stat(key),
     delete: (key) => inner.delete(key),
+    copy: (from, to) => inner.copy(from, to),
   };
   return counter;
 }

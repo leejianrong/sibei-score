@@ -54,6 +54,12 @@ export interface LimitsConfig {
     importBytesPerDay: number;
     /** Concurrent SSE streams one user may hold open in this process (KAN-602). */
     maxStreams: number;
+    /**
+     * Cached export artefacts one user may hold (SEC M6). Every paper/face/instrument/page combination is its
+     * own entry, so without a bound 20 exports a minute fill the disk for the 7-day lifetime. The oldest is
+     * evicted past this, which bounds the bytes as entries times one render.
+     */
+    maxExportCacheEntries?: number;
   };
   /**
    * Take the client address from the *rightmost* `X-Forwarded-For` entry (the one our own reverse proxy
@@ -83,6 +89,7 @@ export const DEFAULT_LIMITS: LimitsConfig = {
     importPagesPerDay: 30,
     importBytesPerDay: 100 * 1024 * 1024,
     maxStreams: 8,
+    maxExportCacheEntries: 100,
   },
   trustProxy: false,
 };

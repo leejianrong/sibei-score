@@ -64,6 +64,17 @@ export interface TempoItem {
   bpm: number;
 }
 
+/** One grace note on a note (SIB2-185), drawn small before it. Takes no onset and no bar time. */
+export interface GraceItem {
+  graceId: Id;
+  pitch: Pitch;
+  value: 8 | 16 | 32;
+  slashed: boolean;
+  accidental: AccidentalDisplay;
+  /** Resolved here like a note's, against the key and the earlier graces of the group. */
+  accidentalGlyph: Alter | null;
+}
+
 export interface NoteItem {
   kind: 'note';
   noteId: Id;
@@ -91,6 +102,8 @@ export interface NoteItem {
   fermata?: boolean;
   /** Staccato, accent and marcato marks, in stacking order (SIB2-179). */
   articulations?: Articulation[];
+  /** Grace notes before this note, in reading order (SIB2-185). */
+  graces?: GraceItem[];
 }
 
 export interface RestItem {

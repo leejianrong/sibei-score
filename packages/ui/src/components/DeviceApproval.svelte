@@ -22,7 +22,10 @@
   // What the CLI asked for in the link, if anything; the person can change all of it.
   const asked = prefillOf(window.location.hash);
   let name = $state(asked.name ?? 'sbscore CLI');
-  let scopes = $state<ScopeName[]>(asked.scopes ?? ['read', 'write']);
+  // Read is on; write is never pre-selected, whatever the link asked for (SIB2-206). The link is built from an
+  // unauthenticated request, so a phisher can ask for anything: asking only earns a notice, ticking is the person's.
+  let scopes = $state<ScopeName[]>(['read']);
+  const askedForWrite = asked.scopes?.includes('write') ?? false;
   let sending = $state(false);
   let outcome = $state<Outcome | null>(null);
   let touched = $state(false);
@@ -70,7 +73,14 @@
       </div>
     {:else}
       <h1 id="device-title">Approve a device</h1>
-      <p class="lede">Enter the code shown in your terminal. Only approve a code you started yourself.</p>
+      <p class="lede">Enter the code shown in your terminal.</p>
+      <div class="banner warn" role="note">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" /></svg>
+        <div>
+          <strong>Only approve a code you started yourself.</strong><br />Anyone can start a sign-in and send you a
+          code or a link. If you did not just run <code>sbscore auth login</code> or connect a tool, close this page.
+        </div>
+      </div>
 
       {#if outcome?.kind === 'not-waiting'}
         <div class="banner bad" role="alert">
@@ -134,6 +144,9 @@
               </button>
             {/each}
           </div>
+          {#if askedForWrite && !scopes.includes('write')}
+            <span class="help warn-text">This device asked to change your charts. Tick “Change your charts” only if you want that.</span>
+          {/if}
           <span class="help">The token expires after 90 days. You can revoke it any time.</span>
         </fieldset>
 
@@ -348,6 +361,14 @@
   .banner.ok {
     background: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
+  }
+  .banner.warn {
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .help.warn-text {
+    color: var(--md-sys-color-on-surface);
+    font-weight: 600;
   }
   .banner.bad {
     background: var(--md-sys-color-error-container);

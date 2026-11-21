@@ -55,6 +55,8 @@ export const USAGE_KINDS: readonly string[] = [
   // code of its own.
   'lease-lost',
   'bad-request',
+  // A path with a malformed percent escape, refused once ahead of every route (SEC, low).
+  'malformed-path',
   'invalid-result',
   // The browser's GitHub sign-in redirect flow (V20a, `/v1/auth/github/*`). A person's browser
   // meets these, not a CLI verb; `sbscore auth` (V21) will authenticate by device flow and token.

@@ -25,7 +25,7 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 6;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 7;
 
 /**
  * Lineage: v1 (V19) scores, operations, import_jobs. v2 (V20, ADR-0034) adds users, identities and
@@ -160,8 +160,10 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   scopes      text NOT NULL,
   created_at  text NOT NULL,
   expires_at  text NOT NULL,
-  seq         bigserial
+  seq         bigserial,
+  last_used_at text
 );
+ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS last_used_at text;
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens (user_id, seq DESC);
 CREATE INDEX IF NOT EXISTS api_tokens_expires ON api_tokens (expires_at);
 

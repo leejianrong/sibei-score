@@ -18,6 +18,7 @@ import type {
   Alter,
   BarItem,
   Ending,
+  GraceNote,
   EndingRole,
   KeySignature,
   Mode,
@@ -123,7 +124,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
 
 /**
  * What a single-voice lead sheet has no home for, named once each so the import is never silently thinner than
- * the file (SIB2-152): extra staves, lyrics, dynamics and grace notes. (Second voices, chord tones, slurs and the
+ * the file (SIB2-152): extra staves, lyrics and dynamics. (Second voices, chord tones, slurs and the
  * rest are named by the part reader as it meets them.)
  */
 function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
@@ -136,7 +137,6 @@ function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
       } else if (child.name === 'note') {
         if (Number(childText(child, 'staff') ?? '1') > 1) found.add('notes on a second staff were dropped: single-staff only');
         if (firstChild(child, 'lyric') !== null) found.add('lyrics were dropped');
-        if (firstChild(child, 'grace') !== null) found.add('grace notes were dropped: no grace-note model');
       } else if (child.name === 'direction') {
         for (const type of childElements(child, 'direction-type')) {
           if (firstChild(type, 'dynamics') !== null) found.add('dynamics were dropped');
@@ -201,6 +201,8 @@ class PartReader {
   private pendingOttava: { number: number; shift: 'up' | 'down' } | null = null;
   private openOttavas = new Map<number, { startId: string; shift: 'up' | 'down' }>();
   private lastNoteId: string | null = null;
+  /** Grace notes read and waiting for the note that follows them (SIB2-185). */
+  private pendingGraces: GraceNote[] = [];
   /** Dashed lines begun and not yet stopped, by MusicXML `number` (SIB2-170): the annotation each continues. */
   private openDashes = new Map<number, string>();
   private dashEnds: { annotationId: string; endNumber: number }[] = [];
@@ -232,6 +234,7 @@ class PartReader {
       }
     });
 
+    if (this.pendingGraces.length > 0) this.note('grace notes with no note after them were dropped');
     if (this.openSlurs.size > 0) this.note('a slur that never stopped was dropped');
     if (this.openOttavas.size > 0) this.note('an ottava that never stopped was dropped');
     for (const end of this.dashEnds) {
@@ -279,7 +282,12 @@ class PartReader {
 
         case 'note': {
           if (voiceEnded) break;
-          if (firstChild(child, 'grace') !== null) break; // takes no time and has no model; named by `warnLossyContent`
+          if (firstChild(child, 'grace') !== null) {
+            // Held until the note it precedes is read; it takes no time (SIB2-185).
+            const grace = this.readGrace(child);
+            if (grace !== null) this.pendingGraces.push(grace);
+            break;
+          }
           if (firstChild(child, 'chord') !== null) {
             // A second note at the same onset: single-voice keeps the first (ADR-0021, the layout
             // engine's single-voice assumption), and this is dropped rather than refused.
@@ -292,6 +300,11 @@ class PartReader {
           if (notations !== null && parsed.item.kind === 'note') {
             const marks = this.readArticulations(notations);
             if (marks.length > 0) parsed.item.articulations = marks;
+          }
+          if (this.pendingGraces.length > 0) {
+            if (parsed.item.kind === 'note') parsed.item.graces = this.pendingGraces;
+            else this.note('grace notes before a rest were dropped: a grace note belongs to a note');
+            this.pendingGraces = [];
           }
           items.push(parsed.item);
           this.readSlurs(child, parsed.item);
@@ -377,6 +390,33 @@ class PartReader {
       endBarline,
       ending,
     });
+  }
+
+  /**
+   * A `<grace>` note: its pitch, a value from `<type>` (eighth by default, a longer type is read as an eighth), and
+   * `slash="yes"` for an acciaccatura. A grace with no pitch (unpitched) is dropped with a note.
+   */
+  private readGrace(el: XmlElement): GraceNote | null {
+    const pitch = firstChild(el, 'pitch');
+    if (pitch === null) {
+      this.note('a grace note with no pitch was dropped');
+      return null;
+    }
+    const type = childText(el, 'type');
+    const value = type === '16th' ? 16 : type === '32nd' ? 32 : 8;
+    const written = firstChild(el, 'accidental');
+    const grace = firstChild(el, 'grace');
+    return {
+      id: this.id('grace'),
+      pitch: {
+        step: (childText(pitch, 'step') ?? 'C') as Step,
+        alter: clampAlter(Number(childText(pitch, 'alter') ?? 0)),
+        octave: Number(childText(pitch, 'octave') ?? 4),
+      },
+      value,
+      slashed: grace !== null && attr(grace, 'slash') === 'yes',
+      accidental: written !== null && attr(written, 'parentheses') === 'yes' ? 'parens' : 'auto',
+    };
   }
 
   /**
