@@ -112,6 +112,8 @@ export interface Client {
   audioShow(id: string): Promise<{ job: AudioJobWire }>;
   audioRetry(id: string): Promise<{ job: AudioJobWire }>;
   audioRemove(id: string): Promise<void>;
+  /** This period's audio-seconds from the ledger (SIB2-139). */
+  audioUsage(): Promise<{ usage: AudioUsageWire }>;
   health(): Promise<{ status: string; api: string }>;
   /** Who this server says is asking (V20b). `local` has no accounts; `hosted` names the user, or is a 401. */
   me(): Promise<MeWire>;
@@ -128,6 +130,14 @@ export interface AudioUpload {
   contentType: string;
   instrument?: string;
   durationSeconds?: number;
+}
+
+/** `GET /v1/audio/usage`. */
+export interface AudioUsageWire {
+  periodStart: string;
+  periodEnd: string;
+  seconds: number;
+  jobs: number;
 }
 
 /** An audio job as the server sends it to its owner (no lease token, no raw result in listings). */
@@ -451,6 +461,7 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
     audioList: () => call('GET', '/v1/audio/jobs'),
     audioShow: (id) => call('GET', `/v1/audio/jobs/${encodeURIComponent(id)}`),
     audioRetry: (id) => call('POST', `/v1/audio/jobs/${encodeURIComponent(id)}/retry`),
+    audioUsage: () => call('GET', '/v1/audio/usage'),
     audioRemove: (id) => call('DELETE', `/v1/audio/jobs/${encodeURIComponent(id)}`),
     exportScore: (id, query) => {
       // Only what was asked for. Restating the server's defaults here would be two places that

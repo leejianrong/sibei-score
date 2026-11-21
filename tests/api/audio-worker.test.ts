@@ -127,6 +127,38 @@ describe('a fake worker, end to end', () => {
     expect(imported).toHaveLength(1);
   });
 
+  it('meters the audio-seconds of a completed job exactly once, even when it is completed again or re-run', async () => {
+    const id = await queuedJob();
+    const usage = async () => (await http('GET', '/v1/audio/usage')).body.usage;
+    expect(await usage()).toMatchObject({ seconds: 0, jobs: 0, periodStart: '2026-12-01T00:00:00Z', periodEnd: '2027-01-01T00:00:00Z' });
+
+    const { job } = (await worker('POST', '/claim', {})).body;
+    const body = { leaseToken: job.leaseToken, durationSeconds: 4.25, result: { inline: NOTE_EVENTS } };
+    await worker('POST', `/jobs/${id}/complete`, body);
+    await worker('POST', `/jobs/${id}/complete`, body); // a redelivered completion
+    expect(await usage()).toMatchObject({ seconds: 4.25, jobs: 1 });
+  });
+
+  it('does not meter a job that failed, and counts a job once when the importer refused it and a re-run then succeeded', async () => {
+    const id = await queuedJob();
+    const first = (await worker('POST', '/claim', {})).body.job;
+    await worker('POST', `/jobs/${id}/fail`, { leaseToken: first.leaseToken, kind: 'engine-error', retryable: false });
+    expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 0, jobs: 0 });
+
+    await http('POST', `/v1/audio/jobs/${id}/retry`);
+    importer = { importResult: async () => ({ ok: false, kind: 'invalid-result', message: 'bad' }) };
+    // The retried job's audio was dropped when it failed; the user would re-upload in practice. Here we only
+    // need a lease on the same job id, which the retry gave us.
+    const second = (await worker('POST', '/claim', {})).body.job;
+    await worker('POST', `/jobs/${id}/complete`, { leaseToken: second.leaseToken, durationSeconds: 5, result: { inline: {} } });
+    expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 5, jobs: 1 });
+    await http('POST', `/v1/audio/jobs/${id}/retry`);
+    importer = { importResult: async (job) => ({ ok: true, scoreId: `s-${job.id}` }) };
+    const third = (await worker('POST', '/claim', {})).body.job;
+    await worker('POST', `/jobs/${id}/complete`, { leaseToken: third.leaseToken, durationSeconds: 5, result: { inline: NOTE_EVENTS } });
+    expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 5, jobs: 1 });
+  });
+
   it('204s a claim when nothing is queued, and does not hand out a job that is still uploading', async () => {
     await http('POST', '/v1/audio/jobs', { body: { filename: 'x.wav', contentType: 'audio/wav', sizeBytes: 3 } });
     expect((await worker('POST', '/claim', {})).status).toBe(204);

@@ -86,8 +86,29 @@ export interface AudioService {
   confirm(owner: Owner, id: AudioJobId): Promise<ConfirmAudioResult>;
   /** Requeue a failed job (Q80); `null` if missing, not this owner's, or not failed. */
   retry(owner: Owner, id: AudioJobId): Promise<AudioJob | null>;
+  /** What this owner has had transcribed this period (a calendar month, UTC), from the ledger. */
+  usage(owner: Owner): Promise<AudioUsage>;
   /** Remove a job and its audio. `false` if it is missing or not this owner's. */
   remove(owner: Owner, id: AudioJobId): Promise<boolean>;
+}
+
+/** The ledger read for one owner and one period. */
+export interface AudioUsage {
+  /** Inclusive start and exclusive end of the period, ISO-8601 UTC. */
+  periodStart: string;
+  periodEnd: string;
+  /** Audio-seconds transcribed in the period. */
+  seconds: number;
+  /** How many jobs that was. */
+  jobs: number;
+}
+
+/** The calendar month containing `at`, UTC: the period usage is counted in until plans exist (decision 17). */
+export function usagePeriod(at: Date): { start: string; end: string } {
+  const start = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
+  const iso = (d: Date) => `${d.toISOString().slice(0, 19)}Z`;
+  return { start: iso(start), end: iso(end) };
 }
 
 export interface AudioServiceOptions {
@@ -105,6 +126,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
   const { jobs, blobs } = options;
   const limits: AudioLimits = { ...DEFAULT_AUDIO_LIMITS, ...options.limits };
   const ttl = options.uploadUrlTtlSeconds ?? 900;
+  const now = options.now ?? (() => new Date());
 
   function target(job: AudioJob): UploadTarget {
     if (isPresigning(blobs)) {
@@ -201,6 +223,12 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       const job = await jobs.retry(owner, id);
       if (job !== null) options.onQueued?.();
       return job;
+    },
+
+    async usage(owner) {
+      const period = usagePeriod(now());
+      const used = await jobs.usageSince(owner, period.start);
+      return { periodStart: period.start, periodEnd: period.end, seconds: used.seconds, jobs: used.jobs };
     },
 
     async remove(owner, id) {

@@ -16,7 +16,7 @@ import type { Database } from 'better-sqlite3';
  * doing both, and doing neither would mean guessing.
  */
 
-export const TABLE_SCHEMA_VERSION = 9;
+export const TABLE_SCHEMA_VERSION = 10;
 
 /**
  * ADR-0006 writes the table as `scores(id, owner, title, composer, key, updated_at,
@@ -220,6 +220,18 @@ CREATE TABLE IF NOT EXISTS audio_jobs (
 );
 CREATE INDEX IF NOT EXISTS audio_jobs_owner_created ON audio_jobs (owner, created_at DESC);
 CREATE INDEX IF NOT EXISTS audio_jobs_status_created ON audio_jobs (status, created_at ASC);
+
+-- The audio-second ledger (table schema version 10, SIB2-139, ADR-0034 amendment decision 17). One row per
+-- job that did its work, keyed by the job id, so recording is idempotent: a retry, a redelivered completion
+-- or an importer failure followed by a re-run adds nothing the second time. \`seconds\` is the audio length
+-- the worker decoded. A row outlives its job (deleting a job does not give the seconds back).
+CREATE TABLE IF NOT EXISTS audio_usage (
+  job_id       TEXT NOT NULL PRIMARY KEY,
+  owner        TEXT NOT NULL,
+  seconds      REAL NOT NULL CHECK (seconds > 0),
+  recorded_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audio_usage_owner_recorded ON audio_usage (owner, recorded_at);
 `;
 
 /**
@@ -261,6 +273,7 @@ export function migrateTables(db: Database): void {
   //   v7 (V21a): device_codes, api_tokens — likewise.
   //   v8 (V22a): oauth_codes — likewise.
   //   v9 (SIB2-137): audio_jobs — likewise.
+  //   v10 (SIB2-139): audio_usage — likewise.
 
   db.pragma(`user_version = ${TABLE_SCHEMA_VERSION}`);
 }

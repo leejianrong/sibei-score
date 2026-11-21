@@ -253,6 +253,10 @@ export function createAudioWorkerService(options: {
 
       await dropAudio(done.job);
       await blobs.delete(resultKey(id));
+      // Metering (SIB2-139): the audio-seconds this job cost, once. Recorded for the work done, whether or
+      // not the importer then accepts the document, and keyed by the job id so a re-run after an importer
+      // refusal, or a redelivered `complete`, adds nothing the second time.
+      await jobs.recordUsage(done.job.owner, id, seconds);
 
       let status: AudioJob['status'] = 'succeeded';
       if (importer !== undefined) {
