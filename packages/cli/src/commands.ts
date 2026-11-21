@@ -1,7 +1,7 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { Readable } from 'node:stream';
-import { displayTitle, projectScore } from '@sibei/model';
+import { displayTitle, flaggedObjects, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -82,6 +82,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore list
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
+  sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
   sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
@@ -238,6 +239,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return open(flags, client, io);
     case 'show':
       return show(flags, client, io, json);
+    case 'check':
+      return check(flags, client, io, json);
     case 'export':
       return exportScore(flags, client, io, json, options.cwd ?? process.cwd());
     case 'rm':
@@ -341,6 +344,29 @@ async function show(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const text = projectScore(record.score);
   io.out(json ? JSON.stringify({ version: record.version, projection: text }) : text);
   return EXIT.ok;
+}
+
+/**
+ * `sbscore check <id> [--strict]` (SIB2-193): every flagged object — an unparsed chord, a
+ * low-confidence note, a bar that does not fill the meter — with an address a verb accepts and the
+ * reasons, so an agent need not scan `show` for `!`. Exit 0 whatever is found, unless `--strict`,
+ * which exits 2 (the chart is not clean) when anything is flagged. It lists; it fixes nothing.
+ */
+async function check(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'check');
+  const record = await client.read(id);
+  const flagged = flaggedObjects(record.score);
+  if (json) {
+    io.out(JSON.stringify({ version: record.version, flagged }));
+  } else if (flagged.length === 0) {
+    io.out('nothing flagged');
+  } else {
+    for (const f of flagged) {
+      const what = f.text === null ? f.kind : `${f.kind} ${JSON.stringify(f.text)}`;
+      io.out(`${f.address}  ${what}  ${f.reasons.join(', ')}`);
+    }
+  }
+  return flagged.length > 0 && flags.switches.has('strict') ? EXIT.validation : EXIT.ok;
 }
 
 /**
