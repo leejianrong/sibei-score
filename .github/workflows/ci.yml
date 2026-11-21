@@ -57,7 +57,7 @@ jobs:
 
   test-infra:
     name: test (infra)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # ubuntu-latest became 26.04, which Playwright 1.56 cannot install Chromium on
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
