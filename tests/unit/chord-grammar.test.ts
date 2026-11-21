@@ -189,3 +189,14 @@ describe('parenthesised alterations fold onto the bare spelling', () => {
     it(`${text} stays unparsed`, () => expect(parseChord(text)).toBeNull());
   }
 });
+
+describe('parenthesised alternates (SIB2-161)', () => {
+  it('reads a bracketed chord and a bracketed pair, canonicalising each member', () => {
+    expect(formatChord(parseChord('(Gmi7)') as Chord)).toBe('(Gm7)');
+    expect(formatChord(parseChord('(Gmi7 C7)') as Chord)).toBe('(Gm7 C7)');
+    expect(parseChord('(Gm7  C7)')).toEqual(parseChord('(Gm7 C7)'));
+  });
+  for (const text of ['()', '( )', '(Gm7 solo)', '(Gm7', '(N.C.)', '((Gm7))']) {
+    it(`${JSON.stringify(text)} stays unparsed`, () => expect(parseChord(text)).toBeNull());
+  }
+});

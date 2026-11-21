@@ -81,4 +81,10 @@ export interface ChordStructure {
  */
 export type Chord =
   | { kind: 'chord'; structure: ChordStructure }
-  | { kind: 'no-chord' };
+  | { kind: 'no-chord' }
+  /**
+   * A parenthesised alternate: `(Gmi7)` or `(Gmi7 C7)` — optional or substitute changes written in
+   * brackets on real pages. A symbol wrapping one or more ordinary chords, each of which transposes
+   * and respells; the brackets are part of what is drawn.
+   */
+  | { kind: 'alternate'; chords: ChordStructure[] };

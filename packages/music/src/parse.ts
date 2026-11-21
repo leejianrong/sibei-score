@@ -19,6 +19,8 @@ export function parseChord(text: string): Chord | null {
 
   if (isNoChord(trimmed)) return { kind: 'no-chord' };
 
+  if (trimmed.startsWith('(') && trimmed.endsWith(')')) return parseAlternate(trimmed.slice(1, -1));
+
   const rootMatch = parseRoot(trimmed, 0);
   if (rootMatch === null) return null;
 
@@ -41,6 +43,18 @@ export function parseChord(text: string): Chord | null {
   if (parsed === null) return null;
 
   return { kind: 'chord', structure: { ...parsed, root: rootMatch.root, bass } };
+}
+
+/** The inside of `( … )`: one or more whitespace-separated ordinary chords, or nothing. */
+function parseAlternate(inner: string): Chord | null {
+  const tokens = inner.trim().split(/\s+/);
+  const chords: ChordStructure[] = [];
+  for (const token of tokens) {
+    const parsed = parseChord(token);
+    if (parsed === null || parsed.kind !== 'chord') return null;
+    chords.push(parsed.structure);
+  }
+  return chords.length === 0 ? null : { kind: 'alternate', chords };
 }
 
 /** Whether the grammar can read this text at all. Thin sugar over `parseChord` for callers. */

@@ -131,3 +131,11 @@ function pick(s: ChordStyle): Partial<ChordStyle> {
   }
   return diff;
 }
+
+describe('a bracketed alternate (SIB2-161)', () => {
+  it('draws its brackets and reads back exactly what it draws', () => {
+    expect(chordGlyphText('(Gmi7 C7)')).toBe('(Gm7 C7)');
+    expect(chordGlyphText('(Gm7)')).toBe('(Gm7)');
+    expect(render('(Gm7)', CANONICAL_CHORD_STYLE)).toContain('(');
+  });
+});
