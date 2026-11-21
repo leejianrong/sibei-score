@@ -256,6 +256,13 @@ function harmony(chord: Chord): XmlElement {
     rootElement('root', s.root),
     leaf('kind', kindOf(s), { text: chord.text }),
     s.bass === null ? null : rootElement('bass', s.bass),
+    ...s.alterations.map((a) =>
+      elem('degree', {}, [
+        leaf('degree-value', a.degree),
+        leaf('degree-alter', a.alter),
+        leaf('degree-type', 'alter'),
+      ]),
+    ),
     offset,
   ]);
 }

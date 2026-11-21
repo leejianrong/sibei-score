@@ -24,7 +24,8 @@ export function parseChord(text: string): Chord | null {
 
   // A slash bass is a `/` whose right side is *exactly* a root. `C6/9` and `Cm7/11` are not
   // slash chords — their right side is a digit — so the check naturally leaves them in the body.
-  let body = trimmed.slice(rootMatch.next);
+  let body = unwrapParens(trimmed.slice(rootMatch.next));
+  if (body === null) return null;
   let bass: Root | null = null;
   const slash = body.lastIndexOf('/');
   if (slash !== -1) {
@@ -54,6 +55,33 @@ export function isChord(text: string): boolean {
 /** `N.C.`, `NC`, `N.C`, case-insensitively — the standard "no chord" marking. */
 function isNoChord(text: string): boolean {
   return /^n\.?c\.?$/i.test(text);
+}
+
+/**
+ * Real pages parenthesise optional or altered tensions — `C7(#11)`, `Cmi(MA7)`, `C7(b9,#5)` — to
+ * mean exactly what the bare spelling means, so the parentheses are typography and fold away: each
+ * group is unwrapped (commas inside it dropped) and the body scanned as if they were never typed.
+ * Only well-formed, unnested groups unwrap; anything else returns `null` and is flagged. A group
+ * holding a whole chord (`(Gmi7 C7)`, an alternate) is not an alteration and stays unparseable here.
+ */
+function unwrapParens(body: string): string | null {
+  if (!/[()]/.test(body)) return body;
+  let out = '';
+  let open = false;
+  for (const ch of body) {
+    if (ch === '(') {
+      if (open) return null;
+      open = true;
+    } else if (ch === ')') {
+      if (!open) return null;
+      open = false;
+    } else if (open && (ch === ',' || ch === ' ')) {
+      continue;
+    } else {
+      out += ch;
+    }
+  }
+  return open ? null : out;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +181,7 @@ function parseBody(body: string): BodyState | null {
     }
 
     // Major-seventh quality flag. `major`/`maj` before `ma` so a longer word wins its own length.
-    if ((m = /^(major|maj|Maj|MAJ|Ma|ma)/.exec(rest))) {
+    if ((m = /^(major|maj|Maj|MAJ|MA|Ma|ma)/.exec(rest))) {
       majorSeventh = true;
       i += m[0].length;
       continue;
