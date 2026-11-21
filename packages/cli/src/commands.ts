@@ -72,6 +72,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
                --worker is the OMR worker's URL — without one, import is unavailable and all else works;
                --database-url URL serves from Postgres instead of the local SQLite file, and --blobs DIR
                places the scans and export cache; see docs/hosting.md;
+               --redis-url URL (SBSCORE_REDIS_URL) shares change streams and rate limits across API
+               processes; --allowed-hosts a,b (SBSCORE_ALLOWED_HOSTS) admits more hostnames;
+               rate limits and quotas are on in hosted mode, tuned by SBSCORE_LIMIT_* / SBSCORE_QUOTA_*;
                hosted mode — GitHub sign-in, one library per user — is on only when --public-url,
                --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
@@ -102,7 +105,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
-  sbscore batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
   sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
@@ -141,7 +144,7 @@ Signing in (hosted servers only; a local one has no accounts):  a credential is 
   SBSCORE_TOKEN supplies one instead — what a CI job uses — and wins over the file.
 
 Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version conflict
-             5 not found · 6 no server · 7 refused · 8 already exists
+             5 not found · 6 no server · 7 refused · 8 already exists · 9 rate limit or quota
 `;
 
 export async function run(argv: readonly string[], options: RunOptions): Promise<ExitCode> {
@@ -259,7 +262,7 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
-      return batch(flags, client, io, json);
+      return batch(flags, client, io, json, options.readStdin ?? readAllStdin);
     case 'undo':
       return move('undo', flags, client, io, json);
     case 'redo':
@@ -754,9 +757,26 @@ function parseEndingNumbers(raw: string): number[] {
  * `batch` is the whole of what a document-patch endpoint would have bought, without the
  * whole-document read or the structural risk (ADR-0008). One invalid operation applies none of them.
  */
-async function batch(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+async function batch(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  readStdin: () => Promise<string>,
+): Promise<ExitCode> {
   const id = requiredPositional(flags, 1, 'a score id', 'batch');
-  const raw = required(flags, 'ops', 'batch');
+  // `--ops @file` and `--ops -` (stdin) keep a long chart out of argv (SIB2-187).
+  const given = required(flags, 'ops', 'batch');
+  let raw = given;
+  if (given === '-') {
+    raw = await readStdin();
+  } else if (given.startsWith('@')) {
+    try {
+      raw = readFileSync(given.slice(1), 'utf8');
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', `--ops: cannot read ${given.slice(1)}`);
+    }
+  }
   let operations: Operation[];
   try {
     const parsed: unknown = JSON.parse(raw);

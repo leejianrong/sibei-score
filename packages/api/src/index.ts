@@ -147,3 +147,12 @@ export { consoleLogger, silentLogger } from './http/log.js';
 export type { Logger, RequestLine } from './http/log.js';
 export { serveStaticAsset } from './http/static.js';
 export type { Asset, AssetSource } from './http/static.js';
+
+// Rate limits and quotas (V23). The Redis counters and buses are the opt-in `@sibei/api/redis`.
+export { DEFAULT_LIMITS, classify, clientAddress, createLimits, DEFAULT_CLASSIFIERS } from './limits/limits.js';
+export type { Classifier, LimitRefusal, Limits, LimitsConfig, LimitsOptions, Rate, RequestClass } from './limits/limits.js';
+export { limitsFromEnv } from './limits/config.js';
+export { memoryRateLimiter } from './limits/rate-limiter.js';
+export type { RateLimiter, RateVerdict } from './limits/rate-limiter.js';
+export { QuotaError } from './limits/errors.js';
+export type { QuotaName } from './limits/errors.js';

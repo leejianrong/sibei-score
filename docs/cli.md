@@ -145,6 +145,8 @@ sbscore ending rm  <id> <bar>
 sbscore undo <id>                            # revert the last edit — or the last batch, as one unit
 sbscore redo <id>                            # reapply the last undone edit
 sbscore batch <id> --ops '[{"type":"note.add", ...}]'           # many operations as one atomic unit
+sbscore batch <id> --ops @ops.json                              # the same, read from a file
+cat ops.json | sbscore batch <id> --ops -                       # or from stdin
 ```
 
 Undo and redo replay the append-only op log rather than mutating it (ADR-0003), so a `batch` — and
