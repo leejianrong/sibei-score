@@ -68,6 +68,8 @@ export interface QuantizeWarning {
   message: string;
   /** Where in the recording, when it has a place. */
   timeS?: number;
+  /** The NoteEvents note it is about, when it is about one (the mapper flags it for review). */
+  noteId?: string;
 }
 
 export interface QuantizeResult {
@@ -156,6 +158,7 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
         code: 'collapsed-onset',
         message: `notes ${last.id} and ${n.id} landed on the same grid point; kept the more confident`,
         timeS: n.onset_s,
+        noteId: n.confidence > last.confidence ? n.id : last.id,
       });
       if (n.confidence > last.confidence) placed[placed.length - 1] = { id: n.id, midi: n.pitch, confidence: n.confidence, start, end, t: n.onset_s };
       continue;
@@ -168,7 +171,7 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
     const next = placed[i + 1]!;
     if (a.end > next.start) {
       if (a.end - next.start > GRID_TICKS) {
-        warnings.push({ code: 'overlap', message: `note ${a.id} overlaps ${next.id}; shortened to one line`, timeS: next.t });
+        warnings.push({ code: 'overlap', message: `note ${a.id} overlaps ${next.id}; shortened to one line`, timeS: next.t, noteId: a.id });
       }
       a.end = next.start;
     }
