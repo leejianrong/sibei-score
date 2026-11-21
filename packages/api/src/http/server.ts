@@ -12,6 +12,7 @@ import type { Limits, LimitRefusal } from '../limits/limits.js';
 import { createHostedAuth } from '../auth/hosted.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createExporter } from '../export/export.js';
+import { createMcpEndpoint } from '../mcp/endpoint.js';
 import { createJobRunner } from '../imports/runner.js';
 import type { JobRunner } from '../imports/runner.js';
 import { imageFormatOf } from '../imports/upload.js';
@@ -285,6 +286,20 @@ export function createApi(options: ApiOptions): Api {
     streams: jobStreams,
   };
 
+  // The MCP endpoint (V22a): hosted only, since its credentials are the OAuth tokens hosted mode issues. It is
+  // handed the same narrowed services the routes get — a reader, the applier, the exporter — and nothing wider.
+  const mcp =
+    hosted === undefined
+      ? undefined
+      : createMcpEndpoint({
+          reader: store,
+          applier,
+          exporter,
+          authenticate,
+          resourceMetadataUrl: new URL('/.well-known/oauth-protected-resource', hosted.mcpResource).toString(),
+          onError: (message, error) => logger.error(message, error),
+        });
+
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
     void handle(request, response)
@@ -319,6 +334,13 @@ export function createApi(options: ApiOptions): Api {
       if (refused !== null) return send(response, rateLimited(response, refused));
     }
 
+    // OAuth discovery metadata (V22a). Public by nature — a client reads it before it has any credential —
+    // and it reads no store, so answering it here, ahead of the session check, opens nothing.
+    if (hosted !== undefined && pathOf(request).startsWith('/.well-known/')) {
+      const answered = hosted.handleWellKnown(request, response);
+      if (answered !== null) return answered;
+    }
+
     // Signing in cannot require being signed in, so the auth routes answer without a session. They are
     // behind the guards above, like everything.
     if (hosted !== undefined && pathOf(request).startsWith('/v1/auth/')) {
@@ -326,6 +348,18 @@ export function createApi(options: ApiOptions): Api {
         return await hosted.handle(request, response);
       } catch (error) {
         logger.error('an auth request failed', error);
+        if (response.headersSent) return 500;
+        return send(response, problemForUnknown(error));
+      }
+    }
+
+    // The MCP endpoint judges its own bearer token (audience, then per-tool scope), so it comes before the
+    // generic principal and scope checks below, whose method-based `read`/`write` rule is not its rule.
+    if (mcp !== undefined && pathOf(request) === '/mcp') {
+      try {
+        return await mcp.handle(request, response);
+      } catch (error) {
+        logger.error('an MCP request failed', error);
         if (response.headersSent) return 500;
         return send(response, problemForUnknown(error));
       }
@@ -347,6 +381,15 @@ export function createApi(options: ApiOptions): Api {
 
     // A token carries the scopes it was minted with (V21a). Reads need `read`, anything that changes state
     // needs `write`; a session or the local principal has no `scopes` and is not limited.
+    //
+    // A token of the MCP family (V22a) is for `/mcp` alone and is refused here by name rather than by the
+    // coincidence that it lacks `read`: the audience check is the point, and it should say so.
+    if (principal.scopes !== undefined && !principal.scopes.some((scope) => scope === 'read' || scope === 'write')) {
+      return send(
+        response,
+        problem(403, 'wrong-audience', 'this token was issued for the MCP endpoint and cannot be used on the API'),
+      );
+    }
     if (principal.scopes !== undefined) {
       const needed = isStateChanging(request.method) ? 'write' : 'read';
       if (!principal.scopes.includes(needed)) {

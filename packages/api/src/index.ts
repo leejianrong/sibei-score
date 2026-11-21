@@ -18,12 +18,26 @@ export type {
   JobStore,
   JobWriter,
 } from './store/jobs.js';
-export { TOKEN_SCOPES } from './store/auth.js';
+export { MCP_TOOLS, McpToolError } from './mcp/tools.js';
+export type { ExportChoices, ExportedArtefact, McpBackend, McpTool, ToolAccess, ToolResult } from './mcp/tools.js';
+export { PARSE_FAILURE, SERVER_INFO, SUPPORTED_PROTOCOLS, handleMcpMessage } from './mcp/protocol.js';
+export type { McpSession } from './mcp/protocol.js';
+export { API_SCOPES, MCP_SCOPES, TOKEN_SCOPES } from './store/auth.js';
 export type { ApiToken, AuthStore, DeviceApproval, DevicePoll, NewApiToken, NewDevice, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './store/auth.js';
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 
-export type { BlobKey, BlobStore } from './blob/blob-store.js';
+export type {
+  BlobKey,
+  BlobStore,
+  ManagedBlobStore,
+  PresignedRequest,
+  PresignOptions,
+  PresigningBlobStore,
+} from './blob/blob-store.js';
+export { isPresigning } from './blob/blob-store.js';
+export { openS3BlobStore } from './blob/s3-blob-store.js';
+export type { S3BlobStore, S3BlobStoreOptions } from './blob/s3-blob-store.js';
 export { memoryBlobStore } from './blob/memory-blob-store.js';
 export { openDirectoryBlobStore } from './blob/directory-blob-store.js';
 export type { DirectoryBlobStoreOptions } from './blob/directory-blob-store.js';

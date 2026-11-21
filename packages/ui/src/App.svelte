@@ -13,6 +13,7 @@
   import AccountMenu from './components/AccountMenu.svelte';
   import DeviceApproval from './components/DeviceApproval.svelte';
   import LibraryView from './components/LibraryView.svelte';
+  import McpConsent from './components/McpConsent.svelte';
   import ScoreView from './components/ScoreView.svelte';
   import SessionBanner from './components/SessionBanner.svelte';
   import SignInGate from './components/SignInGate.svelte';
@@ -26,7 +27,13 @@
 
   /** The crumb for the pages that are not a chart. A chart reports its own title once it has loaded. */
   const titleOf = (r: Route): string | null =>
-    r.view === 'device' ? 'Approve a device' : r.view === 'tokens' ? 'API tokens' : null;
+    r.view === 'device'
+      ? 'Approve a device'
+      : r.view === 'tokens'
+        ? 'API tokens'
+        : r.view === 'authorize'
+          ? 'Connect an app'
+          : null;
 
   let route = $state(routeOf(window.location.hash));
   let title = $state<string | null>(titleOf(routeOf(window.location.hash)));
@@ -98,13 +105,13 @@
   <main>
     {#if route.view === 'library'}
       <LibraryView onReachable={(ok) => (reachable = ok)} />
-    {:else if route.view === 'device' || route.view === 'tokens'}
+    {:else if route.view === 'device' || route.view === 'tokens' || route.view === 'authorize'}
       {#if session.phase === 'signed-in' || session.phase === 'ended'}
-        {#if route.view === 'device'}<DeviceApproval />{:else}<TokenList />{/if}
+        {#if route.view === 'device'}<DeviceApproval />{:else if route.view === 'authorize'}<McpConsent params={route.params} />{:else}<TokenList />{/if}
       {:else}
         <!-- A local install has no accounts, so it has nothing to approve and no tokens to list. -->
         <section class="local">
-          <p>This is a local install. It has no accounts, so there are no API tokens to approve or list.</p>
+          <p>This is a local install. It has no accounts, so there are no API tokens to approve or list, and no apps to connect.</p>
           <a href={hashOf(LIBRARY)}>Back to the library</a>
         </section>
       {/if}

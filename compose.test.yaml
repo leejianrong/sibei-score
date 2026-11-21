@@ -40,3 +40,18 @@ services:
       interval: 1s
       timeout: 3s
       retries: 30
+  # A throwaway S3-compatible store for the SIB2-136 blob tests — `pnpm test:s3` starts it. Opt-in, like
+  # Postgres above: nothing the app depends on, and not a required CI check.
+  s3:
+    # Versity's S3 gateway over a plain directory: small, S3-compatible, and pullable from ghcr (the minio
+    # images are no longer published to a public registry). Any S3-compatible server works; see
+    # scripts/test-s3.sh for pointing the suite at your own.
+    image: ghcr.io/versity/versitygw:latest
+    command: ["posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY: sibeitest
+      ROOT_SECRET_KEY: sibeitest-secret
+    ports:
+      - "127.0.0.1:54340:7070"
+    tmpfs:
+      - /data

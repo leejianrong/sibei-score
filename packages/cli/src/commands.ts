@@ -1,5 +1,6 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
+import type { Readable } from 'node:stream';
 import { displayTitle, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
@@ -19,6 +20,7 @@ import { credentialsPath as defaultCredentialsPath, isReadableByOthers, resolveT
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
 import { fallbackName, outputPathFor } from './output.js';
+import { mcp } from './mcp.js';
 import { serve } from './serve.js';
 
 /**
@@ -59,6 +61,8 @@ export interface RunOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Where `auth login --token-stdin` reads from. Injected for tests. */
   readStdin?: () => Promise<string>;
+  /** The MCP client's end of `sbscore mcp` (V22b): its stdin. Injected for tests; the process's own otherwise. */
+  mcpInput?: Readable;
 }
 
 const USAGE = `sbscore — a jazz lead sheet, from the command line
@@ -104,6 +108,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore batch <id> --ops '[{"type":"note.add",...}]'
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
+  sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
+              launches a process (Claude Desktop, an editor). The same tools as a hosted server's /mcp,
+              run through this CLI's credentials and --url; stdout carries only the protocol
   sbscore auth login                       sign in to a hosted server: prints a code, you approve it in the
               browser, and the CLI keeps the API token it is given (never a password or a GitHub token)
   sbscore auth login --token-stdin         the headless fallback: read a token on stdin and keep it
@@ -214,6 +221,9 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
         readStdin: options.readStdin ?? readAllStdin,
         now: () => new Date(),
       });
+    case 'mcp':
+      // stdout is the protocol, so nothing else may write to it: diagnostics go to stderr (`io.err`).
+      return mcp(client, { input: options.mcpInput ?? process.stdin, write: io.out, log: io.err });
     case 'new':
       return create(flags, client, io, json);
     case 'list':

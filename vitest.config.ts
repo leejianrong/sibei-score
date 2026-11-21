@@ -70,6 +70,14 @@ const POSTGRES_DATABASE = process.env.SBSCORE_TEST_DATABASE_URL === '' ? undefin
 const REDIS = ['tests/redis/**/*.test.ts'];
 const REDIS_URL = process.env.SBSCORE_TEST_REDIS_URL === '' ? undefined : process.env.SBSCORE_TEST_REDIS_URL;
 
+/**
+ * SIB2-136's S3 blob-store tests: opt-in like Postgres, runs only when `SBSCORE_TEST_S3_ENDPOINT` names an
+ * S3-compatible server (`pnpm test:s3` starts a throwaway MinIO). Declared always so the layer list is
+ * honest; matches no file without it.
+ */
+const S3 = ['tests/s3/**/*.test.ts'];
+const S3_ENDPOINT = process.env.SBSCORE_TEST_S3_ENDPOINT === '' ? undefined : process.env.SBSCORE_TEST_S3_ENDPOINT;
+
 /** Runs before every fast-layer test file, and refuses to let one load a compiled module. */
 const FAST_SETUP = ['tests/no-native-bindings.ts'];
 
@@ -106,6 +114,15 @@ export default defineConfig({
           name: 'redis',
           include: REDIS,
           exclude: REDIS_URL === undefined ? ['**/*'] : [],
+          environment: 'node',
+          testTimeout: TIMEOUT,
+        },
+      },
+      {
+        test: {
+          name: 's3',
+          include: S3,
+          exclude: S3_ENDPOINT === undefined ? ['**/*'] : [],
           environment: 'node',
           testTimeout: TIMEOUT,
         },
