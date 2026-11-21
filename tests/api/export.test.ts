@@ -2,7 +2,7 @@ import { request as httpRequest } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, memoryBlobStore, silentLogger } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
-import type { Api, BlobKey, BlobStore, Operation, ScoreStore } from '@sibei/api';
+import type { Api, BlobKey, ManagedBlobStore, Operation, ScoreStore } from '@sibei/api';
 import { musicXmlToScore } from '@sibei/codec';
 import { dur } from '@sibei/model';
 
@@ -15,7 +15,7 @@ import { dur } from '@sibei/model';
  */
 
 /** A blob store that counts, so a cache hit can be asserted rather than inferred from the bytes. */
-interface CountingBlobStore extends BlobStore {
+interface CountingBlobStore extends ManagedBlobStore {
   puts: BlobKey[];
   gets: BlobKey[];
 }
@@ -33,6 +33,8 @@ function countingBlobStore(): CountingBlobStore {
       counter.puts.push(key);
       return inner.put(key, bytes);
     },
+    stat: (key) => inner.stat(key),
+    delete: (key) => inner.delete(key),
   };
   return counter;
 }

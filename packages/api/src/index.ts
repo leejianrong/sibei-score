@@ -24,6 +24,19 @@ export { PARSE_FAILURE, SERVER_INFO, SUPPORTED_PROTOCOLS, handleMcpMessage } fro
 export type { McpSession } from './mcp/protocol.js';
 export { API_SCOPES, MCP_SCOPES, TOKEN_SCOPES } from './store/auth.js';
 export type { ApiToken, AuthStore, DeviceApproval, DevicePoll, NewApiToken, NewDevice, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './store/auth.js';
+export type {
+  AudioJob,
+  AudioJobId,
+  AudioJobReader,
+  AudioJobStatus,
+  AudioJobStore,
+  AudioJobSummary,
+  AudioJobWriter,
+  AudioProgress,
+  NewAudioJob,
+} from './store/audio-jobs.js';
+export { memoryAudioJobStore } from './store/memory-audio-job-store.js';
+export type { MemoryAudioJobStoreOptions } from './store/memory-audio-job-store.js';
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 
@@ -35,6 +48,8 @@ export type {
   PresignOptions,
   PresigningBlobStore,
 } from './blob/blob-store.js';
+export { createAudioService, DEFAULT_AUDIO_LIMITS } from './audio/service.js';
+export type { AudioLimits, AudioService, CreateAudioInput, UploadTarget } from './audio/service.js';
 export { isPresigning } from './blob/blob-store.js';
 export { openS3BlobStore } from './blob/s3-blob-store.js';
 export type { S3BlobStore, S3BlobStoreOptions } from './blob/s3-blob-store.js';

@@ -129,6 +129,76 @@ export async function decideAuthorization(params: Record<string, string>, approv
   return (await postJson<{ redirectTo: string }>(`${V1}/auth/oauth/approve`, { ...params, approve })).redirectTo;
 }
 
+/**
+ * An audio job as `GET /v1/audio/jobs` serves it (SIB2-137). The wire shape, restated here for the
+ * reason `ScoreListing` is: a browser bundle has no business resolving `@sibei/api`.
+ */
+export interface AudioJobView {
+  id: string;
+  status: 'awaiting-upload' | 'queued' | 'running' | 'succeeded' | 'failed';
+  filename: string | null;
+  contentType: string;
+  sizeBytes: number;
+  instrument: string | null;
+  attempts: number;
+  diagnosticKind: string | null;
+  diagnostic: string | null;
+  progress: { stage: string; fraction: number } | null;
+  durationSeconds: number | null;
+  scoreId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AudioUploadTarget {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  viaApi: boolean;
+}
+
+export async function listAudioJobs(): Promise<AudioJobView[]> {
+  return (await getJson<{ jobs: AudioJobView[] }>(`${V1}/audio/jobs`)).jobs;
+}
+
+/**
+ * Declare the upload, put the bytes where the server says (a presigned bucket URL when hosted, this API's
+ * own route locally — the bytes never cross the API in the first case), and confirm. Returns the queued job.
+ * A presigned URL is the bucket's, so it gets no credentials; only our own route carries the session.
+ */
+export async function submitAudio(file: File, instrument: string | null): Promise<AudioJobView> {
+  const declared = await postJson<{ job: AudioJobView; upload: AudioUploadTarget }>(`${V1}/audio/jobs`, {
+    filename: file.name,
+    contentType: file.type,
+    sizeBytes: file.size,
+    ...(instrument === null ? {} : { instrument }),
+  });
+  let response: Response;
+  try {
+    response = await fetch(declared.upload.url, {
+      method: declared.upload.method,
+      headers: declared.upload.headers,
+      body: file,
+      credentials: declared.upload.viaApi ? 'same-origin' : 'omit',
+    });
+  } catch (cause) {
+    throw new OfflineError(cause);
+  }
+  if (!response.ok) {
+    if (declared.upload.viaApi) throw await failureFrom(response);
+    throw new ApiError(response.status, 'upload-failed', 'The upload was refused. Try again.', undefined);
+  }
+  return (await postJson<{ job: AudioJobView }>(`${V1}/audio/jobs/${encodeURIComponent(declared.job.id)}/uploaded`, {})).job;
+}
+
+export async function retryAudio(id: string): Promise<AudioJobView> {
+  return (await postJson<{ job: AudioJobView }>(`${V1}/audio/jobs/${encodeURIComponent(id)}/retry`, {})).job;
+}
+
+export async function deleteAudio(id: string): Promise<void> {
+  await sendNoBody('DELETE', `${V1}/audio/jobs/${encodeURIComponent(id)}`);
+}
+
 export async function listApiTokens(): Promise<ApiTokenView[]> {
   return (await getJson<{ tokens: ApiTokenView[] }>(`${V1}/auth/tokens`)).tokens;
 }

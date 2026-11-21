@@ -177,6 +177,21 @@ reads, transposed). Without `-o` the file is written to the working directory, n
 chart's title — *Body and Soul* becomes `./Body and Soul.pdf`; `-o` takes a file path, or a directory
 to put that name in.
 
+## Audio
+
+```sh
+sbscore audio submit take.wav [--instrument piano]   # uploads, queues, prints the job id
+sbscore audio list                                   # your audio jobs, newest first
+sbscore audio show <id>                              # status, progress, the reason if it failed
+sbscore audio retry <id>                             # requeue a failed job
+sbscore audio rm <id>                                # delete the job and its audio
+```
+
+A recording becomes a job that a separate transcription worker picks up, so `submit` returns at once and the
+job waits `queued` until a worker takes it. Nothing else is affected while no worker is running. On a hosted
+server the file goes straight to object storage by a presigned URL; locally it goes through the API. The
+browser's equivalent is the Audio page (`#/audio`, "Transcribe audio" in the library).
+
 ## Concurrency
 
 Every write names the version it expects (ADR-0003). Pass **`--if-version N`** — the version you read

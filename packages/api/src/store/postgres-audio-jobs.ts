@@ -1,0 +1,169 @@
+import { randomUUID } from 'node:crypto';
+import type { Pool, PoolConfig } from 'pg';
+import type { AudioJob, AudioJobId, AudioJobStore, AudioJobSummary, AudioProgress } from './audio-jobs.js';
+import { assertRlsEnforced, migratePostgres } from './postgres-schema.js';
+import { asOwner, closeHandle, poolFor } from './postgres-session.js';
+import { timestamp } from './store-shared.js';
+
+/**
+ * The Postgres implementation of the audio-job port (SIB2-137, ADR-0034): the sibling of
+ * `postgres-jobs.ts` and of `sqlite-audio-jobs.ts`, held to the same contract by the one conformance
+ * suite. One of the files that may know Postgres exists (`tests/arch/store-seam.test.ts`).
+ *
+ * Every method here is owner-scoped, so every one runs `asOwner` and row-level security backs the
+ * `WHERE owner` it also writes. The system-actor methods the pulling worker needs (claim, heartbeat,
+ * complete, fail, expiry) arrive with SIB2-138; the policy on `audio_jobs` already admits `app.system`.
+ */
+
+export interface PostgresAudioJobStoreOptions {
+  connectionString?: string;
+  pool?: Pool;
+  poolConfig?: PoolConfig;
+  onError?: (error: Error) => void;
+  now?: () => Date;
+  newId?: () => AudioJobId;
+  allowRlsBypass?: boolean;
+}
+
+interface AudioJobRow {
+  id: string;
+  owner: string;
+  status: string;
+  audio_key: string;
+  content_type: string;
+  filename: string | null;
+  size_bytes: number;
+  instrument: string | null;
+  declared_duration_seconds: number | null;
+  attempts: number;
+  diagnostic_kind: string | null;
+  diagnostic: string | null;
+  progress: string | null;
+  duration_seconds: number | null;
+  result: string | null;
+  score_id: string | null;
+  lease_token: string | null;
+  lease_expires_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+const SUMMARY_COLUMNS = `id, owner, status, audio_key, content_type, filename, size_bytes, instrument,
+  declared_duration_seconds, attempts, diagnostic_kind, diagnostic, progress, duration_seconds, score_id,
+  lease_expires_at, version, created_at, updated_at`;
+
+export async function openPostgresAudioJobStore(options: PostgresAudioJobStoreOptions): Promise<AudioJobStore> {
+  const handle = poolFor(options);
+  const { pool } = handle;
+  try {
+    await assertRlsEnforced(pool, options.allowRlsBypass ?? false);
+    await migratePostgres(pool);
+  } catch (error) {
+    await closeHandle(handle);
+    throw error;
+  }
+  const now = options.now ?? (() => new Date());
+  const newId = options.newId ?? (() => randomUUID());
+
+  return {
+    async list(owner): Promise<AudioJobSummary[]> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `SELECT ${SUMMARY_COLUMNS} FROM audio_jobs WHERE owner = $1 ORDER BY created_at DESC, id COLLATE "C" ASC`,
+          [owner],
+        );
+        return result.rows.map(toSummary);
+      });
+    },
+
+    async get(owner, id): Promise<AudioJob | null> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<AudioJobRow>(`SELECT * FROM audio_jobs WHERE owner = $1 AND id = $2`, [owner, id]);
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async create(owner, job): Promise<AudioJob> {
+      const at = timestamp(now);
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `INSERT INTO audio_jobs
+             (id, owner, status, audio_key, content_type, filename, size_bytes, instrument,
+              declared_duration_seconds, attempts, version, created_at, updated_at)
+           VALUES ($1, $2, 'awaiting-upload', $3, $4, $5, $6, $7, $8, 0, 1, $9, $9)
+           RETURNING *`,
+          [newId(), owner, job.audioKey, job.contentType, job.filename, job.sizeBytes, job.instrument, job.declaredDurationSeconds, at],
+        );
+        return toJob(result.rows[0]!);
+      });
+    },
+
+    async markUploaded(owner, id, sizeBytes): Promise<AudioJob | null> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs SET status = 'queued', size_bytes = $1, version = version + 1, updated_at = $2
+            WHERE owner = $3 AND id = $4 AND status = 'awaiting-upload' RETURNING *`,
+          [sizeBytes, timestamp(now), owner, id],
+        );
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async retry(owner, id): Promise<AudioJob | null> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs
+              SET status = 'queued', attempts = 0, diagnostic = NULL, diagnostic_kind = NULL, progress = NULL,
+                  version = version + 1, updated_at = $1
+            WHERE owner = $2 AND id = $3 AND status = 'failed' RETURNING *`,
+          [timestamp(now), owner, id],
+        );
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async delete(owner, id): Promise<AudioJob | null> {
+      return asOwner(pool, owner, async (client) => {
+        const result = await client.query<AudioJobRow>(`DELETE FROM audio_jobs WHERE owner = $1 AND id = $2 RETURNING *`, [owner, id]);
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async close(): Promise<void> {
+      await closeHandle(handle);
+    },
+  };
+}
+
+function toJob(row: AudioJobRow): AudioJob {
+  return {
+    ...toSummary(row),
+    result: row.result === null ? null : (JSON.parse(row.result) as unknown),
+    leaseToken: row.lease_token,
+  };
+}
+
+function toSummary(row: Partial<AudioJobRow> & Omit<AudioJobRow, 'result' | 'lease_token'>): AudioJobSummary {
+  return {
+    id: row.id,
+    owner: row.owner,
+    status: row.status as AudioJob['status'],
+    audioKey: row.audio_key,
+    contentType: row.content_type,
+    filename: row.filename,
+    sizeBytes: Number(row.size_bytes),
+    instrument: row.instrument,
+    declaredDurationSeconds: row.declared_duration_seconds,
+    attempts: row.attempts,
+    diagnosticKind: row.diagnostic_kind,
+    diagnostic: row.diagnostic,
+    progress: row.progress === null ? null : (JSON.parse(row.progress) as AudioProgress),
+    durationSeconds: row.duration_seconds,
+    scoreId: row.score_id,
+    leaseExpiresAt: row.lease_expires_at,
+    version: row.version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}

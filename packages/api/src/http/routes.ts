@@ -14,10 +14,12 @@ import type { Artefact, Exporter } from '../export/export.js';
 import { validateNoteEventsUpload } from '../imports/note-events.js';
 import { multipartBoundary, parseMultipartImages, validateUpload } from '../imports/upload.js';
 import type { UploadRejection } from '../imports/upload.js';
+import type { AudioService } from '../audio/service.js';
 import type { Applier } from '../ops/applier.js';
 import type { Batch, Operation } from '../ops/operations.js';
 import type { ImportJob, JobId, JobReader } from '../store/jobs.js';
 import type { Owner, ScoreLibrary, ScoreReader } from '../store/repository.js';
+import { audioRoute } from './audio-routes.js';
 import type { EventStreams } from './event-stream.js';
 import type { JobStreams } from './job-stream.js';
 import { problem } from './problems.js';
@@ -57,6 +59,8 @@ export interface RouteContext {
    * failed import commits nothing (ADR-0003, Q80), so nothing this can do writes a score.
    */
   imports?: ImportService;
+  /** The audio-job service (SIB2-137). Always present: audio jobs need no worker to be accepted. */
+  audio?: AudioService;
   /**
    * The built browser UI, served for any GET that no `/v1/` route claimed (V8g). Absent in
    * development, where Vite serves the app; present in a shipped container. A path outside `/v1/`
@@ -323,6 +327,13 @@ export async function route(
     const job = await context.imports.reader.get(context.owner, importFor);
     if (job === null) return send(response, noSuchImport(importFor));
     return sendJson(response, 200, { job });
+  }
+
+  // Audio jobs (SIB2-137): declare an upload, confirm it, list, show, retry, delete. Owner-scoped, and
+  // answerable with the audio worker stopped. The worker's own routes are a separate family.
+  if (context.audio !== undefined && path.startsWith('/v1/audio/')) {
+    const handled = await audioRoute(request, response, method, path, context.owner, context.audio);
+    if (handled !== null) return handled;
   }
 
   // The built UI, last (V8g). Only a GET, and only once every `/v1/` route above has declined, so a
