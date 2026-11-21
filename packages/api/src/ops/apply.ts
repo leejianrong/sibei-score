@@ -11,6 +11,7 @@ import {
   MAX_BARS_PER_SYSTEM,
   MIN_BARS_PER_SYSTEM,
   SIGNATURE_POLICIES,
+  OCTAVE_SHIFTS,
   SPANNER_PLACEMENTS,
   orderedItems,
   MAX_FOOTER_LENGTH,
@@ -83,6 +84,7 @@ import type {
   ScoreCreatePayload,
   ScoreImportPayload,
   SectionSetPayload,
+  OttavaSetPayload,
   SlurSetPayload,
   StoredOperation,
   TransposePayload,
@@ -204,6 +206,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setSlur(score, operation.target, operation.payload);
     case 'slur.rm':
       return removeSlur(score, operation.target);
+    case 'ottava.set':
+      return setOttava(score, operation.target, operation.payload);
+    case 'ottava.rm':
+      return removeOttava(score, operation.target);
     case 'bar.add':
       return addBars(score, operation.target, operation.payload ?? {});
     case 'bar.rm':
@@ -1087,6 +1093,91 @@ function setSlur(score: Score, target: string, payload: SlurSetPayload): Applied
     score: { ...score, spanners: [...spanners.filter((spanner) => spanner.id !== id), slur] },
     operation: { type: 'slur.set', target, payload: { ...payload, id } },
     changed: [id, start.id, end.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ottava.set, ottava.rm (SIB2-184)
+// ---------------------------------------------------------------------------
+
+/**
+ * An 8va or 8vb line from the target note to `to`, in reading order. The notes keep their sounding pitch; the
+ * line only changes how they are drawn. Two ottava lines may not overlap, since a note is shifted by one at most.
+ * Re-setting the same pair is an upsert that keeps the id and changes the direction.
+ */
+function setOttava(score: Score, target: string, payload: OttavaSetPayload): Applied {
+  if (typeof payload.to !== 'string' || payload.to.trim() === '') {
+    throw new OperationError({ kind: 'validation', detail: 'an ottava needs an end note: ottava set <start> <end> --up|--down' });
+  }
+  if (!OCTAVE_SHIFTS.includes(payload.shift)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `an ottava's shift is ${OCTAVE_SHIFTS.join(' (8va) or ').replace('down', 'down (8vb)')}, not ${JSON.stringify(payload.shift)}`,
+    });
+  }
+  const start = resolveAddress(score, target, 'note').target;
+  const end = resolveAddress(score, payload.to, 'note').target;
+  const order = readingOrder(score);
+  const first = order.get(start.id) ?? 0;
+  const last = order.get(end.id) ?? 0;
+  if (start.id === end.id || first > last) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `an ottava runs from a note to a later one; ${target} to ${payload.to} does not`,
+    });
+  }
+  const spanners = score.spanners ?? [];
+  const existing = spanners.find(
+    (spanner) => spanner.kind === 'ottava' && spanner.startId === start.id && spanner.endId === end.id,
+  );
+  const id = existing?.id ?? payload.id ?? nextId(score, 'ottava');
+  const clash = spanners.find(
+    (spanner) =>
+      spanner.kind === 'ottava' &&
+      spanner.id !== id &&
+      (order.get(spanner.startId) ?? 0) <= last &&
+      (order.get(spanner.endId) ?? 0) >= first,
+  );
+  if (clash !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${clash.id} already covers part of that run; remove it first (ottava rm), lines do not overlap`,
+    });
+  }
+  const ottava: Spanner = { id, kind: 'ottava', startId: start.id, endId: end.id, octaveShift: payload.shift };
+  return {
+    score: { ...score, spanners: [...spanners.filter((spanner) => spanner.id !== id), ottava] },
+    operation: { type: 'ottava.set', target, payload: { ...payload, id } },
+    changed: [id, start.id, end.id],
+  };
+}
+
+function removeOttava(score: Score, target: string): Applied {
+  const spanners = score.spanners ?? [];
+  const lines = spanners.filter((spanner) => spanner.kind === 'ottava');
+  let found: Spanner[] = lines.filter((spanner) => spanner.id === target);
+  if (found.length === 0) {
+    let noteId: Id | null = null;
+    try {
+      noteId = resolveAddress(score, target, 'note').target.id;
+    } catch {
+      noteId = null;
+    }
+    if (noteId !== null) found = lines.filter((spanner) => spanner.startId === noteId);
+  }
+  if (found.length !== 1) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `there is no ottava at ${target}; name one by its id (ottava-1, which show prints) or the note it starts on`,
+    });
+  }
+  const gone = found[0] as Spanner;
+  const kept = spanners.filter((spanner) => spanner.id !== gone.id);
+  const { spanners: _old, ...rest } = score;
+  return {
+    score: kept.length === 0 ? rest : { ...rest, spanners: kept },
+    operation: { type: 'ottava.rm', target },
+    changed: [gone.id],
   };
 }
 

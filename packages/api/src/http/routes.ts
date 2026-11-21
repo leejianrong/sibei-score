@@ -7,6 +7,8 @@ import {
   EXPORT_PAGE_NUMBER_FORMATS,
   EXPORT_PAGE_NUMBER_POSITIONS,
   EXPORT_PAPERS,
+  parseExportBarNumbers,
+  parseExportBlankStaves,
   parseExportFont,
   parseExportPage,
   parseExportFormat,
@@ -695,6 +697,10 @@ async function exportScore(
   // Which page an SVG is (SIB2-190). Only an SVG has one; for the others it is accepted and ignored.
   const page = parseExportPage(query.get('page'));
   if (page === null) return send(response, unsupported('page', query.get('page'), ['a page number from 1']));
+  const barNumbers = parseExportBarNumbers(query.get('barnumbers'));
+  if (barNumbers === null) return send(response, unsupported('barnumbers', query.get('barnumbers'), ['yes', 'no']));
+  const blankStaves = parseExportBlankStaves(query.get('blankstaves'));
+  if (blankStaves === null) return send(response, unsupported('blankstaves', query.get('blankstaves'), ['yes', 'no']));
 
   const outcome = await context.exporter.export(context.owner, scoreId, {
     format,
@@ -703,6 +709,8 @@ async function exportScore(
     font,
     pageNumbers: position === null ? null : { position, format: numberFormat, first: numberFirst },
     ...(format === 'svg' ? { page } : {}),
+    barNumbers,
+    blankStaves,
   });
   if (!outcome.ok) {
     if (outcome.reason === 'no-such-page') {

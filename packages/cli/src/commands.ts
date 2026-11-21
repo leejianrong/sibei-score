@@ -85,6 +85,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
   sbscore export <id> [--pdf|--musicxml|--svg] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--page-numbers[=top-right|…]] [--page-number-format n|page|of] [--page-number-first yes|no]
+              [--blank-staves]   fill the rest of the last PDF page with empty staves
+              [--no-bar-numbers]   leave the bar numbers off the PDF (they head each line by default)
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
@@ -127,6 +129,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
   sbscore slur rm  <id> <slur-id|from>
+  sbscore ottava set <id> <from> <to> --up|--down   an 8va (--up) or 8vb (--down) line over a run of notes
+  sbscore ottava rm  <id> <ottava-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
   sbscore break rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
@@ -151,7 +155,9 @@ Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
 Export:  --pdf (the default) or --musicxml. MusicXML is a codec at the edges (ADR-0004);
-  it is lossy in known ways and ignores --paper, --font and --page-numbers, which are page choices.
+  it is lossy in known ways and ignores --paper, --font, --page-numbers, --blank-staves and --no-bar-numbers, which are page choices.
+  --blank-staves fills the rest of the last PDF page with empty ruled staves to write in (off by default).
+  --no-bar-numbers leaves the bar number off the head of each line (drawn by default).
   --svg writes each page as an SVG, the same markup the browser draws, one file per page ("Title - page 2.svg"):
   give -o a directory for a chart of several pages. There is no --png: rasterise the SVG with your own tool.
   --page-numbers prints a number on each PDF page (off by default): bare it is top-right, or name a
@@ -304,6 +310,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return tuplet(flags, client, io, json);
     case 'slur':
       return slur(flags, client, io, json);
+    case 'ottava':
+      return ottava(flags, client, io, json);
     case 'break':
       return lineBreak(flags, client, io, json);
     case 'ending':
@@ -469,6 +477,10 @@ async function exportScore(
   if (numberFormat !== undefined) query.pagenumberformat = numberFormat;
   const numberFirst = flags.options.get('page-number-first');
   if (numberFirst !== undefined) query.pagenumberfirst = numberFirst;
+  // Empty staves to fill the last page (SIB2-181): off unless asked for.
+  if (flags.switches.has('blank-staves')) query.blankstaves = 'yes';
+  // Bar numbers head each system by default; `--no-bar-numbers` leaves them out (SIB2-191).
+  if (flags.switches.has('no-bar-numbers')) query.barnumbers = 'no';
 
   if (format === 'svg') return exportSvgPages(flags, client, io, json, cwd, id, query);
 
@@ -1148,6 +1160,32 @@ async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Prom
  * bars. `rm` takes the `slur-N` id `show` prints, or the note a single slur starts on. The server judges
  * order and that both are notes.
  */
+/**
+ * `sbscore ottava set <id> <from> <to> --up|--down` and `ottava rm <id> <ottava-id|from>` (SIB2-184): an 8va
+ * (`--up`: written an octave below the sound, line above the staff) or 8vb (`--down`) line over a run of notes.
+ * The notes keep their sounding pitch. Same addresses as `slur set`; the server judges order and overlap.
+ */
+async function ottava(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `ottava ${sub}`);
+  if (sub === 'set') {
+    const target = requiredPositional(flags, 3, 'the note it starts on', 'ottava set');
+    const to = requiredPositional(flags, 4, 'the note it ends on', 'ottava set');
+    const up = flags.switches.has('up');
+    const down = flags.switches.has('down');
+    if (up === down) {
+      throw new CliError(EXIT.usage, 'usage', 'ottava set needs exactly one of --up (8va) or --down (8vb)');
+    }
+    const payload = { to, shift: up ? 'up' : 'down' };
+    return submit(flags, client, io, json, id, [{ type: 'ottava.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    const target = requiredPositional(flags, 3, 'an ottava id or the note it starts on', 'ottava rm');
+    return submit(flags, client, io, json, id, [{ type: 'ottava.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'ottava takes set or rm');
+}
+
 async function slur(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `slur ${sub}`);

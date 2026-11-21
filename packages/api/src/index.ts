@@ -83,6 +83,8 @@ export {
   EXPORT_PAPERS,
   createExporter,
   exportBlobKey,
+  parseExportBarNumbers,
+  parseExportBlankStaves,
   parseExportFont,
   parseExportPage,
   parseExportFormat,

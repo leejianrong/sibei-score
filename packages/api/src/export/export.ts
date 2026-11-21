@@ -78,6 +78,10 @@ export interface ExportRequest {
    * chart of several is fetched a page at a time and the artefact says how many there are (SIB2-190).
    */
   page?: number;
+  /** Bar numbers at each system start on the PDF (SIB2-191). Absent or true: drawn, as before. */
+  barNumbers?: boolean;
+  /** Fill the last PDF page with empty staves (SIB2-181). Absent or false: no, as before. */
+  blankStaves?: boolean;
 }
 
 export interface Artefact {
@@ -159,13 +163,17 @@ export function exportBlobKey(
     request.paper,
     request.font,
     request.format,
-    // The last component, and absent when there are none, so every key made before page numbers existed is
-    // still the key for the same bytes. A PDF's page numbers change them; MusicXML ignores them.
-    // Which page an SVG is. Only an SVG has one, and it is last, so no PDF or MusicXML key changes.
+    // Which page an SVG is. Only an SVG has one, so no PDF or MusicXML key changes.
     ...(request.format === 'svg' ? [`page-${String(request.page ?? 1)}`] : []),
+    // Absent when there are none, so every key made before page numbers existed is still the key for the same
+    // bytes. A PDF's or an SVG's page numbers change them; MusicXML ignores them.
     ...(request.format !== 'musicxml' && request.pageNumbers
       ? [`pn-${request.pageNumbers.position}-${request.pageNumbers.format}-${request.pageNumbers.first ? 'first' : 'skip'}`]
       : []),
+    // Last, and absent when drawn (the default), so no key made before this option existed changes (SIB2-191).
+    ...(request.format !== 'musicxml' && request.barNumbers === false ? ['nobn'] : []),
+    // Likewise last and absent when off, so no key made before blank staves existed changes (SIB2-181).
+    ...(request.format !== 'musicxml' && request.blankStaves ? ['blank'] : []),
   ].join(':');
 }
 
@@ -221,7 +229,12 @@ export function createExporter(
 
 /** The page choices an export carries, as the layout takes them. Nothing here decides anything about the page. */
 function pageSpecOf(request: ExportRequest): PageSpecInput {
-  return { paper: request.paper, pageNumbers: request.pageNumbers ?? null };
+  return {
+    paper: request.paper,
+    pageNumbers: request.pageNumbers ?? null,
+    blankStaves: request.blankStaves ?? false,
+    barNumbers: request.barNumbers ?? true,
+  };
 }
 
 /** How many pages the chart has under this request, from `layout` alone (a cache hit renders nothing). */
@@ -309,6 +322,18 @@ export function parseExportFont(raw: string | null): MusicFontName | null {
 export function parseExportPage(raw: string | null): number | null {
   if (raw === null || raw === '') return 1;
   return /^[1-9]\d{0,3}$/.test(raw) ? Number(raw) : null;
+}
+
+/** `blankstaves=yes|no` (SIB2-181): no unless asked for. Returns null for anything else (a 422). */
+export function parseExportBlankStaves(raw: string | null): boolean | null {
+  if (raw === null || raw === '' || raw === 'no') return false;
+  return raw === 'yes' ? true : null;
+}
+
+/** `barnumbers=yes|no` (SIB2-191): yes unless `no` is asked for. Returns null for anything else (a 422). */
+export function parseExportBarNumbers(raw: string | null): boolean | null {
+  if (raw === null || raw === '' || raw === 'yes') return true;
+  return raw === 'no' ? false : null;
 }
 
 export const EXPORT_PAGE_NUMBER_POSITIONS = PAGE_NUMBER_POSITIONS;
