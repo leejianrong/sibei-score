@@ -155,6 +155,16 @@ export function memoryAudioJobStore(options: MemoryAudioJobStoreOptions = {}): A
       }
       return { requeued, failed };
     },
+    async deleteStaleUploads(beforeIso) {
+      const gone: AudioJob[] = [];
+      for (const job of [...jobs.values()]) {
+        if (job.status === 'awaiting-upload' && job.createdAt < beforeIso) {
+          jobs.delete(job.id);
+          gone.push(structuredClone(job));
+        }
+      }
+      return gone;
+    },
     async getById(id) {
       const job = jobs.get(id);
       return job === undefined ? null : structuredClone(job);

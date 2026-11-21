@@ -160,6 +160,12 @@ export interface AudioJobWorkerStore {
    * `maxAttempts`. Returns the jobs it moved so the caller can drop the audio of the ones now failed.
    */
   expireLeases(maxAttempts: number): Promise<{ requeued: AudioJob[]; failed: AudioJob[] }>;
+  /**
+   * Delete every job still `awaiting-upload` that was created before `beforeIso` and return the rows, so the
+   * caller can drop any object a presigned URL may have written (SEC H4). A job whose client never uploaded
+   * would otherwise sit counting against its owner forever. System-level, not a request-path operation.
+   */
+  deleteStaleUploads(beforeIso: string): Promise<AudioJob[]>;
   /** A job by id, any owner: the worker service's own read. Never reachable from a user route. */
   getById(id: AudioJobId): Promise<AudioJob | null>;
   /**

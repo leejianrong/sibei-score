@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { BlobKey, ManagedBlobStore } from './blob-store.js';
 
@@ -63,6 +63,19 @@ export function openDirectoryBlobStore(options: DirectoryBlobStoreOptions): Mana
         if (isMissing(error)) return null;
         throw error;
       }
+    },
+
+    async copy(from, to) {
+      const target = fileFor(to);
+      const scratch = `${target}.${process.pid}.partial`;
+      try {
+        await copyFile(fileFor(from), scratch);
+      } catch (error) {
+        if (isMissing(error)) return false;
+        throw error;
+      }
+      await rename(scratch, target);
+      return true;
     },
 
     async delete(key) {
