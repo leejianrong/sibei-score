@@ -38,6 +38,10 @@ export interface ProjectionOptions {
 export function projectScore(score: Score, options: ProjectionOptions = {}): string {
   const perRow = options.barsPerRow ?? BARS_PER_ROW;
   const lines: string[] = [header(score)];
+  // The page footer is printed text a reader of the projection would otherwise never see (SIB2-172).
+  if (score.meta.footer !== undefined) {
+    lines.push(`  footer (${score.meta.footer.pages} pages): ${JSON.stringify(score.meta.footer.text)}`);
+  }
 
   // The wording lives in `review.ts`, not here, because the score rail says the same sentence
   // (V4b): the engraver draws no flag, so the chrome carries review state and must carry it in

@@ -151,6 +151,31 @@
     if (currentKeyIndex !== -1) transposeIndex = currentKeyIndex;
   });
 
+  // The page footer (SIB2-172): a copyright or credit line in the bottom margin. A draft the reader edits
+  // and saves as a `meta.set`; re-seeded from the chart after every change, like the transpose target.
+  let footerDraft = $state('');
+  let footerPagesDraft = $state<'first' | 'last' | 'all'>('all');
+  $effect(() => {
+    footerDraft = score?.meta.footer?.text ?? '';
+    footerPagesDraft = score?.meta.footer?.pages ?? 'all';
+  });
+  const footerDirty = $derived(
+    score !== null &&
+      (footerDraft !== (score.meta.footer?.text ?? '') ||
+        (footerDraft !== '' && footerPagesDraft !== (score.meta.footer?.pages ?? 'all'))),
+  );
+
+  async function handleFooterSave(): Promise<void> {
+    if (score === null) return;
+    deselect();
+    await runOps([
+      {
+        type: 'meta.set',
+        payload: footerDraft.trim() === '' ? { footer: null } : { footer: footerDraft, footerPages: footerPagesDraft },
+      },
+    ]);
+  }
+
   // Selection (V4c). The id is the whole of it — everything the inspector shows is looked up
   // fresh from the current render each time, never cached at selection time, so a reload never
   // leaves it holding a stale copy of what it is inspecting.
@@ -787,6 +812,32 @@
       </div>
 
       <div class="group control-row">
+        <h3>Footer</h3>
+        <textarea
+          class="footer-text"
+          aria-label="Page footer text"
+          rows="3"
+          maxlength="500"
+          placeholder="© 2026 … · lead sheet by …"
+          bind:value={footerDraft}
+        ></textarea>
+        <div class="transpose-row">
+          <select class="key-select" aria-label="Pages carrying the footer" bind:value={footerPagesDraft}>
+            <option value="all">Every page</option>
+            <option value="first">First page</option>
+            <option value="last">Last page</option>
+          </select>
+          <button type="button" class="transpose-btn" disabled={saving || !footerDirty} onclick={handleFooterSave}>
+            {saving ? 'Working…' : 'Save'}
+          </button>
+        </div>
+        <p class="control-note">
+          A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
+          (<code>meta set --footer</code>).
+        </p>
+      </div>
+
+      <div class="group control-row">
         <h3>Face</h3>
         <SegmentedControl
           label="Music face"
@@ -1201,6 +1252,22 @@
 
   /* Transpose (V6e). A key picker and a committing button — deliberately not a segmented control,
      because it is an action that writes, not a render toggle you flip and forget. */
+  .footer-text {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    padding: 7px 9px;
+    font-family: var(--mono);
+    font-size: 12px;
+    resize: vertical;
+    margin-bottom: 8px;
+  }
+  .footer-text:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
   .transpose-row {
     display: flex;
     gap: 8px;

@@ -10,7 +10,7 @@ import {
 } from '@sibei/model';
 import { resolveBarAccidentals } from './accidentals.js';
 import { planSystems } from './grid.js';
-import { buildFurniture } from './furniture.js';
+import { buildFurniture, footerReserve } from './furniture.js';
 import type { LayoutFurniture } from './furniture.js';
 import type { LayoutBarItem, LayoutText, LayoutTie } from './items.js';
 import type { PageSpec, PageSpecInput } from './page.js';
@@ -148,9 +148,10 @@ function paginate(score: Score, systems: LayoutSystem[], spec: PageSpec): Layout
   const pages: LayoutPage[] = [];
   let page = emptyPage(0, score, spec);
   let y = spec.margin.top + headerBand(page.header, spec);
+  const bottom = spec.height - spec.margin.bottom - footerReserve(score, spec);
 
   for (const system of systems) {
-    const overflows = y + system.height > spec.height - spec.margin.bottom;
+    const overflows = y + system.height > bottom;
     if (overflows && page.systems.length > 0) {
       pages.push(page);
       page = emptyPage(pages.length, score, spec);
@@ -164,7 +165,7 @@ function paginate(score: Score, systems: LayoutSystem[], spec: PageSpec): Layout
 
   pages.push(page);
   // The page count is only known now, and "Page 2 of 3" needs it.
-  for (const each of pages) each.furniture = buildFurniture(each.index, pages.length, spec);
+  for (const each of pages) each.furniture = buildFurniture(score, each.index, pages.length, spec);
   return pages;
 }
 

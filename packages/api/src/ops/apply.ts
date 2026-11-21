@@ -1,6 +1,8 @@
 import {
   DEFAULT_KEY,
   DEFAULT_TIME,
+  FOOTER_PAGES,
+  MAX_FOOTER_LENGTH,
   SCHEMA_VERSION,
   makeBar,
   makeChord,
@@ -31,6 +33,7 @@ import type {
   Id,
   KeySignature,
   Note,
+  PageFooter,
   Review,
   Score,
   StartBarline,
@@ -259,14 +262,18 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const time = payload.time === undefined ? score.meta.time : validTime(payload.time);
   const key = payload.key === undefined ? score.meta.key : validKey(payload.key);
 
+  const footer = nextFooter(score, payload);
+  const { footer: _previous, ...rest } = score.meta;
   const next: Score = {
     ...score,
     meta: {
+      ...rest,
       title: payload.title ?? score.meta.title,
       composer: payload.composer ?? score.meta.composer,
       style: payload.style === undefined ? score.meta.style : payload.style,
       key,
       time,
+      ...(footer === undefined ? {} : { footer }),
     },
   };
 
@@ -280,6 +287,37 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     operation: { type: 'meta.set', payload },
     changed: [score.id],
   };
+}
+
+/**
+ * The footer after a `meta.set` (SIB2-172): untouched unless the payload names it. Empty text or null
+ * removes it; `footerPages` alone re-targets an existing one and is refused with none to place.
+ */
+function nextFooter(score: Score, payload: MetaSetPayload): PageFooter | undefined {
+  const pages = payload.footerPages;
+  if (pages !== undefined && !FOOTER_PAGES.includes(pages)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `footerPages must be ${FOOTER_PAGES.join(', ')}, not ${JSON.stringify(pages)}`,
+    });
+  }
+  const current = score.meta.footer;
+  if (payload.footer === undefined) {
+    if (pages === undefined) return current;
+    if (current === undefined) {
+      throw new OperationError({ kind: 'validation', detail: 'footerPages needs a footer: set one with footer' });
+    }
+    return { ...current, pages };
+  }
+  if (payload.footer === null) return undefined;
+  if (typeof payload.footer !== 'string' || payload.footer.length > MAX_FOOTER_LENGTH) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `footer must be text of at most ${MAX_FOOTER_LENGTH} characters`,
+    });
+  }
+  if (payload.footer.trim() === '') return undefined;
+  return { text: payload.footer, pages: pages ?? current?.pages ?? 'all' };
 }
 
 // ---------------------------------------------------------------------------
