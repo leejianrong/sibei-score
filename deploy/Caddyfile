@@ -1,0 +1,43 @@
+# The hosted edge (V24, ADR-0034 decision 9). Caddy is the only service that publishes ports; it
+# terminates TLS and proxies everything to the API, which serves the UI and `/v1/` on one origin.
+#
+# SITE_ADDRESS is the domain for a real deployment (`sibei.example.com`): Caddy then obtains and renews a
+# Let's Encrypt certificate by itself, and redirects http to https. The local smoke test sets it to
+# `http://` instead, which serves plain http on port 80 with no certificate (compose.hosted-smoke.yaml).
+{
+	# Where Let's Encrypt writes about expiry. Required for a real domain; ignored for `http://`.
+	email {$ACME_EMAIL:admin@example.invalid}
+	# The admin API is not needed and must not be reachable.
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# An import upload is capped by the API at 25 MB; refusing larger bodies here stops them at the edge.
+	request_body {
+		max_size 26MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# `flush_interval -1` writes each SSE frame to the browser as it is produced (the change stream, ADR-0001).
+	# Caddy sets X-Forwarded-For to the connecting client's address and the API, run with
+	# SBSCORE_TRUST_PROXY=1, rate-limits by the rightmost entry, which is the one added here.
+	reverse_proxy api:8080 {
+		flush_interval -1
+		# No active health check here, on purpose: Caddy would probe with `Host: api:8080`, which the API's
+		# Host guard (ADR-0029) rightly refuses. The API's own container health check covers it, and Caddy
+		# passes each real request's original Host through, which the guard admits.
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
