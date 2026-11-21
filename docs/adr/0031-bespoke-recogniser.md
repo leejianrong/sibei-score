@@ -142,3 +142,11 @@ swap regardless and bespoke already leads on notes.)
   training code. This is a real cost, taken on deliberately, and it is affordable for exactly
   two reasons — the domain narrowness keeps the models small, and oemer stays the fallback
   until the bespoke engine has won the harness.
+
+## Amendment (2026-10-23, ADR-0038)
+
+The "domain narrowness" this ADR relies on is a **stage, not a ceiling**. The maintainer has decided the
+long-term direction is full notation (multi-staff, polyphony, percussion, spanners), staged behind the
+harness and never gating the lead-sheet path — see [ADR-0038](0038-full-notation-is-the-long-term-direction.md).
+Nothing here changes: the narrow pipeline is still the shipping one and the default-engine decision (V17f)
+is still made on it.
