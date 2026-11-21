@@ -121,9 +121,9 @@ deliberately **not** decided (ADR-0039 decision 7).
 14. **The audio worker pulls (supersedes the "worker is a push client" assumption for audio only).**
     A second job kind, `audio`, lives in the same durable job table as import (ADR-0001). The worker
     holds a **worker credential** (`sbsw_` prefix, stored hashed, configured by the operator, never a
-    user token) and calls out over HTTPS: `POST /v1/worker/claim` takes the oldest queued audio job and
-    grants a **lease**; `POST /v1/worker/jobs/:id/heartbeat` extends it; `POST .../complete` or
-    `.../fail` ends it. A lease that is not renewed within its timeout is expired and the job goes back
+    user token) and calls out over HTTPS: `POST /v1/worker/audio/claim` takes the oldest queued audio job and
+    grants a **lease**; heartbeat extends it; complete or fail ends it (the exact wire format is
+    [Audio worker protocol v1](#audio-worker-protocol-v1) below). A lease that is not renewed within its timeout is expired and the job goes back
     to `queued` with its attempt count incremented, up to a bounded number of attempts, after which it
     fails with a diagnostic. A GPU host is behind NAT or preemptible, so it calls out; claiming gives
     back-pressure, retry after a lost lease and several workers for free. The OMR worker stays push
@@ -154,6 +154,126 @@ deliberately **not** decided (ADR-0039 decision 7).
     A free-tier cap is configuration (audio-seconds per period) checked when a job is created. **How
     seconds become money, the plans and the provider are not decided here**; the ledger is the input to
     whichever decision follows.
+
+### Audio worker protocol v1
+
+This is the contract the audio repo's worker (music-audio-transcriber) builds a pull client against.
+SIB2-138 implements it; a change after merge is a version bump (`/v1/` is additive-only, decision 13).
+The result document is **NoteEvents v1** (`schemas/note-events-v1.schema.json` in the audio repo, which owns
+it; `Beat.is_downbeat` may be `null`). The API stores it and hands it to the import service; it does not
+define the schema.
+
+**Auth.** Every worker call carries `Authorization: Bearer sbsw_<random>`. Worker credentials are minted by
+the operator (`SBSCORE_WORKER_TOKENS`, comma-separated; the API keeps only their SHA-256) and are not
+users: no owner, no session, no scopes. A `sbsw_` credential is accepted on `/v1/worker/*` **only**
+(anywhere else: `403 forbidden`), and a user token or cookie on `/v1/worker/*` is `403 forbidden`. A worker
+therefore cannot list, read or write any user's scores, library or other jobs; it sees only the job it
+holds a lease on. Over TLS only in hosted mode. Content type is `application/json` both ways.
+
+**Lifecycle.** `queued -> running (leased) -> succeeded | failed`, plus `running -> queued` when a lease is
+lost or a worker reports a retryable failure. Each claim increments `attempt`; the job fails for good
+after **3 attempts** (`worker-lost` or the worker's own kind). A failed or cancelled job commits nothing.
+
+**1. Claim** — `POST /v1/worker/audio/claim`
+
+```json
+{ "workerId": "gpu-7f3a", "waitSeconds": 20 }
+```
+
+`workerId` is a free-form label for logs (not trusted). `waitSeconds` (0-30, default 0) long-polls for a
+job. No job: `204`, no body (poll again with back-off). A job: `200`
+
+```json
+{
+  "job": {
+    "id": "job_01J...",
+    "attempt": 1,
+    "leaseToken": "l_9c1...",
+    "leaseExpiresAt": "2026-12-01T10:02:00.000Z",
+    "heartbeatIntervalSeconds": 30,
+    "audio": {
+      "url": "https://bucket.example/...signed...",
+      "method": "GET",
+      "expiresAt": "2026-12-01T11:00:00.000Z",
+      "contentType": "audio/mpeg",
+      "sizeBytes": 4123456
+    },
+    "params": { "instrument": "piano", "declaredDurationSeconds": 183.2 },
+    "resultUpload": {
+      "url": "https://bucket.example/...signed...",
+      "method": "PUT",
+      "headers": { "Content-Type": "application/json" },
+      "expiresAt": "2026-12-01T13:00:00.000Z"
+    }
+  }
+}
+```
+
+`params.instrument` is optional and is one the audio engine understands (it is the user's choice, passed
+through). `declaredDurationSeconds` is what the uploader's metadata said, advisory. `resultUpload` is
+present only when the blob store presigns (hosted); local disk mode omits it and the worker inlines the
+result. `audio.url` is a presigned `GET` valid 1 hour from claim, re-issued by heartbeat (below). The
+audio object is deleted when the job reaches a terminal state (decision 16): download once, do not rely
+on it afterwards.
+
+**2. Heartbeat** — `POST /v1/worker/audio/jobs/{id}/heartbeat`
+
+```json
+{ "leaseToken": "l_9c1...", "progress": { "stage": "transcribing", "fraction": 0.4 } }
+```
+
+`progress` is optional, shown to the user as-is (`stage` is a short label, `fraction` 0-1). `200`:
+
+```json
+{ "leaseExpiresAt": "2026-12-01T10:04:00.000Z", "cancelled": false, "audio": null }
+```
+
+Each heartbeat sets the lease to now + **120 s**; send one every `heartbeatIntervalSeconds` (**30 s**). A
+lease also has an absolute cap of **2 hours** per attempt, after which it expires regardless. If the user
+deleted the job, `cancelled` is `true`: stop and discard (a later `complete` is `409 lease-lost`). When
+`audio.url` has under 10 minutes left, `audio` carries a fresh `{url,expiresAt}` and is otherwise `null`.
+
+**3. Complete** — `POST /v1/worker/audio/jobs/{id}/complete`
+
+```json
+{
+  "leaseToken": "l_9c1...",
+  "durationSeconds": 183.2,
+  "result": { "inline": { "schema_version": 1, "...": "NoteEvents v1" } }
+}
+```
+
+or, after `PUT`ting the NoteEvents JSON to `resultUpload`, `"result": { "uploaded": true }`. Inline bodies
+are limited to **8 MiB** (`413 payload-too-large`; use the upload for more). `durationSeconds` is the audio
+length the worker decoded; it is the metering input (decision 17) and the API cross-checks it against the
+file. `200 { "status": "succeeded" }`; the API stores the document and runs the import hook, which may
+still fail the job as non-retryable `invalid-result` if the document does not validate.
+**Complete is idempotent**: a repeat with the same `leaseToken` after success returns the same `200`
+(plus `"alreadyCompleted": true`) and changes nothing, so a worker that lost the response can simply retry.
+A `leaseToken` that is not the current holder's is `409 lease-lost`.
+
+**4. Fail** — `POST /v1/worker/audio/jobs/{id}/fail`
+
+```json
+{ "leaseToken": "l_9c1...", "kind": "unsupported-audio", "message": "no audio stream", "retryable": false }
+```
+
+`kind` is a short slug for the user-facing diagnostic (suggested: `unsupported-audio`, `audio-too-long`,
+`engine-error`, `out-of-memory`); `message` is for the operator, truncated to 500 characters, and never
+shown verbatim as trusted text. `retryable: true` re-queues (counts against the 3 attempts); `false` fails
+the job. `200 { "status": "queued" | "failed" }`. Also idempotent per lease.
+
+**Lease expiry and re-queue.** A sweep on every claim and every 15 s finds `running` jobs whose lease has
+passed: attempt < 3 puts them back to `queued` (the next claim gets a new `leaseToken`; the old one is
+dead, so a returning stale worker gets `409 lease-lost` on its next call and must abandon the work);
+otherwise the job fails with kind `worker-lost`. The worker has no obligation to clean anything up on loss.
+
+**Errors.** `{ "error": { "kind": "...", "message": "..." } }` with ADR-0008's shape, HTTP status by
+kind: `400 bad-request`, `401 unauthorized` (missing/unknown credential), `403 forbidden` (wrong kind of
+credential for the route), `404 not-found` (no such job, or not yours: the same answer, so ids reveal
+nothing), `409 lease-lost`, `413 payload-too-large`, `422 invalid-result`, `503 unavailable` (retry with
+back-off). `429` carries `Retry-After`. Network errors and `5xx` are retried by the worker with
+exponential back-off; `complete` and `fail` are safe to retry.
 
 ## Consequences
 
