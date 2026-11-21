@@ -8,6 +8,23 @@ from reproducing the eight real pages we hold?
 This file is a feature-level inventory only: names of notation features and counts of pages. It holds no
 note, lyric, chord sequence, page image or crop, and nothing here may be turned into a transcription.
 
+## Status (re-checked 2026-11-22 against `origin/main`)
+
+Each row below was checked against main's op names, CLI help and codec/engraver source, not assumed. **Closed:**
+F01 page numbers, F03 first-system signatures, F04 parenthesised alterations, F05 stacked slash chords,
+F06 alternate chords, F07 tuplets, F08 slurs, F09 text directions, F12 line breaks, F13 tempo and style,
+F14 page footer, F16 section name boxes, F19 articulations, F20 fermata, F21 ottava, F22 dashed line,
+F23 metronome mark, F25 blank staves, F26 parenthesised accidentals. Also closed from the recreate pass:
+SIB2-162 (major-seventh glyph), 163 (chord symbologies, `--chord-style`), 165 and 192 (sparse-bar chords,
+centred whole rest), 186 (`bar.add`/`bar.rm`), 187 (`batch --ops @file`), 188 (unknown payload fields
+refused), 189 (bare bar numbers), 190 (`export --svg`), 191 (`--no-bar-numbers`), 193 (`sbscore check`).
+**Still open:** F15 navigation marks (segno, coda, D.S., D.C., Fine; SIB2-175, an ADR-0021 reversal),
+F24 subtitle and arranger fields (SIB2-180), F27 grace notes (SIB2-185), and F28 to F31 (grand staff, bass
+clef, two voices, drum noteheads), which wait on the parts x staves x voices model (ADR-0041, *proposed*,
+SIB2-151, after the hosted launch). F11's tie entry in the UI and the codec round trip of tuplets and ties
+were not re-verified. The tables and the "Verified by running" sections below are the original SIB2-148
+snapshot except where a row says "Closed by"; the ranked-gaps table is kept as the order the work was done in.
+
 ## The pages
 
 | Key | Page | Legibility |
@@ -69,39 +86,39 @@ rest numbers, jazz articulations (fall, doit, bend).
 
 ## Support matrix
 
-`S` supported, `P` partial, `M` missing, `-` not applicable. **MCP is not built** (V22): the star means
-the status is what the plan implies. V22a's tools are read, `batch` plus addresses, export and render,
-so MCP can do what the ops can and nothing more; its column follows the Ops column.
+`S` supported, `P` partial, `M` missing, `-` not applicable. **MCP is built** (V22: `/mcp` and `sbscore mcp`),
+but its `edit_score` tool is the ops `batch`, so the MCP column follows the Ops column; it can do what the ops
+can and nothing more. The star marks that this column was inferred from the Ops column, not exercised.
 
 | # | Feature | Model | Ops | Layout | Engrave | MusicXML | CLI | UI | MCP* | Where it breaks |
 |---|---|---|---|---|---|---|---|---|---|---|
-| F01 | Page number / page header | M | M | M | M | - | M | M | M | No field, no footer or header band; the title block exists on page 1 only |
+| F01 | Page number / page header | S | S | S | S | - | S | S | S | Closed by SIB2-171 (page numbers: layout furniture, `export --page-numbers`, rail) and SIB2-172 (page footer: `meta set --footer`). MusicXML takes the footer as `<rights>` |
 | F02 | Hand-lettered styling | - | - | S | S | - | S | S | S | `--font jazz` (Petaluma) and the rail toggle exist |
-| F03 | Clef and key on first system only | M | M | P | S | - | M | M | M | Layout puts clef + key on every system (`widths.ts`); no policy to turn that off |
-| F04 | Parenthesised chord alterations | S | S | S | P | P | S | S | S | `@sibei/music` rejects `7(#11)`, `7(b5)`, `7(#5)`, `(MA7)`. Stored verbatim, flagged for review, drawn as plain text; MusicXML gets text only |
-| F05 | Stacked slash chords | S | S | S | P | S | S | S | S | Engraver draws root and bass inline on one baseline, not stacked |
-| F06 | Parenthesised alternate chords | P | S | S | P | P | S | S | S | Parser rejects the parentheses, so the chord is flagged; no "alternate" notion |
-| F07 | Tuplet brackets | S | S | S | S | S | S | S | M | Closed by SIB2-166: `tuplet.set`/`tuplet.rm`, `sbscore tuplet`, the Tuplet section of the item inspector. Nested tuplets are out of scope |
-| F08 | Slurs | M | M | M | M | M | M | M | M | Nothing exists. A tie is the only curve |
-| F09 | Text directions in a bar | S | M | S | S | M | M | M | M | `Annotation` exists (import makes it) with no op; chord band only; MusicXML drops it |
+| F03 | Clef and key on first system only | S | S | S | S | - | S | S | S | Closed by SIB2-173: `meta.signaturePolicy` (`every`, `first`, `page`), `meta set --signature-policy`, rail control |
+| F04 | Parenthesised chord alterations | S | S | S | S | S | S | S | S | Closed by SIB2-160: `@sibei/music` parses `7(#11)`, `7(b5)`; MusicXML writes `<degree>`. Codec round trip not re-run for this pass |
+| F05 | Stacked slash chords | S | S | S | S | S | S | S | S | Closed by SIB2-164: stacked under a diagonal rule; inline kept as a style |
+| F06 | Parenthesised alternate chords | S | S | S | S | P | S | S | S | Closed by SIB2-161: `(Gmi7)` and `(Gmi7 C7)` parse and draw. MusicXML for an alternate chord not verified |
+| F07 | Tuplet brackets | S | S | S | S | S | S | S | S | Closed by SIB2-166: `tuplet.set`/`tuplet.rm`, `sbscore tuplet`, the Tuplet section of the item inspector. Nested tuplets are out of scope |
+| F08 | Slurs | S | S | S | S | S | S | S | S | Closed by SIB2-167/168: `slur.set`/`slur.rm` (a spanner, ADR-0041 shape), drawn in halves across a system break, edited in the browser, MusicXML slurs |
+| F09 | Text directions in a bar | S | S | S | S | S | S | S | S | Closed by SIB2-169: `text.set`/`text.rm`, `sbscore text`, a Structure-panel field, MusicXML `<words>` |
 | F10 | Whole-bar rests | S | S | S | S | S | S | S | S | Works (`rest add --dur 1`) |
 | F11 | Ties | S | S | S | S | S | S | P | S | UI sets a tie on an existing note; it cannot add a note |
-| F12 | Non-grid system breaks | P | P | P | S | - | M | M | M | `BARS_PER_SYSTEM` is 4 and a section forces a break; no way to say "five bars here" or let a section share a line |
-| F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; the rail now has a Title block (SIB2-178) |
-| F14 | Free page text / copyright | M | M | M | M | M | M | M | M | No page-level text object |
+| F12 | Non-grid system breaks | S | S | S | S | - | S | S | S | Closed by SIB2-174: `break.set`/`break.rm`, `meta set --bars-per-system` (1 to 8), join. The UI exposes bars per line in the rail |
+| F13 | Style / tempo text | S | S | S | S | S | S | S | S | Closed by SIB2-177/178: tempo mark with a metronome glyph, `<sound tempo>` in MusicXML, style/title block editable from the rail |
+| F14 | Free page text / copyright | S | S | S | S | S | S | S | S | Closed for the footer (SIB2-172): copyright/credit lines on chosen pages. A free text paragraph elsewhere on the page is a text direction, not page text |
 | F15 | Segno, coda, D.S., D.C., Fine | M | M | M | M | M | M | M | M | Excluded by ADR-0021 |
 | F16 | Rehearsal and named boxes | S | S | S | S | P | S | S | S | Closed by SIB2-176: `Section.name` draws as a second box beside the letter (or alone). MusicXML keeps the letter only |
 | F17 | Repeats | S | S | S | S | S | S | S | S | |
 | F17b | 1st / 2nd endings | S | S | S | S | S | S | S | S | |
 | F18 | N.C. | S | S | S | S | S | S | S | S | `N.C.` parses as a no-chord symbol; `(N.C.)` is flagged |
-| F19 | Staccato, accent | M | M | M | M | M | M | M | M | |
-| F20 | Fermata | M | M | M | M | M | M | M | M | |
+| F19 | Staccato, accent | S | S | S | S | S | S | S | S | Closed by SIB2-179: staccato, accent, marcato (`--artic`) |
+| F20 | Fermata | S | S | S | S | S | S | S | S | Closed by SIB2-183: `fermata.set`/`fermata.rm`, MusicXML fermata |
 | F21 | Ottava line | S | S | S | S | S | S | S | S | Closed by SIB2-184: `ottava.set`/`ottava.rm`, an `ottava` spanner, notes drawn shifted (stored sounding), `<octave-shift>` in MusicXML |
 | F22 | Dashed continuation line | S | S | S | S | S | S | S | S | Closed by SIB2-170: `text set --until bar8`, `Annotation.lineEndBarId`, dashes + hook, `<dashes>` in MusicXML |
 | F23 | Metronome mark | S | S | S | S | S | S | S | S | Closed by SIB2-177: `meta.tempo`, `meta set --tempo 4=120`, drawn above the first bar, `<sound tempo>` in MusicXML, a rail control |
 | F24 | Extra title-block fields | M | M | M | M | P | M | M | M | `meta` has title, composer, style only |
 | F25 | Empty staves at page bottom | - | - | S | S | - | S | S | S | Closed by SIB2-181: `export --blank-staves` (a page-spec choice, like page numbers), rail tick, same render in the browser |
-| F26 | Parenthesised accidentals | S | S | S | S | S | S | S | M | Closed by SIB2-182: the `parens` display, `--accidental paren`, the inspector control, MusicXML `parentheses="yes"` |
+| F26 | Parenthesised accidentals | S | S | S | S | S | S | S | S | Closed by SIB2-182: the `parens` display, `--accidental paren`, the inspector control, MusicXML `parentheses="yes"` |
 | F27 | Grace notes | M | M | M | M | M | M | M | M | |
 | F28 | Multi-staff system | M | M | M | M | M | M | M | M | Single staff and voice by design (ADR-0021); ADR-0039 d3 plans the model |
 | F29 | Bass clef | M | M | M | M | M | M | M | M | `Clef = 'treble'` |
