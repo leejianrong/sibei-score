@@ -5,6 +5,7 @@
  *   pnpm eval --engine fixture        # no oemer: a plumbing smoke over the committed OMR dump
  *   pnpm eval --seeds 12 --bars 16    # a bigger corpus
  *   pnpm eval --json                  # machine-readable
+ *   pnpm eval --engine note-events    # only the NoteEvents-import rows (no worker, no images; ADR-0040)
  *
  * It generates a synthetic corpus (`@sibei/synth`), degrades each chart to a photo
  * (`@sibei/synth/imaging`), runs a recogniser over it, scores the result against the ground truth
@@ -41,7 +42,17 @@ import type { Score } from '@sibei/model';
 import { makeScore, mapOmrToScore, parseOmrDocument } from '@sibei/model';
 import { correctChord } from '@sibei/music';
 import type { AggregateMetrics, ItemToken, OmrMetrics } from '@sibei/synth';
-import { aggregate, extractSystemChords, extractSystemLabels, scoreOmr } from '@sibei/synth';
+import {
+  JITTER_LEVELS,
+  aggregate,
+  extractSystemChords,
+  extractSystemLabels,
+  generateScore,
+  scoreNoteEventsImport,
+  scoreOmr,
+  scoreToNoteEvents,
+} from '@sibei/synth';
+import type { JitterLevel, NoteEventsImportMetrics } from '@sibei/synth';
 import type { CorpusSpec, DegradeLevel, EvalReport, Predict, PxBox } from '@sibei/synth/imaging';
 import { buildEntry, degradationPreset, renderDetectPages, runEval } from '@sibei/synth/imaging';
 
@@ -52,7 +63,7 @@ const REAL_DIR = join(REPO, 'tests/fixtures/eval/real');
 const HISTORY = join(REPO, 'eval/history.jsonl');
 
 interface Args {
-  engine: 'worker' | 'fixture' | 'dump';
+  engine: 'worker' | 'fixture' | 'dump' | 'note-events';
   url: string;
   seeds: number;
   bars: number;
@@ -314,6 +325,60 @@ async function findImage(name: string): Promise<{ data: Buffer; ext: string } | 
   return null;
 }
 
+/** Keys the NoteEvents corpus rotates through, so key inference and spelling are exercised (diatonic melodies). */
+const NOTE_EVENTS_KEYS = [
+  { tonic: 'C', alter: 0, mode: 'major' },
+  { tonic: 'G', alter: 0, mode: 'major' },
+  { tonic: 'F', alter: 0, mode: 'major' },
+  { tonic: 'D', alter: 0, mode: 'major' },
+  { tonic: 'B', alter: -1, mode: 'major' },
+] as const;
+
+interface NoteEventsRow {
+  level: JitterLevel;
+  charts: number;
+  noteF1: number;
+  noteAccuracy: number;
+  barAccuracy: number;
+  validBars: number;
+}
+
+/**
+ * The NoteEvents-import rows (ADR-0040, SIB2-134): no worker, no images. Each seed's ground-truth score is
+ * rendered to NoteEvents at every named jitter level (`@sibei/synth` `JITTER_PROFILES`), imported through
+ * the real mapper, and scored against the truth with the same alignment metrics the OMR rows use. Seeded,
+ * so a row is reproducible and a change in it is a change in the importer.
+ */
+function runNoteEventsEval(args: Args): NoteEventsRow[] {
+  const rows: NoteEventsRow[] = [];
+  for (const level of JITTER_LEVELS) {
+    const all: NoteEventsImportMetrics[] = [];
+    for (let seed = 0; seed < args.seeds; seed += 1) {
+      const truth = generateScore({ seed, bars: args.bars, chords: false, chromatic: 0, key: NOTE_EVENTS_KEYS[seed % NOTE_EVENTS_KEYS.length]! });
+      all.push(scoreNoteEventsImport(truth, scoreToNoteEvents(truth, { seed, level })));
+    }
+    const mean = (pick: (m: NoteEventsImportMetrics) => number): number => all.reduce((sum, m) => sum + pick(m), 0) / all.length;
+    rows.push({
+      level,
+      charts: all.length,
+      noteF1: mean((m) => m.note.f1),
+      noteAccuracy: mean((m) => m.note.accuracy),
+      barAccuracy: mean((m) => m.barAccuracy),
+      validBars: mean((m) => m.validBarsRatio),
+    });
+  }
+  return rows;
+}
+
+function printNoteEventsTable(rows: NoteEventsRow[]): void {
+  const head = ['note-events import', 'charts', 'noteF1', 'noteAcc', 'barAcc', 'validBars'];
+  const body = rows.map((r) => [r.level, String(r.charts), fmt(r.noteF1), fmt(r.noteAccuracy), fmt(r.barAccuracy), fmt(r.validBars)]);
+  const widths = head.map((h, i) => Math.max(h.length, ...body.map((r) => (r[i] as string).length)));
+  const line = (cells: string[]): string => cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ');
+  process.stdout.write(`\n${line(head)}\n${widths.map((w) => '-'.repeat(w)).join('  ')}\n`);
+  for (const r of body) process.stdout.write(`${line(r)}\n`);
+}
+
 function fmt(n: number): string {
   return n.toFixed(3);
 }
@@ -348,7 +413,7 @@ function gitSha(): string {
   }
 }
 
-async function appendHistory(args: Args, report: EvalReport, real: RealEntry[]): Promise<void> {
+async function appendHistory(args: Args, report: EvalReport | null, real: RealEntry[], noteEvents: NoteEventsRow[]): Promise<void> {
   await mkdir(join(REPO, 'eval'), { recursive: true });
   const record = {
     timestamp: new Date().toISOString(),
@@ -356,7 +421,8 @@ async function appendHistory(args: Args, report: EvalReport, real: RealEntry[]):
     engine: args.engine,
     seeds: args.seeds,
     bars: args.bars,
-    synthetic: report.byLevel,
+    synthetic: report === null ? {} : report.byLevel,
+    noteEvents,
     real: real.length > 0 ? aggregate(real.map((r) => r.metrics)) : null,
   };
   await appendFile(HISTORY, `${JSON.stringify(record)}\n`);
@@ -368,6 +434,15 @@ async function main(argv: string[]): Promise<number> {
   // `--dump-corpus` is the "up" half of the on-pod split: write images, score nothing, exit.
   if (args.dumpCorpus !== undefined) return dumpCorpus(args);
 
+  // The NoteEvents rows need nothing external, so every run prints them; `--engine note-events` prints only them.
+  const noteEvents = runNoteEventsEval(args);
+  if (args.engine === 'note-events') {
+    if (args.json) process.stdout.write(`${JSON.stringify({ noteEvents }, null, 2)}\n`);
+    else printNoteEventsTable(noteEvents);
+    if (args.history) await appendHistory(args, null, [], noteEvents);
+    return 0;
+  }
+
   const predict = await makePredict(args);
   const report = await runEval(planCorpus(args), predict, { zoom: args.zoom });
   // The dump engine keys documents by synthetic spec, so it has nothing to map the name-keyed real
@@ -376,9 +451,10 @@ async function main(argv: string[]): Promise<number> {
   const real = args.engine === 'dump' ? [] : await runRealControlSet(predict);
 
   if (args.json) {
-    process.stdout.write(`${JSON.stringify({ byLevel: report.byLevel, real }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ byLevel: report.byLevel, real, noteEvents }, null, 2)}\n`);
   } else {
     printTable(report, real);
+    printNoteEventsTable(noteEvents);
     if (real.length === 0) {
       process.stdout.write(
         `\n(no real control set in tests/fixtures/eval/real — add phone photos to keep the ` +
@@ -386,7 +462,7 @@ async function main(argv: string[]): Promise<number> {
       );
     }
   }
-  if (args.history) await appendHistory(args, report, real);
+  if (args.history) await appendHistory(args, report, real, noteEvents);
   return 0;
 }
 
