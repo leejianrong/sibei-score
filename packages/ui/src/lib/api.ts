@@ -1,7 +1,7 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
 import type { MusicFontName } from '@sibei/engrave';
-import { PAPER_SIZES } from '@sibei/layout';
-import type { Paper } from '@sibei/layout';
+import { PAGE_NUMBER_FORMATS, PAGE_NUMBER_POSITIONS, PAPER_SIZES } from '@sibei/layout';
+import type { PageNumberSettings, Paper } from '@sibei/layout';
 import type {
   AccidentalDisplay,
   Duration,
@@ -568,6 +568,15 @@ export interface ExportChoice {
   paper: Paper;
   font: MusicFontName;
   instrument: ExportInstrument;
+  /** Page numbers on the PDF (SIB2-171); absent or null is none, and then nothing goes on the query. */
+  pageNumbers?: PageNumberSettings | null;
+}
+
+/** The page-number choices as the query the server reads — empty when there are none, like the CLI sends it. */
+function pageNumberQuery(numbers: PageNumberSettings | null | undefined): string {
+  if (!numbers) return '';
+  const first = numbers.first ? '' : '&pagenumberfirst=no';
+  return `&pagenumbers=${numbers.position}&pagenumberformat=${numbers.format}${first}`;
 }
 
 /** The instrument goes on the query only when it is not the default, the way the CLI sends it. */
@@ -586,14 +595,14 @@ function instrumentQuery(instrument: ExportInstrument): string {
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
   const base = new URLSearchParams({ format: choice.format, paper: choice.paper, font: choice.font });
-  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}`;
+  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}`;
 }
 
 /** The route without an id, which is what the rail prints. A concrete id wraps the column. */
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}`,
+    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}`,
   };
 }
 
@@ -604,6 +613,8 @@ export function exportRoute(choice: ExportChoice): { path: string; query: string
  */
 export const PAPERS = Object.keys(PAPER_SIZES) as readonly Paper[];
 export const FONTS = MUSIC_FONT_NAMES;
+export const NUMBER_POSITIONS = PAGE_NUMBER_POSITIONS;
+export const NUMBER_FORMATS = PAGE_NUMBER_FORMATS;
 
 async function getJson<T>(path: string): Promise<T> {
   let response: Response;

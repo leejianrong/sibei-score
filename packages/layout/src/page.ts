@@ -6,6 +6,8 @@
  * `pointsPerUnit` maps the page to paper. A4 and Letter, A4 default (Q38).
  */
 
+import type { PageNumberSettings } from './furniture.js';
+
 export type Paper = 'a4' | 'letter';
 
 export interface PaperSize {
@@ -27,6 +29,8 @@ export interface Margins {
 
 export interface PageSpecInput {
   paper?: Paper;
+  /** Page numbers (SIB2-171). Absent or null: none, so a default render is unchanged. */
+  pageNumbers?: PageNumberSettings | null;
   /** Points per layout unit. Smaller means a smaller staff and more systems per page. */
   pointsPerUnit?: number;
   margin?: Partial<Margins>;
@@ -58,6 +62,7 @@ export interface PageSpecInput {
 
 export interface PageSpec {
   paper: Paper;
+  pageNumbers: PageNumberSettings | null;
   pointsPerUnit: number;
   /** Paper size in points, as the PDF page will be. */
   widthPt: number;
@@ -102,6 +107,7 @@ export function resolvePageSpec(input: PageSpecInput = {}): PageSpec {
   const belowStaff = input.belowStaff ?? 26;
   return {
     paper,
+    pageNumbers: input.pageNumbers ?? null,
     pointsPerUnit,
     widthPt: size.widthPt,
     heightPt: size.heightPt,
