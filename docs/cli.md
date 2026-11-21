@@ -70,7 +70,7 @@ note-17        a stable id (survives edits)
 Onsets only: **a beat with nothing on it is an error that lists the bar's real onsets**, never a
 snap to the nearest note. `sbscore show <id>` prints the addresses the CLI accepts for a chart, so
 you never have to guess one. Whole-bar verbs (`section`, `barline`, `repeat`, `ending`) take a bare
-bar address like `bar12`.
+bar like `12` or `bar12`.
 
 ## Charts
 
@@ -78,6 +78,7 @@ bar address like `bar12`.
 sbscore new [--title T] [--composer C] [--key K] [--time 4/4] [--bars N] [--pickup] [--id ID]
 sbscore list                                 # every chart: id, title, composer, key, version
 sbscore open <id>                            # the full document, as JSON
+sbscore check <id> [--json] [--strict]       # list every flagged object: address, kind, reasons (--strict exits 2 if any)
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
@@ -182,6 +183,21 @@ and `--font`, which are page choices. `--for` exports a transposing instrument's
 reads, transposed). Without `-o` the file is written to the working directory, named after the
 chart's title — *Body and Soul* becomes `./Body and Soul.pdf`; `-o` takes a file path, or a directory
 to put that name in.
+
+## Audio
+
+```sh
+sbscore audio submit take.wav [--instrument piano]   # uploads, queues, prints the job id
+sbscore audio list                                   # your audio jobs, newest first
+sbscore audio show <id>                              # status, progress, the reason if it failed
+sbscore audio retry <id>                             # requeue a failed job
+sbscore audio rm <id>                                # delete the job and its audio
+```
+
+A recording becomes a job that a separate transcription worker picks up, so `submit` returns at once and the
+job waits `queued` until a worker takes it. Nothing else is affected while no worker is running. On a hosted
+server the file goes straight to object storage by a presigned URL; locally it goes through the API. The
+browser's equivalent is the Audio page (`#/audio`, "Transcribe audio" in the library).
 
 ## Concurrency
 

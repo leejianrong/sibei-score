@@ -97,6 +97,11 @@ export function exitCodeForKind(kind: string): ExitCode {
     // A re-parse of a chart with no scan behind it (V14e): the request was readable, there is simply
     // nothing to re-run — the same "readable, cannot be produced" class as an unsupported export value.
     case 'no-source-to-reparse':
+    // Audio jobs (SIB2-137): a too-large upload, a confirm before the bytes arrived, and a retry of a job
+    // that is not failed are readable requests that cannot be fulfilled as asked.
+    case 'audio-too-large':
+    case 'audio-not-uploaded':
+    case 'audio-job-not-retryable':
     // A NoteEvents file that is not valid v1 (ADR-0040): readable request, unusable content, never retryable.
     case 'invalid-note-events':
     // The device flow (V21a). A code that is not eight letters and digits, a scope that does not exist, and
@@ -107,6 +112,7 @@ export function exitCodeForKind(kind: string): ExitCode {
     case 'expired-code':
       return EXIT.validation;
     case 'no-such-score':
+    case 'no-such-audio-job':
     case 'no-such-route':
     case 'not-found': // an unrouted /v1/auth/ path (V20a), the same fact as `no-such-route`
     case 'no-such-token': // V21a: another user's token and a missing one are the same answer

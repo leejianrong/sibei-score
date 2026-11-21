@@ -15,6 +15,8 @@ export type Route =
   | { view: 'device' }
   /** The caller's API tokens, to look at and revoke (V21b). */
   | { view: 'tokens' }
+  /** Audio to be transcribed (SIB2-137): upload, watch, retry, delete. */
+  | { view: 'audio' }
   /**
    * Consent for an MCP client (V22a): the page the server's authorise endpoint sends the browser to, carrying
    * the OAuth request in the hash query. The parameters are the server's to validate, so they are kept raw.
@@ -24,6 +26,7 @@ export type Route =
 export const LIBRARY: Route = { view: 'library' };
 export const DEVICE: Route = { view: 'device' };
 export const TOKENS: Route = { view: 'tokens' };
+export const AUDIO: Route = { view: 'audio' };
 
 export function routeOf(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
@@ -32,6 +35,7 @@ export function routeOf(hash: string): Route {
   }
   if (path === 'device') return DEVICE;
   if (path === 'tokens') return TOKENS;
+  if (path === 'audio') return AUDIO;
   const id = /^score\/(.+)$/.exec(path)?.[1];
   return id === undefined || id === '' ? LIBRARY : { view: 'score', id: decodeURIComponent(id) };
 }
@@ -44,6 +48,8 @@ export function hashOf(route: Route): string {
       return '#/device';
     case 'tokens':
       return '#/tokens';
+    case 'audio':
+      return '#/audio';
     case 'authorize':
       return `#/authorize?${new URLSearchParams(route.params).toString()}`;
     case 'score':

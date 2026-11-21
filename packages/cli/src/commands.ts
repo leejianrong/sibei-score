@@ -1,7 +1,7 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { Readable } from 'node:stream';
-import { displayTitle, projectScore } from '@sibei/model';
+import { displayTitle, flaggedObjects, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -15,7 +15,7 @@ import { optionalNumber, parseDuration, parseFlags, required, requiredPositional
 import type { Flags } from './args.js';
 import { auth } from './auth.js';
 import { CliError, DEFAULT_BASE_URL, createClient } from './client.js';
-import type { Client, ExportQuery, UndoWire } from './client.js';
+import type { AudioJobWire, Client, ExportQuery, UndoWire } from './client.js';
 import { credentialsPath as defaultCredentialsPath, isReadableByOthers, resolveToken } from './credentials.js';
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
@@ -82,6 +82,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore list
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
+  sbscore check <id> [--strict]            list every flagged object with its address and reasons (--strict: exit 2 if any)
   sbscore export <id> [--pdf|--musicxml] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
@@ -90,6 +91,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
               (produces a NEW draft — the original and its corrections survive; no re-upload)
+  sbscore audio submit <file> [--instrument piano]   upload audio to be transcribed; prints the job id
+  sbscore audio list|show <id>|retry <id>|rm <id>    look at, requeue or delete an audio job
+              (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
   sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--spell]
@@ -236,6 +240,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return open(flags, client, io);
     case 'show':
       return show(flags, client, io, json);
+    case 'check':
+      return check(flags, client, io, json);
     case 'export':
       return exportScore(flags, client, io, json, options.cwd ?? process.cwd());
     case 'rm':
@@ -246,6 +252,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return importChart(flags, client, io, json, options.cwd ?? process.cwd());
     case 'reparse':
       return reparse(flags, client, io, json);
+    case 'audio':
+      return audio(flags, client, io, json, options.cwd ?? process.cwd());
     case 'meta':
       return meta(flags, client, io, json);
     case 'note':
@@ -339,6 +347,29 @@ async function show(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const text = projectScore(record.score);
   io.out(json ? JSON.stringify({ version: record.version, projection: text }) : text);
   return EXIT.ok;
+}
+
+/**
+ * `sbscore check <id> [--strict]` (SIB2-193): every flagged object — an unparsed chord, a
+ * low-confidence note, a bar that does not fill the meter — with an address a verb accepts and the
+ * reasons, so an agent need not scan `show` for `!`. Exit 0 whatever is found, unless `--strict`,
+ * which exits 2 (the chart is not clean) when anything is flagged. It lists; it fixes nothing.
+ */
+async function check(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'check');
+  const record = await client.read(id);
+  const flagged = flaggedObjects(record.score);
+  if (json) {
+    io.out(JSON.stringify({ version: record.version, flagged }));
+  } else if (flagged.length === 0) {
+    io.out('nothing flagged');
+  } else {
+    for (const f of flagged) {
+      const what = f.text === null ? f.kind : `${f.kind} ${JSON.stringify(f.text)}`;
+      io.out(`${f.address}  ${what}  ${f.reasons.join(', ')}`);
+    }
+  }
+  return flagged.length > 0 && flags.switches.has('strict') ? EXIT.validation : EXIT.ok;
 }
 
 /**
@@ -552,6 +583,96 @@ async function reparse(flags: Flags, client: Client, io: Io, json: boolean): Pro
       : `re-parsed ${id} to a new draft ${job.scoreId} — open it, check the flagged bars, set key/meter/sections`,
   );
   return EXIT.ok;
+}
+
+/**
+ * `sbscore audio submit|list|show|retry|rm` (SIB2-137). An audio job is the second kind of durable job
+ * beside import (ADR-0001): `submit` uploads the file and returns at once with the job id, because the
+ * transcription runs on a separate worker and can take minutes. Everything after that is a read of the
+ * job (`show`), a requeue of a failed one (`retry`) or a delete (`rm`, which removes the audio too).
+ */
+async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
+  const sub = flags.positional[1];
+  const line = (job: AudioJobWire) =>
+    `${job.id}  ${job.status}${job.progress === null ? '' : ` ${Math.round(job.progress.fraction * 100)}% (${job.progress.stage})`}  ${job.filename ?? '-'}`;
+
+  switch (sub) {
+    case 'submit': {
+      const path = flags.positional[2];
+      if (path === undefined) throw new CliError(EXIT.usage, 'usage', 'audio submit needs a file: `sbscore audio submit take.wav`');
+      let bytes: Buffer;
+      try {
+        bytes = readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
+      } catch (error) {
+        throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
+      const instrument = flags.options.get('instrument');
+      const job = await client.audioSubmit({
+        filename: basename(path),
+        bytes,
+        contentType: audioContentTypeOf(path),
+        ...(instrument === undefined ? {} : { instrument }),
+      });
+      io.out(json ? JSON.stringify({ job }) : `${job.id}\n(queued — check it with \`sbscore audio show ${job.id}\`)`);
+      return EXIT.ok;
+    }
+    case 'list': {
+      const { jobs } = await client.audioList();
+      io.out(json ? JSON.stringify({ jobs }) : jobs.length === 0 ? 'no audio jobs' : jobs.map(line).join('\n'));
+      return EXIT.ok;
+    }
+    case 'show': {
+      const { job } = await client.audioShow(requiredPositional(flags, 2, 'an audio job id', 'audio show'));
+      io.out(
+        json
+          ? JSON.stringify({ job })
+          : [
+              line(job),
+              ...(job.diagnostic === null ? [] : [`failed: ${job.diagnostic}${job.diagnosticKind === null ? '' : ` (${job.diagnosticKind})`}`]),
+              ...(job.scoreId === null ? [] : [`score: ${job.scoreId}`]),
+              ...(job.durationSeconds === null ? [] : [`audio seconds: ${job.durationSeconds}`]),
+            ].join('\n'),
+      );
+      return EXIT.ok;
+    }
+    case 'retry': {
+      const { job } = await client.audioRetry(requiredPositional(flags, 2, 'an audio job id', 'audio retry'));
+      io.out(json ? JSON.stringify({ job }) : line(job));
+      return EXIT.ok;
+    }
+    case 'rm': {
+      const id = requiredPositional(flags, 2, 'an audio job id', 'audio rm');
+      await client.audioRemove(id);
+      io.out(json ? JSON.stringify({ removed: id }) : `removed ${id}`);
+      return EXIT.ok;
+    }
+    default:
+      throw new CliError(EXIT.usage, 'usage', 'audio needs submit, list, show, retry or rm');
+  }
+}
+
+/** The media type for an audio file, from its extension. The server checks the declared type against an allow-list. */
+function audioContentTypeOf(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case '.wav':
+      return 'audio/wav';
+    case '.mp3':
+      return 'audio/mpeg';
+    case '.m4a':
+    case '.mp4':
+      return 'audio/mp4';
+    case '.aac':
+      return 'audio/aac';
+    case '.flac':
+      return 'audio/flac';
+    case '.ogg':
+    case '.oga':
+      return 'audio/ogg';
+    case '.webm':
+      return 'audio/webm';
+    default:
+      return 'application/octet-stream';
+  }
 }
 
 /** The media type for a part, from its extension. The server detects the real format from content. */
