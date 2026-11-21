@@ -35,3 +35,48 @@ export interface BlobStore {
   get(key: BlobKey): Promise<Buffer | null>;
   put(key: BlobKey, bytes: Buffer): Promise<void>;
 }
+
+/**
+ * What a blob has to offer once a *lifetime* matters (ADR-0034 amendment, decision 16). The base port
+ * is a cache with no delete on purpose; uploaded audio is not a cache — it is copyright-sensitive and
+ * must be removable the moment its job ends. So deletion and size live on this wider interface, which
+ * the three shipped stores implement, rather than on `BlobStore`, whose "nowhere to put invalidation
+ * logic" stance (Q81) is unchanged.
+ */
+export interface ManagedBlobStore extends BlobStore {
+  /** The stored size in bytes, or null when nothing is stored under the key. Never reads the body. */
+  stat(key: BlobKey): Promise<{ size: number } | null>;
+  /** Removes the object. Removing what is not there is not an error. */
+  delete(key: BlobKey): Promise<void>;
+}
+
+export interface PresignOptions {
+  /** How long the URL stays valid, seconds. */
+  expiresInSeconds: number;
+  /** For a PUT: signed into the URL, so the upload must send exactly this `Content-Type`. */
+  contentType?: string;
+}
+
+/** A URL a client can use directly, plus the headers it must send with it. */
+export interface PresignedRequest {
+  url: string;
+  method: 'PUT' | 'GET';
+  headers: Record<string, string>;
+  /** When it stops working, epoch milliseconds. */
+  expiresAt: number;
+}
+
+/**
+ * A store the *client* can talk to directly (ADR-0034 amendment, decision 15): object storage. Bytes
+ * then move browser-to-bucket and worker-to-bucket and never cross the API. The directory and memory
+ * stores do not implement this, and local mode keeps proxying through the API exactly as before; a
+ * caller asks `isPresigning(store)` and falls back.
+ */
+export interface PresigningBlobStore extends ManagedBlobStore {
+  presignPut(key: BlobKey, options: PresignOptions): PresignedRequest;
+  presignGet(key: BlobKey, options: PresignOptions): PresignedRequest;
+}
+
+export function isPresigning(store: BlobStore): store is PresigningBlobStore {
+  return typeof (store as Partial<PresigningBlobStore>).presignPut === 'function';
+}

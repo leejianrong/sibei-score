@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createApi, createHttpWorkerClient, openDirectoryBlobStore } from '@sibei/api';
-import type { Api, AssetSource, WorkerClient } from '@sibei/api';
+import { createApi, createHttpWorkerClient, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import type { Api, AssetSource, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import type { AuthStore, JobStore, ScoreStore } from '@sibei/api';
@@ -298,6 +298,43 @@ function resolveBlobDirectory(flags: Flags, libraryFile: string): string {
   return chosen === undefined || chosen === '' ? defaultBlobPath(libraryFile) : resolve(chosen);
 }
 
+/**
+ * Object storage for blobs (SIB2-136): `SBSCORE_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID` and
+ * `SBSCORE_S3_SECRET_ACCESS_KEY` all together, or none. Environment only — a secret does not belong in
+ * argv — and, like the Postgres URL, a *named* variable so an ambient AWS_* in an unrelated shell cannot
+ * silently move a local install's blobs. Without them the blobs live on disk, exactly as before.
+ */
+export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): S3BlobStoreOptions | undefined {
+  const get = (name: string): string | undefined => {
+    const value = env[`SBSCORE_S3_${name}`];
+    return value === undefined || value === '' ? undefined : value;
+  };
+  const endpoint = get('ENDPOINT');
+  const bucket = get('BUCKET');
+  const accessKeyId = get('ACCESS_KEY_ID');
+  const secretAccessKey = get('SECRET_ACCESS_KEY');
+  const set = [endpoint, bucket, accessKeyId, secretAccessKey].filter((value) => value !== undefined).length;
+  if (set === 0) return undefined;
+  if (endpoint === undefined || bucket === undefined || accessKeyId === undefined || secretAccessKey === undefined) {
+    throw new CliError(
+      EXIT.usage,
+      'bad-s3-config',
+      'object storage needs SBSCORE_S3_ENDPOINT, SBSCORE_S3_BUCKET, SBSCORE_S3_ACCESS_KEY_ID and SBSCORE_S3_SECRET_ACCESS_KEY together',
+    );
+  }
+  const publicEndpoint = get('PUBLIC_ENDPOINT');
+  const prefix = get('PREFIX');
+  return {
+    endpoint,
+    bucket,
+    accessKeyId,
+    secretAccessKey,
+    region: get('REGION') ?? 'us-east-1',
+    ...(publicEndpoint === undefined ? {} : { publicEndpoint }),
+    ...(prefix === undefined ? {} : { prefix }),
+  };
+}
+
 /** The two stores, and how to release them, whichever database they sit on. */
 interface OpenedStores {
   store: ScoreStore;
@@ -409,6 +446,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     workerUrl === undefined ? undefined : createHttpWorkerClient({ url: workerUrl });
 
   const hostedConfig = resolveHostedConfig(flags);
+  const s3Config = resolveS3Config();
 
   const { store, jobStore, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
   let api: Api;
@@ -425,7 +463,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
               github: { clientId: hostedConfig.clientId, clientSecret: hostedConfig.clientSecret },
             },
           }),
-      blobs: openDirectoryBlobStore({ directory: blobDirectory }),
+      blobs: s3Config === undefined ? openDirectoryBlobStore({ directory: blobDirectory }) : openS3BlobStore(s3Config),
       ...(worker === undefined ? {} : { worker }),
       ...(assets === undefined ? {} : { assets }),
     });

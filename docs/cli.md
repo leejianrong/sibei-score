@@ -36,6 +36,11 @@ unrelated environment cannot switch your library. `--blobs DIR` (or `SBSCORE_BLO
 export cache; by default they sit beside where the SQLite file would be. `pnpm test:postgres` runs the
 adapter's tests against a throwaway Postgres.
 
+Blobs can live in an S3-compatible bucket instead (SIB2-136): set `SBSCORE_S3_ENDPOINT`, `SBSCORE_S3_BUCKET`,
+`SBSCORE_S3_ACCESS_KEY_ID` and `SBSCORE_S3_SECRET_ACCESS_KEY` together (optional `SBSCORE_S3_REGION`, `_PREFIX`,
+and `_PUBLIC_ENDPOINT` for the host clients are signed URLs for). Environment only, so no secret is in argv; the
+bucket must already exist. `pnpm test:s3` runs the adapter's tests against a throwaway S3 gateway.
+
 **Against the container** ([Quick start](../README.md#the-container--just-run-the-app) has the
 `docker compose up`); point the CLI at its port:
 

@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { BlobKey, BlobStore } from './blob-store.js';
+import type { BlobKey, ManagedBlobStore } from './blob-store.js';
 
 /**
  * The local-directory implementation of the blob port (ADR-0006).
@@ -27,7 +27,7 @@ export interface DirectoryBlobStoreOptions {
 
 const SUFFIX = '.blob';
 
-export function openDirectoryBlobStore(options: DirectoryBlobStoreOptions): BlobStore {
+export function openDirectoryBlobStore(options: DirectoryBlobStoreOptions): ManagedBlobStore {
   mkdirSync(options.directory, { recursive: true });
 
   function fileFor(key: BlobKey): string {
@@ -54,6 +54,19 @@ export function openDirectoryBlobStore(options: DirectoryBlobStoreOptions): Blob
       const scratch = `${target}.${process.pid}.partial`;
       await writeFile(scratch, bytes);
       await rename(scratch, target);
+    },
+
+    async stat(key) {
+      try {
+        return { size: (await stat(fileFor(key))).size };
+      } catch (error) {
+        if (isMissing(error)) return null;
+        throw error;
+      }
+    },
+
+    async delete(key) {
+      await rm(fileFor(key), { force: true });
     },
   };
 }
