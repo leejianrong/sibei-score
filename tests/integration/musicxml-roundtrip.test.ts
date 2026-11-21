@@ -223,6 +223,27 @@ describe('the documented lossy cases', () => {
   });
 });
 
+describe('parsed alterations ride as MusicXML degrees', () => {
+  it('writes one degree per alteration and still round-trips the verbatim text', () => {
+    const score = makeScore({
+      id: 's',
+      bars: [
+        makeBar({
+          id: 'bar-1',
+          number: 1,
+          items: [makeNote({ id: 'note-1', onset: 0, duration: dur(1), pitch: 'C5' })],
+          chords: [makeChord({ id: 'chord-1', onset: 0, text: 'C7(b9,#11)' })],
+        }),
+      ],
+    });
+    const xml = scoreToMusicXml(score);
+    const flat = xml.replace(/>\s+</g, '><');
+    expect(flat).toContain('<degree-value>9</degree-value><degree-alter>-1</degree-alter>');
+    expect(flat).toContain('<degree-value>11</degree-value><degree-alter>1</degree-alter>');
+    expect(roundTrip(score).score.bars[0]!.chords.map((c) => c.text)).toEqual(['C7(b9,#11)']);
+  });
+});
+
 describe('the importer reads leniently (ADR-0012 the codec half)', () => {
   it('rejects a non-partwise document loudly rather than guessing', () => {
     expect(() => musicXmlToScore('<other/>')).toThrow(/score-partwise/);
