@@ -41,3 +41,16 @@ roughly two minutes.
   degradation realism.
 - No corpus of copyrighted charts is retained or shared, and no corpus is built from
   user uploads should the app ever be hosted.
+
+## Amendment (2026-09-19, ADR-0036)
+
+This rule was written for the eval control set, before a real, non-rights-cleared corpus of
+third-party lead sheets existed to plan against (KAN-1522). Confirmed with the maintainer: that
+corpus is **not** rights-cleared, so the rule stands at its word — **no raw copyrighted page image
+or crop is retained**, by any part of the project, durably or in git. [ADR-0036](0036-real-corpus-labelling-and-dataset-strategy.md)
+builds a real training dataset without violating it: only **derived, non-reproducible structural
+data** (pixel coordinates, token sequences, chord/OCR text, fingerprints — never the pixels
+themselves) is retained, keyed back to the source PDF's own file path and page number so the raw
+image can be **re-derived transiently**, on demand, from a PDF the maintainer already owns and
+keeps outside this project — the same posture this line already required, made explicit for a case
+this ADR did not anticipate.
