@@ -4,6 +4,7 @@ import type { Duration } from '@sibei/model';
 import { TICKS_PER_QUARTER, durationTicks } from '@sibei/model';
 import type { MusicFont, MusicGlyphName } from './font.js';
 import { units } from './font.js';
+import { restFor } from './rests.js';
 import { dotsWidth, noteheadFor } from './stems.js';
 
 /**
@@ -74,6 +75,11 @@ export interface PlacedItem {
   x: number;
   /** Left edge of the accidental, when there is one; otherwise the same as `x`. */
   leftEdge: number;
+  /**
+   * Where this onset's slot begins in the bar — what a chord symbol anchors to. It equals `x` except
+   * for a whole-bar rest, which is drawn centred (SIB2-192) while its beats still run from the left.
+   */
+  slotX: number;
 }
 
 /**
@@ -164,8 +170,19 @@ export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
   const placed: PlacedItem[] = [];
   let x = left;
   for (const [index, cell] of cells.entries()) {
-    placed.push({ item: cell.item, x: x + cell.leadIn, leftEdge: x });
+    placed.push({ item: cell.item, x: x + cell.leadIn, leftEdge: x, slotX: x + cell.leadIn });
     x += widths[index] ?? cell.rigid;
+  }
+
+  // A rest that fills the bar is centred in it, as a printed lead sheet sets it (SIB2-192).
+  const only = placed.length === 1 ? placed[0] : undefined;
+  if (only !== undefined && only.item.kind === 'rest' && bar.metrics.expected > 0) {
+    if (durationTicks(only.item.duration) >= bar.metrics.expected && !bar.isPickup) {
+      const right = bar.x + bar.width - RIGHT_PAD;
+      const width = font.width(restFor(only.item.duration));
+      only.x = left + Math.max(right - left - width, 0) / 2;
+      only.leftEdge = only.x;
+    }
   }
   return placed;
 }

@@ -9,7 +9,7 @@ import type {
 } from '@sibei/layout';
 import { LAYOUT_BAR_ITEM_KINDS } from '@sibei/layout';
 import type { Id, TimeSignature } from '@sibei/model';
-import { TICKS_PER_WHOLE, beatTicks } from '@sibei/model';
+import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
 import type { BeamMember } from './beams.js';
 import { applyBeam, beamElements, beamLine } from './beams.js';
@@ -269,7 +269,7 @@ function engraveBar(
   // The prefix is drawn inside the room layout allocated for it, left to right.
   let prefixX = bar.x + units(0.6);
 
-  const chords: { anchorItemId: Id | null; text: string; plain: boolean; flagged: boolean }[] = [];
+  const chords: { anchorItemId: Id | null; onset: number; text: string; plain: boolean; flagged: boolean }[] = [];
   const tuplets: { actual: number; memberIds: Id[] }[] = [];
   const endings: EndingItem[] = [];
   let hasRehearsalMark = false;
@@ -334,6 +334,7 @@ function engraveBar(
       case 'chordSymbol':
         chords.push({
           anchorItemId: item.anchorItemId,
+          onset: item.onset,
           text: item.text,
           plain: false,
           flagged: item.flagged,
@@ -343,6 +344,7 @@ function engraveBar(
       case 'annotation':
         chords.push({
           anchorItemId: item.anchorItemId,
+          onset: item.onset,
           text: item.text,
           plain: true,
           flagged: item.flagged,
@@ -435,9 +437,12 @@ function engraveBar(
     );
   }
 
-  for (const chord of chords) {
-    const anchor = chord.anchorItemId === null ? undefined : byItemId.get(chord.anchorItemId);
-    const x = anchor?.x ?? bar.x + bar.prefixWidth + units(1);
+  // A chord sits at its beat, not just at the nearest note: when no item starts on its onset it is
+  // interpolated across the anchor's span, so two chords over one half note or a whole rest read as
+  // two (SIB2-165). Symbols that still touch are pushed right, never left over their own beat.
+  const chordXs = chordPositions(chords, placed, bar, options.chordFontSize);
+  for (const [index, chord] of chords.entries()) {
+    const x = chordXs[index] ?? bar.x + bar.prefixWidth + units(1);
     // A flagged chord symbol or annotation gets a wash behind it (ADR-0019). Its box is
     // estimated from the character count, never measured (ADR-0015).
     if (chord.flagged) {
@@ -458,6 +463,46 @@ function engraveBar(
 
   void skipped;
   return [...before, ...ink, ...beams, ...after];
+}
+
+/** Estimated advance of a chord symbol, as in `flaggedChordShade` — never measured (ADR-0015). */
+const CHORD_ADVANCE_EM = 0.6;
+const CHORD_GAP_EM = 0.5;
+
+function chordPositions(
+  chords: { anchorItemId: Id | null; onset: number; text: string }[],
+  placed: PlacedItem[],
+  bar: LayoutBar,
+  size: number,
+): number[] {
+  const fallback = bar.x + bar.prefixWidth + units(1);
+  const right = bar.x + bar.width - units(1);
+  const xs = chords.map((chord) => {
+    const anchorIndex = placed.findIndex((entry) => {
+      const id = entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId;
+      return id === chord.anchorItemId;
+    });
+    const anchor = placed[anchorIndex];
+    if (anchor === undefined) return fallback;
+    if (chord.onset <= anchor.item.onset) return anchor.slotX;
+    const next = placed[anchorIndex + 1];
+    const spanEnd = next === undefined ? anchor.item.onset + durationTicks(anchor.item.duration) : next.item.onset;
+    const endX = next === undefined ? right : next.slotX;
+    const fraction = Math.min((chord.onset - anchor.item.onset) / (spanEnd - anchor.item.onset), 1);
+    return anchor.slotX + fraction * (endX - anchor.slotX);
+  });
+
+  // Push apart in onset order; the array is returned in the original order.
+  const order = chords.map((_, i) => i).sort((a, b) => (chords[a]?.onset ?? 0) - (chords[b]?.onset ?? 0));
+  let edge = Number.NEGATIVE_INFINITY;
+  for (const i of order) {
+    const chord = chords[i];
+    if (chord === undefined) continue;
+    const x = Math.max(xs[i] ?? fallback, edge);
+    xs[i] = x;
+    edge = x + size * (CHORD_ADVANCE_EM * chord.text.length + CHORD_GAP_EM);
+  }
+  return xs;
 }
 
 function engraveItem(

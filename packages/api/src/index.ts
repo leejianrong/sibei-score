@@ -18,12 +18,26 @@ export type {
   JobStore,
   JobWriter,
 } from './store/jobs.js';
+export { MCP_TOOLS, McpToolError } from './mcp/tools.js';
+export type { ExportChoices, ExportedArtefact, McpBackend, McpTool, ToolAccess, ToolResult } from './mcp/tools.js';
+export { PARSE_FAILURE, SERVER_INFO, SUPPORTED_PROTOCOLS, handleMcpMessage } from './mcp/protocol.js';
+export type { McpSession } from './mcp/protocol.js';
 export { API_SCOPES, MCP_SCOPES, TOKEN_SCOPES } from './store/auth.js';
 export type { ApiToken, AuthStore, DeviceApproval, DevicePoll, NewApiToken, NewDevice, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './store/auth.js';
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 
-export type { BlobKey, BlobStore } from './blob/blob-store.js';
+export type {
+  BlobKey,
+  BlobStore,
+  ManagedBlobStore,
+  PresignedRequest,
+  PresignOptions,
+  PresigningBlobStore,
+} from './blob/blob-store.js';
+export { isPresigning } from './blob/blob-store.js';
+export { openS3BlobStore } from './blob/s3-blob-store.js';
+export type { S3BlobStore, S3BlobStoreOptions } from './blob/s3-blob-store.js';
 export { memoryBlobStore } from './blob/memory-blob-store.js';
 export { openDirectoryBlobStore } from './blob/directory-blob-store.js';
 export type { DirectoryBlobStoreOptions } from './blob/directory-blob-store.js';
@@ -133,3 +147,12 @@ export { consoleLogger, silentLogger } from './http/log.js';
 export type { Logger, RequestLine } from './http/log.js';
 export { serveStaticAsset } from './http/static.js';
 export type { Asset, AssetSource } from './http/static.js';
+
+// Rate limits and quotas (V23). The Redis counters and buses are the opt-in `@sibei/api/redis`.
+export { DEFAULT_LIMITS, classify, clientAddress, createLimits, DEFAULT_CLASSIFIERS } from './limits/limits.js';
+export type { Classifier, LimitRefusal, Limits, LimitsConfig, LimitsOptions, Rate, RequestClass } from './limits/limits.js';
+export { limitsFromEnv } from './limits/config.js';
+export { memoryRateLimiter } from './limits/rate-limiter.js';
+export type { RateLimiter, RateVerdict } from './limits/rate-limiter.js';
+export { QuotaError } from './limits/errors.js';
+export type { QuotaName } from './limits/errors.js';

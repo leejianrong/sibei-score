@@ -462,6 +462,27 @@ describe('batch is a transactional op list (ADR-0008)', () => {
     expect((await sbscore('show', 'soul')).out).toBe(before);
   });
 
+  it('reads --ops from a file with @path (SIB2-187)', async () => {
+    await aChart();
+    const file = join(mkdtempSync(join(tmpdir(), 'sbscore-ops-')), 'ops.json');
+    writeFileSync(file, ops);
+    const result = await sbscore('batch', 'soul', '--ops', `@${file}`, '--json');
+    expect(json<{ version: number }>(result.out).version).toBe(2);
+    expect((await sbscore('batch', 'soul', '--ops', '@/no/such/file.json')).code).toBe(EXIT.usage);
+  });
+
+  it('reads --ops from stdin with - (SIB2-187)', async () => {
+    await aChart();
+    out = [];
+    const code = await run(['batch', 'soul', '--ops', '-', '--json'], {
+      baseUrl,
+      io: { out: (text) => out.push(text), err: (text) => err.push(text) },
+      readStdin: async () => ops,
+    });
+    expect(code).toBe(EXIT.ok);
+    expect(json<{ version: number }>(out.join('\n')).version).toBe(2);
+  });
+
   it('rejects --ops that is not a JSON array', async () => {
     await aChart();
     expect((await sbscore('batch', 'soul', '--ops', '{not json')).code).toBe(EXIT.usage);

@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { createApi, createHttpWorkerClient, openDirectoryBlobStore } from '@sibei/api';
-import type { Api, AssetSource, WorkerClient } from '@sibei/api';
+import { consoleLogger, createApi, createHttpWorkerClient, createLimits, limitsFromEnv, memoryRateLimiter, openDirectoryBlobStore, openS3BlobStore } from '@sibei/api';
+import type { Api, AssetSource, S3BlobStoreOptions, WorkerClient } from '@sibei/api';
 import { openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import { openSqliteAuthStore, openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
 import type { AuthStore, JobStore, ScoreStore } from '@sibei/api';
@@ -298,6 +298,43 @@ function resolveBlobDirectory(flags: Flags, libraryFile: string): string {
   return chosen === undefined || chosen === '' ? defaultBlobPath(libraryFile) : resolve(chosen);
 }
 
+/**
+ * Object storage for blobs (SIB2-136): `SBSCORE_S3_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID` and
+ * `SBSCORE_S3_SECRET_ACCESS_KEY` all together, or none. Environment only — a secret does not belong in
+ * argv — and, like the Postgres URL, a *named* variable so an ambient AWS_* in an unrelated shell cannot
+ * silently move a local install's blobs. Without them the blobs live on disk, exactly as before.
+ */
+export function resolveS3Config(env: NodeJS.ProcessEnv = process.env): S3BlobStoreOptions | undefined {
+  const get = (name: string): string | undefined => {
+    const value = env[`SBSCORE_S3_${name}`];
+    return value === undefined || value === '' ? undefined : value;
+  };
+  const endpoint = get('ENDPOINT');
+  const bucket = get('BUCKET');
+  const accessKeyId = get('ACCESS_KEY_ID');
+  const secretAccessKey = get('SECRET_ACCESS_KEY');
+  const set = [endpoint, bucket, accessKeyId, secretAccessKey].filter((value) => value !== undefined).length;
+  if (set === 0) return undefined;
+  if (endpoint === undefined || bucket === undefined || accessKeyId === undefined || secretAccessKey === undefined) {
+    throw new CliError(
+      EXIT.usage,
+      'bad-s3-config',
+      'object storage needs SBSCORE_S3_ENDPOINT, SBSCORE_S3_BUCKET, SBSCORE_S3_ACCESS_KEY_ID and SBSCORE_S3_SECRET_ACCESS_KEY together',
+    );
+  }
+  const publicEndpoint = get('PUBLIC_ENDPOINT');
+  const prefix = get('PREFIX');
+  return {
+    endpoint,
+    bucket,
+    accessKeyId,
+    secretAccessKey,
+    region: get('REGION') ?? 'us-east-1',
+    ...(publicEndpoint === undefined ? {} : { publicEndpoint }),
+    ...(prefix === undefined ? {} : { prefix }),
+  };
+}
+
 /** The two stores, and how to release them, whichever database they sit on. */
 interface OpenedStores {
   store: ScoreStore;
@@ -409,11 +446,59 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     workerUrl === undefined ? undefined : createHttpWorkerClient({ url: workerUrl });
 
   const hostedConfig = resolveHostedConfig(flags);
+  const s3Config = resolveS3Config();
+
+  // Rate limits and quotas (V23): on in hosted mode, off for a local install (one user on loopback has
+  // nobody to be limited against), and overridable either way with SBSCORE_LIMITS=on|off.
+  const limitsSwitch = (process.env.SBSCORE_LIMITS ?? '').toLowerCase();
+  if (limitsSwitch !== '' && limitsSwitch !== 'on' && limitsSwitch !== 'off') {
+    throw new CliError(EXIT.usage, 'bad-limits-config', 'SBSCORE_LIMITS must be `on` or `off`');
+  }
+  const limitsOn = limitsSwitch === 'on' || (limitsSwitch === '' && hostedConfig !== undefined);
+  let limitsConfig: ReturnType<typeof limitsFromEnv> | undefined;
+  try {
+    limitsConfig = limitsOn ? limitsFromEnv(process.env) : undefined;
+  } catch (error) {
+    throw new CliError(EXIT.usage, 'bad-limits-config', error instanceof Error ? error.message : String(error));
+  }
+  const allowedHosts = (flags.options.get('allowed-hosts') ?? process.env.SBSCORE_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter((host) => host !== '');
+
+  // Redis (V23): the cross-process change/job buses and shared rate-limit counters. Absent means the
+  // in-process ones — the local case, and a single replica.
+  const redisUrl = [flags.options.get('redis-url'), process.env.SBSCORE_REDIS_URL].find((v) => v !== undefined && v !== '');
+  let redis: Awaited<ReturnType<(typeof import('@sibei/api/redis'))['openRedis']>> | undefined;
+  if (redisUrl !== undefined) {
+    const { openRedis } = await import('@sibei/api/redis');
+    try {
+      redis = await openRedis({ url: redisUrl, onError: (message, error) => consoleLogger.error(message, error) });
+    } catch (error) {
+      // The URL can carry a password; say where it was aimed, redacted, and not what the driver quoted.
+      throw new CliError(
+        EXIT.usage,
+        'redis-unavailable',
+        `${(error instanceof Error ? error.message : String(error)).split(redisUrl).join('redis (url hidden)')}`,
+      );
+    }
+  }
+  const limits =
+    limitsConfig === undefined
+      ? undefined
+      : createLimits({
+          config: limitsConfig,
+          limiter: redis?.limiter ?? memoryRateLimiter(),
+          onError: (message, error) => consoleLogger.error(message, error),
+        });
 
   const { store, jobStore, authStore } = await openStores(databaseUrl, filename, flags, hostedConfig !== undefined);
   let api: Api;
   try {
     api = createApi({
+      ...(limits === undefined ? {} : { limits }),
+      ...(redis === undefined ? {} : { changeBus: redis.changeBus(), jobBus: redis.jobBus() }),
+      ...(allowedHosts.length === 0 ? {} : { allowedHosts }),
       store,
       jobs: jobStore,
       ...(hostedConfig === undefined || authStore === undefined
@@ -425,13 +510,13 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
               github: { clientId: hostedConfig.clientId, clientSecret: hostedConfig.clientSecret },
             },
           }),
-      blobs: openDirectoryBlobStore({ directory: blobDirectory }),
+      blobs: s3Config === undefined ? openDirectoryBlobStore({ directory: blobDirectory }) : openS3BlobStore(s3Config),
       ...(worker === undefined ? {} : { worker }),
       ...(assets === undefined ? {} : { assets }),
     });
   } catch (error) {
     // A refused configuration (a plain-http public URL, say) is a usage error, not a crash.
-    await Promise.all([jobStore.close(), store.close(), authStore?.close()]);
+    await Promise.all([jobStore.close(), store.close(), authStore?.close(), redis?.close()]);
     throw new CliError(EXIT.usage, 'bad-hosted-config', error instanceof Error ? error.message : String(error));
   }
   const bound = await api.listen(port, bindHost);
@@ -452,6 +537,8 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           ...(uiDirectory === undefined ? {} : { ui: uiDirectory }),
           ...(workerUrl === undefined ? {} : { worker: workerUrl }),
           ...(hostedConfig === undefined ? {} : { hosted: hostedConfig.publicUrl }),
+          ...(redis === undefined ? {} : { redis: true }),
+          ...(limits === undefined ? {} : { limits: true }),
           ...(adoption.kind === 'nothing-to-do' ? {} : { dataDirectory: adoption }),
         })
       : (notice === undefined ? '' : `${notice}\n`) +
@@ -461,6 +548,8 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           `  cached exports in ${blobDirectory}\n` +
           (uiDirectory === undefined ? '' : `  serving the UI from ${uiDirectory}\n`) +
           (hostedConfig === undefined ? '' : `  hosted mode: GitHub sign-in required, served as ${hostedConfig.publicUrl}\n`) +
+          (redis === undefined ? '' : '  Redis: change streams and rate limits are shared across processes\n') +
+          (limits === undefined ? '' : '  rate limits and quotas are on\n') +
           (workerUrl === undefined
             ? '  no OMR worker configured — import is unavailable (set --worker or SBSCORE_WORKER_URL)\n'
             : `  OMR worker at ${workerUrl}\n`) +
@@ -472,7 +561,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
     // drained would cut off whatever it was still flushing.
     void api
       .close()
-      .then(() => Promise.all([jobStore.close(), store.close(), authStore?.close()]))
+      .then(() => Promise.all([jobStore.close(), store.close(), authStore?.close(), redis?.close()]))
       .then(() => {
         process.exit(EXIT.ok);
       });

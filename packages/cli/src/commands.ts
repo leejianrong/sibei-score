@@ -1,5 +1,6 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
+import type { Readable } from 'node:stream';
 import { displayTitle, projectScore } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type {
@@ -19,6 +20,7 @@ import { credentialsPath as defaultCredentialsPath, isReadableByOthers, resolveT
 import { EXIT } from './exit-codes.js';
 import type { ExitCode } from './exit-codes.js';
 import { fallbackName, outputPathFor } from './output.js';
+import { mcp } from './mcp.js';
 import { serve } from './serve.js';
 
 /**
@@ -59,6 +61,8 @@ export interface RunOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Where `auth login --token-stdin` reads from. Injected for tests. */
   readStdin?: () => Promise<string>;
+  /** The MCP client's end of `sbscore mcp` (V22b): its stdin. Injected for tests; the process's own otherwise. */
+  mcpInput?: Readable;
 }
 
 const USAGE = `sbscore — a jazz lead sheet, from the command line
@@ -68,6 +72,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
                --worker is the OMR worker's URL — without one, import is unavailable and all else works;
                --database-url URL serves from Postgres instead of the local SQLite file, and --blobs DIR
                places the scans and export cache; see docs/hosting.md;
+               --redis-url URL (SBSCORE_REDIS_URL) shares change streams and rate limits across API
+               processes; --allowed-hosts a,b (SBSCORE_ALLOWED_HOSTS) admits more hostnames;
+               rate limits and quotas are on in hosted mode, tuned by SBSCORE_LIMIT_* / SBSCORE_QUOTA_*;
                hosted mode — GitHub sign-in, one library per user — is on only when --public-url,
                --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
@@ -99,9 +106,12 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
-  sbscore batch <id> --ops '[{"type":"note.add",...}]'
+  sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
+  sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
+              launches a process (Claude Desktop, an editor). The same tools as a hosted server's /mcp,
+              run through this CLI's credentials and --url; stdout carries only the protocol
   sbscore auth login                       sign in to a hosted server: prints a code, you approve it in the
               browser, and the CLI keeps the API token it is given (never a password or a GitHub token)
   sbscore auth login --token-stdin         the headless fallback: read a token on stdin and keep it
@@ -134,7 +144,7 @@ Signing in (hosted servers only; a local one has no accounts):  a credential is 
   SBSCORE_TOKEN supplies one instead — what a CI job uses — and wins over the file.
 
 Exit codes:  0 ok · 1 usage · 2 validation · 3 bad address · 4 stale-version conflict
-             5 not found · 6 no server · 7 refused · 8 already exists
+             5 not found · 6 no server · 7 refused · 8 already exists · 9 rate limit or quota
 `;
 
 export async function run(argv: readonly string[], options: RunOptions): Promise<ExitCode> {
@@ -212,6 +222,9 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
         readStdin: options.readStdin ?? readAllStdin,
         now: () => new Date(),
       });
+    case 'mcp':
+      // stdout is the protocol, so nothing else may write to it: diagnostics go to stderr (`io.err`).
+      return mcp(client, { input: options.mcpInput ?? process.stdin, write: io.out, log: io.err });
     case 'new':
       return create(flags, client, io, json);
     case 'list':
@@ -249,7 +262,7 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
-      return batch(flags, client, io, json);
+      return batch(flags, client, io, json, options.readStdin ?? readAllStdin);
     case 'undo':
       return move('undo', flags, client, io, json);
     case 'redo':
@@ -769,9 +782,26 @@ function parseEndingNumbers(raw: string): number[] {
  * `batch` is the whole of what a document-patch endpoint would have bought, without the
  * whole-document read or the structural risk (ADR-0008). One invalid operation applies none of them.
  */
-async function batch(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+async function batch(
+  flags: Flags,
+  client: Client,
+  io: Io,
+  json: boolean,
+  readStdin: () => Promise<string>,
+): Promise<ExitCode> {
   const id = requiredPositional(flags, 1, 'a score id', 'batch');
-  const raw = required(flags, 'ops', 'batch');
+  // `--ops @file` and `--ops -` (stdin) keep a long chart out of argv (SIB2-187).
+  const given = required(flags, 'ops', 'batch');
+  let raw = given;
+  if (given === '-') {
+    raw = await readStdin();
+  } else if (given.startsWith('@')) {
+    try {
+      raw = readFileSync(given.slice(1), 'utf8');
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', `--ops: cannot read ${given.slice(1)}`);
+    }
+  }
   let operations: Operation[];
   try {
     const parsed: unknown = JSON.parse(raw);

@@ -88,3 +88,26 @@ Residual, and accepted: binding `0.0.0.0` also exposes the port to other contain
 Docker network. For a single-container deployment that is negligible, and a dedicated Compose
 network with no other services on it closes it. See `docs/hosting.md` for how the same `0.0.0.0`
 bind is reused, behind a TLS edge and real auth, in the hosted future.
+
+## Amendment (V23, 2026-11): hosted guards widen, they do not loosen
+
+The hosted deployment is reached by a real name, so the Host/Origin allow-list takes it from
+configuration (ADR-0034 decision 7). What changed and what did not:
+
+- **Host and Origin admit exactly the names configured**: loopback, the hosted public URL's host, and any
+  extra hostnames in `--allowed-hosts` / `SBSCORE_ALLOWED_HOSTS` (comma-separated, exact match, no
+  wildcards). Anything else is still `403 foreign-host` / `foreign-origin`, before routing, on every path.
+- **Still no CORS headers, on any response.** The allow-list admits a name to be *addressed*; it never
+  lets a foreign page read a response.
+- **Bodies stay capped** (1 MB for JSON, 25 MB for an upload), unchanged.
+- **New: per-IP and per-user rate limits and per-user quotas** (`packages/api/src/limits/`), on in hosted
+  mode and off for a local install. Refusals are structured problems: `429 rate-limited` with
+  `Retry-After`, and `403 quota-exceeded` naming the quota. The client address is the socket's unless the
+  deployment says a reverse proxy fronts it (`SBSCORE_TRUST_PROXY=1`), in which case it is the
+  *rightmost* `X-Forwarded-For` entry, the one our own proxy appended; trusting the header on an exposed
+  server would let a caller choose its own address.
+- **New: a per-user cap on concurrent event streams** (the "hold a connection open" residual noted in
+  `http/event-stream.ts`, KAN-602).
+- Redis carries the change bus and the limiter's counters when `SBSCORE_REDIS_URL` is set (ADR-0034
+  decision 8); the limits fail *open* if Redis is down, because they protect the service and must not
+  become a way to take it down.

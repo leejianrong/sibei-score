@@ -4,11 +4,16 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { BlobStore } from '../blob/blob-store.js';
 import { memoryBlobStore } from '../blob/memory-blob-store.js';
 import { createChangeBus, publishingApplier, publishingLibrary } from '../events/change-bus.js';
+import type { ChangeBus } from '../events/change-bus.js';
 import { createJobBus } from '../events/job-bus.js';
+import type { JobBus } from '../events/job-bus.js';
+import { quotaApplier } from '../limits/quota.js';
+import type { Limits, LimitRefusal } from '../limits/limits.js';
 import { createHostedAuth } from '../auth/hosted.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createExporter } from '../export/export.js';
 import { NOTE_EVENTS_SOURCE } from '../imports/note-events.js';
+import { createMcpEndpoint } from '../mcp/endpoint.js';
 import { createJobRunner } from '../imports/runner.js';
 import { WorkerError } from '../imports/worker-client.js';
 import type { WorkerClient } from '../imports/worker-client.js';
@@ -23,6 +28,7 @@ import { createJobStreams } from './job-stream.js';
 import { LOOPBACK, checkHost, checkOrigin, isStateChanging, resolveLocalPrincipal } from './guards.js';
 import type { Authenticator } from './guards.js';
 import { problem, problemForUnknown } from './problems.js';
+import type { Problem } from './problems.js';
 import { pathOf, route, send, sendJson } from './routes.js';
 import type { ImportService } from './routes.js';
 import type { AssetSource } from './static.js';
@@ -81,6 +87,25 @@ export interface ApiOptions {
   hosted?: HostedAuthOptions;
   logger?: Logger;
   /**
+   * Rate limits and quotas (V23, ADR-0034 decision 7). Absent means none, which is what a local install
+   * runs: one user on loopback has nobody to be limited against. `sbscore serve` supplies them in hosted
+   * mode. Every number lives in the `Limits` it is given; this file only applies them.
+   */
+  limits?: Limits;
+  /**
+   * The change and job buses. Default to the in-process ones — a single process, the local case. Hosted
+   * mode with Redis passes buses that also cross processes (`@sibei/api/redis`), so an SSE client on one
+   * API process hears an edit made through another (V23).
+   */
+  changeBus?: ChangeBus;
+  jobBus?: JobBus;
+  /**
+   * Extra hostnames the Host and Origin guards admit, beside loopback and the hosted public URL's host
+   * (V23). For a deployment reachable under more than one name (an apex and `www`). Widens, never loosens:
+   * a name must be listed to be admitted, and there are no wildcards.
+   */
+  allowedHosts?: readonly string[];
+  /**
    * How often an idle event stream writes its keep-alive comment. Defaults to
    * `DEFAULT_HEARTBEAT_MS`; injected because a test cannot wait fifteen seconds to watch one.
    */
@@ -124,18 +149,27 @@ export function createApi(options: ApiOptions): Api {
           ...options.hosted,
         });
   const authenticate = hosted?.authenticate ?? options.authenticate ?? resolveLocalPrincipal;
-  const hostedHosts = hosted?.hosts ?? new Set<string>();
+  const hostedHosts = new Set<string>([
+    ...(hosted?.hosts ?? []),
+    ...(options.allowedHosts ?? []).map((host) => host.trim().toLowerCase()).filter((host) => host !== ''),
+  ]);
+  const limits = options.limits;
 
   // The change bus (V4a). This file is the only one holding both halves of it, exactly as it is the
   // only one holding both halves of the store — the mutating paths get the publisher by being
   // wrapped in it, the routes get the subscriber, and neither can reach the other's capability.
-  const bus = createChangeBus({
-    onError: (error) => logger.error('an event subscriber failed', error),
-  });
+  const bus =
+    options.changeBus ??
+    createChangeBus({
+      onError: (error) => logger.error('an event subscriber failed', error),
+    });
 
   // Wrapped rather than plumbed in, so `applier.ts` stays the only consumer of a `ScoreWriter`
   // (ADR-0003) and an injected test applier announces its writes like the real one does.
-  const applier = publishingApplier(options.applier ?? createApplier(store), bus);
+  const announcing = publishingApplier(options.applier ?? createApplier(store), bus);
+  // What the routes get is the announcing applier behind the account's quotas (V23); the job runner gets
+  // the unwrapped one, because an import's quota was already spent when it was submitted.
+  const applier = limits === undefined ? announcing : quotaApplier(announcing, store, limits);
   // Deleting a score is not an operation and never goes near the applier, but it is every bit as
   // much an external change to a browser holding that chart open.
   const library = publishingLibrary(store, bus);
@@ -158,7 +192,7 @@ export function createApi(options: ApiOptions): Api {
   // streams exist whether or not a worker was configured, so imports can always be *inspected*; the
   // ability to submit an *image* exists only when a worker was (a NoteEvents file needs none, ADR-0040).
   const jobs = options.jobs ?? memoryJobStore();
-  const jobBus = createJobBus({ onError: (error) => logger.error('a job subscriber failed', error) });
+  const jobBus = options.jobBus ?? createJobBus({ onError: (error) => logger.error('a job subscriber failed', error) });
   const jobStreams = createJobStreams({
     subscriber: jobBus,
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
@@ -173,13 +207,18 @@ export function createApi(options: ApiOptions): Api {
     // The runner's one write: land the mapped document as a new score through the applier's
     // server-only import path (V11). It is handed the applier, narrowed by `ScoreImporter` to
     // exactly `import` — it cannot reach the edit surface or a `ScoreWriter` (ADR-0003).
-    importer: applier,
+    importer: announcing,
     publisher: jobBus,
     onError: (message, error) => logger.error(message, error),
   });
   const imports: ImportService = {
     available: options.worker !== undefined,
     async submit(owner: Owner, images: Buffer[]) {
+      // Quotas first, before a byte is stored (V23): a refused import costs nothing.
+      if (limits !== undefined) {
+        limits.checkScoreRoom((await store.list(owner)).length);
+        await limits.spendImport(owner, images.length, images.reduce((sum, image) => sum + image.length, 0));
+      }
       // Content-addressed: identical rescans dedupe, and each key names the exact bytes it stands for
       // (the same principle as the export cache's document digest, Q81). The BlobStore hashes the key
       // to a filename anyway, so any stable string does — this one is also provenance. The images are
@@ -196,6 +235,8 @@ export function createApi(options: ApiOptions): Api {
       return job;
     },
     async submitNoteEvents(owner: Owner, document: Buffer) {
+      // A draft is a score: it needs room in the library (V23), but it costs no recognition quota.
+      if (limits !== undefined) limits.checkScoreRoom((await store.list(owner)).length);
       // The validated document is the source, kept in the BlobStore with the job so a better
       // quantizer can re-derive the draft later (ADR-0019's re-parse argument). Content-addressed like
       // the images. The job's `engine` marks it for the runner (see `NOTE_EVENTS_SOURCE`).
@@ -224,6 +265,11 @@ export function createApi(options: ApiOptions): Api {
       const source = await jobs.getByScoreId(owner, scoreId);
       // A NoteEvents draft has no scan to re-run (ADR-0040).
       if (source === null || source.engine === NOTE_EVENTS_SOURCE) return null;
+      if (limits !== undefined) {
+        limits.checkScoreRoom((await store.list(owner)).length);
+        // The same pages through the worker again cost the same; bytes were paid for on upload.
+        await limits.spendImport(owner, source.imageKeys.length, 0);
+      }
       const job = await jobs.create(owner, source.imageKeys, options.engine ?? null);
       runner.wake();
       return job;
@@ -255,6 +301,20 @@ export function createApi(options: ApiOptions): Api {
     streams: jobStreams,
   };
 
+  // The MCP endpoint (V22a): hosted only, since its credentials are the OAuth tokens hosted mode issues. It is
+  // handed the same narrowed services the routes get — a reader, the applier, the exporter — and nothing wider.
+  const mcp =
+    hosted === undefined
+      ? undefined
+      : createMcpEndpoint({
+          reader: store,
+          applier,
+          exporter,
+          authenticate,
+          resourceMetadataUrl: new URL('/.well-known/oauth-protected-resource', hosted.mcpResource).toString(),
+          onError: (message, error) => logger.error(message, error),
+        });
+
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
     void handle(request, response)
@@ -282,6 +342,13 @@ export function createApi(options: ApiOptions): Api {
     const origin = checkOrigin(request, hostedHosts);
     if (!origin.ok) return send(response, problem(403, 'foreign-origin', origin.reason));
 
+    // Per-IP limits (V23), ahead of everything that costs a store or a GitHub round trip, the sign-in
+    // routes included: they are public, so the address is all there is to limit them by.
+    if (limits !== undefined) {
+      const refused = await limits.gateAddress(request);
+      if (refused !== null) return send(response, rateLimited(response, refused));
+    }
+
     // OAuth discovery metadata (V22a). Public by nature — a client reads it before it has any credential —
     // and it reads no store, so answering it here, ahead of the session check, opens nothing.
     if (hosted !== undefined && pathOf(request).startsWith('/.well-known/')) {
@@ -301,12 +368,30 @@ export function createApi(options: ApiOptions): Api {
       }
     }
 
+    // The MCP endpoint judges its own bearer token (audience, then per-tool scope), so it comes before the
+    // generic principal and scope checks below, whose method-based `read`/`write` rule is not its rule.
+    if (mcp !== undefined && pathOf(request) === '/mcp') {
+      try {
+        return await mcp.handle(request, response);
+      } catch (error) {
+        logger.error('an MCP request failed', error);
+        if (response.headersSent) return 500;
+        return send(response, problemForUnknown(error));
+      }
+    }
+
     // In hosted mode a handful of paths answer to a signed-out caller (`isPublic`); every other path
     // needs a live session, and a missing, unknown or expired one is a 401.
     const principal =
       hosted !== undefined && isPublic(request) ? { owner: SIGNED_OUT } : await authenticate(request);
     if (principal === null) {
       return send(response, problem(401, 'unauthenticated', 'not a principal this server knows'));
+    }
+
+    // Per-user limits (V23), by class of request, now that there is a user to charge.
+    if (limits !== undefined) {
+      const refused = await limits.gateUser(request, principal.owner);
+      if (refused !== null) return send(response, rateLimited(response, refused));
     }
 
     // A token carries the scopes it was minted with (V21a). Reads need `read`, anything that changes state
@@ -339,6 +424,17 @@ export function createApi(options: ApiOptions): Api {
       }
       // Local mode has no accounts. Saying so lets the browser draw no account chrome rather than guess.
       return hosted === undefined ? sendJson(response, 200, { mode: 'local' }) : await hosted.me(response, principal.owner);
+    }
+
+    // A live-update stream is held open for as long as a tab is (KAN-602), so it is capped per user rather
+    // than rate-limited; the slot is returned when the connection ends, however it ends.
+    if (limits !== undefined && (request.method ?? 'GET').toUpperCase() === 'GET' && /^\/v1\/(scores|imports)\/[^/]+\/events$/.test(pathOf(request))) {
+      try {
+        const release = limits.openStream(principal.owner);
+        response.once('close', release);
+      } catch (error) {
+        return send(response, problemForUnknown(error));
+      }
     }
 
     try {
@@ -420,6 +516,17 @@ function isPublic(request: IncomingMessage): boolean {
 const noWorker: WorkerClient = {
   recognize: () => Promise.reject(new WorkerError('no OMR worker is configured, so a scanned image cannot be recognised')),
 };
+
+/**
+ * The 429 for a request over a rate limit. `Retry-After` is the standard header and the structured detail
+ * carries the same number, so a client can branch without parsing prose (ADR-0008).
+ */
+function rateLimited(response: ServerResponse, refusal: LimitRefusal): Problem {
+  response.setHeader('retry-after', String(refusal.retryAfterSeconds));
+  return problem(429, 'rate-limited', `too many requests; retry in ${refusal.retryAfterSeconds} second(s)`, {
+    detail: { scope: refusal.scope, class: refusal.class, limit: refusal.limit, retryAfterSeconds: refusal.retryAfterSeconds },
+  });
+}
 
 function round(ms: number): number {
   return Math.round(ms * 1000) / 1000;
