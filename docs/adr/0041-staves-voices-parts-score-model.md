@@ -1,4 +1,4 @@
-# ADR-0040: The score model becomes parts × staves × voices
+# ADR-0041: The score model becomes parts × staves × voices
 
 - **Status:** Proposed — the design for review. Nothing is built; implementation (SIB2-151) starts after the
   2026-12-31 hosted launch, which ships on the current model.
