@@ -185,4 +185,68 @@ describe('quantizeNoteEvents (ADR-0040)', () => {
       expect(sum(bar.items)).toBe(4 * Q);
     }
   });
+
+  describe('heavy timing jitter (SIB2-196)', () => {
+    // 120 bpm: a beat is 0.5 s, an eighth 0.25 s, a sixteenth 0.125 s.
+    const pitches = [60, 62, 64, 65, 67, 65, 64, 62];
+    const eighths = (shift: (k: number) => number): Array<[number, number, number]> =>
+      Array.from({ length: 16 }, (_, k): [number, number, number] => [
+        k * 0.25 + shift(k),
+        k * 0.25 + 0.23,
+        pitches[k % pitches.length]!,
+      ]);
+
+    it('snaps soft-attack late onsets to the eighth they were played on', () => {
+      // Every onset is 40 ms late and wobbles +-30 ms: the late wobbles land past the halfway point to the
+      // next sixteenth (70 ms > 62.5 ms) and nearest-point snapping would move them a whole step.
+      const r = quantizeNoteEvents(doc(eighths((k) => 0.04 + (k % 2 === 0 ? -0.03 : 0.03)), beatsAt(0.5, 12)));
+      const onsets = r.bars.flatMap((b) => b.items.filter((i) => i.kind === 'note').map((i) => i.onset));
+      expect(onsets.length).toBe(16);
+      for (const onset of onsets) expect(onset % (Q / 2)).toBe(0);
+    });
+
+    it('reads a one-step silence in a smeared clip as legato, not a sixteenth rest', () => {
+      const r = quantizeNoteEvents(doc(eighths((k) => 0.04 + (k % 2 === 0 ? -0.03 : 0.03)).map(([on, off, p]) => [on, off - 0.06, p]), beatsAt(0.5, 12)));
+      // (the last note has no successor, so only the closing bar-fill may be a rest)
+      const items = r.bars.flatMap((b) => b.items);
+      expect(items.slice(0, -1).filter((i) => i.kind === 'rest')).toEqual([]);
+    });
+
+    it('keeps the same sixteenth rest when the clip is exact', () => {
+      // A quarter that sounds a sixteenth short, then a note: a real rest in a rendered clip.
+      const r = quantizeNoteEvents(doc([[0, 0.375, 60], [0.5, 0.95, 62], [1, 1.45, 64], [1.5, 1.95, 65]], beatsAt(0.5, 12)));
+      expect(r.bars[0]!.items.map((i) => i.kind)).toContain('rest');
+    });
+
+    it('merges a held note the transcriber cut in two, in a performed clip', () => {
+      // A half note on 67 split into two low-confidence halves 20 ms apart, among jittered eighths.
+      const base = eighths((k) => (k % 2 === 0 ? -0.03 : 0.03));
+      const events = doc(base, beatsAt(0.5, 12));
+      const held = events.notes[4]!; // 67 at 1.0 s
+      events.notes.splice(
+        4,
+        1,
+        { ...held, id: 'a', offset_s: 1.115, confidence: 0.55 },
+        { ...held, id: 'b', onset_s: 1.135, offset_s: 1.23, confidence: 0.55 },
+      );
+      const r = quantizeNoteEvents(events);
+      const notes = r.bars.flatMap((b) => b.items.filter((i) => i.kind === 'note'));
+      expect(notes.length).toBe(16);
+      expect(notes.map((i) => i.sourceId)).not.toContain('b');
+    });
+
+    it('does not merge a confident repeated note', () => {
+      const base = eighths((k) => (k % 2 === 0 ? -0.03 : 0.03));
+      const events = doc(base, beatsAt(0.5, 12));
+      // Note 5 repeats note 4's pitch right after it, as confidently as everything else.
+      events.notes[5] = { ...events.notes[5]!, pitch: events.notes[4]!.pitch };
+      const r = quantizeNoteEvents(events);
+      expect(r.bars.flatMap((b) => b.items.filter((i) => i.kind === 'note')).length).toBe(16);
+    });
+
+    it('is deterministic', () => {
+      const events = doc(eighths((k) => 0.04 + (k % 2 === 0 ? -0.03 : 0.03)), beatsAt(0.5, 12));
+      expect(quantizeNoteEvents(events)).toEqual(quantizeNoteEvents(structuredClone(events)));
+    });
+  });
 });
