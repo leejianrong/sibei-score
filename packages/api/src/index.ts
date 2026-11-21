@@ -23,7 +23,17 @@ export type { ApiToken, AuthStore, DeviceApproval, DevicePoll, NewApiToken, NewD
 export { memoryJobStore } from './store/memory-job-store.js';
 export type { MemoryJobStoreOptions } from './store/memory-job-store.js';
 
-export type { BlobKey, BlobStore } from './blob/blob-store.js';
+export type {
+  BlobKey,
+  BlobStore,
+  ManagedBlobStore,
+  PresignedRequest,
+  PresignOptions,
+  PresigningBlobStore,
+} from './blob/blob-store.js';
+export { isPresigning } from './blob/blob-store.js';
+export { openS3BlobStore } from './blob/s3-blob-store.js';
+export type { S3BlobStore, S3BlobStoreOptions } from './blob/s3-blob-store.js';
 export { memoryBlobStore } from './blob/memory-blob-store.js';
 export { openDirectoryBlobStore } from './blob/directory-blob-store.js';
 export type { DirectoryBlobStoreOptions } from './blob/directory-blob-store.js';

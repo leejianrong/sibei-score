@@ -1,4 +1,4 @@
-import type { BlobKey, BlobStore } from './blob-store.js';
+import type { BlobKey, ManagedBlobStore } from './blob-store.js';
 
 /**
  * The blob port over a `Map`. The `:memory:` of blobs.
@@ -11,7 +11,7 @@ import type { BlobKey, BlobStore } from './blob-store.js';
  * Copies on the way in and on the way out. A caller that kept its buffer and wrote through it
  * would otherwise be editing the cache, which no real implementation would let it do.
  */
-export function memoryBlobStore(): BlobStore {
+export function memoryBlobStore(): ManagedBlobStore {
   const blobs = new Map<BlobKey, Buffer>();
   return {
     get(key) {
@@ -20,6 +20,14 @@ export function memoryBlobStore(): BlobStore {
     },
     put(key, bytes) {
       blobs.set(key, Buffer.from(bytes));
+      return Promise.resolve();
+    },
+    stat(key) {
+      const found = blobs.get(key);
+      return Promise.resolve(found === undefined ? null : { size: found.length });
+    },
+    delete(key) {
+      blobs.delete(key);
       return Promise.resolve();
     },
   };
