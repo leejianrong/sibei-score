@@ -31,6 +31,8 @@ import { WorkerError } from '../imports/worker-client.js';
 import type { WorkerClient } from '../imports/worker-client.js';
 import { imageFormatOf } from '../imports/upload.js';
 import { createApplier } from '../ops/applier.js';
+import { DEFAULT_WRITE_CAPS } from '../ops/caps.js';
+import type { WriteCaps } from '../ops/caps.js';
 import type { Applier } from '../ops/applier.js';
 import { memoryJobStore } from '../store/memory-job-store.js';
 import type { JobStore } from '../store/jobs.js';
@@ -144,6 +146,8 @@ export interface ApiOptions {
    * mode. Every number lives in the `Limits` it is given; this file only applies them.
    */
   limits?: Limits;
+  /** Size caps on a new write (SEC H1); the defaults are `DEFAULT_WRITE_CAPS`. Applies in local mode too. */
+  writeCaps?: WriteCaps;
   /**
    * The change and job buses. Default to the in-process ones — a single process, the local case. Hosted
    * mode with Redis passes buses that also cross processes (`@sibei/api/redis`), so an SSE client on one
@@ -206,7 +210,11 @@ export function createApi(options: ApiOptions): Api {
 
   // Wrapped rather than plumbed in, so `applier.ts` stays the only consumer of a `ScoreWriter`
   // (ADR-0003) and an injected test applier announces its writes like the real one does.
-  const announcing = publishingApplier(options.applier ?? createApplier(store), bus);
+  const announcing = publishingApplier(options.applier ?? createApplier(store, undefined, {
+    ...DEFAULT_WRITE_CAPS,
+    ...options.writeCaps,
+    ...(limits === undefined ? {} : { maxScores: limits.config.quotas.maxScores }),
+  }), bus);
   // What the routes get is the announcing applier behind the account's quotas (V23); the job runner gets
   // the unwrapped one, because an import's quota was already spent when it was submitted.
   const applier = limits === undefined ? announcing : quotaApplier(announcing, store, limits);
@@ -395,6 +403,14 @@ export function createApi(options: ApiOptions): Api {
           applier,
           exporter,
           authenticate,
+          ...(limits === undefined
+            ? {}
+            : {
+                charge: async (response: ServerResponse, owner: string, cls: 'read' | 'write' | 'export') => {
+                  const refused = await limits.gateClass(owner, cls);
+                  return refused === null ? null : send(response, rateLimited(response, refused));
+                },
+              }),
           resourceMetadataUrl: new URL('/.well-known/oauth-protected-resource', hosted.mcpResource).toString(),
           onError: (message, error) => logger.error(message, error),
         });
@@ -494,6 +510,12 @@ export function createApi(options: ApiOptions): Api {
     if (requestPath.startsWith('/v1/worker/')) {
       if (audioWorker === undefined) return send(response, problem(404, 'no-such-route', `nothing at ${requestPath}`));
       if (!audioWorker.authenticate(bearer)) {
+        // The worker routes are exempt from the per-IP limits, so a failed credential is the one thing
+        // counted: a flood of guesses meets a 429 once the address has used its failures (SEC M2/M5).
+        if (limits !== undefined) {
+          const refused = await limits.workerAuthFailed(request);
+          if (refused !== null) return send(response, rateLimited(response, refused));
+        }
         const other = (bearer !== undefined && !bearer.startsWith('Bearer sbsw_')) || request.headers.cookie !== undefined;
         return other
           ? send(response, problem(403, 'forbidden', 'the audio worker routes take a worker credential, not a user session or token'))

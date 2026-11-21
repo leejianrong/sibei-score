@@ -113,6 +113,22 @@ export function storeConformance(label: string, open: OpenHarness): void {
       expect(await store.operations('local', 'soul')).toHaveLength(1);
     });
 
+    it('enforces a score ceiling inside the create, so concurrent creates cannot both fit (SEC H2)', async () => {
+      const { store } = await fresh();
+      const outcomes = await Promise.all(
+        Array.from({ length: 6 }, (_, n) => {
+          const score = aScore(`c${n}`);
+          return store.create('local', score, creationOf(score), { maxScores: 2 });
+        }),
+      );
+      expect(outcomes.filter((o) => o.ok)).toHaveLength(2);
+      expect(outcomes.filter((o) => !o.ok && o.reason === 'quota')).toHaveLength(4);
+      expect(await store.list('local')).toHaveLength(2);
+      // another owner has its own room
+      const other = aScore('mine');
+      expect((await store.create('someone-else', other, creationOf(other), { maxScores: 2 })).ok).toBe(true);
+    });
+
     it('refuses a write that carries no operations (ADR-0003)', async () => {
       const { store } = await fresh();
       await expect(store.create('local', aScore('soul'), [])).rejects.toThrow(/must carry the operations/);
