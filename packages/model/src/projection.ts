@@ -38,6 +38,9 @@ export interface ProjectionOptions {
 export function projectScore(score: Score, options: ProjectionOptions = {}): string {
   const perRow = options.barsPerRow ?? BARS_PER_ROW;
   const lines: string[] = [header(score)];
+  if (score.meta.signaturePolicy !== undefined) {
+    lines.push(`  clef and key: ${score.meta.signaturePolicy === 'first' ? 'first system only' : 'first system of each page'}`);
+  }
   // The page footer is printed text a reader of the projection would otherwise never see (SIB2-172).
   if (score.meta.footer !== undefined) {
     lines.push(`  footer (${score.meta.footer.pages} pages): ${JSON.stringify(score.meta.footer.text)}`);

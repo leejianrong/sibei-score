@@ -87,6 +87,7 @@ sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans i
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
 sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
                       [--footer TEXT] [--footer-pages first|last|all]
+                      [--signature-policy every|first|page]
 ```
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
@@ -98,6 +99,12 @@ sheet, wrapped to fit between the margins (write `\n` for a line break; an empty
 removes it). `--footer-pages` picks `first`, `last` or `all` pages (the default). It is part of the
 chart, so it is a logged, undoable edit and shows in `show`; MusicXML carries the text as `<rights>`
 but not the page choice.
+
+`--signature-policy` says where the clef and key signature are drawn: `every` system (the default, and what
+a chart without the setting does), the `first` system only, or the first system of each `page`. The
+time signature is always printed once. Later systems that lose the prefix get the room back, so their bars
+widen. Bar numbers stay on each system. It is a logged, undoable edit with a control in the score view's
+rail, it shows in `show`, and MusicXML has no home for it.
 
 `import` needs a server started **with a worker** (`sbscore serve --worker URL`, or the compose
 stack); without one it is a 503 and every other feature still works (Q80). It takes several files as

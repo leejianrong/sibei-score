@@ -20,6 +20,8 @@ export interface AllocatedBar {
   width: number;
   isPickup: boolean;
   prefix: BarPrefix;
+  /** Whether this bar starts its system — the bar a system's bar number sits on. Not the same as having a clef. */
+  headsSystem: boolean;
   /** Room this bar's clef, key signature and time signature were allocated. */
   prefixWidth: number;
 }
@@ -107,6 +109,11 @@ function pickupWidth(score: Score, bar: Bar, prefix: BarPrefix, available: numbe
 export interface AllocateOptions {
   /** The very first bar of the score carries the time signature. */
   isFirstSystem: boolean;
+  /**
+   * Whether this system's head bar draws the clef and key signature (SIB2-173). Separate from
+   * `isFirstSystem` because the policy can drop them from later systems, which still start a line.
+   */
+  showSignatures: boolean;
 }
 
 export function allocateWidths(
@@ -131,6 +138,7 @@ export function allocateWidths(
       x,
       width,
       isPickup: true,
+      headsSystem: true,
       prefix,
       prefixWidth: prefixWidth(score, prefix),
     });
@@ -139,15 +147,22 @@ export function allocateWidths(
   }
 
   const prefixes: BarPrefix[] = system.bars.map((_, index) => ({
-    // Clef and key signature repeat at the head of every system.
-    clef: index === 0 && system.pickup === null,
-    keySignature: index === 0 && system.pickup === null,
+    // Clef and key signature repeat at the head of every system, unless the score's policy says otherwise.
+    clef: index === 0 && system.pickup === null && options.showSignatures,
+    keySignature: index === 0 && system.pickup === null && options.showSignatures,
     // One time signature per chart (ADR-0021), so it appears once, at the very start.
     timeSignature: index === 0 && options.isFirstSystem && system.pickup === null,
   }));
 
-  const weights = system.bars.map((bar, index) =>
-    estimateBarWidth(score, bar, prefixes[index] ?? noPrefix()),
+  // A system head with no clef (the signature policy dropped it, SIB2-173) still starts a line that
+  // carries a bar number, and the first notehead would sit on it. Give the head a small lead-in so the
+  // number clears the music. Nothing changes for a head that has its clef.
+  const leadIns = prefixes.map((prefix, index) =>
+    index === 0 && system.pickup === null && !prefix.clef && bar0Number(system) > 1 ? HEAD_LEAD_IN : 0,
+  );
+
+  const weights = system.bars.map(
+    (bar, index) => estimateBarWidth(score, bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
   );
   const widths = distribute(weights, remaining, spec);
 
@@ -161,13 +176,21 @@ export function allocateWidths(
       x,
       width,
       isPickup: false,
+      headsSystem: index === 0 && system.pickup === null,
       prefix,
-      prefixWidth: prefixWidth(score, prefix),
+      prefixWidth: prefixWidth(score, prefix) + (leadIns[index] ?? 0),
     });
     x += width;
   }
 
   return allocated;
+}
+
+/** Room a prefix-less system head leaves for its bar number before the first note. */
+const HEAD_LEAD_IN = 18;
+
+function bar0Number(system: PlannedSystem): number {
+  return system.bars[0]?.number ?? 0;
 }
 
 function noPrefix(): BarPrefix {

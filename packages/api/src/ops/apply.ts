@@ -2,6 +2,7 @@ import {
   DEFAULT_KEY,
   DEFAULT_TIME,
   FOOTER_PAGES,
+  SIGNATURE_POLICIES,
   MAX_FOOTER_LENGTH,
   SCHEMA_VERSION,
   makeBar,
@@ -39,6 +40,7 @@ import type {
   PageFooter,
   Review,
   Score,
+  SignaturePolicy,
   StartBarline,
   TieRole,
   TimeSignature,
@@ -271,7 +273,8 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const key = payload.key === undefined ? score.meta.key : validKey(payload.key);
 
   const footer = nextFooter(score, payload);
-  const { footer: _previous, ...rest } = score.meta;
+  const policy = nextSignaturePolicy(score, payload);
+  const { footer: _footer, signaturePolicy: _policy, ...rest } = score.meta;
   const next: Score = {
     ...score,
     meta: {
@@ -282,6 +285,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       key,
       time,
       ...(footer === undefined ? {} : { footer }),
+      ...(policy === undefined ? {} : { signaturePolicy: policy }),
     },
   };
 
@@ -295,6 +299,19 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     operation: { type: 'meta.set', payload },
     changed: [score.id],
   };
+}
+
+/** The signature policy after a `meta.set` (SIB2-173). `every` is stored as absent, so there is one way to say it. */
+function nextSignaturePolicy(score: Score, payload: MetaSetPayload): SignaturePolicy | undefined {
+  const asked = payload.signaturePolicy;
+  if (asked === undefined) return score.meta.signaturePolicy;
+  if (!SIGNATURE_POLICIES.includes(asked)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `signaturePolicy must be ${SIGNATURE_POLICIES.join(', ')}, not ${JSON.stringify(asked)}`,
+    });
+  }
+  return asked === 'every' ? undefined : asked;
 }
 
 /**

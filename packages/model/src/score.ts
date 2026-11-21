@@ -227,7 +227,20 @@ export interface ScoreMeta {
    * and `SCHEMA_VERSION` stays (ADR-0028). Lines break on `\n`; the layout wraps what is too long.
    */
   footer?: PageFooter;
+  /**
+   * Where the clef and key signature are drawn (SIB2-173). Absent means `every`: the head of every system, as
+   * before. Optional-and-absent, like `footer`, so no stored document changes and `SCHEMA_VERSION` stays.
+   */
+  signaturePolicy?: SignaturePolicy;
 }
+
+/**
+ * `every` system, the `first` system only, or the first system of every `page` (what a page turn wants: the
+ * reader sees the clef and key again). The time signature is printed once either way (ADR-0021).
+ */
+export type SignaturePolicy = 'every' | 'first' | 'page';
+
+export const SIGNATURE_POLICIES: readonly SignaturePolicy[] = ['every', 'first', 'page'];
 
 /** Which pages carry the footer. `all` is the default a plain `--footer` means. */
 export type FooterPages = 'first' | 'last' | 'all';

@@ -165,6 +165,12 @@
         (footerDraft !== '' && footerPagesDraft !== (score.meta.footer?.pages ?? 'all'))),
   );
 
+  async function handleSignaturePolicy(policy: 'every' | 'first' | 'page'): Promise<void> {
+    if (score === null || policy === (score.meta.signaturePolicy ?? 'every')) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { signaturePolicy: policy } }]);
+  }
+
   async function handleFooterSave(): Promise<void> {
     if (score === null) return;
     deselect();
@@ -812,6 +818,22 @@
           Changes the chart's concert key — the melody and chords move together. A logged, undoable
           edit, not a view: the version bumps.
         </p>
+      </div>
+
+      <div class="group control-row">
+        <h3>Clef and key</h3>
+        <select
+          class="part-select"
+          aria-label="Where clef and key signature are drawn"
+          value={score.meta.signaturePolicy ?? 'every'}
+          disabled={saving}
+          onchange={(event) => void handleSignaturePolicy((event.currentTarget as HTMLSelectElement).value as 'every' | 'first' | 'page')}
+        >
+          <option value="every">Every system</option>
+          <option value="first">First system only</option>
+          <option value="page">First system of each page</option>
+        </select>
+        <p class="control-note">Later systems without them get the room back. A logged, undoable edit (<code>meta set --signature-policy</code>).</p>
       </div>
 
       <div class="group control-row">

@@ -463,6 +463,8 @@ export interface EndingSetPayload {
 export interface MetaSetPayload {
   footer?: string | null;
   footerPages?: 'first' | 'last' | 'all';
+  /** Where the clef and key signature are drawn (SIB2-173). */
+  signaturePolicy?: 'every' | 'first' | 'page';
 }
 
 export type Operation =
