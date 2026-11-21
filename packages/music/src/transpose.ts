@@ -1,5 +1,6 @@
 import { transposeSpelling } from '@sibei/model';
 import type { Interval, KeySignature } from '@sibei/model';
+import type { ChordStructure } from './chord.js';
 import { formatChord } from './format.js';
 import { parseChord } from './parse.js';
 
@@ -28,13 +29,13 @@ export function transposeChordText(
 ): string {
   const parsed = parseChord(text);
   if (parsed === null || parsed.kind === 'no-chord') return text;
-  const s = parsed.structure;
-  return formatChord({
-    kind: 'chord',
-    structure: {
-      ...s,
-      root: transposeSpelling(s.root, interval, key, pinned),
-      bass: s.bass === null ? null : transposeSpelling(s.bass, interval, key, pinned),
-    },
+  const move = (s: ChordStructure): ChordStructure => ({
+    ...s,
+    root: transposeSpelling(s.root, interval, key, pinned),
+    bass: s.bass === null ? null : transposeSpelling(s.bass, interval, key, pinned),
   });
+  if (parsed.kind === 'alternate') {
+    return formatChord({ kind: 'alternate', chords: parsed.chords.map(move) });
+  }
+  return formatChord({ kind: 'chord', structure: move(parsed.structure) });
 }

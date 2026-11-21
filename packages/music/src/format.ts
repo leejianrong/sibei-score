@@ -14,6 +14,9 @@ import type { Alteration, Chord, ChordStructure, Root } from './chord.js';
  */
 export function formatChord(chord: Chord): string {
   if (chord.kind === 'no-chord') return 'N.C.';
+  if (chord.kind === 'alternate') {
+    return `(${chord.chords.map((c) => formatChord({ kind: 'chord', structure: c })).join(' ')})`;
+  }
   const s = chord.structure;
   return `${formatRoot(s.root)}${quality(s)}${s.bass === null ? '' : `/${formatRoot(s.bass)}`}`;
 }

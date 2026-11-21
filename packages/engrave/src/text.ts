@@ -1,7 +1,7 @@
 import type { LayoutText, LayoutTextRole } from '@sibei/layout';
 import { formatAlter } from '@sibei/model';
 import { parseChord } from '@sibei/music';
-import type { Alteration, ChordStructure, Root } from '@sibei/music';
+import type { Alteration, Chord, ChordStructure, Root } from '@sibei/music';
 import type { SvgElement } from './svg.js';
 import { el, textEl } from './svg.js';
 
@@ -222,7 +222,7 @@ export function chordSymbol(spec: ChordSpec): SvgElement {
   }
 
   const style = spec.style ?? CANONICAL_CHORD_STYLE;
-  return textEl(attrs, chordParts(parsed.structure, spec.size, style).runs);
+  return textEl(attrs, alternateOrChordParts(parsed, spec.size, style).runs);
 }
 
 /**
@@ -239,7 +239,45 @@ export function chordGlyphText(
   const parsed = parseChord(chordText);
   if (parsed === null || parsed.kind === 'no-chord') return chordText;
   // Size only scales the runs; the label is size-independent, so any size does.
-  return chordParts(parsed.structure, 14, style).label;
+  return alternateOrChordParts(parsed, 14, style).label;
+}
+
+/**
+ * An ordinary chord, or a bracketed alternate: each member drawn as a chord, spaced, in `( )`.
+ * A raised run's `dy` is cumulative in SVG, so whatever follows a member that ended raised (the next
+ * member, the closing bracket) is wrapped in a tspan that carries the baseline back down.
+ */
+function alternateOrChordParts(
+  parsed: Exclude<Chord, { kind: 'no-chord' }>,
+  size: number,
+  style: ChordStyle,
+): { runs: (SvgElement | string)[]; label: string } {
+  if (parsed.kind === 'chord') return chordParts(parsed.structure, size, style);
+  const runs: (SvgElement | string)[] = [];
+  let label = '';
+  let raised = 0;
+  const text = (value: string): void => {
+    if (raised === 0) runs.push(value);
+    else runs.push({ name: 'tspan', attrs: { dy: round(-raised) }, children: [], text: [value] });
+    raised = 0;
+    label += value;
+  };
+  text('(');
+  parsed.chords.forEach((member, index) => {
+    if (index > 0) text(' ');
+    const part = chordParts(member, size, style);
+    const [root, ...rest] = part.runs;
+    // A member opens with its root as plain baseline text; any owed reset rides on it.
+    text(root as string);
+    runs.push(...rest);
+    label += part.label.slice((root as string).length);
+    raised = part.runs.reduce<number>(
+      (sum, run) => sum + (typeof run === 'string' ? 0 : Number(run.attrs.dy ?? 0)),
+      0,
+    );
+  });
+  text(')');
+  return { runs, label };
 }
 
 /**
