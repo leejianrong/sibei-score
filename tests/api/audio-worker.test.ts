@@ -139,7 +139,7 @@ describe('a fake worker, end to end', () => {
     expect(await usage()).toMatchObject({ seconds: 4.25, jobs: 1 });
   });
 
-  it('does not meter a job that failed, and counts a job once when the importer refused it and a re-run then succeeded', async () => {
+  it('does not meter a job that failed or whose result the importer refused, and counts it once when a re-run then succeeds', async () => {
     const id = await queuedJob();
     const first = (await worker('POST', '/claim', {})).body.job;
     await worker('POST', `/jobs/${id}/fail`, { leaseToken: first.leaseToken, kind: 'engine-error', retryable: false });
@@ -151,7 +151,7 @@ describe('a fake worker, end to end', () => {
     // need a lease on the same job id, which the retry gave us.
     const second = (await worker('POST', '/claim', {})).body.job;
     await worker('POST', `/jobs/${id}/complete`, { leaseToken: second.leaseToken, durationSeconds: 5, result: { inline: {} } });
-    expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 5, jobs: 1 });
+    expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 0, jobs: 0 });
     await http('POST', `/v1/audio/jobs/${id}/retry`);
     importer = { importResult: async (job) => ({ ok: true, scoreId: `s-${job.id}` }) };
     const third = (await worker('POST', '/claim', {})).body.job;

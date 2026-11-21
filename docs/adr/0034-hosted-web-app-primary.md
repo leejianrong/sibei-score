@@ -325,3 +325,12 @@ exponential back-off; `complete` and `fail` are safe to retry.
 - Which provider, Hetzner or DigitalOcean, and the VM size — a config choice, not an architectural one.
 - Whether Postgres backups need a stated retention beyond "nightly, best effort".
 - Rate-limit and quota numbers (set conservatively, tune with real use).
+
+### Amendment: the join as built (SIB2-E10)
+
+The import hook is `createAudioResultImporter` and is wired by default in `createApi`. Differences from the text
+above: a job's `diagnostic` also carries the draft's warnings when it `succeeded` (it was failure-only), and
+metering is recorded only for a job that ends `succeeded`, after the import, so a document the hook refuses is
+not metered. The duration cross-check compares the document's `source.duration_s` with the worker's decoded
+duration and with the declared one, and only adds a `duration-mismatch` warning (tolerance: the larger of 1 s
+and 5%); it never rejects. The draft is score `audio-<jobId>`, so a redelivered `complete` lands one draft.
