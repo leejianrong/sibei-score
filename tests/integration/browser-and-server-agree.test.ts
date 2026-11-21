@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { aabaChart, everyGlyphChart, invalidBarChart, longFormChart, nastyChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, articulationsChart, everyGlyphChart, invalidBarChart, longFormChart, nastyChart, marksChart, reviewChart, slurChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -41,6 +41,8 @@ const FIXTURES: Record<string, () => Score> = {
   'aaba-chart': aabaChart,
   untitled: untitledChart,
   slurs: slurChart,
+  marks: marksChart,
+  articulations: articulationsChart,
 };
 
 /** Derived from the packages that own them, so a face or a paper added later is covered here. */

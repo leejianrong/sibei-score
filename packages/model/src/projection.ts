@@ -24,6 +24,9 @@ import type { Bar, BarItem, Confidence, Review, Score, Tempo, TimeSignature } fr
  * test that walks every printed address back through the resolver.
  */
 
+/** How `show` prints each mark, after a colon. */
+const ARTICULATION_SHORT = { staccato: 'stac', accent: 'acc', marcato: 'mar' } as const;
+
 /** Bars per row. The printed layout's grid (ADR-0015). */
 const BARS_PER_ROW = 4;
 
@@ -142,7 +145,7 @@ function rowFor(bars: Bar[], score: Score, label?: string): string[] {
     // An empty bar prints no melody line. The chord grid above already shows that it exists, and a
     // blank 32-bar chart would otherwise be 32 lines of nothing — which is the opposite of compact.
     if (melody !== null) lines.push(`   ${melody}`);
-    const directions = textLine(bar, score.meta.time);
+    const directions = textLine(bar, score.meta.time, score);
     if (directions !== null) lines.push(`   ${directions}`);
   }
   return lines;
@@ -197,13 +200,15 @@ function cell(bar: Bar, time: TimeSignature): string {
  * `bar4 text  beat1 "(unis.)" annotation-3` — the text directions in a bar (SIB2-169), each with the
  * beat a `text set` accepts and the id `text rm` accepts. Only printed for a bar that has any.
  */
-function textLine(bar: Bar, time: TimeSignature): string | null {
+function textLine(bar: Bar, time: TimeSignature, score: Score): string | null {
   if (bar.annotations.length === 0) return null;
   const parts = [...bar.annotations]
     .sort((a, b) => a.onset - b.onset)
     .map((note) => {
       const flag = flagSuffix(note.review, note.confidence);
-      return `beat${formatBeat(beatOfOnset(note.onset, time))} ${JSON.stringify(note.text)}${flag === '' ? '' : ` ${flag}`} ${note.id}`;
+      const until = note.lineEndBarId === undefined ? null : score.bars.find((b) => b.id === note.lineEndBarId);
+      const line = until == null ? '' : ` ---> bar${until.number}`;
+      return `beat${formatBeat(beatOfOnset(note.onset, time))} ${JSON.stringify(note.text)}${line}${flag === '' ? '' : ` ${flag}`} ${note.id}`;
     });
   return `${`bar${bar.number}`.padEnd(7)}text  ${parts.join('  ')}`;
 }
@@ -238,7 +243,11 @@ function describe(item: BarItem, bar: Bar): string {
     tuplet === null ? '' : tuplet.actual === 3 && tuplet.normal === 2 ? '(3)' : `(${tuplet.actual}:${tuplet.normal})`;
 
   const flag = flagSuffix(item.review, item.confidence);
-  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${flag === '' ? '' : ` ${flag}`}`;
+  // `^` is a fermata (SIB2-183), after the tie so `c5/4~^` reads as a held, tied note.
+  const hold = item.fermata === true ? '^' : '';
+  // Articulations print after the tie as `:stac:acc:mar` (SIB2-179): `.` is taken by dotted durations.
+  const marks = item.kind === 'note' ? (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('') : '';
+  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${marks}${hold}${flag === '' ? '' : ` ${flag}`}`;
 }
 
 /** A band symbol (chord or quoted annotation) with its review flag and, on imports, its confidence. */

@@ -27,7 +27,7 @@ export interface BarStructure {
   endBarline: EndBarline;
   ending: { numbers: number[]; role: EndingRole } | null;
   /** The text directions in this bar (SIB2-169), listed so each can be removed; added one at a time. */
-  texts: { id: string; beat: number; text: string }[];
+  texts: { id: string; beat: number; text: string; /** The bar its dashed line ends on (SIB2-170), or null. */ until: number | null }[];
   /** The line-break override on this bar (SIB2-174); `none` is the four-bar grid's own call. */
   lineBreak: LineBreakChoice;
 }

@@ -1,5 +1,6 @@
 import type {
   AccidentalDisplay,
+  Articulation,
   Duration,
   EndBarline,
   EndingRole,
@@ -78,6 +79,8 @@ export interface MetaSetPayload {
  */
 export interface TextSetPayload {
   text: string;
+  /** A bar address (`bar8`) the dashed continuation line runs to (SIB2-170). Null removes the line; absent keeps it. */
+  until?: string | null;
   /** *Recorded.* The id the applier assigned (an existing direction at that beat keeps its own). */
   id?: Id;
 }
@@ -89,6 +92,8 @@ export interface NoteAddPayload {
   accidental?: AccidentalDisplay;
   tie?: TieRole;
   spellingPinned?: boolean;
+  /** Staccato, accent and marcato marks (SIB2-179). */
+  articulations?: Articulation[];
   /** *Recorded.* The id the applier assigned. */
   id?: Id;
 }
@@ -99,6 +104,8 @@ export interface NoteSetPayload {
   accidental?: AccidentalDisplay;
   tie?: TieRole;
   spellingPinned?: boolean;
+  /** Replaces the note's marks (SIB2-179); an empty list clears them. */
+  articulations?: Articulation[];
 }
 
 export interface RestAddPayload {
@@ -240,6 +247,7 @@ export interface SlurSetPayload {
 export type SlurRmPayload = Record<string, never>;
 
 /**
+/**
  * An ottava line (8va or 8vb) from the target note to `to` (SIB2-184), a `Spanner` of kind `ottava`. `shift` is
  * `up` (8va: written an octave below the sound, line above the staff) or `down` (8vb). The notes keep their
  * sounding pitch; they are only drawn shifted. Same pair again is an upsert that changes the shift.
@@ -253,6 +261,13 @@ export interface OttavaSetPayload {
 
 /** Remove an ottava, named by its id (`ottava-1`, which `show` prints) or by the note it starts on. */
 export type OttavaRmPayload = Record<string, never>;
+
+/**
+ * A fermata over the target note or rest (SIB2-183). Setting one that is already there changes nothing;
+ * `fermata.rm` on an item with none is refused so a typo does not read as success.
+ */
+export type FermataSetPayload = Record<string, never>;
+export type FermataRmPayload = Record<string, never>;
 
 /** A line-break override on a bar (SIB2-174). `after` is the default: end the line after this bar. */
 export interface BreakSetPayload {
@@ -327,6 +342,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string; payload?: TupletRmPayload }
   | { type: 'break.set'; target: string; payload?: BreakSetPayload }
   | { type: 'break.rm'; target: string; payload?: BreakRmPayload }
+  | { type: 'fermata.set'; target: string; payload?: FermataSetPayload }
+  | { type: 'fermata.rm'; target: string; payload?: FermataRmPayload }
   | { type: 'slur.set'; target: string; payload: SlurSetPayload }
   | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
   | { type: 'ottava.set'; target: string; payload: OttavaSetPayload }
@@ -358,6 +375,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'tuplet.rm',
   'break.set',
   'break.rm',
+  'fermata.set',
+  'fermata.rm',
   'slur.set',
   'slur.rm',
   'ottava.set',

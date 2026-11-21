@@ -124,6 +124,16 @@ function measure(
   // Text directions (SIB2-169) ride as `<words>` above the staff, offset to their beat like a harmony.
   for (const annotation of [...bar.annotations].sort((a, b) => a.onset - b.onset)) {
     children.push(words(annotation));
+    // A dashed continuation line (SIB2-170) opens right after its words and closes in the end bar.
+    if (annotation.lineEndBarId !== undefined && score.bars.some((b) => b.id === annotation.lineEndBarId)) {
+      children.push(dashes('start', annotation.id, bar));
+    }
+  }
+  for (const earlier of score.bars) {
+    if (earlier.number > bar.number) continue;
+    for (const annotation of earlier.annotations) {
+      if (annotation.lineEndBarId === bar.id) children.push(dashes('stop', annotation.id, bar));
+    }
   }
 
   for (const note of noteElements(bar, slurs, ottavas)) children.push(note);
@@ -156,6 +166,14 @@ function tempoDirection(tempo: Tempo): XmlElement {
 function rehearsal(letter: string): XmlElement {
   return elem('direction', { placement: 'above' }, [
     elem('direction-type', {}, [leaf('rehearsal', letter)]),
+  ]);
+}
+
+/** The number pairs a start with its stop; the annotation's position in the whole score keeps it unique. */
+function dashes(type: 'start' | 'stop', annotationId: string, _bar: Bar): XmlElement {
+  const digits = (((Number(annotationId.replace(/\D/g, '')) || 1) - 1) % 16) + 1;
+  return elem('direction', { placement: 'above' }, [
+    elem('direction-type', {}, [elem('dashes', { type, number: digits })]),
   ]);
 }
 
@@ -262,7 +280,7 @@ function noteElement(note: Note, bar: Bar, slurs: SlurMark[]): XmlElement {
     ...dots(note.duration.dots),
     accidentalElement(note),
     timeModification(tuplet),
-    notations(note, bar, tuplet, undefined, slurs),
+    notations(note, bar, tuplet, undefined, slurs, note.fermata === true),
   ];
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
 }
@@ -276,7 +294,7 @@ function restElement(rest: Rest, bar: Bar): XmlElement {
     leaf('type', NOTE_TYPE[rest.duration.value]),
     ...dots(rest.duration.dots),
     timeModification(tuplet),
-    notations(null, bar, tuplet, rest.id),
+    notations(null, bar, tuplet, rest.id, [], rest.fermata === true),
   ].filter((c): c is XmlElement => c !== null));
 }
 
@@ -335,13 +353,22 @@ function notations(
   tuplet: Tuplet | null,
   restId?: string,
   slurs: SlurMark[] = [],
+  held = false,
 ): XmlElement | null {
   const parts: XmlElement[] = [];
 
   if (note !== null) {
     if (note.tie === 'stop' || note.tie === 'both') parts.push(elem('tied', { type: 'stop' }));
     if (note.tie === 'start' || note.tie === 'both') parts.push(elem('tied', { type: 'start' }));
+    // Staccato, accent and marcato (SIB2-179). MusicXML's marcato is the strong accent.
+    const marks = (note.articulations ?? []).map((mark) =>
+      mark === 'staccato' ? elem('staccato', {}) : mark === 'accent' ? elem('accent', {}) : elem('strong-accent', { type: 'up' }),
+    );
+    if (marks.length > 0) parts.push(elem('articulations', {}, marks));
   }
+
+  // `<fermata type="upright"/>` is the hold above the note or rest (SIB2-183).
+  if (held) parts.push(elem('fermata', { type: 'upright' }));
 
   for (const slur of slurs) {
     parts.push(

@@ -92,7 +92,7 @@ describe('the V6 browser controls, over a live stack (V6e)', () => {
 
       await clickNote(page, target.cx, target.cy);
       await page.getByLabel('Pitch').waitFor({ timeout: 5_000 });
-      await page.getByRole('checkbox').check();
+      await page.getByRole('checkbox', { name: /Pin spelling/ }).check();
       await page.getByRole('button', { name: 'Save' }).click();
 
       await expect.poll(() => railVersion(page)).toBe('v4');

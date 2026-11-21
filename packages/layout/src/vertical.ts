@@ -40,6 +40,18 @@ const NOTEHEAD_UNITS = 5;
 const OTTAVA_GAP = 15;
 const OTTAVA_BAND = 6;
 
+/**
+ * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and
+ * `FERMATA_GAP` above the note's head or stem, and the glyph is about `FERMATA_HEIGHT` tall. The engraver
+ * places it by the same three numbers (`packages/engrave/src/marks.ts`), so what layout reserves is what is drawn.
+ */
+export const FERMATA_BASE = 15;
+export const FERMATA_GAP = 10;
+export const FERMATA_HEIGHT = 15;
+
+/** Room one articulation mark takes beside a notehead: its glyph plus the gap (SIB2-179), shared with the engraver. */
+export const ARTICULATION_BAND = 12;
+
 export interface SystemVertical {
   /** Units from the top of the system to the top staff line. */
   aboveStaff: number;
@@ -70,6 +82,9 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
 
   for (const bar of input.bars) {
     for (const item of bar.items) {
+      // A fermata rides above the staff and above the note's own ink, so the chord band must clear it
+      // (SIB2-183). A rest has no ink above the staff, so it sits at the fixed height.
+      if (item.fermata === true && item.kind === 'rest') inkAbove = Math.max(inkAbove, FERMATA_BASE + FERMATA_HEIGHT);
       if (item.kind !== 'note') continue;
       const shift = input.shifts?.get(item.id);
       const index = diatonic(item.pitch) + (shift === undefined ? 0 : shift === 'up' ? -7 : 7);
@@ -77,6 +92,17 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
       const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
       const below = (BOTTOM_LINE - index) * STEP_UNITS + NOTEHEAD_UNITS;
       inkAbove = Math.max(inkAbove, above + (stemUp ? STEM_UNITS : 0));
+      // Marks sit on the notehead side, away from the stem, and each takes a band of room (SIB2-179).
+      if (item.articulations !== undefined && item.articulations.length > 0) {
+        const room = ARTICULATION_BAND * item.articulations.length;
+        if (stemUp) inkBelow = Math.max(inkBelow, below + room);
+        else inkAbove = Math.max(inkAbove, above + room);
+      }
+      if (item.fermata === true) {
+        const marks = (item.articulations?.length ?? 0) * ARTICULATION_BAND;
+        const reach = above + (stemUp ? STEM_UNITS : marks);
+        inkAbove = Math.max(inkAbove, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
+      }
       inkBelow = Math.max(inkBelow, below + (stemUp ? 0 : STEM_UNITS));
     }
   }

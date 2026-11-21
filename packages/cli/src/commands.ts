@@ -102,14 +102,15 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
-  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
+  sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell] [--artic staccato,accent,marcato]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
+              [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
   sbscore chord set <id> <address> --text F#m7b5 [--spell]
   sbscore chord rm  <id> <address>
-  sbscore text set <id> <address> --text '(unis.)'   a text direction above the staff, at a beat
+  sbscore text set <id> <address> --text '(unis.)' [--until bar8]   a text direction above the staff; --until adds a dashed line to bar 8's end
   sbscore text rm  <id> <address|annotation-id>
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore bar add <id> [--after <bar>] [--count N]   add empty bars (default: at the end); later bars renumber
@@ -120,6 +121,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore repeat set <id> <startBar> <endBar>   a repeat pair around startBar..endBar
   sbscore ending set <id> <bar> --numbers 1[,2] --role start|continue|stop|start-stop
   sbscore ending rm  <id> <bar>
+  sbscore fermata set <id> <address>      a fermata over a note or rest
+  sbscore fermata rm  <id> <address>
   sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]   bracket --over items from <address>: --notes in the time of --in
   sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
@@ -295,6 +298,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return barline(flags, client, io, json);
     case 'repeat':
       return repeat(flags, client, io, json);
+    case 'fermata':
+      return fermata(flags, client, io, json);
     case 'tuplet':
       return tuplet(flags, client, io, json);
     case 'slur':
@@ -792,6 +797,13 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
 }
 
+/** `--artic staccato,accent` or `--artic none` (SIB2-179). The server judges the names. */
+function articOf(flags: Flags): { articulations?: string[] } {
+  const raw = flags.options.get('artic');
+  if (raw === undefined) return {};
+  return { articulations: raw === 'none' || raw === '' ? [] : raw.split(',').map((part) => part.trim()) };
+}
+
 async function note(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `note ${sub}`);
@@ -804,17 +816,18 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
       ...tieOf(flags),
       ...accidentalOf(flags),
       ...spellOf(flags),
+      ...articOf(flags),
     };
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags), ...articOf(flags) };
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell --artic');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }
@@ -876,7 +889,10 @@ async function text(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const target = requiredPositional(flags, 3, 'an address', `text ${sub}`);
 
   if (sub === 'set') {
-    const payload = { text: required(flags, 'text', 'text set') };
+    const payload: { text: string; until?: string | null } = { text: required(flags, 'text', 'text set') };
+    // A dashed continuation line to the end of a bar (SIB2-170); an empty --until removes it.
+    const until = flags.options.get('until');
+    if (until !== undefined) payload.until = until === '' ? null : barTarget(until);
     return submit(flags, client, io, json, id, [{ type: 'text.set', target, payload } as Operation]);
   }
   if (sub === 'rm') {
@@ -1020,6 +1036,17 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
     return submit(flags, client, io, json, id, [{ type: 'ending.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'ending takes set or rm');
+}
+
+/** `sbscore fermata set|rm <id> <address>` (SIB2-183): a hold over a note or a rest, by the address `show` prints. */
+async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `fermata ${sub}`);
+  const target = requiredPositional(flags, 3, 'a note or rest address', `fermata ${sub}`);
+  if (sub === 'set' || sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: `fermata.${sub}`, target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'fermata takes set or rm');
 }
 
 /**

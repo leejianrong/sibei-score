@@ -1,4 +1,5 @@
 import {
+  ARTICULATIONS,
   CHORD_STYLE_PRESETS,
   DEFAULT_KEY,
   DEFAULT_TIME,
@@ -40,6 +41,7 @@ import {
 import type {
   AccidentalDisplay,
   Annotation,
+  Articulation,
   Bar,
   BarItem,
   Chord,
@@ -196,6 +198,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setBreak(score, operation.target, operation.payload ?? {});
     case 'break.rm':
       return removeBreak(score, operation.target);
+    case 'fermata.set':
+      return setFermata(score, operation.target, true);
+    case 'fermata.rm':
+      return setFermata(score, operation.target, false);
     case 'slur.set':
       return setSlur(score, operation.target, operation.payload);
     case 'slur.rm':
@@ -463,6 +469,8 @@ function addNote(score: Score, target: string, payload: NoteAddPayload): Applied
     ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
     ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   });
+  const marks = payload.articulations === undefined ? [] : validArticulations(payload.articulations);
+  if (marks.length > 0) note.articulations = marks;
 
   return {
     score: withItemAdded(score, position.bar.id, note),
@@ -530,6 +538,12 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
     ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
     ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   };
+
+  if (payload.articulations !== undefined) {
+    const marks = validArticulations(payload.articulations);
+    if (marks.length > 0) updated.articulations = marks;
+    else delete updated.articulations;
+  }
 
   return {
     score: mapBar(score, resolved.bar.id, (bar) => ({
@@ -745,7 +759,11 @@ function setText(score: Score, target: string, payload: TextSetPayload): Applied
   const text = payload.text.trim();
   const existing = position.bar.annotations.find((annotation) => annotation.onset === position.onset);
   const id = existing?.id ?? payload.id ?? nextId(score, 'annotation');
-  const annotation = makeAnnotation({ id, onset: position.onset, text });
+  const lineEndBarId = nextLineEnd(score, position.bar, existing, payload);
+  const annotation = {
+    ...makeAnnotation({ id, onset: position.onset, text }),
+    ...(lineEndBarId === undefined ? {} : { lineEndBarId }),
+  };
   return {
     score: mapBar(score, position.bar.id, (bar) => ({
       ...bar,
@@ -756,6 +774,28 @@ function setText(score: Score, target: string, payload: TextSetPayload): Applied
     operation: { type: 'text.set', target, payload: { ...payload, text, id } },
     changed: [id],
   };
+}
+
+/** The bar a direction's dashed line ends on after a `text.set` (SIB2-170): kept unless `until` says otherwise. */
+function nextLineEnd(
+  score: Score,
+  start: Bar,
+  existing: Annotation | undefined,
+  payload: TextSetPayload,
+): Id | undefined {
+  if (payload.until === undefined) return existing?.lineEndBarId;
+  if (payload.until === null) return undefined;
+  if (typeof payload.until !== 'string') {
+    throw new OperationError({ kind: 'validation', detail: 'until must be a bar address such as bar8, or null' });
+  }
+  const end = resolveBar(score, payload.until);
+  if (end.number < start.number) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `the line cannot end at bar ${end.number}, before the direction's own bar ${start.number}`,
+    });
+  }
+  return end.id;
 }
 
 /** Remove a direction by its id (`annotation-3`, which `show` prints) or by the beat it sits on. */
@@ -960,6 +1000,36 @@ function removeEnding(score: Score, target: string): Applied {
     operation: { type: 'ending.rm', target },
     changed: [bar.id],
   };
+}
+
+// ---------------------------------------------------------------------------
+// fermata.set, fermata.rm (SIB2-183)
+// ---------------------------------------------------------------------------
+
+/** Put a fermata on a note or rest, or take it off. Absent is the off state, never `fermata: false`. */
+function setFermata(score: Score, target: string, on: boolean): Applied {
+  const resolved = resolveAddress(score, target, 'item');
+  const item = resolved.target as BarItem;
+  if (!on && item.fermata !== true) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} has no fermata, so there is nothing to remove`,
+    });
+  }
+  const updated: BarItem = on ? { ...item, fermata: true } : withoutFermata(item);
+  return {
+    score: mapBar(score, resolved.bar.id, (bar) => ({
+      ...bar,
+      items: bar.items.map((other) => (other.id === item.id ? updated : other)),
+    })),
+    operation: { type: on ? 'fermata.set' : 'fermata.rm', target },
+    changed: [item.id],
+  };
+}
+
+function withoutFermata(item: BarItem): BarItem {
+  const { fermata: _gone, ...rest } = item;
+  return rest as BarItem;
 }
 
 // ---------------------------------------------------------------------------
@@ -1269,7 +1339,23 @@ function removeBar(score: Score, target: string): Applied {
     });
   }
 
-  const remaining = { ...score, bars: score.bars.filter((b) => b.id !== bar.id) };
+  // A direction's dashed line that ended on the removed bar loses its end rather than dangling (SIB2-170).
+  const remaining = {
+    ...score,
+    bars: score.bars
+      .filter((b) => b.id !== bar.id)
+      .map((b) =>
+        b.annotations.some((a) => a.lineEndBarId === bar.id)
+          ? {
+              ...b,
+              annotations: b.annotations.map((a) => {
+                const { lineEndBarId: _end, ...rest } = a;
+                return a.lineEndBarId === bar.id ? rest : a;
+              }),
+            }
+          : b,
+      ),
+  };
   const shifted = shiftBars(remaining, bar.number, -1);
   return {
     score: { ...score, bars: shifted.bars, sections: shifted.sections },
@@ -1407,6 +1493,25 @@ const TIE_ROLES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 
 // These three used to be spread through raw, so `accidental: "cautionary"` was stored and answered
 // 200 (KAN-606). The lists are the model's own union members, quoted so a refusal says what works.
+/** The marks, checked, deduplicated and put in stacking order so one set of marks is one document (SIB2-179). */
+function validArticulations(value: unknown): Articulation[] {
+  if (!Array.isArray(value)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `articulations is a list of ${ARTICULATIONS.join(', ')}; an empty list clears them`,
+    });
+  }
+  for (const mark of value) {
+    if (!ARTICULATIONS.includes(mark as Articulation)) {
+      throw new OperationError({
+        kind: 'validation',
+        detail: `${JSON.stringify(mark)} is not an articulation; use ${ARTICULATIONS.join(', ')}`,
+      });
+    }
+  }
+  return ARTICULATIONS.filter((mark) => value.includes(mark));
+}
+
 function validAccidental(value: unknown): AccidentalDisplay {
   if (!ACCIDENTAL_DISPLAYS.includes(value as AccidentalDisplay)) {
     throw new OperationError({

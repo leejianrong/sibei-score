@@ -327,9 +327,11 @@
         tie: item.tie,
         // The pin is not a layout property (it changes no ink), so it is read from the model note.
         spellingPinned: notePinned(item.noteId),
+        fermata: item.fermata === true,
+        articulations: item.articulations ?? [],
       };
     }
-    return { kind: 'rest', id: item.restId, duration: item.duration };
+    return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
   });
 
   /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
@@ -452,7 +454,12 @@
       lineBreak: bar.lineBreak ?? 'none',
       texts: [...bar.annotations]
         .sort((a, b) => a.onset - b.onset)
-        .map((a) => ({ id: a.id, beat: beatOfOnset(a.onset, score!.meta.time), text: a.text })),
+        .map((a) => ({
+          id: a.id,
+          beat: beatOfOnset(a.onset, score!.meta.time),
+          text: a.text,
+          until: score!.bars.find((b) => b.id === a.lineEndBarId)?.number ?? null,
+        })),
     };
   });
 
@@ -703,6 +710,10 @@
               target: `bar${located.barNumber}.beat${located.item.beat}`,
               payload: { duration: (edits as RestEdits).duration },
             },
+            // `rest.add` makes a new rest, which would drop the old one's fermata (SIB2-183).
+            ...(located.item.fermata === true
+              ? [{ type: 'fermata.set', target: `bar${located.barNumber}.beat${located.item.beat}` } as Operation]
+              : []),
           ];
 
     await runOps(operations);
@@ -1214,6 +1225,8 @@
               error={saveError}
               pendingSlur={pendingSlur}
               slurs={slursHere}
+              onfermata={(on) =>
+                void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
               ottavas={ottavasHere}
@@ -1237,8 +1250,14 @@
               onsave={handleStructureSave}
               onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
               onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
-              onsettext={(beat, text) =>
-                void runOps([{ type: 'text.set', target: `${barStructure!.addr}.beat${beat}`, payload: { text } }])}
+              onsettext={(beat, text, until) =>
+                void runOps([
+                  {
+                    type: 'text.set',
+                    target: `${barStructure!.addr}.beat${beat}`,
+                    payload: { text, until: until === null ? null : `bar${until}` },
+                  },
+                ])}
               onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
               ondeselect={deselect}
               onreload={handleReload}

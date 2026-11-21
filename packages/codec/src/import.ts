@@ -13,7 +13,7 @@
  * document is not the place to be strict — the model stores and flags, it does not reject.
  */
 
-import { MAX_TEMPO, MIN_TEMPO, makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
+import { ARTICULATIONS, MAX_TEMPO, MIN_TEMPO, makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
 import type {
   Alter,
   BarItem,
@@ -23,6 +23,7 @@ import type {
   Mode,
   NoteValue,
   Score,
+  Articulation,
   Section,
   Spanner,
   Step,
@@ -157,6 +158,9 @@ class PartReader {
   private pendingOttava: { number: number; shift: 'up' | 'down' } | null = null;
   private openOttavas = new Map<number, { startId: string; shift: 'up' | 'down' }>();
   private lastNoteId: string | null = null;
+  /** Dashed lines begun and not yet stopped, by MusicXML `number` (SIB2-170): the annotation each continues. */
+  private openDashes = new Map<number, string>();
+  private dashEnds: { annotationId: string; endNumber: number }[] = [];
   /** An ending open on an earlier bar, so a bar between its start and stop reads as `continue`. */
   private openEnding: number[] | null = null;
 
@@ -187,6 +191,17 @@ class PartReader {
 
     if (this.openSlurs.size > 0) this.note('a slur that never stopped was dropped');
     if (this.openOttavas.size > 0) this.note('an ottava that never stopped was dropped');
+    for (const end of this.dashEnds) {
+      const target = bars.find((bar) => bar.number === end.endNumber);
+      if (target === undefined) continue;
+      for (const [index, bar] of bars.entries()) {
+        if (!bar.annotations.some((a) => a.id === end.annotationId) || bar.number > target.number) continue;
+        bars[index] = {
+          ...bar,
+          annotations: bar.annotations.map((a) => (a.id === end.annotationId ? { ...a, lineEndBarId: target.id } : a)),
+        };
+      }
+    }
     return { bars, sections, spanners: this.spanners, key: this.key, time: this.time, tempo: this.tempo };
   }
 
@@ -228,6 +243,12 @@ class PartReader {
             break;
           }
           const parsed = this.readNote(child, cursor);
+          const notations = firstChild(child, 'notations');
+          if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
+          if (notations !== null && parsed.item.kind === 'note') {
+            const marks = this.readArticulations(notations);
+            if (marks.length > 0) parsed.item.articulations = marks;
+          }
           items.push(parsed.item);
           this.readSlurs(child, parsed.item);
           if (parsed.item.kind === 'note') {
@@ -270,6 +291,7 @@ class PartReader {
           }
           if (this.tempo === undefined) this.tempo = this.metronomeOf(child);
           this.readOctaveShift(child);
+          this.readDashes(child, annotations[annotations.length - 1]?.id ?? null, number);
           const letter = this.rehearsalOf(child);
           if (letter !== null && !sections.some((s) => s.startBar === number)) {
             sections.push(makeSection({ id: this.id('section'), startBar: number, letter }));
@@ -340,6 +362,20 @@ class PartReader {
         }
       }
     }
+  }
+
+  /** `<articulations>` in `<notations>`: staccato, accent and the strong accent (our marcato); others are noted and dropped. */
+  private readArticulations(notations: XmlElement): Articulation[] {
+    const found = new Set<Articulation>();
+    for (const group of childElements(notations, 'articulations')) {
+      for (const mark of childElements(group)) {
+        if (mark.name === 'staccato') found.add('staccato');
+        else if (mark.name === 'accent') found.add('accent');
+        else if (mark.name === 'strong-accent') found.add('marcato');
+        else this.note(`the articulation <${mark.name}> was dropped: only staccato, accent and marcato are kept`);
+      }
+    }
+    return ARTICULATIONS.filter((mark) => found.has(mark));
   }
 
   /** `<notations><slur type number placement/>` on a note: open it, or close it into a spanner. */
@@ -513,6 +549,28 @@ class PartReader {
       }
     }
     return null;
+  }
+
+  /**
+   * `<dashes type="start|stop" number>` (SIB2-170): a start follows the words direction it continues; a stop
+   * names the bar the line closes on. Paired after every measure is read, by number.
+   */
+  private readDashes(direction: XmlElement, lastAnnotationId: string | null, barNumber: number): void {
+    for (const type of childElements(direction, 'direction-type')) {
+      for (const dashes of childElements(type, 'dashes')) {
+        const key = Number(attr(dashes, 'number') ?? 1);
+        if (attr(dashes, 'type') === 'start') {
+          if (lastAnnotationId === null) this.note('a dashed line with no text direction before it was dropped');
+          else this.openDashes.set(key, lastAnnotationId);
+        } else if (attr(dashes, 'type') === 'stop') {
+          const annotationId = this.openDashes.get(key);
+          if (annotationId !== undefined) {
+            this.dashEnds.push({ annotationId, endNumber: barNumber });
+            this.openDashes.delete(key);
+          }
+        }
+      }
+    }
   }
 
   /** A `<metronome>` with a beat unit and a per-minute number, or undefined (a range or a tied pair is skipped). */

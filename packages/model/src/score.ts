@@ -118,9 +118,25 @@ export interface Note {
   tie: TieRole;
   /** An explicit spelling that survives transposition (ADR-0017). */
   spellingPinned: boolean;
+  /**
+   * A fermata (hold) over this note (SIB2-183). Optional-and-absent — `true` or missing, never `false` — so no
+   * stored document changes shape and `SCHEMA_VERSION` stays (ADR-0028). Playback length is not modelled.
+   */
+  fermata?: boolean;
+  /**
+   * Staccato, accent and marcato marks on this note (SIB2-179), in `ARTICULATIONS` order and without repeats.
+   * Optional-and-absent when there are none, so no stored document changes shape (ADR-0028). Jazz
+   * articulations (fall, doit, scoop) are not modelled.
+   */
+  articulations?: Articulation[];
   confidence: Confidence;
   review: Review;
 }
+
+export type Articulation = 'staccato' | 'accent' | 'marcato';
+
+/** In the order they stack away from the notehead: staccato nearest, marcato furthest. */
+export const ARTICULATIONS: readonly Articulation[] = ['staccato', 'accent', 'marcato'];
 
 /** A first-class object, not an implied gap — metric validity depends on it (ADR-0013). */
 export interface Rest {
@@ -128,6 +144,8 @@ export interface Rest {
   id: Id;
   onset: number;
   duration: Duration;
+  /** A fermata over this rest (SIB2-183); optional-and-absent like a note's. */
+  fermata?: boolean;
   confidence: Confidence;
   review: Review;
 }
@@ -172,6 +190,12 @@ export interface Annotation {
   text: string;
   confidence: Confidence;
   review: Review;
+  /**
+   * A dashed continuation line after the text, to the end of the bar with this id (SIB2-170), closing with a hook:
+   * "cue ----|". Optional-and-absent, so no stored document changes and `SCHEMA_VERSION` stays (ADR-0028); a bar
+   * id rather than a number so a bar insert or removal does not move it. An id that no longer resolves draws nothing.
+   */
+  lineEndBarId?: Id;
 }
 
 export type StartBarline = 'none' | 'repeat-start';

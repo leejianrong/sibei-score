@@ -155,13 +155,16 @@ sbscore reparse sc_7f3a --engine oemer      # re-run oemer over the kept scans -
 ```sh
 sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell]
 sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
+                [--artic staccato,accent,marcato|none]                        # marks by the notehead; none clears
 sbscore note rm  <id> <address>
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
 sbscore chord set <id> <address> --text "F#m7b5" [--spell]      # upsert a chord symbol
 sbscore chord rm  <id> <address>
-sbscore text set <id> <address> --text "(unis.)"                # a text direction above the staff
+sbscore text set <id> <address> --text "(unis.)" [--until bar8]   # a text direction above the staff, optional dashed line
 sbscore text rm  <id> <address|annotation-id>
+sbscore fermata set <id> <address>                               # a fermata over a note or rest
+sbscore fermata rm  <id> <address>
 sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from one note to a later one
 sbscore slur rm  <id> <slur-id|from>
 sbscore ottava set <id> <from> <to> --up|--down                  # an 8va (--up) or 8vb (--down) line over a run
@@ -179,6 +182,29 @@ A **text direction** — a cue, a tempo, "unis.", "solo on form" — is free tex
 band beside any chord at that beat, and `show` lists it under its bar with the beat and an `annotation-N`
 id, which `text rm` takes as well as the beat. MusicXML carries it as `<words>`. In the browser, select a
 bar: the Structure panel has a Text directions field.
+
+`--until bar8` (or a bare `8`) adds a **dashed continuation line** after the text, running to the end of bar 8
+and closing with a small hook: `text set <id> bar4.beat1 --text 'solo' --until bar8`. The line crosses barlines and
+carries on at the start of the next system when it wraps. An empty `--until ''` removes it; leaving `--until` out
+on a later `text set` keeps it. The end is stored as the bar's id, so adding or removing bars does not move it, and
+`show` prints `---> bar8` after the text. MusicXML carries it as `<dashes type="start|stop">`. The Structure panel
+has a "Dashed line ends at bar" field beside the text direction.
+
+A **fermata** is a hold sign over a note or a rest: `sbscore fermata set <id> bar4.n2`, `fermata rm` to take it
+off (refused where there is none). It draws above the staff and above the note's own ink, centred on the
+head, and the chord band rises to clear it. `show` marks it `^` after the duration (`c5/4^`, `r/4^`), and
+MusicXML carries `<fermata type="upright"/>` and reads it back. In the browser, select a note or rest and tick
+Fermata. It has no playback length. Charts written before fermatas need no migration.
+
+**Articulations** are staccato, accent and marcato on a note: `--artic staccato,accent` on `note add` or `note
+set` (the list replaces the note's marks; `--artic none` clears them; omitting it leaves them alone). They draw
+on the notehead side, away from the stem (below an up stem, above a down stem), stacked staccato nearest, with
+a staccato dot moved into the next space when it would land on a staff line, and the chord band rises to
+clear them. `show` prints them after the duration as `:stac:acc:mar` (`c5/4:stac`). MusicXML carries
+`<staccato/>`, `<accent/>` and `<strong-accent/>` (our marcato) in `<articulations>`; any other articulation in
+a file is dropped with a warning. Jazz articulations (fall, doit, scoop) are not modelled. In the browser,
+select a note and toggle Staccato, Accent and Marcato, then Save. Charts written before articulations need no
+migration.
 
 A **slur** runs from one note to a later one, in the same bar or another: `sbscore slur set <id> bar1.n2
 bar2.n3`. It is stored as a `spanner` (a kind and the ids of its two notes, so it follows them), setting the
