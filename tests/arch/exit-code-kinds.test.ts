@@ -47,6 +47,12 @@ describe('every kind the server can send has an exit code decided', () => {
     expect(code !== EXIT.usage || named).toBe(true);
   });
 
+  it('maps the import kinds SIB2-114 moved off usage (a deliberate ADR-0008 change)', () => {
+    expect(exitCodeForKind('no-such-import')).toBe(EXIT.notFound);
+    expect(exitCodeForKind('no-such-import-image')).toBe(EXIT.notFound);
+    expect(exitCodeForKind('job-not-retryable')).toBe(EXIT.validation);
+  });
+
   it('does not keep a usage entry for a kind the server no longer sends', () => {
     for (const kind of USAGE_KINDS) expect(kinds).toContain(kind);
   });
