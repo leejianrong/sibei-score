@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import type { Id } from '@sibei/model';
 import type { Pool, PoolConfig } from 'pg';
-import type { AudioJob, AudioJobId, AudioJobStore, AudioJobSummary, AudioProgress } from './audio-jobs.js';
+import type { AudioJob, AudioJobId, AudioJobStore, AudioJobSummary, AudioProgress, LeaseOutcome } from './audio-jobs.js';
 import { assertRlsEnforced, migratePostgres } from './postgres-schema.js';
-import { asOwner, closeHandle, poolFor } from './postgres-session.js';
+import { asOwner, asSystem, closeHandle, poolFor } from './postgres-session.js';
 import { timestamp } from './store-shared.js';
 
 /**
@@ -130,6 +131,130 @@ export async function openPostgresAudioJobStore(options: PostgresAudioJobStoreOp
       });
     },
 
+    async claim(leaseSeconds): Promise<AudioJob | null> {
+      const at = now();
+      return asSystem(pool, async (client) => {
+        // The oldest queued job to `running` in one statement; SKIP LOCKED lets several workers claim at
+        // once without waiting on, or taking, one another's row (as `postgres-jobs.ts` does for imports).
+        const result = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs
+              SET status = 'running', attempts = attempts + 1, lease_token = $1, lease_expires_at = $2, progress = NULL,
+                  version = version + 1, updated_at = $3
+            WHERE id = (
+              SELECT id FROM audio_jobs WHERE status = 'queued'
+               ORDER BY created_at ASC, id COLLATE "C" ASC LIMIT 1 FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *`,
+          [randomUUID(), leaseUntil(at, leaseSeconds), stamp(at)],
+        );
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async heartbeat(id, leaseToken, leaseSeconds, progress): Promise<LeaseOutcome> {
+      const at = now();
+      return asSystem(pool, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs
+              SET lease_expires_at = $1, progress = COALESCE($2, progress), version = version + 1, updated_at = $3
+            WHERE id = $4 AND lease_token = $5 AND status = 'running' RETURNING *`,
+          [leaseUntil(at, leaseSeconds), progress === null ? null : JSON.stringify(progress), stamp(at), id, leaseToken],
+        );
+        return result.rows[0] === undefined ? { outcome: 'lease-lost' } : { outcome: 'ok', job: toJob(result.rows[0]) };
+      });
+    },
+
+    async complete(id, leaseToken, result, durationSeconds): Promise<LeaseOutcome> {
+      return asSystem(pool, async (client) => {
+        const updated = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs
+              SET status = 'succeeded', result = $1, duration_seconds = $2, progress = NULL, diagnostic = NULL,
+                  diagnostic_kind = NULL, version = version + 1, updated_at = $3
+            WHERE id = $4 AND lease_token = $5 AND status = 'running' RETURNING *`,
+          [JSON.stringify(result), durationSeconds, timestamp(now), id, leaseToken],
+        );
+        if (updated.rows[0] !== undefined) return { outcome: 'ok', job: toJob(updated.rows[0]) };
+        const existing = (await client.query<AudioJobRow>(`SELECT * FROM audio_jobs WHERE id = $1`, [id])).rows[0];
+        return existing !== undefined && existing.lease_token === leaseToken && existing.status === 'succeeded'
+          ? { outcome: 'already', job: toJob(existing) }
+          : { outcome: 'lease-lost' };
+      });
+    },
+
+    async fail(id, leaseToken, failure): Promise<LeaseOutcome> {
+      return asSystem(pool, async (client) => {
+        const current = (await client.query<AudioJobRow>(`SELECT * FROM audio_jobs WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+        if (current === undefined || current.lease_token !== leaseToken) return { outcome: 'lease-lost' };
+        if (current.status !== 'running') {
+          return current.status === 'failed' || current.status === 'queued'
+            ? { outcome: 'already', job: toJob(current) }
+            : { outcome: 'lease-lost' };
+        }
+        const requeue = failure.retryable && current.attempts < failure.maxAttempts;
+        const updated = requeue
+          ? await client.query<AudioJobRow>(
+              `UPDATE audio_jobs SET status = 'queued', progress = NULL, version = version + 1, updated_at = $1
+                WHERE id = $2 RETURNING *`,
+              [timestamp(now), id],
+            )
+          : await client.query<AudioJobRow>(
+              `UPDATE audio_jobs
+                  SET status = 'failed', diagnostic_kind = $1, diagnostic = $2, progress = NULL, version = version + 1, updated_at = $3
+                WHERE id = $4 RETURNING *`,
+              [failure.kind, failure.message, timestamp(now), id],
+            );
+        return { outcome: 'ok', job: toJob(updated.rows[0]!) };
+      });
+    },
+
+    async expireLeases(maxAttempts): Promise<{ requeued: AudioJob[]; failed: AudioJob[] }> {
+      const at = timestamp(now);
+      return asSystem(pool, async (client) => {
+        const requeued = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs SET status = 'queued', progress = NULL, version = version + 1, updated_at = $1
+            WHERE status = 'running' AND lease_expires_at < $1 AND attempts < $2 RETURNING *`,
+          [at, maxAttempts],
+        );
+        const failed = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs
+              SET status = 'failed', diagnostic_kind = 'worker-lost', diagnostic = 'the transcription worker stopped responding',
+                  progress = NULL, version = version + 1, updated_at = $1
+            WHERE status = 'running' AND lease_expires_at < $1 AND attempts >= $2 RETURNING *`,
+          [at, maxAttempts],
+        );
+        return { requeued: requeued.rows.map(toJob), failed: failed.rows.map(toJob) };
+      });
+    },
+
+    async getById(id): Promise<AudioJob | null> {
+      return asSystem(pool, async (client) => {
+        const result = await client.query<AudioJobRow>(`SELECT * FROM audio_jobs WHERE id = $1`, [id]);
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async attachScore(id, scoreId: Id): Promise<AudioJob | null> {
+      return asSystem(pool, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs SET score_id = $1, version = version + 1, updated_at = $2 WHERE id = $3 RETURNING *`,
+          [scoreId, timestamp(now), id],
+        );
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
+    async rejectResult(id, kind, message): Promise<AudioJob | null> {
+      return asSystem(pool, async (client) => {
+        const result = await client.query<AudioJobRow>(
+          `UPDATE audio_jobs
+              SET status = 'failed', diagnostic_kind = $1, diagnostic = $2, version = version + 1, updated_at = $3
+            WHERE id = $4 AND status = 'succeeded' RETURNING *`,
+          [kind, message, timestamp(now), id],
+        );
+        return result.rows[0] === undefined ? null : toJob(result.rows[0]);
+      });
+    },
+
     async close(): Promise<void> {
       await closeHandle(handle);
     },
@@ -166,4 +291,13 @@ function toSummary(row: Partial<AudioJobRow> & Omit<AudioJobRow, 'result' | 'lea
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** The lease deadline, in the same second-resolution text the rest of the table uses (compares as text). */
+function leaseUntil(at: Date, seconds: number): string {
+  return stamp(new Date(at.getTime() + seconds * 1000));
+}
+
+function stamp(at: Date): string {
+  return `${at.toISOString().slice(0, 19)}Z`;
 }

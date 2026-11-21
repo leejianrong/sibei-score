@@ -3,6 +3,9 @@ import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { ManagedBlobStore } from '../blob/blob-store.js';
 import { createAudioService } from '../audio/service.js';
+import { createAudioWorkerService } from '../audio/worker-service.js';
+import type { AudioResultImporter, AudioWorkerOptions } from '../audio/worker-service.js';
+import { workerRoute } from './worker-routes.js';
 import type { AudioLimits } from '../audio/service.js';
 import { memoryAudioJobStore } from '../store/memory-audio-job-store.js';
 import type { AudioJobStore } from '../store/audio-jobs.js';
@@ -71,6 +74,17 @@ export interface ApiOptions {
    * is running.
    */
   audioJobs?: AudioJobStore;
+  /**
+   * The audio worker's side (SIB2-138): worker credentials and lease timing. Absent means there is no
+   * `/v1/worker/` surface at all (a 404) and audio jobs simply wait `queued`, which is how the API runs
+   * with the worker stopped or not yet deployed. Configuration, never a default credential.
+   */
+  audioWorker?: AudioWorkerOptions;
+  /**
+   * Where a succeeded job's NoteEvents result goes next: validate, quantize, import as a draft (SIB2-E9).
+   * A port, left empty until that service exists on main; without it a job succeeds with its result stored.
+   */
+  audioImporter?: AudioResultImporter;
   /** Upload limits for audio; the defaults are `DEFAULT_AUDIO_LIMITS`. Configuration, not code. */
   audioLimits?: Partial<AudioLimits>;
   /** How long a presigned audio upload URL lives, seconds (default 900). */
@@ -329,12 +343,23 @@ export function createApi(options: ApiOptions): Api {
           onError: (message, error) => logger.error(message, error),
         });
 
+  const audioJobs = options.audioJobs ?? memoryAudioJobStore();
   const audio = createAudioService({
-    jobs: options.audioJobs ?? memoryAudioJobStore(),
+    jobs: audioJobs,
     blobs,
     ...(options.audioLimits === undefined ? {} : { limits: options.audioLimits }),
     ...(options.audioUploadTtlSeconds === undefined ? {} : { uploadUrlTtlSeconds: options.audioUploadTtlSeconds }),
   });
+
+  const audioWorker =
+    options.audioWorker === undefined
+      ? undefined
+      : createAudioWorkerService({
+          jobs: audioJobs,
+          blobs,
+          worker: options.audioWorker,
+          ...(options.audioImporter === undefined ? {} : { importer: options.audioImporter }),
+        });
 
   const server = createHttpServer((request, response) => {
     const started = process.hrtime.bigint();
@@ -399,6 +424,32 @@ export function createApi(options: ApiOptions): Api {
         if (response.headersSent) return 500;
         return send(response, problemForUnknown(error));
       }
+    }
+
+    // The audio worker (SIB2-138). Its own credential, judged here and nowhere else, ahead of any user
+    // principal: a `sbsw_` token reaches the `/v1/worker/` routes and is refused everywhere else, and a cookie or a
+    // user token is refused here. The worker routes are handed only the worker service, so even past this
+    // check there is no score, library or other user's job in reach.
+    const requestPath = pathOf(request);
+    const bearer = request.headers.authorization;
+    if (requestPath.startsWith('/v1/worker/')) {
+      if (audioWorker === undefined) return send(response, problem(404, 'no-such-route', `nothing at ${requestPath}`));
+      if (!audioWorker.authenticate(bearer)) {
+        const other = (bearer !== undefined && !bearer.startsWith('Bearer sbsw_')) || request.headers.cookie !== undefined;
+        return other
+          ? send(response, problem(403, 'forbidden', 'the audio worker routes take a worker credential, not a user session or token'))
+          : send(response, problem(401, 'unauthenticated', 'not a worker credential this server knows'));
+      }
+      try {
+        return await workerRoute(request, response, (request.method ?? 'GET').toUpperCase(), requestPath, audioWorker);
+      } catch (error) {
+        logger.error('a worker request failed', error);
+        if (response.headersSent) return 500;
+        return send(response, problemForUnknown(error));
+      }
+    }
+    if (bearer !== undefined && bearer.startsWith('Bearer sbsw_')) {
+      return send(response, problem(403, 'forbidden', 'a worker credential is for the audio worker routes only'));
     }
 
     // In hosted mode a handful of paths answer to a signed-out caller (`isPublic`); every other path
@@ -496,6 +547,7 @@ export function createApi(options: ApiOptions): Api {
           // Constructing the API does not touch the queue; binding a port does.
           // Awaited before resolving: recovery must have finished by the time `listen` returns, as it
           // had when `start` was synchronous (V18), so a caller never observes a half-recovered queue.
+          audioWorker?.startSweeper((error) => logger.error('the audio lease sweep failed', error));
           runner.start().then(() => resolve({ port: address.port }), reject);
         });
       });
@@ -508,6 +560,7 @@ export function createApi(options: ApiOptions): Api {
       // in-flight request to complete the way it always did. The job streams are the second kind of
       // stream that never finishes (V10), so they close here too.
       runner.stop();
+      audioWorker?.stopSweeper();
       events.closeAll();
       jobStreams.closeAll();
       return new Promise((resolve) => server.close(() => resolve()));
