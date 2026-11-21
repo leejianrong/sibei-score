@@ -18,6 +18,10 @@ export type {
   JobStore,
   JobWriter,
 } from './store/jobs.js';
+export { MCP_TOOLS, McpToolError } from './mcp/tools.js';
+export type { ExportChoices, ExportedArtefact, McpBackend, McpTool, ToolAccess, ToolResult } from './mcp/tools.js';
+export { PARSE_FAILURE, SERVER_INFO, SUPPORTED_PROTOCOLS, handleMcpMessage } from './mcp/protocol.js';
+export type { McpSession } from './mcp/protocol.js';
 export { API_SCOPES, MCP_SCOPES, TOKEN_SCOPES } from './store/auth.js';
 export type { ApiToken, AuthStore, DeviceApproval, DevicePoll, NewApiToken, NewDevice, ProviderProfile, Session, TokenPrincipal, TokenScope, User, UserId } from './store/auth.js';
 export { memoryJobStore } from './store/memory-job-store.js';

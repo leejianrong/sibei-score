@@ -209,6 +209,28 @@ directory. `login`, `status` and every error leave the token out of their output
 A credential the server refuses (revoked in the browser, or past its 90 days) is exit `7` with a pointer back to
 `auth login`; a token limited to `read` that tries a write is exit `7` too.
 
+## MCP, for agents
+
+A hosted server is an MCP server. Point an MCP client at `https://<your-server>/mcp` (Streamable HTTP) and it
+discovers the OAuth endpoints itself (`/.well-known/oauth-protected-resource`), registers, sends you to the
+browser to approve, and gets a token that works on `/mcp` only: its audience is the MCP endpoint, so it cannot
+be used on the API, and a CLI token cannot be used there. You can revoke it under **API tokens**.
+
+For a client that launches a local process (Claude Desktop, an editor), `sbscore mcp` serves the same tools over
+stdio, using the credential `sbscore auth login` stored (or `SBSCORE_TOKEN`) and `--url`, like every other verb:
+
+```json
+{ "mcpServers": { "sibei": { "command": "sbscore", "args": ["mcp", "--url", "https://sibei.example"] } } }
+```
+
+Against a local `sbscore serve` it needs no credential at all. stdout is the protocol and nothing else.
+
+The tools are the same on both: `list_scores`, `read_score` (the text projection, which prints the addresses a
+write accepts), `create_score`, `edit_score` (a batch at an `expectedVersion`), `undo`, `redo` and `export_score`
+(PDF or MusicXML). A result is the API's own JSON; a failure is the API's own error object, so a stale write
+carries `currentVersion` and an address miss lists the bar's real onsets. A read-only token (`mcp:read`, or
+`read` for the CLI) is refused a write with `insufficient-scope`.
+
 ## Exit codes
 
 A contract — branch on these rather than parsing prose:
