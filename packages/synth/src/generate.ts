@@ -68,6 +68,14 @@ export interface GenerateOptions {
    * unchanged (KAN-1487 defers widening the melody key with a note retrain).
    */
   richChords?: boolean;
+  /**
+   * Probability (0..1) a chord is drawn as a parenthesised alternate, `(Gm7 C7)` — one or two member
+   * chords. Default 0 (off): alternates are opt-in (SIB2-203), drawn from their own salted stream so
+   * the note and chord streams, and every seed that leaves this off, are byte-identical. An alternate
+   * adds a space to the chord glyph text, so a corpus that sets it needs chord vocabulary version 2
+   * (`buildChordVocabulary({ version: 2 })`).
+   */
+  alternates?: number;
   /** Emit one section starting at bar 1 (default true) — layout breaks lines at sections (ADR-0015). */
   section?: boolean;
   /**
@@ -210,6 +218,16 @@ export function generateScore(options: GenerateOptions): Score {
       kind: 'chord',
       structure: richChords ? randomChordStructure(chordRng) : diatonicChord(scale, degree),
     });
+  // Alternates: a third stream, drawn only when opted in. The primary chord is still drawn first so
+  // the chord stream stays aligned either way; an alternate then replaces its text.
+  const alternates = options.alternates ?? 0;
+  const altRng = makeRng((seed ^ 0x2a17c0de) >>> 0);
+  const chordTextOrAlternate = (degree: number): string => {
+    const primary = chordText(degree);
+    if (alternates <= 0 || !altRng.bool(alternates)) return primary;
+    const members = Array.from({ length: altRng.int(1, 2) }, () => randomChordStructure(altRng));
+    return formatChord({ kind: 'alternate', chords: members });
+  };
   const capacity = barCapacity(time);
   const beat = beatTicks(time);
 
@@ -250,10 +268,10 @@ export function generateScore(options: GenerateOptions): Score {
 
     const chords: ModelChord[] = [];
     if (withChords) {
-      chords.push(makeChord({ id: ids.next('chord'), onset: 0, text: chordText(rng.int(0, 6)) }));
+      chords.push(makeChord({ id: ids.next('chord'), onset: 0, text: chordTextOrAlternate(rng.int(0, 6)) }));
       // A second chord on beat 3 some of the time, so bars are not uniformly one-chord.
       if (time.beats >= 4 && rng.bool(0.35)) {
-        chords.push(makeChord({ id: ids.next('chord'), onset: 2 * beat, text: chordText(rng.int(0, 6)) }));
+        chords.push(makeChord({ id: ids.next('chord'), onset: 2 * beat, text: chordTextOrAlternate(rng.int(0, 6)) }));
       }
     }
 
