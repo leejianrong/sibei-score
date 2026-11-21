@@ -1,9 +1,10 @@
-import type { LayoutBar, NoteItem, RestItem } from '@sibei/layout';
+import type { GraceItem, LayoutBar, NoteItem, RestItem } from '@sibei/layout';
+import { GRACE_SCALE } from '@sibei/layout';
 import { startBarlineWidth } from './barlines.js';
 import type { Duration } from '@sibei/model';
 import { TICKS_PER_QUARTER, durationTicks } from '@sibei/model';
 import type { MusicFont, MusicGlyphName } from './font.js';
-import { units } from './font.js';
+import { scaledFont, units } from './font.js';
 import { writtenPitch } from '@sibei/layout';
 import { restFor } from './rests.js';
 import { ledgerPositions, staffPosition } from './staff.js';
@@ -71,6 +72,32 @@ const RIGHT_PAD = units(1);
  */
 const REST_PLACEHOLDER = units(1.2);
 
+/** Room between one grace note and the next, and between the last and its principal's own glyphs (SIB2-185). */
+const GRACE_GAP = units(0.7);
+
+/**
+ * Where a note's grace notes sit in the room just left of its principal: the left edge of each grace's notehead,
+ * relative to the left of the block, and the block's total width. Each grace takes its accidental (when it draws
+ * one), its notehead and a gap, all at grace size.
+ */
+export function graceLayout(font: MusicFont, graces: readonly GraceItem[]): { offsets: number[]; width: number } {
+  const small = scaledFont(font, GRACE_SCALE);
+  const offsets: number[] = [];
+  let cursor = 0;
+  for (const grace of graces) {
+    const lead =
+      grace.accidentalGlyph === null
+        ? 0
+        : small.width(accidentalGlyph(grace.accidentalGlyph)) +
+          ACCIDENTAL_GAP * GRACE_SCALE +
+          (grace.accidental === 'parens' ? parensWidth(small) : 0);
+    offsets.push(cursor + lead);
+    cursor += lead + small.width('noteheadBlack') + GRACE_GAP;
+  }
+  // A lone grace carries a flag, which hangs to the right of its stem and must clear the principal's head.
+  return { offsets, width: cursor + (graces.length === 1 ? units(0.9) : 0) };
+}
+
 export interface PlacedItem {
   item: NoteItem | RestItem;
   /** Left edge of the notehead. */
@@ -82,6 +109,8 @@ export interface PlacedItem {
    * for a whole-bar rest, which is drawn centred (SIB2-192) while its beats still run from the left.
    */
   slotX: number;
+  /** Left edge of each grace note's notehead, in reading order (SIB2-185); absent when the note has none. */
+  graceXs?: number[];
 }
 
 /**
@@ -109,6 +138,9 @@ interface Cell {
   item: NoteItem | RestItem;
   /** Room the accidental takes to the left of the notehead. */
   leadIn: number;
+  /** Room the note's grace notes take before the accidental (SIB2-185): part of `leadIn`, kept to place them. */
+  graceWidth: number;
+  graceOffsets: number[];
   /** Accidental, notehead and dots — the part spacing may not compress. */
   rigid: number;
   /** What this onset would like on grounds of duration. */
@@ -119,7 +151,7 @@ function cellFor(font: MusicFont, item: NoteItem | RestItem): Cell {
   const wanted = durationSpace(item.duration) + MIN_GAP;
 
   if (item.kind === 'rest') {
-    return { item, leadIn: 0, rigid: REST_PLACEHOLDER + MIN_GAP, wanted };
+    return { item, leadIn: 0, graceWidth: 0, graceOffsets: [], rigid: REST_PLACEHOLDER + MIN_GAP, wanted };
   }
 
   const notehead = noteheadFor(item.duration);
@@ -130,10 +162,13 @@ function cellFor(font: MusicFont, item: NoteItem | RestItem): Cell {
         ACCIDENTAL_GAP +
         (item.accidental === 'parens' ? parensWidth(font) : 0);
 
+  const grace = graceLayout(font, item.graces ?? []);
   return {
     item,
-    leadIn,
-    rigid: leadIn + font.width(notehead) + dotsWidth(font, item.duration) + MIN_GAP,
+    leadIn: leadIn + grace.width,
+    graceWidth: grace.width,
+    graceOffsets: grace.offsets,
+    rigid: leadIn + grace.width + font.width(notehead) + dotsWidth(font, item.duration) + MIN_GAP,
     wanted,
   };
 }
@@ -201,7 +236,13 @@ export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
   const placed: PlacedItem[] = [];
   let x = left;
   for (const [index, cell] of cells.entries()) {
-    placed.push({ item: cell.item, x: x + cell.leadIn, leftEdge: x, slotX: x + cell.leadIn });
+    placed.push({
+      item: cell.item,
+      x: x + cell.leadIn,
+      leftEdge: x,
+      slotX: x + cell.leadIn,
+      ...(cell.graceOffsets.length === 0 ? {} : { graceXs: cell.graceOffsets.map((offset) => x + offset) }),
+    });
     x += widths[index] ?? cell.rigid;
   }
 

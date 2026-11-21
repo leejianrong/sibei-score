@@ -100,7 +100,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore audio usage                      audio-seconds transcribed this month
               (a transcription runs on a separate worker; the job waits until one picks it up)
   sbscore duplicate <id> [--id NEW]        copy a chart to a new one, fresh history
-  sbscore meta set <id> [--title T] [--composer C] [--style S] [--key K] [--time 4/4]
+  sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [--style S] [--key K] [--time 4/4]
               [--signature-policy every|first|page] [--bars-per-system N]   bars to a line (1-8, default 4)
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
@@ -126,6 +126,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore ending rm  <id> <bar>
   sbscore fermata set <id> <address>      a fermata over a note or rest
   sbscore fermata rm  <id> <address>
+  sbscore grace add <id> <address> --pitch D5 [--dur 8|16|32] [--slash] [--accidental auto|show|hide|paren]
+              a grace note before the note at <address> (--slash: an acciaccatura); it takes no bar time
+  sbscore grace rm  <id> <grace-id|address>   one grace by its id (show prints it), or all on a note
   sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]   bracket --over items from <address>: --notes in the time of --in
   sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
@@ -307,6 +310,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return repeat(flags, client, io, json);
     case 'fermata':
       return fermata(flags, client, io, json);
+    case 'grace':
+      return grace(flags, client, io, json);
     case 'tuplet':
       return tuplet(flags, client, io, json);
     case 'slur':
@@ -876,7 +881,12 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const title = flags.options.get('title');
   if (title !== undefined) payload.title = title;
   const composer = flags.options.get('composer');
-  if (composer !== undefined) payload.composer = composer;
+  // A literal \n is a line break, so a second composer is `--composer 'A\nB'` (SIB2-180).
+  if (composer !== undefined) payload.composer = composer.replace(/\\n/g, '\n');
+  const subtitle = flags.options.get('subtitle');
+  if (subtitle !== undefined) payload.subtitle = subtitle === '' ? null : subtitle;
+  const arranger = flags.options.get('arranger');
+  if (arranger !== undefined) payload.arranger = arranger === '' ? null : arranger;
   const style = flags.options.get('style');
   // An empty --style clears the line, which is nullable rather than merely absent.
   if (style !== undefined) payload.style = style === '' ? null : style;
@@ -906,7 +916,7 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --composer --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo',
+      'meta set needs at least one of --title --subtitle --composer --arranger --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
@@ -1162,6 +1172,28 @@ async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Pro
     return submit(flags, client, io, json, id, [{ type: `fermata.${sub}`, target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'fermata takes set or rm');
+}
+
+/**
+ * `sbscore grace add|rm` (SIB2-185): grace notes before a note. `add` takes the principal note's address and a
+ * `--pitch`; `--dur` is the flag value (8, 16 or 32; the server judges it) and `--slash` makes it an acciaccatura.
+ * `rm` takes a grace id, or a note address to clear every grace on it.
+ */
+async function grace(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `grace ${sub}`);
+  const target = requiredPositional(flags, 3, sub === 'rm' ? 'a grace id or note address' : 'a note address', `grace ${sub}`);
+  if (sub === 'add') {
+    const payload: Record<string, unknown> = { pitch: required(flags, 'pitch', 'grace add'), ...accidentalOf(flags) };
+    const dur = flags.options.get('dur');
+    if (dur !== undefined) payload.value = Number(dur);
+    if (flags.switches.has('slash')) payload.slashed = true;
+    return submit(flags, client, io, json, id, [{ type: 'grace.add', target, payload } as unknown as Operation]);
+  }
+  if (sub === 'rm') {
+    return submit(flags, client, io, json, id, [{ type: 'grace.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'grace takes add or rm');
 }
 
 /**

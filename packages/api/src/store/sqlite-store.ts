@@ -155,8 +155,12 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
   // The two writes stay synchronous transactions inside — better-sqlite3's `transaction` is what
   // makes each one atomic — and are exposed through `async` methods below (V18, ADR-0034). SQLite
   // never yields mid-write, so wrapping does not loosen atomicity; it only matches the port's type.
-  const createTx = db.transaction((owner: Owner, score: Score, operations: readonly StoredOperation[]) => {
+  const createTx = db.transaction((owner: Owner, score: Score, operations: readonly StoredOperation[], maxScores?: number) => {
     refuseEmpty(operations);
+    if (maxScores !== undefined) {
+      const held = (db.prepare('SELECT COUNT(*) AS n FROM scores WHERE owner = ?').get(owner) as { n: number }).n;
+      if (held >= maxScores) return { ok: false, reason: 'quota', limit: maxScores } as const;
+    }
     const updatedAt = timestamp(now);
     try {
       statements.insert.run({
@@ -227,8 +231,8 @@ export function openSqliteStore(options: SqliteStoreOptions): ScoreStore {
       return statements.listOps.all(owner, id).map(toStoredOperation);
     },
 
-    async create(owner, score, operations) {
-      return createTx(owner, score, operations);
+    async create(owner, score, operations, options) {
+      return createTx(owner, score, operations, options?.maxScores);
     },
 
     async commit(owner, id, expectedVersion, score, operations) {

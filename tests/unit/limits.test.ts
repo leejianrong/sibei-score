@@ -104,7 +104,7 @@ describe('the limits', () => {
       onError: (message) => void errors.push(message),
     });
     expect(await limits.gateAddress(fakeRequest('GET', '/v1/scores'))).toBeNull();
-    expect(errors).toHaveLength(1);
+    expect(errors).toHaveLength(2); // the global counter and the per-IP one both failed (SEC M5)
   });
 
   it('refuses a score past the quota, naming it', () => {

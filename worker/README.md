@@ -79,6 +79,11 @@ engine-selection seam (SLICES V15, ADR-0031) pulled forward.
     packed side by side) that a modest detector localisation error clips or shifts real characters —
     see "The whole bespoke import scored end to end (V17e result)" in `docs/eval.md` for the numbers and
     the open follow-up (retraining Stage 2b on detector-predicted or jittered boxes).
+  The chord vocabulary is versioned and additive (SIB2-203): the shipped `chord.onnx` is version 1 (40
+  classes). A corpus dumped with `--alternates` is version 2 (adds a `' '` class) and needs a retrained
+  matched pair; stacked slashes (`--stacked-slash`) need no vocabulary change. Retraining is a separate
+  decision, and the Stage-2b crop must also extend below the band box to keep a stacked bass — see
+  `docs/eval.md`.
   Five baked artifacts, checksum-verified (`bespoke_weights.py`, ADR-0024): `detect.onnx`, `model.onnx`
   + the matched `vocab.json` (regenerate with `pnpm export:v15c-vocab`), and `chord.onnx` + the matched
   `chord-vocab.json` (regenerate with `pnpm export:v17c-vocab`), found via `$SIBEI_BESPOKE_MODEL_DIR`

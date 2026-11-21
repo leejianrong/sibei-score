@@ -297,3 +297,10 @@ export function failureResult(error: McpToolError): ToolResult {
   };
   return { ...json(body), isError: true };
 }
+
+/** The rate-limit class a tool call is charged to (SEC H2): the PDF/MusicXML tool is its own, tight class. */
+export function toolRateClass(toolName: unknown): 'read' | 'write' | 'export' {
+  if (toolName === 'export_score') return 'export';
+  const tool = MCP_TOOLS.find((t) => t.name === toolName);
+  return tool?.access === 'write' ? 'write' : 'read';
+}

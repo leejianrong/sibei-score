@@ -35,6 +35,12 @@ export interface BandCropOptions {
   vocab?: ChordVocabulary;
   /** Pixels of slack added around the band box, so a tall superscript is never shaved (default 2). */
   pad?: number;
+  /**
+   * Extra layout units of crop BELOW the band box (default 0, so existing crops are unchanged). The
+   * band box ends at the chord baseline, but a stacked slash chord drops its bass beneath it
+   * (SIB2-203), which a baseline-tight crop shaves off; a corpus that draws stacked slashes sets this.
+   */
+  descent?: number;
 }
 
 export interface BandCrop {
@@ -99,6 +105,7 @@ export async function renderBandCrops(score: Score, options: BandCropOptions = {
   const chordsByIndex = new Map(chords.map((c) => [c.index, c]));
   const dims = await pageDims(pages);
   const pad = options.pad ?? 2;
+  const descent = options.descent ?? 0;
 
   const crops: BandCrop[] = [];
   for (const page of pageBoxes) {
@@ -111,7 +118,7 @@ export async function renderBandCrops(score: Score, options: BandCropOptions = {
         object.box.x * pxPerUnit - pad,
         object.box.y * pxPerUnit - pad,
         object.box.width * pxPerUnit + pad * 2,
-        object.box.height * pxPerUnit + pad * 2,
+        object.box.height * pxPerUnit + pad * 2 + descent * pxPerUnit,
         dim.width,
         dim.height,
       );

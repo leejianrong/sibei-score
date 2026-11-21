@@ -26,6 +26,12 @@ export function memoryBlobStore(): ManagedBlobStore {
       const found = blobs.get(key);
       return Promise.resolve(found === undefined ? null : { size: found.length });
     },
+    copy(from, to) {
+      const found = blobs.get(from);
+      if (found === undefined) return Promise.resolve(false);
+      blobs.set(to, Buffer.from(found));
+      return Promise.resolve(true);
+    },
     delete(key) {
       blobs.delete(key);
       return Promise.resolve();

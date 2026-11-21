@@ -7,6 +7,7 @@ import type { AudioQuotaConfig } from '../audio/quota.js';
 import { createAudioResultImporter } from '../audio/importer.js';
 import { guardLanding } from '../account/landing.js';
 import { createAudioWorkerService } from '../audio/worker-service.js';
+import type { AudioHoldCaps } from '../audio/service.js';
 import type { AudioResultImporter, AudioWorkerOptions } from '../audio/worker-service.js';
 import { workerRoute } from './worker-routes.js';
 import type { AudioLimits } from '../audio/service.js';
@@ -31,6 +32,8 @@ import { WorkerError } from '../imports/worker-client.js';
 import type { WorkerClient } from '../imports/worker-client.js';
 import { imageFormatOf } from '../imports/upload.js';
 import { createApplier } from '../ops/applier.js';
+import { DEFAULT_WRITE_CAPS } from '../ops/caps.js';
+import type { WriteCaps } from '../ops/caps.js';
 import type { Applier } from '../ops/applier.js';
 import { memoryJobStore } from '../store/memory-job-store.js';
 import type { JobStore } from '../store/jobs.js';
@@ -88,6 +91,8 @@ export interface ApiOptions {
    * with the worker stopped or not yet deployed. Configuration, never a default credential.
    */
   audioWorker?: AudioWorkerOptions;
+  /** Per-user in-flight audio jobs and bytes (SEC H4). Absent means none; `sbscore serve` sets them in hosted mode. */
+  audioHold?: AudioHoldCaps;
   /**
    * Where a succeeded job's NoteEvents result goes next: validate, quantize, import as a draft. Defaults to
    * `createAudioResultImporter` over the announcing applier; injected only so a test can stub the join.
@@ -145,6 +150,8 @@ export interface ApiOptions {
    * mode. Every number lives in the `Limits` it is given; this file only applies them.
    */
   limits?: Limits;
+  /** Size caps on a new write (SEC H1); the defaults are `DEFAULT_WRITE_CAPS`. Applies in local mode too. */
+  writeCaps?: WriteCaps;
   /**
    * The change and job buses. Default to the in-process ones — a single process, the local case. Hosted
    * mode with Redis passes buses that also cross processes (`@sibei/api/redis`), so an SSE client on one
@@ -207,7 +214,11 @@ export function createApi(options: ApiOptions): Api {
 
   // Wrapped rather than plumbed in, so `applier.ts` stays the only consumer of a `ScoreWriter`
   // (ADR-0003) and an injected test applier announces its writes like the real one does.
-  const announcing = publishingApplier(options.applier ?? createApplier(store), bus);
+  const announcing = publishingApplier(options.applier ?? createApplier(store, undefined, {
+    ...DEFAULT_WRITE_CAPS,
+    ...options.writeCaps,
+    ...(limits === undefined ? {} : { maxScores: limits.config.quotas.maxScores }),
+  }), bus);
   // What the routes get is the announcing applier behind the account's quotas (V23); the job runner gets
   // the unwrapped one, because an import's quota was already spent when it was submitted.
   const applier = limits === undefined ? announcing : quotaApplier(announcing, store, limits);
@@ -313,8 +324,11 @@ export function createApi(options: ApiOptions): Api {
       // The validated document is the source, kept in the BlobStore with the job so a better
       // quantizer can re-derive the draft later (ADR-0019's re-parse argument). Content-addressed like
       // the images. The job's `engine` marks it for the runner (see `NOTE_EVENTS_SOURCE`).
-      const key = `note-events-source:${createHash('sha256').update(document).digest('hex')}`;
+      // Per owner and ledgered, like the MusicXML source below (SEC M1): erasing one account must not delete
+      // another's file, and the sweep and account deletion have to be able to find it.
+      const key = `note-events-source:${encodeURIComponent(owner)}:${createHash('sha256').update(document).digest('hex')}`;
       await blobs.put(key, document);
+      await ledger.record(owner, key, 'import-source');
       const job = await jobs.create(owner, [key], NOTE_EVENTS_SOURCE);
       runner.wake();
       return job;
@@ -396,6 +410,14 @@ export function createApi(options: ApiOptions): Api {
           applier,
           exporter,
           authenticate,
+          ...(limits === undefined
+            ? {}
+            : {
+                charge: async (response: ServerResponse, owner: string, cls: 'read' | 'write' | 'export') => {
+                  const refused = await limits.gateClass(owner, cls);
+                  return refused === null ? null : send(response, rateLimited(response, refused));
+                },
+              }),
           resourceMetadataUrl: new URL('/.well-known/oauth-protected-resource', hosted.mcpResource).toString(),
           onError: (message, error) => logger.error(message, error),
         });
@@ -406,6 +428,7 @@ export function createApi(options: ApiOptions): Api {
     ledger,
     ...(options.audioWorker?.now === undefined ? {} : { now: options.audioWorker.now }),
     ...(options.audioQuota === undefined ? {} : { quota: options.audioQuota }),
+    ...(options.audioHold === undefined ? {} : { hold: options.audioHold }),
     ...(options.audioLimits === undefined ? {} : { limits: options.audioLimits }),
     ...(options.audioUploadTtlSeconds === undefined ? {} : { uploadUrlTtlSeconds: options.audioUploadTtlSeconds }),
   });
@@ -416,6 +439,7 @@ export function createApi(options: ApiOptions): Api {
       : createAudioWorkerService({
           jobs: audioJobs,
           blobs,
+          ledger,
           worker: options.audioWorker,
           // The join (SIB2-E10): by default a completed job becomes a draft, landed server-only under its owner.
           importer: options.audioImporter ?? createAudioResultImporter({ applier: landing }),
@@ -497,6 +521,12 @@ export function createApi(options: ApiOptions): Api {
     if (requestPath.startsWith('/v1/worker/')) {
       if (audioWorker === undefined) return send(response, problem(404, 'no-such-route', `nothing at ${requestPath}`));
       if (!audioWorker.authenticate(bearer)) {
+        // The worker routes are exempt from the per-IP limits, so a failed credential is the one thing
+        // counted: a flood of guesses meets a 429 once the address has used its failures (SEC M2/M5).
+        if (limits !== undefined) {
+          const refused = await limits.workerAuthFailed(request);
+          if (refused !== null) return send(response, rateLimited(response, refused));
+        }
         const other = (bearer !== undefined && !bearer.startsWith('Bearer sbsw_')) || request.headers.cookie !== undefined;
         return other
           ? send(response, problem(403, 'forbidden', 'the audio worker routes take a worker credential, not a user session or token'))

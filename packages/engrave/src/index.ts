@@ -13,4 +13,5 @@ export * from './signatures.js';
 export * from './ties.js';
 export * from './tuplets.js';
 export * from './shading.js';
+export * from './graces.js';
 export * from './engrave.js';

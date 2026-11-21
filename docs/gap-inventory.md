@@ -50,14 +50,14 @@ means "not seen", not "not there". A feature that is only probable is marked `?`
 | F17b | 1st / 2nd endings | | | | x | x | | | | 2 |
 | F18 | N.C. (no chord) | x | | | x | | | | | 2 |
 | F19 | Articulations: staccato, accent | x | x | | | | | | | 2 |
-| F24 | Extra title-block fields: subtitle, arranger, two composers | x | | | x | | | | | 2 |
+| F24 | Extra title-block fields: subtitle, arranger, two composers (supported, SIB2-180) | x | | | x | | | | | 2 |
 | F25 | Empty ruled staves left at the page bottom | | | | | x | | x | | 2 |
 | F26 | Parenthesised (cautionary) accidentals | x | x | | | | | | | 2 |
 | F20 | Fermata | x | | | | ? | | | | 1 |
 | F21 | Ottava line ("8" with bracket) | x | | | | | | | | 1 |
 | F22 | Dashed continuation line after a text direction | x | | | | | | | | 1 |
 | F23 | Metronome mark with a note glyph | x | | | | | | | | 1 |
-| F27 | Grace notes | ? | ? | | | | | | | 0 (probable 2) |
+| F27 | Grace notes (supported, SIB2-185) | ? | ? | | | | | | | 0 (probable 2) |
 | F28 | Multi-staff system: grand staff, drum staff, bracket and brace | x | | | | | | | | 1 |
 | F29 | Bass clef | x | | | | | | | | 1 |
 | F30 | Two voices on one staff | x | | | | | | | | 1 |

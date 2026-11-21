@@ -161,9 +161,16 @@ export async function openPostgresStore(options: PostgresStoreOptions): Promise<
       });
     },
 
-    async create(owner, score, operations): Promise<WriteOutcome> {
+    async create(owner, score, operations, options): Promise<WriteOutcome> {
       assertCarriesOperations(operations);
       return asOwner(pool, owner, async (client) => {
+        if (options?.maxScores !== undefined) {
+          // Serialise this owner's creates for the rest of the transaction: under READ COMMITTED two
+          // concurrent creates would both count `max - 1` rows and both insert (SEC H2).
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`scores:${owner}`]);
+          const held = await client.query<{ n: string }>('SELECT COUNT(*) AS n FROM scores WHERE owner = $1', [owner]);
+          if (Number(held.rows[0]!.n) >= options.maxScores) return { ok: false, reason: 'quota', limit: options.maxScores } as const;
+        }
         const updatedAt = timestamp(now);
         const columns = listingColumns(score);
         const inserted = await client.query(
