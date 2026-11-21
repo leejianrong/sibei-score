@@ -1,4 +1,4 @@
-import type { Bar, Pitch } from '@sibei/model';
+import type { Bar, Id, OctaveShift, Pitch } from '@sibei/model';
 import { STEPS } from '@sibei/model';
 import type { PageSpec } from './page.js';
 
@@ -36,6 +36,10 @@ const STEM_UNITS = 35;
 /** Half a notehead, so the glyph's own extent is covered. */
 const NOTEHEAD_UNITS = 5;
 
+/** An ottava line sits this far past the highest or lowest note ink, and takes this much room itself (SIB2-184). */
+const OTTAVA_GAP = 15;
+const OTTAVA_BAND = 6;
+
 /**
  * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and
  * `FERMATA_GAP` above the note's head or stem, and the glyph is about `FERMATA_HEIGHT` tall. The engraver
@@ -55,6 +59,10 @@ export interface SystemVertical {
   belowStaff: number;
   /** Units above the top staff line where every chord symbol's baseline sits. */
   chordBaselineOffset: number;
+  /** Units above the top staff line of an 8va line (SIB2-184), when the system has one. */
+  ottavaAboveOffset?: number;
+  /** Units below the bottom staff line of an 8vb line, when the system has one. */
+  ottavaBelowOffset?: number;
   height: number;
 }
 
@@ -62,6 +70,10 @@ export interface SystemVerticalInput {
   bars: Bar[];
   hasChords: boolean;
   hasRehearsalMark: boolean;
+  /** Notes drawn under an ottava line, so the ink is measured where it is drawn (SIB2-184). */
+  shifts?: Map<Id, OctaveShift>;
+  ottavaAbove?: boolean;
+  ottavaBelow?: boolean;
 }
 
 export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
@@ -74,7 +86,8 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
       // (SIB2-183). A rest has no ink above the staff, so it sits at the fixed height.
       if (item.fermata === true && item.kind === 'rest') inkAbove = Math.max(inkAbove, FERMATA_BASE + FERMATA_HEIGHT);
       if (item.kind !== 'note') continue;
-      const index = diatonic(item.pitch);
+      const shift = input.shifts?.get(item.id);
+      const index = diatonic(item.pitch) + (shift === undefined ? 0 : shift === 'up' ? -7 : 7);
       const stemUp = index < MIDDLE_LINE;
       const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
       const below = (BOTTOM_LINE - index) * STEP_UNITS + NOTEHEAD_UNITS;
@@ -97,6 +110,18 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
   inkAbove = Math.max(inkAbove, 0);
   inkBelow = Math.max(inkBelow, 0);
 
+  // An ottava line goes between the notes and everything above (or below) them, so the chord row rises with it.
+  let ottavaAboveOffset: number | undefined;
+  let ottavaBelowOffset: number | undefined;
+  if (input.ottavaAbove === true) {
+    ottavaAboveOffset = inkAbove + OTTAVA_GAP;
+    inkAbove = ottavaAboveOffset + OTTAVA_BAND;
+  }
+  if (input.ottavaBelow === true) {
+    ottavaBelowOffset = inkBelow + OTTAVA_GAP;
+    inkBelow = ottavaBelowOffset + OTTAVA_BAND;
+  }
+
   const chordBaselineOffset = input.hasChords ? inkAbove + spec.chordClearance : 0;
   const chordBand = input.hasChords ? chordBaselineOffset + spec.chordAscent : inkAbove;
   const markBand = input.hasRehearsalMark ? chordBand + spec.rehearsalBand : chordBand;
@@ -108,6 +133,8 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
     aboveStaff,
     belowStaff,
     chordBaselineOffset,
+    ...(ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset }),
+    ...(ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset }),
     height: aboveStaff + spec.staffHeight + belowStaff,
   };
 }

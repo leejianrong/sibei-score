@@ -45,3 +45,30 @@ export function slursOnNote(score: Score, noteId: Id): Spanner[] {
 export function removeSlurOp(slurId: Id): Operation {
   return { type: 'slur.rm', target: slurId };
 }
+
+/** The op that puts an 8va (`up`) or 8vb (`down`) line over the run between two notes (SIB2-184), or null. */
+export function ottavaOp(score: Score, a: Id, b: Id, shift: 'up' | 'down'): Operation | null {
+  const order = noteOrder(score);
+  const from = order.get(a);
+  const to = order.get(b);
+  if (from === undefined || to === undefined || from === to) return null;
+  const [start, end] = from < to ? [a, b] : [b, a];
+  return { type: 'ottava.set', target: start, payload: { to: end, shift } };
+}
+
+/** The ottava lines that cover a note, for the inspector to list and remove. */
+export function ottavasOnNote(score: Score, noteId: Id): Spanner[] {
+  const order = noteOrder(score);
+  const at = order.get(noteId);
+  if (at === undefined) return [];
+  return (score.spanners ?? []).filter((spanner) => {
+    if (spanner.kind !== 'ottava') return false;
+    const from = order.get(spanner.startId);
+    const to = order.get(spanner.endId);
+    return from !== undefined && to !== undefined && from <= at && at <= to;
+  });
+}
+
+export function removeOttavaOp(ottavaId: Id): Operation {
+  return { type: 'ottava.rm', target: ottavaId };
+}

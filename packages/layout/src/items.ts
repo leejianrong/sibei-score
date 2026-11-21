@@ -73,6 +73,8 @@ export interface NoteItem {
   beat: number;
   duration: Duration;
   pitch: Pitch;
+  /** Under an ottava line (SIB2-184): `pitch` stays the sounding pitch; it is drawn shifted (`writtenPitch`). */
+  ottava?: 'up' | 'down';
   /** The model's request. `auto` has already been resolved into `accidentalGlyph`. */
   accidental: AccidentalDisplay;
   /**
@@ -229,6 +231,18 @@ export interface LayoutText {
 export interface LayoutTie {
   fromNoteId: Id | null;
   toNoteId: Id | null;
+}
+
+/**
+ * An ottava line on one system (SIB2-184). A null end means the line carries on past this system's edge;
+ * only the system a line starts on carries its `8va`/`8vb` label.
+ */
+export interface LayoutOttava {
+  id: Id;
+  shift: 'up' | 'down';
+  fromNoteId: Id | null;
+  toNoteId: Id | null;
+  labelled: boolean;
 }
 
 /**

@@ -154,6 +154,10 @@ class PartReader {
   /** Slurs begun and not yet stopped, by MusicXML `number` (SIB2-167). */
   private openSlurs = new Map<number, { startId: string; placement?: 'above' | 'below' }>();
   private spanners: Spanner[] = [];
+  /** Ottava lines (SIB2-184): one begun by a `<octave-shift>` and waiting for its first note, or open, by number. */
+  private pendingOttava: { number: number; shift: 'up' | 'down' } | null = null;
+  private openOttavas = new Map<number, { startId: string; shift: 'up' | 'down' }>();
+  private lastNoteId: string | null = null;
   /** Dashed lines begun and not yet stopped, by MusicXML `number` (SIB2-170): the annotation each continues. */
   private openDashes = new Map<number, string>();
   private dashEnds: { annotationId: string; endNumber: number }[] = [];
@@ -186,6 +190,7 @@ class PartReader {
     });
 
     if (this.openSlurs.size > 0) this.note('a slur that never stopped was dropped');
+    if (this.openOttavas.size > 0) this.note('an ottava that never stopped was dropped');
     for (const end of this.dashEnds) {
       const target = bars.find((bar) => bar.number === end.endNumber);
       if (target === undefined) continue;
@@ -246,6 +251,13 @@ class PartReader {
           }
           items.push(parsed.item);
           this.readSlurs(child, parsed.item);
+          if (parsed.item.kind === 'note') {
+            this.lastNoteId = parsed.item.id;
+            if (this.pendingOttava !== null) {
+              this.openOttavas.set(this.pendingOttava.number, { startId: parsed.item.id, shift: this.pendingOttava.shift });
+              this.pendingOttava = null;
+            }
+          }
           openTuplet = this.trackTuplet(openTuplet, tuplets, parsed);
           cursor += parsed.ticks;
           break;
@@ -278,6 +290,7 @@ class PartReader {
             });
           }
           if (this.tempo === undefined) this.tempo = this.metronomeOf(child);
+          this.readOctaveShift(child);
           this.readDashes(child, annotations[annotations.length - 1]?.id ?? null, number);
           const letter = this.rehearsalOf(child);
           if (letter !== null && !sections.some((s) => s.startBar === number)) {
@@ -320,6 +333,35 @@ class PartReader {
       endBarline,
       ending,
     });
+  }
+
+  /**
+   * `<octave-shift type size number>` (SIB2-184). MusicXML's `down` means the notes are *printed* an octave lower,
+   * which is our 8va (`up`); `up` is our 8vb. Only an octave (size 8) is read. A start waits for the next note; a
+   * stop closes on the note just read.
+   */
+  private readOctaveShift(direction: XmlElement): void {
+    for (const type of childElements(direction, 'direction-type')) {
+      for (const shift of childElements(type, 'octave-shift')) {
+        const kind = attr(shift, 'type');
+        const number = Number(attr(shift, 'number') ?? 1);
+        if (kind === 'stop') {
+          const open = this.openOttavas.get(number);
+          this.openOttavas.delete(number);
+          if (open === undefined || this.lastNoteId === null || open.startId === this.lastNoteId) {
+            this.note('an ottava stop with no start was dropped');
+            continue;
+          }
+          this.spanners.push({ id: this.id('ottava'), kind: 'ottava', startId: open.startId, endId: this.lastNoteId, octaveShift: open.shift });
+        } else if (kind === 'up' || kind === 'down') {
+          if (attr(shift, 'size') !== null && attr(shift, 'size') !== '8') {
+            this.note('a two-octave shift was dropped: only 8va and 8vb are read');
+            continue;
+          }
+          this.pendingOttava = { number, shift: kind === 'down' ? 'up' : 'down' };
+        }
+      }
+    }
   }
 
   /** `<articulations>` in `<notations>`: staccato, accent and the strong accent (our marcato); others are noted and dropped. */

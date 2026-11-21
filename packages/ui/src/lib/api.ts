@@ -499,6 +499,8 @@ export type Operation =
   | { type: 'fermata.rm'; target: string }
   | { type: 'slur.set'; target: string; payload: { to: string; placement?: 'above' | 'below' } }
   | { type: 'slur.rm'; target: string }
+  | { type: 'ottava.set'; target: string; payload: { to: string; shift: 'up' | 'down' } }
+  | { type: 'ottava.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string };
@@ -603,6 +605,8 @@ export interface ExportChoice {
   pageNumbers?: PageNumberSettings | null;
   /** Bar numbers on the PDF (SIB2-191); absent or true puts nothing on the query (the default is yes). */
   barNumbers?: boolean;
+  /** Fill the last page with empty staves (SIB2-181); absent or false puts nothing on the query. */
+  blankStaves?: boolean;
 }
 
 /** The page-number choices as the query the server reads — empty when there are none, like the CLI sends it. */
@@ -614,6 +618,10 @@ function pageNumberQuery(numbers: PageNumberSettings | null | undefined): string
 
 function barNumbersQuery(on: boolean | undefined): string {
   return on === false ? '&barnumbers=no' : '';
+}
+
+function blankStavesQuery(on: boolean | undefined): string {
+  return on === true ? '&blankstaves=yes' : '';
 }
 
 /** The instrument goes on the query only when it is not the default, the way the CLI sends it. */
@@ -632,14 +640,14 @@ function instrumentQuery(instrument: ExportInstrument): string {
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
   const base = new URLSearchParams({ format: choice.format, paper: choice.paper, font: choice.font });
-  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${barNumbersQuery(choice.barNumbers)}`;
+  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${barNumbersQuery(choice.barNumbers)}`;
 }
 
 /** The route without an id, which is what the rail prints. A concrete id wraps the column. */
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${barNumbersQuery(choice.barNumbers)}`,
+    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${barNumbersQuery(choice.barNumbers)}`,
   };
 }
 

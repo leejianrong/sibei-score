@@ -51,7 +51,7 @@
   import type { ChordBox } from '../lib/chord-hit.js';
   import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
   import { renderScorePages } from '../lib/render.js';
-  import { removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
+  import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
   import type { SlurChoice } from '../lib/slur-edits.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
@@ -98,6 +98,8 @@
   let numberPosition = $state<PageNumberPosition | 'none'>('none');
   let numberFormat = $state<PageNumberFormat>('n');
   let numberFirst = $state(true);
+  // Empty staves to fill the last page (SIB2-181): a render choice, off by default.
+  let blankStaves = $state(false);
   // Bar numbers at each system start (SIB2-191): drawn by default; a render choice like the paper.
   let barNumbers = $state(true);
   const pageNumbers = $derived<PageNumberSettings | null>(
@@ -297,11 +299,11 @@
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, barNumbers }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
-  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers, barNumbers }));
+  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers, blankStaves, barNumbers }));
   const formatLabel = $derived(FORMATS.find((f) => f.value === format)?.label ?? 'PDF');
 
   // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
@@ -382,6 +384,14 @@
     return slurOp(score, selectedId, rangeId, 'auto') === null ? null : { with: rangeId };
   });
   const slursHere = $derived(score === null || selectedId === null ? [] : slursOnNote(score, selectedId));
+
+  // Ottava lines (SIB2-184) share the two-note selection the slur control uses.
+  const ottavasHere = $derived(score === null || selectedId === null ? [] : ottavasOnNote(score, selectedId));
+  async function handleOttava(shift: 'up' | 'down'): Promise<void> {
+    if (score === null || selectedId === null || rangeId === null) return;
+    const operation = ottavaOp(score, selectedId, rangeId, shift);
+    if (operation !== null) await runOps([operation]);
+  }
 
   async function handleSlur(placement: SlurChoice): Promise<void> {
     if (score === null || selectedId === null || rangeId === null) return;
@@ -1141,6 +1151,12 @@
       </div>
 
       <div class="group control-row">
+        <h3>Blank staves</h3>
+        <label class="control-note"><input type="checkbox" bind:checked={blankStaves} /> Fill the rest of the last page with empty staves</label>
+        <p class="control-note">For writing in by hand. Off by default; a render choice, not stored in the chart (<code>export --blank-staves</code>).</p>
+      </div>
+
+      <div class="group control-row">
         <h3>Bar numbers</h3>
         <label class="control-note"><input type="checkbox" bind:checked={barNumbers} /> Number the bar at the head of each line</label>
         <p class="control-note">Drawn by default. A render choice, not stored in the chart (<code>export --no-bar-numbers</code>).</p>
@@ -1182,7 +1198,7 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, barNumbers })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, barNumbers })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
@@ -1229,6 +1245,9 @@
                 void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
+              ottavas={ottavasHere}
+              onottava={(shift) => void handleOttava(shift)}
+              onrmottava={(id) => void runOps([removeOttavaOp(id)])}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}

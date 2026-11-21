@@ -227,6 +227,8 @@ export interface ExportQuery {
   pagenumberfirst?: string;
   /** `no` leaves bar numbers off the PDF (SIB2-191). */
   barnumbers?: string;
+  /** `yes` fills the last page with empty staves (SIB2-181). */
+  blankstaves?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */
