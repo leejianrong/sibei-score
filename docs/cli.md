@@ -113,7 +113,7 @@ path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`)
 a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
 carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
 
-`--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (`4=120`, `4.=60` for a
+`--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (after the pickup, if any; `4=120`, `4.=60` for a
 dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text
 `--style` line, and it is notation only: nothing plays. MusicXML carries it as a `<metronome>` and a
 `<sound tempo>` (in quarter notes a minute) on the first measure, and reads it back. It is a logged, undoable
