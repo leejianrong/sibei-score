@@ -848,7 +848,7 @@
         <h3>Chord symbols</h3>
         <select
           class="key-select"
-          aria-label="Chord symbology"
+          aria-label="Print chords as"
           disabled={saving}
           value={score?.meta.chordStyle ?? 'standard'}
           onchange={handleChordStyle}
