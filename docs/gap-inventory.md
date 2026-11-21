@@ -164,3 +164,66 @@ codec cells (`codec/src/{export,import}.ts` and their named lossy cases), the UI
 
 **Not verified:** the `?` features; every FM, MO and MF reading, which is coarse by resolution; the
 codec round trip of tuplets and ties.
+
+## Recreate results (SIB2-149)
+
+Each page was recreated, as far as the page allows, through `sbscore` against a local `serve` on a
+throwaway data directory, exported through the real PDF path (`export --font jazz`) and compared with the
+original by eye. Transcriptions stay outside the repository (ADR-0036); only features and card refs are
+recorded here. Cards are filed under SIB2-E12 (SIB2-160 to SIB2-192).
+
+| Page | What was recreated | Result |
+|---|---|---|
+| W | Pickup plus 8 of ~33 bars: key, meter, eighth and sixteenth runs, rests, a tie across a barline, chords with slash and half-diminished symbols, a double and a final barline | Pitches approximate. Triplet bar written straight (no op exists). Style, chord text and page differences below |
+| S2 | 8 bars: rehearsal letter, accidentals with no key signature, a whole note, double bar | Free-text directions, ottava text, articulations and a triplet not expressible |
+| LJ | Structure only, 17 bars: Intro and A and B boxes, repeat, 1st/2nd endings, N.C., 20 chords. Melody left as rests | Intro cannot share a line with A; no "HEAD" box, segno, D.S., tempo, header or footer text |
+| S1 | Not started. The first system needs a second staff, a bass clef and a drum staff, and the first operation fails at "add a staff". The head (from the rehearsal letter on) is the same material as S2 | Blocked by the model (SIB2-151) |
+| GE, FM, MO, MF | Not transcribed. 230 to 490 px wide: pitches and most chord symbols cannot be read reliably, so none were invented. Their structure features (repeat, endings, pickup, whole-bar rests) are the same operations proven on W and LJ | Low resolution; not attempted |
+
+### Operations that cannot be expressed
+
+Tuplet (SIB2-166), slur (167, 168), text direction (169), dashed line (170), page number (171), footer and
+credit text (172), first-system-only signatures (173), line breaks (174), segno/D.S./D.C./Fine (175),
+section name box (176), tempo glyph (177), articulation (179), subtitle and arranger (180), blank staves
+(181), parenthesised accidental (182), fermata (183), ottava (184), grace note (185), second staff, clef
+and voice (SIB2-151).
+
+### Visual differences found by looking at the renders
+
+- A major-seventh chord exports without its quality mark: `Ebmaj7` prints as `Eb7` in the PDF
+  (SIB2-162). Verified with `pdftotext`; the font has no glyph for it.
+- Two chord symbols over a bar with one item draw on top of each other (SIB2-165).
+- `-7` prints as `m7` and `G-7b5` prints as the half-diminished circle; the page's own symbology is not
+  selectable (SIB2-163). Chord text and the title are serif (SIB2-40).
+- Slash chords draw inline, not stacked (SIB2-164); parenthesised alterations and alternates draw as
+  flagged plain text (SIB2-160, SIB2-161).
+- A whole-bar rest sits at the left of its bar rather than centred (SIB2-192).
+- Bar numbers print at each system start where the originals have none (SIB2-191).
+- The intro bar is alone on its line; the original shares a line with the first section (SIB2-174).
+
+### How agent-friendly the CLI was
+
+What worked: one `batch` applied 88 operations as one undoable version; addresses like `bar3.beat2.5`
+were easy to generate; the out-of-range bar error lists the valid bars; `show` made a read-back possible.
+What got in the way, each a card:
+
+- No way to add a bar after `new --bars N` (SIB2-186).
+- `batch --ops` takes only inline JSON; 88 operations were a 10 KB argument (SIB2-187).
+- An unknown payload field (`tuplet` on `note.add`) is accepted and ignored (SIB2-188).
+- `barline set <id> 2` fails; usage says `<bar>` but only `bar2` works (SIB2-189).
+- No raster or SVG export, so the agent cannot look at its result without an outside tool (SIB2-190).
+- A chord typo (`E07` for `Eo7`) only shows as a `!` flag in `show`; reading flags back is the only
+  signal, and there is no `sbscore check` that lists every flagged object at once.
+
+### Ranking after the recreate pass
+
+The page counts above stand. The recreate pass adds two defects that affect every page with a
+major-seventh or a sparse bar (SIB2-162, SIB2-165), which makes them the cheapest wins; the largest
+unbuilt blocks stay page furniture (SIB2-171, SIB2-172), slurs (SIB2-167, SIB2-168), tuplets
+(SIB2-166) and line breaks (SIB2-174).
+
+### Verified by running (additions)
+
+Everything in this section was run: the batch, the exports and the renders for W, S2 and LJ, the
+`pdftotext` and `pdffonts` checks, and the CLI errors quoted. Not run: the browser, MusicXML export of the
+recreated pages, and any MCP call.
