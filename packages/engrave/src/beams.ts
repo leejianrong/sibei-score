@@ -33,6 +33,11 @@ export interface BeamMember {
   position: number;
   /** 1 for an eighth, 2 for a sixteenth. */
   levels: number;
+  /**
+   * The note starts a new sub-beat, so a secondary beam (level 2 and deeper) may not run into it from
+   * the note before. The primary beam is unaffected. See `secondaryBreaks`.
+   */
+  breakBefore?: boolean;
 }
 
 /** The beam's outer edge as a line: `y = intercept + slope * x`. */
@@ -127,6 +132,10 @@ export function beamSegments(members: readonly BeamMember[]): Segment[] {
     for (let index = 0; index <= members.length; index += 1) {
       const member = members[index];
       const needs = member !== undefined && member.levels >= level;
+      if (member?.breakBefore === true && runStart !== null) {
+        segments.push(runSegment(members, runStart, index - 1, level));
+        runStart = null;
+      }
       if (needs && runStart === null) runStart = index;
       if (!needs && runStart !== null) {
         segments.push(runSegment(members, runStart, index - 1, level));

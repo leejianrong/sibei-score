@@ -1,4 +1,5 @@
 import type { Score } from '@sibei/model';
+import { beamRules34Chart, beamRules68Chart, beamRulesChart, beamRulesCutChart } from './beam-rules-charts.js';
 import { aabaChart } from './aaba-chart.js';
 import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
@@ -24,6 +25,10 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'nasty-chart': nastyChart,
   'every-glyph': everyGlyphChart,
   beaming: beamingChart,
+  'beam-rules': beamRulesChart,
+  'beam-rules-68': beamRules68Chart,
+  'beam-rules-34': beamRules34Chart,
+  'beam-rules-cut': beamRulesCutChart,
   'invalid-bars': invalidBarChart,
   review: reviewChart,
   'long-form': longFormChart,

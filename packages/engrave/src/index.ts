@@ -6,6 +6,7 @@ export * from './staff.js';
 export * from './spacing.js';
 export * from './stems.js';
 export * from './rests.js';
+export * from './beam-groups.js';
 export * from './beams.js';
 export * from './barlines.js';
 export * from './signatures.js';

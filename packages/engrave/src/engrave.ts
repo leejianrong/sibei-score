@@ -12,6 +12,8 @@ import type { Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
 import { furnitureText } from './furniture.js';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
+import type { BeamCandidate } from './beam-groups.js';
+import { beamGroupIndices, secondaryBreaks } from './beam-groups.js';
 import type { BeamMember } from './beams.js';
 import { applyBeam, beamElements, beamLine } from './beams.js';
 import type { MusicFont, MusicGlyphName } from './font.js';
@@ -493,12 +495,18 @@ function engraveBar(
   for (const group of groups) {
     const members: BeamMember[] = [];
     const direction = groupStemDirection(group.map((entry) => notes.get(entry)?.position ?? 0));
-    for (const entry of group) {
+    const breaks = secondaryBreaks(group.map((entry) => entry.item.onset), time);
+    for (const [at, entry] of group.entries()) {
       const rebuilt = engraveItem(font, entry, staveY, direction);
       notes.set(entry, rebuilt);
       if (entry.item.kind === 'note') beamedIds.add(entry.item.noteId);
       if (rebuilt.stem !== null) {
-        members.push({ stem: rebuilt.stem, position: rebuilt.position, levels: rebuilt.levels });
+        members.push({
+          stem: rebuilt.stem,
+          position: rebuilt.position,
+          levels: rebuilt.levels,
+          breakBefore: breaks[at] === true,
+        });
       }
     }
     if (members.length < 2) continue;
@@ -843,48 +851,18 @@ function tupletBracket(
 // Beam grouping
 // ---------------------------------------------------------------------------
 
-/**
- * What counts as one beamed group: a run of consecutive beamable notes inside one beat,
- * or one dotted beat in a compound meter. The same policy `@sibei/draw` hands VexFlow
- * (`vexBeamGroups`), because beam grouping is the adapter's by ADR-0014 and the two
- * adapters have to be comparable.
- *
- * A rest breaks a group, and so does a note too long to be beamed. Beams across rests are
- * a later slice.
- */
-function groupTicks(time: TimeSignature): number {
-  const compound = time.beatValue === 8 && time.beats % 3 === 0;
-  return compound ? (TICKS_PER_WHOLE / 8) * 3 : beatTicks(time);
-}
-
+/** The grouping rules live in `beam-groups.ts`; this maps placed items onto them and back. */
 function beamGroups(placed: readonly PlacedItem[], time: TimeSignature): PlacedItem[][] {
-  const ticks = groupTicks(time);
-  const groups: PlacedItem[][] = [];
-  let current: PlacedItem[] = [];
-  let currentBeat = -1;
-
-  const flush = (): void => {
-    if (current.length > 1) groups.push(current);
-    current = [];
-  };
-
-  for (const entry of placed) {
-    const beamable = entry.item.kind === 'note' && beamCount(entry.item.duration) > 0;
-    if (!beamable) {
-      flush();
-      currentBeat = -1;
-      continue;
-    }
-    const beat = Math.floor(entry.item.onset / ticks);
-    if (beat !== currentBeat) {
-      flush();
-      currentBeat = beat;
-    }
-    current.push(entry);
-  }
-  flush();
-
-  return groups;
+  const candidates: BeamCandidate[] = placed.map(({ item }) => ({
+    kind: item.kind,
+    onset: item.onset,
+    beamable: item.kind === 'note' && beamCount(item.duration) > 0,
+    plainEighth: item.duration.value === 8 && item.duration.dots === 0,
+    tupletId: item.tupletId,
+  }));
+  return beamGroupIndices(candidates, time).map((indices) =>
+    indices.flatMap((index) => placed[index] ?? []),
+  );
 }
 
 /** Makes an unhandled item kind a compile error, not a silently dropped glyph. */
