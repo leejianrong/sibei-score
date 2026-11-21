@@ -157,6 +157,17 @@ interface AudioUploadTarget {
   viaApi: boolean;
 }
 
+export interface AudioUsageView {
+  periodStart: string;
+  periodEnd: string;
+  seconds: number;
+  jobs: number;
+}
+
+export async function getAudioUsage(): Promise<AudioUsageView> {
+  return (await getJson<{ usage: AudioUsageView }>(`${V1}/audio/usage`)).usage;
+}
+
 export async function listAudioJobs(): Promise<AudioJobView[]> {
   return (await getJson<{ jobs: AudioJobView[] }>(`${V1}/audio/jobs`)).jobs;
 }

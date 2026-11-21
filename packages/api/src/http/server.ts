@@ -347,6 +347,7 @@ export function createApi(options: ApiOptions): Api {
   const audio = createAudioService({
     jobs: audioJobs,
     blobs,
+    ...(options.audioWorker?.now === undefined ? {} : { now: options.audioWorker.now }),
     ...(options.audioLimits === undefined ? {} : { limits: options.audioLimits }),
     ...(options.audioUploadTtlSeconds === undefined ? {} : { uploadUrlTtlSeconds: options.audioUploadTtlSeconds }),
   });

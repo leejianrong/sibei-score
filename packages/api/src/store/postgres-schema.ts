@@ -25,13 +25,13 @@ import type { Pool, PoolClient } from 'pg';
  * `schema_meta` rather than a pragma, since Postgres has none.
  */
 
-export const POSTGRES_TABLE_SCHEMA_VERSION = 5;
+export const POSTGRES_TABLE_SCHEMA_VERSION = 6;
 
 /**
  * Lineage: v1 (V19) scores, operations, import_jobs. v2 (V20, ADR-0034) adds users, identities and
  * sessions — purely additive, so `migratePostgres` takes a v1 database to v2 by creating three tables
  * and touching none of the existing rows. v3 (V21a, ADR-0034 decision 4) adds device_codes and api_tokens,
- * likewise additive. v4 (V22a) adds oauth_codes and v5 (SIB2-137) audio_jobs, likewise.
+ * likewise additive. v4 (V22a) adds oauth_codes and v5 (SIB2-137) audio_jobs and v6 (SIB2-139) audio_usage, likewise.
  */
 
 /**
@@ -195,6 +195,16 @@ CREATE TABLE IF NOT EXISTS audio_jobs (
 CREATE INDEX IF NOT EXISTS audio_jobs_owner_created ON audio_jobs (owner, created_at DESC);
 CREATE INDEX IF NOT EXISTS audio_jobs_status_created ON audio_jobs (status, created_at ASC);
 
+-- The audio-second ledger (table version 6, SIB2-139): one row per job that did its work, keyed by job id so
+-- recording is idempotent. Outlives its job.
+CREATE TABLE IF NOT EXISTS audio_usage (
+  job_id       text NOT NULL PRIMARY KEY,
+  owner        text NOT NULL,
+  seconds      double precision NOT NULL CHECK (seconds > 0),
+  recorded_at  text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audio_usage_owner_recorded ON audio_usage (owner, recorded_at);
+
 CREATE TABLE IF NOT EXISTS schema_meta (
   key    text    NOT NULL PRIMARY KEY,
   value  integer NOT NULL
@@ -218,6 +228,8 @@ ALTER TABLE import_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_jobs FORCE  ROW LEVEL SECURITY;
 ALTER TABLE audio_jobs  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audio_jobs  FORCE  ROW LEVEL SECURITY;
+ALTER TABLE audio_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audio_usage FORCE  ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS owner_isolation ON scores;
 CREATE POLICY owner_isolation ON scores
@@ -227,6 +239,9 @@ CREATE POLICY owner_isolation ON operations
   USING (${OWNER_POLICY}) WITH CHECK (${OWNER_POLICY});
 DROP POLICY IF EXISTS owner_isolation ON import_jobs;
 CREATE POLICY owner_isolation ON import_jobs
+  USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
+DROP POLICY IF EXISTS owner_isolation ON audio_usage;
+CREATE POLICY owner_isolation ON audio_usage
   USING (${JOB_POLICY}) WITH CHECK (${JOB_POLICY});
 DROP POLICY IF EXISTS owner_isolation ON audio_jobs;
 CREATE POLICY owner_isolation ON audio_jobs

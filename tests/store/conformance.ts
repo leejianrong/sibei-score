@@ -876,6 +876,20 @@ export function audioJobStoreConformance(label: string, open: OpenHarness): void
       expect(last.failed.map((j) => [j.id, j.status, j.diagnosticKind])).toEqual([[job.id, 'failed', 'worker-lost']]);
     });
 
+    it('keeps an audio-second ledger: one row per job, idempotent, per owner, counted from a date', async () => {
+      const { clock, now } = manual('2026-12-01T10:00:00Z');
+      const { audio } = await fresh({ now });
+      expect(await audio.usageSince('alice', '2026-12-01T00:00:00Z')).toEqual({ seconds: 0, jobs: 0 });
+      expect(await audio.recordUsage('alice', 'job-1', 12.5)).toBe(true);
+      expect(await audio.recordUsage('alice', 'job-1', 99)).toBe(false); // a retry adds nothing, not even a corrected figure
+      clock.at += 86_400_000;
+      expect(await audio.recordUsage('alice', 'job-2', 7.5)).toBe(true);
+      expect(await audio.recordUsage('bob', 'job-3', 100)).toBe(true);
+      expect(await audio.usageSince('alice', '2026-12-01T00:00:00Z')).toEqual({ seconds: 20, jobs: 2 });
+      expect(await audio.usageSince('alice', '2026-12-02T00:00:00Z')).toEqual({ seconds: 7.5, jobs: 1 });
+      expect(await audio.usageSince('bob', '2026-12-01T00:00:00Z')).toEqual({ seconds: 100, jobs: 1 });
+    });
+
     it('records the score an import produced, or rejects a result the importer refused', async () => {
       const { audio } = await fresh();
       await queued(audio);
