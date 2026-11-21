@@ -82,13 +82,13 @@ export function memoryJobStore(options: MemoryJobStoreOptions = {}): JobStore {
       return copy(next);
     },
 
-    async complete(id: JobId, result: OmrDocument[], scoreId) {
+    async complete(id: JobId, result: OmrDocument[], scoreId, diagnostic = null) {
       const job = jobs.get(id);
       if (job === undefined || job.status !== 'running') return null;
       job.status = 'succeeded';
       job.result = result;
       job.scoreId = scoreId;
-      job.diagnostic = null;
+      job.diagnostic = diagnostic;
       job.version += 1;
       job.updatedAt = stamp();
       return copy(job);

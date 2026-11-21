@@ -8,10 +8,11 @@ import { createJobBus } from '../events/job-bus.js';
 import { createHostedAuth } from '../auth/hosted.js';
 import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createExporter } from '../export/export.js';
+import { NOTE_EVENTS_SOURCE } from '../imports/note-events.js';
 import { createJobRunner } from '../imports/runner.js';
-import type { JobRunner } from '../imports/runner.js';
-import { imageFormatOf } from '../imports/upload.js';
+import { WorkerError } from '../imports/worker-client.js';
 import type { WorkerClient } from '../imports/worker-client.js';
+import { imageFormatOf } from '../imports/upload.js';
 import { createApplier } from '../ops/applier.js';
 import type { Applier } from '../ops/applier.js';
 import { memoryJobStore } from '../store/memory-job-store.js';
@@ -155,29 +156,29 @@ export function createApi(options: ApiOptions): Api {
   // The import pipeline (V10). Its own change bus and streams, the sibling of the score ones — a job
   // moving is announced the same way a score moving is (ADR-0001's "subscribe"). The job store and
   // streams exist whether or not a worker was configured, so imports can always be *inspected*; the
-  // runner, and therefore the ability to *submit*, exists only when a worker was.
+  // ability to submit an *image* exists only when a worker was (a NoteEvents file needs none, ADR-0040).
   const jobs = options.jobs ?? memoryJobStore();
   const jobBus = createJobBus({ onError: (error) => logger.error('a job subscriber failed', error) });
   const jobStreams = createJobStreams({
     subscriber: jobBus,
     ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
   });
-  const runner: JobRunner | undefined =
-    options.worker === undefined
-      ? undefined
-      : createJobRunner({
-          jobs,
-          blobs,
-          worker: options.worker,
-          // The runner's one write: land the mapped document as a new score through the applier's
-          // server-only import path (V11). It is handed the applier, narrowed by `ScoreImporter` to
-          // exactly `import` — it cannot reach the edit surface or a `ScoreWriter` (ADR-0003).
-          importer: applier,
-          publisher: jobBus,
-          onError: (message, error) => logger.error(message, error),
-        });
+  // The runner always exists now: a NoteEvents import (ADR-0040) needs no worker, only the pure mapper.
+  // Without a worker, an image job that somehow got queued fails with a diagnostic; `submit` of images
+  // is still a 503 (`available` below), so that cannot happen through the API.
+  const runner = createJobRunner({
+    jobs,
+    blobs,
+    worker: options.worker ?? noWorker,
+    // The runner's one write: land the mapped document as a new score through the applier's
+    // server-only import path (V11). It is handed the applier, narrowed by `ScoreImporter` to
+    // exactly `import` — it cannot reach the edit surface or a `ScoreWriter` (ADR-0003).
+    importer: applier,
+    publisher: jobBus,
+    onError: (message, error) => logger.error(message, error),
+  });
   const imports: ImportService = {
-    available: runner !== undefined,
+    available: options.worker !== undefined,
     async submit(owner: Owner, images: Buffer[]) {
       // Content-addressed: identical rescans dedupe, and each key names the exact bytes it stands for
       // (the same principle as the export cache's document digest, Q81). The BlobStore hashes the key
@@ -191,12 +192,22 @@ export function createApi(options: ApiOptions): Api {
         keys.push(key);
       }
       const job = await jobs.create(owner, keys);
-      runner?.wake();
+      runner.wake();
+      return job;
+    },
+    async submitNoteEvents(owner: Owner, document: Buffer) {
+      // The validated document is the source, kept in the BlobStore with the job so a better
+      // quantizer can re-derive the draft later (ADR-0019's re-parse argument). Content-addressed like
+      // the images. The job's `engine` marks it for the runner (see `NOTE_EVENTS_SOURCE`).
+      const key = `note-events-source:${createHash('sha256').update(document).digest('hex')}`;
+      await blobs.put(key, document);
+      const job = await jobs.create(owner, [key], NOTE_EVENTS_SOURCE);
+      runner.wake();
       return job;
     },
     async retry(owner: Owner, id) {
       const job = await jobs.retry(owner, id);
-      if (job !== null) runner?.wake();
+      if (job !== null) runner.wake();
       return job;
     },
     async reparse(owner: Owner, scoreId, options) {
@@ -211,9 +222,10 @@ export function createApi(options: ApiOptions): Api {
       // the route turns it into a clean 4xx, never a 500. The chosen engine (V14e) rides on the new job
       // so the runner can thread it to the worker; `null` leaves the worker its default.
       const source = await jobs.getByScoreId(owner, scoreId);
-      if (source === null) return null;
+      // A NoteEvents draft has no scan to re-run (ADR-0040).
+      if (source === null || source.engine === NOTE_EVENTS_SOURCE) return null;
       const job = await jobs.create(owner, source.imageKeys, options.engine ?? null);
-      runner?.wake();
+      runner.wake();
       return job;
     },
     async sourceImage(owner: Owner, id, index) {
@@ -222,7 +234,7 @@ export function createApi(options: ApiOptions): Api {
       // owner's job), so an out-of-range index and a foreign job both fall to the same null the route
       // turns into a 404. The content-type comes from the bytes, never a stored declaration (ADR-0029).
       const job = await jobs.get(owner, id);
-      if (job === null || index < 0 || index >= job.imageKeys.length) return null;
+      if (job === null || job.engine === NOTE_EVENTS_SOURCE || index < 0 || index >= job.imageKeys.length) return null;
       const bytes = await blobs.get(job.imageKeys[index]!);
       if (bytes === null) return null;
       const format = imageFormatOf(bytes);
@@ -236,7 +248,8 @@ export function createApi(options: ApiOptions): Api {
       // no round-trip. A score with no import behind it returns null, which the route turns into the
       // empty provenance rather than a 404 (a scan-less chart is the common case, not an error).
       const job = await jobs.getByScoreId(owner, scoreId);
-      return job === null ? null : { jobId: job.id, imageCount: job.imageKeys.length };
+      // A NoteEvents job's one blob is JSON, not a page: it has no scan to show (ADR-0040).
+      return job === null ? null : { jobId: job.id, imageCount: job.engine === NOTE_EVENTS_SOURCE ? 0 : job.imageKeys.length };
     },
     reader: jobs,
     streams: jobStreams,
@@ -365,10 +378,6 @@ export function createApi(options: ApiOptions): Api {
           // Constructing the API does not touch the queue; binding a port does.
           // Awaited before resolving: recovery must have finished by the time `listen` returns, as it
           // had when `start` was synchronous (V18), so a caller never observes a half-recovered queue.
-          if (runner === undefined) {
-            resolve({ port: address.port });
-            return;
-          }
           runner.start().then(() => resolve({ port: address.port }), reject);
         });
       });
@@ -380,7 +389,7 @@ export function createApi(options: ApiOptions): Api {
       // server opened, rather than reaching for `closeAllConnections()`, leaves an ordinary
       // in-flight request to complete the way it always did. The job streams are the second kind of
       // stream that never finishes (V10), so they close here too.
-      runner?.stop();
+      runner.stop();
       events.closeAll();
       jobStreams.closeAll();
       return new Promise((resolve) => server.close(() => resolve()));
@@ -406,6 +415,11 @@ function isPublic(request: IncomingMessage): boolean {
   if (path === '/v1/health') return method === 'GET';
   return method === 'GET' && !path.startsWith('/v1/');
 }
+
+/** Stands in for the OMR worker when none is configured: only a NoteEvents job can run (ADR-0040). */
+const noWorker: WorkerClient = {
+  recognize: () => Promise.reject(new WorkerError('no OMR worker is configured, so a scanned image cannot be recognised')),
+};
 
 function round(ms: number): number {
   return Math.round(ms * 1000) / 1000;

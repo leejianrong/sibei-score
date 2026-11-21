@@ -703,6 +703,26 @@ describe('the import verb (V11)', () => {
     expect(result.err).toContain('cannot read');
   });
 
+  const noteEventsFixture = (name: string): string => join(__dirname, '..', 'fixtures', 'note-events', name);
+
+  it('imports a NoteEvents file (ADR-0040) into a draft, naming flagged notes and warnings', async () => {
+    const result = await runImport('import', '--note-events', noteEventsFixture('bass-walking-beats.json'));
+    expect(result.code).toBe(EXIT.ok);
+    expect(result.out).toContain('imported NoteEvents to import-');
+    expect(result.out).toContain('low_confidence_region');
+    const id = /to (import-\S+)/.exec(result.out)![1]!;
+    const shown = await runImport('show', id);
+    expect(shown.out).toContain('!41');
+  });
+
+  it('refuses a NoteEvents file that is unknown-major or malformed with the validation code', async () => {
+    for (const name of ['invalid_unknown_major.json', 'invalid_offset_not_after_onset.json', 'drums-valid-unsupported.json']) {
+      const result = await runImport('import', '--note-events', noteEventsFixture(name));
+      expect(result.code).toBe(EXIT.validation);
+    }
+    expect((await runImport('import', '--note-events')).code).toBe(EXIT.usage);
+  });
+
   it('re-parses an imported chart into a NEW draft (V14e), reusing the kept scan', async () => {
     const path = join(dir, 'chart.png');
     writeFileSync(path, pngBytes());
