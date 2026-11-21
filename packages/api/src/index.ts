@@ -52,6 +52,7 @@ export type {
 } from './blob/blob-store.js';
 export { audioCapFor, parseAudioPlans } from './audio/quota.js';
 export type { AudioQuotaConfig } from './audio/quota.js';
+export { createAudioResultImporter } from './audio/importer.js';
 export { createAudioWorkerService, WORKER_TOKEN_PREFIX } from './audio/worker-service.js';
 export type {
   AudioResultImporter,

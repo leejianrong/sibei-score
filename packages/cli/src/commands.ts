@@ -631,8 +631,12 @@ async function audio(flags: Flags, client: Client, io: Io, json: boolean, cwd: s
           ? JSON.stringify({ job })
           : [
               line(job),
-              ...(job.diagnostic === null ? [] : [`failed: ${job.diagnostic}${job.diagnosticKind === null ? '' : ` (${job.diagnosticKind})`}`]),
-              ...(job.scoreId === null ? [] : [`score: ${job.scoreId}`]),
+              ...(job.diagnostic === null
+                ? []
+                : job.status === 'failed'
+                  ? [`failed: ${job.diagnostic}${job.diagnosticKind === null ? '' : ` (${job.diagnosticKind})`}`]
+                  : job.diagnostic.split('\n').map((w) => `warning: ${w}`)),
+              ...(job.scoreId === null ? [] : [`draft: ${job.scoreId}  (sbscore open ${job.scoreId})`]),
               ...(job.durationSeconds === null ? [] : [`audio seconds: ${job.durationSeconds}`]),
             ].join('\n'),
       );

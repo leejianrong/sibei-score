@@ -4,6 +4,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { ManagedBlobStore } from '../blob/blob-store.js';
 import { createAudioService } from '../audio/service.js';
 import type { AudioQuotaConfig } from '../audio/quota.js';
+import { createAudioResultImporter } from '../audio/importer.js';
 import { createAudioWorkerService } from '../audio/worker-service.js';
 import type { AudioResultImporter, AudioWorkerOptions } from '../audio/worker-service.js';
 import { workerRoute } from './worker-routes.js';
@@ -82,8 +83,8 @@ export interface ApiOptions {
    */
   audioWorker?: AudioWorkerOptions;
   /**
-   * Where a succeeded job's NoteEvents result goes next: validate, quantize, import as a draft (SIB2-E9).
-   * A port, left empty until that service exists on main; without it a job succeeds with its result stored.
+   * Where a succeeded job's NoteEvents result goes next: validate, quantize, import as a draft. Defaults to
+   * `createAudioResultImporter` over the announcing applier; injected only so a test can stub the join.
    */
   audioImporter?: AudioResultImporter;
   /**
@@ -366,7 +367,8 @@ export function createApi(options: ApiOptions): Api {
           jobs: audioJobs,
           blobs,
           worker: options.audioWorker,
-          ...(options.audioImporter === undefined ? {} : { importer: options.audioImporter }),
+          // The join (SIB2-E10): by default a completed job becomes a draft, landed server-only under its owner.
+          importer: options.audioImporter ?? createAudioResultImporter({ applier: announcing }),
         });
 
   const server = createHttpServer((request, response) => {
