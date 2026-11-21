@@ -32,6 +32,12 @@ class PrelabelTest(unittest.TestCase):
         self.assertTrue(all(r["status"] == "pre-labelled" and r["origin"] == "engine" for r in pre))
         self.assertEqual(pre[0]["box"], {"x": 100, "y": 300, "w": 1400, "h": 60})
 
+    def test_regions_carry_their_system_for_grouping(self):
+        pre = _pre()
+        self.assertEqual([r.get("system") for r in pre], [0, 0, 1, 0, 1])
+        recs, _ = labels.reconcile(pre, pre)
+        self.assertEqual([r.get("system") for r in recs], [0, 0, 1, 0, 1])
+
     def test_every_pre_label_is_valid(self):
         labels.validate_regions(_pre(), RASTER["width"], RASTER["height"])
 
