@@ -10,3 +10,7 @@ weights/
 out/
 *.pkl
 tests/
+
+# Secrets (SIB2-205).
+.env
+.env.*
