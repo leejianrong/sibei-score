@@ -12,7 +12,8 @@ import { resolveBarAccidentals } from './accidentals.js';
 import { planSystems } from './grid.js';
 import { buildFurniture, footerReserve } from './furniture.js';
 import type { LayoutFurniture } from './furniture.js';
-import type { LayoutBarItem, LayoutSlur, LayoutText, LayoutTie } from './items.js';
+import type { LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
+import { ottavaShifts, planOttavas } from './ottava.js';
 import type { PageSpec, PageSpecInput } from './page.js';
 import { resolvePageSpec } from './page.js';
 import type { AllocatedBar, BarPrefix } from './widths.js';
@@ -62,6 +63,11 @@ export interface LayoutSystem {
   ties: LayoutTie[];
   /** The slurs on this system, a half-slur where one crosses a system break (SIB2-168). */
   slurs: LayoutSlur[];
+  /** The ottava lines on this system (SIB2-184); empty for almost every chart. */
+  ottavas: LayoutOttava[];
+  /** Units above the top staff line of an 8va line, and below the bottom staff line of an 8vb one. */
+  ottavaAboveOffset?: number;
+  ottavaBelowOffset?: number;
 }
 
 export interface LayoutPage {
@@ -105,6 +111,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   });
   const tiesBySystem = planTies(score, systemOfNote);
   const slursBySystem = planSlurs(score, systemOfNote);
+  const ottavasBySystem = planOttavas(score, systemOfNote);
+  const shifts = ottavaShifts(score);
 
   // Which systems draw the clef and key signature (SIB2-173). Widths depend on it, pagination does not
   // (a system's height comes from its notes, never its width), so for the `page` policy the systems are
@@ -120,6 +128,9 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
       const vertical = systemVertical(
         {
           bars,
+          shifts,
+          ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up'),
+          ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down'),
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
           hasRehearsalMark:
             bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))) ||
@@ -140,9 +151,12 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         belowStaff: vertical.belowStaff,
         chordBaselineOffset: vertical.chordBaselineOffset,
         staveY: 0,
-        bars: allocated.map((entry) => buildBar(score, entry)),
+        bars: allocated.map((entry) => buildBar(score, entry, shifts)),
         ties: tiesBySystem.get(index) ?? [],
         slurs: slursBySystem.get(index) ?? [],
+        ottavas: ottavasBySystem.get(index) ?? [],
+        ...(vertical.ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset: vertical.ottavaAboveOffset }),
+        ...(vertical.ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset: vertical.ottavaBelowOffset }),
       };
     });
 
@@ -287,7 +301,12 @@ function hasMark(section: { letter: string | null; name: string | null } | null)
   return section !== null && (section.letter != null || (section.name != null && section.name !== ''));
 }
 
-function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
+/** The note item's `ottava` field only when the note is under a line, so an unmarked chart's items are unchanged. */
+function ottavaField(shift: 'up' | 'down' | undefined): { ottava?: 'up' | 'down' } {
+  return shift === undefined ? {} : { ottava: shift };
+}
+
+function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'down'>): LayoutBar {
   const { bar } = entry;
   return {
     barId: bar.id,
@@ -298,11 +317,11 @@ function buildBar(score: Score, entry: AllocatedBar): LayoutBar {
     prefix: entry.prefix,
     prefixWidth: entry.prefixWidth,
     metrics: barMetrics(bar, score.meta.time),
-    items: buildBarItems(score, bar, entry),
+    items: buildBarItems(score, bar, entry, shifts),
   };
 }
 
-function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarItem[] {
+function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar, shifts: Map<Id, 'up' | 'down'>): LayoutBarItem[] {
   const time = score.meta.time;
   const items: LayoutBarItem[] = [];
 
@@ -354,6 +373,7 @@ function buildBarItems(score: Score, bar: Bar, entry: AllocatedBar): LayoutBarIt
         beat: beatOfOnset(item.onset, time),
         duration: item.duration,
         pitch: item.pitch,
+        ...ottavaField(shifts.get(item.id)),
         accidental: item.accidental,
         accidentalGlyph: accidentals.get(item.id) ?? null,
         tie: item.tie,

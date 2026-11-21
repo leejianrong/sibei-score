@@ -127,6 +127,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore tuplet rm  <id> <address>        take the bracket off the tuplet holding <address>
   sbscore slur set <id> <from> <to> [--placement above|below|auto]   a slur from one note to a later one
   sbscore slur rm  <id> <slur-id|from>
+  sbscore ottava set <id> <from> <to> --up|--down   an 8va (--up) or 8vb (--down) line over a run of notes
+  sbscore ottava rm  <id> <ottava-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
   sbscore break rm  <id> <bar>
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
@@ -302,6 +304,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return tuplet(flags, client, io, json);
     case 'slur':
       return slur(flags, client, io, json);
+    case 'ottava':
+      return ottava(flags, client, io, json);
     case 'break':
       return lineBreak(flags, client, io, json);
     case 'ending':
@@ -1078,6 +1082,32 @@ async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Prom
  * bars. `rm` takes the `slur-N` id `show` prints, or the note a single slur starts on. The server judges
  * order and that both are notes.
  */
+/**
+ * `sbscore ottava set <id> <from> <to> --up|--down` and `ottava rm <id> <ottava-id|from>` (SIB2-184): an 8va
+ * (`--up`: written an octave below the sound, line above the staff) or 8vb (`--down`) line over a run of notes.
+ * The notes keep their sounding pitch. Same addresses as `slur set`; the server judges order and overlap.
+ */
+async function ottava(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `ottava ${sub}`);
+  if (sub === 'set') {
+    const target = requiredPositional(flags, 3, 'the note it starts on', 'ottava set');
+    const to = requiredPositional(flags, 4, 'the note it ends on', 'ottava set');
+    const up = flags.switches.has('up');
+    const down = flags.switches.has('down');
+    if (up === down) {
+      throw new CliError(EXIT.usage, 'usage', 'ottava set needs exactly one of --up (8va) or --down (8vb)');
+    }
+    const payload = { to, shift: up ? 'up' : 'down' };
+    return submit(flags, client, io, json, id, [{ type: 'ottava.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    const target = requiredPositional(flags, 3, 'an ottava id or the note it starts on', 'ottava rm');
+    return submit(flags, client, io, json, id, [{ type: 'ottava.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'ottava takes set or rm');
+}
+
 async function slur(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `slur ${sub}`);

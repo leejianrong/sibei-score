@@ -7,6 +7,7 @@ import type {
   Id,
   KeySignature,
   Score,
+  OctaveShift,
   SpannerPlacement,
   StartBarline,
   TieRole,
@@ -246,6 +247,22 @@ export interface SlurSetPayload {
 export type SlurRmPayload = Record<string, never>;
 
 /**
+/**
+ * An ottava line (8va or 8vb) from the target note to `to` (SIB2-184), a `Spanner` of kind `ottava`. `shift` is
+ * `up` (8va: written an octave below the sound, line above the staff) or `down` (8vb). The notes keep their
+ * sounding pitch; they are only drawn shifted. Same pair again is an upsert that changes the shift.
+ */
+export interface OttavaSetPayload {
+  to: string;
+  shift: OctaveShift;
+  /** *Recorded.* The id of the ottava this set landed on. */
+  id?: Id;
+}
+
+/** Remove an ottava, named by its id (`ottava-1`, which `show` prints) or by the note it starts on. */
+export type OttavaRmPayload = Record<string, never>;
+
+/**
  * A fermata over the target note or rest (SIB2-183). Setting one that is already there changes nothing;
  * `fermata.rm` on an item with none is refused so a typo does not read as success.
  */
@@ -329,6 +346,8 @@ export type Operation =
   | { type: 'fermata.rm'; target: string; payload?: FermataRmPayload }
   | { type: 'slur.set'; target: string; payload: SlurSetPayload }
   | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
+  | { type: 'ottava.set'; target: string; payload: OttavaSetPayload }
+  | { type: 'ottava.rm'; target: string; payload?: OttavaRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
   | { type: 'bar.rm'; target: string };
 
@@ -360,6 +379,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'fermata.rm',
   'slur.set',
   'slur.rm',
+  'ottava.set',
+  'ottava.rm',
   'bar.add',
   'bar.rm',
 ];

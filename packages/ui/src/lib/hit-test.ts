@@ -10,6 +10,7 @@ import {
 } from '@sibei/engrave';
 import type { MusicFont, MusicFontName } from '@sibei/engrave';
 import type { LayoutPage, NoteItem, RestItem } from '@sibei/layout';
+import { writtenPitch } from '@sibei/layout';
 import type { Id } from '@sibei/model';
 
 /**
@@ -55,7 +56,7 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
       for (const placed of placeItems(font, bar)) {
         const { item } = placed;
         const glyph = item.kind === 'note' ? noteheadFor(item.duration) : restFor(item.duration);
-        const position = item.kind === 'note' ? staffPosition(item.pitch) : restPosition(item.duration);
+        const position = item.kind === 'note' ? staffPosition(writtenPitch(item.pitch, item.ottava)) : restPosition(item.duration);
         const y = positionY(position, system.staveY);
         const box = font.box(glyph);
         boxes.push({

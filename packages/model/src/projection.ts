@@ -101,7 +101,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
  * `slur set` accepts and the id `slur rm` accepts. Placement is printed only when it was chosen.
  */
 function slurLines(score: Score): string[] {
-  const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur');
+  const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur' || spanner.kind === 'ottava');
   if (spanners.length === 0) return [];
   const addressOf = (id: string): string => {
     for (const bar of score.bars) {
@@ -110,9 +110,11 @@ function slurLines(score: Score): string[] {
     }
     return id;
   };
-  return spanners.map(
-    (slur) =>
-      `slur  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)}${slur.placement === undefined ? '' : ` ${slur.placement}`} ${slur.id}`,
+  return spanners.map((slur) =>
+    slur.kind === 'ottava'
+      ? // `ottava  bar1.n2 -> bar2.n3 8va ottava-1` (SIB2-184): written lower than the notes sound for 8va.
+        `ottava  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)} ${slur.octaveShift === 'down' ? '8vb' : '8va'} ${slur.id}`
+      : `slur  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)}${slur.placement === undefined ? '' : ` ${slur.placement}`} ${slur.id}`,
   );
 }
 
