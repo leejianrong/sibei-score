@@ -30,6 +30,21 @@ export interface AudioLimits {
   contentTypes: readonly string[];
 }
 
+/**
+ * What one user may have in flight at once (SEC H4): jobs that are `awaiting-upload`, `queued` or `running`
+ * hold audio in the blob store, on the same disk as the database in a single-VM deploy. Absent means no cap,
+ * which is the local default; `sbscore serve` supplies `HOSTED_AUDIO_HOLD` in hosted mode.
+ */
+export interface AudioHoldCaps {
+  maxInFlightJobs: number;
+  maxInFlightBytes: number;
+}
+
+export const HOSTED_AUDIO_HOLD: AudioHoldCaps = { maxInFlightJobs: 3, maxInFlightBytes: 300 * 1024 * 1024 };
+
+/** The key a presigned PUT writes to. Never read by anything; confirm copies it onto the job's own key (SEC M1). */
+export const uploadKeyFor = (jobId: string): string => `audio-upload:${jobId}`;
+
 export const DEFAULT_AUDIO_LIMITS: AudioLimits = {
   maxBytes: 100 * 1024 * 1024,
   contentTypes: [
@@ -85,7 +100,7 @@ export interface AudioService {
   reader: AudioJobReader;
   create(owner: Owner, input: CreateAudioInput): Promise<CreateAudioResult>;
   /** The local-mode upload: store the bytes under the job's key. `null` unless the job is awaiting an upload. */
-  receive(owner: Owner, id: AudioJobId, bytes: Buffer): Promise<AudioJob | null>;
+  receive(owner: Owner, id: AudioJobId, bytes: Buffer): Promise<AudioJob | null | 'too-large'>;
   /** The client says it has uploaded: check the store, then queue the job. */
   confirm(owner: Owner, id: AudioJobId): Promise<ConfirmAudioResult>;
   /**
@@ -132,6 +147,8 @@ export interface AudioServiceOptions {
   limits?: Partial<AudioLimits>;
   /** The audio-second allowance (SIB2-140). Absent means no cap. */
   quota?: AudioQuotaConfig;
+  /** Per-user in-flight jobs and bytes (SEC H4). Absent means no cap. */
+  hold?: AudioHoldCaps;
   /** How long a presigned upload URL lives, seconds. */
   uploadUrlTtlSeconds?: number;
   /** Called after a job becomes `queued` or is requeued, so a future in-process dispatcher can wake. */
@@ -142,12 +159,12 @@ export interface AudioServiceOptions {
 export function createAudioService(options: AudioServiceOptions): AudioService {
   const { jobs, blobs } = options;
   const limits: AudioLimits = { ...DEFAULT_AUDIO_LIMITS, ...options.limits };
-  const ttl = options.uploadUrlTtlSeconds ?? 900;
+  const ttl = options.uploadUrlTtlSeconds ?? 600;
   const now = options.now ?? (() => new Date());
 
   function target(job: AudioJob): UploadTarget {
     if (isPresigning(blobs)) {
-      const signed = blobs.presignPut(job.audioKey, { expiresInSeconds: ttl, contentType: job.contentType });
+      const signed = blobs.presignPut(uploadKeyFor(job.id), { expiresInSeconds: ttl, contentType: job.contentType });
       return { url: signed.url, method: 'PUT', headers: signed.headers, expiresAt: signed.expiresAt, viaApi: false };
     }
     return {
@@ -183,6 +200,28 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
         `. It renews on ${period.end.slice(0, 10)}. Until then you can delete jobs you no longer need, or ask the operator for a higher allowance.`,
       Math.max(1, Math.ceil((Date.parse(period.end) - now().getTime()) / 1000)),
     );
+  }
+
+  /** SEC H4: refuse a new job past the caller's in-flight job or byte budget. */
+  async function enforceHold(owner: Owner, incomingBytes: number): Promise<void> {
+    const hold = options.hold;
+    if (hold === undefined) return;
+    const live = (await jobs.list(owner)).filter((job) => job.status === 'awaiting-upload' || job.status === 'queued' || job.status === 'running');
+    if (live.length >= hold.maxInFlightJobs) {
+      throw new QuotaError(
+        'audio-jobs',
+        hold.maxInFlightJobs,
+        `you already have ${live.length} recordings waiting or being transcribed (limit ${hold.maxInFlightJobs}); wait for one to finish or delete one`,
+      );
+    }
+    const held = live.reduce((sum, job) => sum + job.sizeBytes, 0);
+    if (held + incomingBytes > hold.maxInFlightBytes) {
+      throw new QuotaError(
+        'audio-bytes',
+        hold.maxInFlightBytes,
+        `your waiting recordings already hold ${Math.round(held / 1048576)} MB (limit ${Math.round(hold.maxInFlightBytes / 1048576)} MB); wait for one to finish or delete one`,
+      );
+    }
   }
 
   return {
@@ -222,6 +261,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
         return { ok: false, kind: 'validation', message: 'durationSeconds must be a positive number' };
       }
       await enforceAllowance(owner);
+      await enforceHold(owner, size);
       const job = await jobs.create(owner, {
         audioKey: `audio:${randomUUID()}`,
         contentType,
@@ -231,12 +271,17 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
         declaredDurationSeconds: typeof duration === 'number' ? duration : null,
       });
       await options.ledger?.record(owner, job.audioKey, 'audio');
+      // The key a presigned PUT writes to is ledgered too, so the sweep finds anything written there after the
+      // job is gone (SEC M1).
+      if (isPresigning(blobs)) await options.ledger?.record(owner, uploadKeyFor(job.id), 'audio');
       return { ok: true, job, upload: target(job) };
     },
 
     async receive(owner, id, bytes) {
       const job = await jobs.get(owner, id);
       if (job === null || job.status !== 'awaiting-upload') return null;
+      // The declared size is what was budgeted (SEC H4); a body bigger than it is not the upload that was agreed.
+      if (bytes.length > job.sizeBytes) return 'too-large';
       await blobs.put(job.audioKey, bytes);
       return job;
     },
@@ -246,18 +291,29 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       if (job === null) return { ok: false, kind: 'no-such-job' };
       // Idempotent: confirming a job that has already moved on is not an error, it is the same answer.
       if (job.status !== 'awaiting-upload') return { ok: true, job };
-      const stored = await blobs.stat(job.audioKey);
+      const presigned = isPresigning(blobs);
+      const sourceKey = presigned ? uploadKeyFor(job.id) : job.audioKey;
+      const stored = await blobs.stat(sourceKey);
       if (stored === null) {
         return { ok: false, kind: 'audio-not-uploaded', message: 'no audio has arrived for this job yet; upload it first' };
       }
       if (stored.size > limits.maxBytes) {
-        await blobs.delete(job.audioKey);
+        await blobs.delete(sourceKey);
         return {
           ok: false,
           kind: 'audio-too-large',
           message: `the uploaded audio is ${stored.size} bytes; the cap is ${limits.maxBytes}`,
           maxBytes: limits.maxBytes,
         };
+      }
+      if (presigned) {
+        // The presigned URL stays valid until it expires, and it can write but not be unsigned. Move the bytes
+        // onto the job's own key, which no URL can write, and drop the upload key: after this a late PUT can
+        // only recreate an object nothing reads, and the sweep removes it (SEC M1).
+        if (!(await blobs.copy(sourceKey, job.audioKey))) {
+          return { ok: false, kind: 'audio-not-uploaded', message: 'no audio has arrived for this job yet; upload it first' };
+        }
+        await blobs.delete(sourceKey);
       }
       const queued = await jobs.markUploaded(owner, id, stored.size);
       options.onQueued?.();
@@ -287,6 +343,7 @@ export function createAudioService(options: AudioServiceOptions): AudioService {
       if (removed === null) return false;
       // The audio goes with the job (decision 16). A blob that was never uploaded is not an error.
       await blobs.delete(removed.audioKey);
+      await blobs.delete(uploadKeyFor(removed.id));
       await options.ledger?.forget(owner, removed.audioKey);
       await blobs.delete(`audio-result:${removed.id}`);
       return true;

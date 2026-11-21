@@ -53,6 +53,8 @@ services:
       # The audio worker's bearer tokens, comma-separated (ADR-0034 audio worker protocol). The API keeps only
       # their SHA-256. Unused until the audio endpoints are deployed; set it now so the secret is in place.
       SBSCORE_AUDIO_WORKER_TOKENS: ${SBSCORE_AUDIO_WORKER_TOKENS:-}
+      # Per-user audio allowance (SEC H4): 1 hour a month by default, not unlimited. In-flight caps default on in hosted mode.
+      SBSCORE_AUDIO_FREE_SECONDS: ${SBSCORE_AUDIO_FREE_SECONDS:-3600}
       # The application role, not the superuser: row-level security does not bind a superuser, and the
       # API refuses to start as one (ADR-0034 decision 2).
       SBSCORE_DATABASE_URL: postgres://sibei_app:${SIBEI_APP_PASSWORD:?set SIBEI_APP_PASSWORD}@postgres:5432/sibei
