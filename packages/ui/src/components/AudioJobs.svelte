@@ -145,12 +145,14 @@
               {#if job.progress !== null}
                 <span>{Math.round(job.progress.fraction * 100)}%, {job.progress.stage}</span>
               {/if}
-              {#if job.status === 'failed' && job.diagnostic !== null}<span>{job.diagnostic}</span>{/if}
+              {#if job.diagnostic !== null}
+                <span>{job.status === 'failed' ? job.diagnostic : `Draft warnings: ${job.diagnostic.split('\n').join('; ')}`}</span>
+              {/if}
               <span>{relativeTime(job.updatedAt)}</span>
             </div>
             <div class="act">
               {#if job.scoreId !== null}
-                <a class="text" href={`#/score/${encodeURIComponent(job.scoreId)}`}>Open the chart</a>
+                <a class="text" href={`#/score/${encodeURIComponent(job.scoreId)}`}>Open the draft</a>
               {/if}
               {#if job.status === 'failed'}
                 <button class="text" type="button" onclick={() => retry(job.id)}>Retry</button>

@@ -33,6 +33,11 @@ export function validateNoteEventsUpload(bytes: Buffer): NoteEventsCheck {
   } catch {
     return refuse('malformed', 'the upload is not valid JSON', ['document is not valid JSON']);
   }
+  return checkNoteEvents(raw);
+}
+
+/** The same checks on an already-parsed document: the audio worker's `complete` hands one over as JSON. */
+export function checkNoteEvents(raw: unknown): NoteEventsCheck {
   let document: NoteEvents;
   try {
     document = parseNoteEvents(raw);

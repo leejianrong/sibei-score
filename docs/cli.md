@@ -189,7 +189,7 @@ to put that name in.
 ```sh
 sbscore audio submit take.wav [--instrument piano]   # uploads, queues, prints the job id
 sbscore audio list                                   # your audio jobs, newest first
-sbscore audio show <id>                              # status, progress, the reason if it failed
+sbscore audio show <id>                              # status, progress, the reason if it failed, or the draft and its warnings
 sbscore audio retry <id>                             # requeue a failed job
 sbscore audio rm <id>                                # delete the job and its audio
 ```
@@ -198,6 +198,12 @@ A recording becomes a job that a separate transcription worker picks up, so `sub
 job waits `queued` until a worker takes it. Nothing else is affected while no worker is running. On a hosted
 server the file goes straight to object storage by a presigned URL; locally it goes through the API. The
 browser's equivalent is the Audio page (`#/audio`, "Transcribe audio" in the library).
+
+When the worker finishes, the result becomes an editable draft in your library: `audio show` prints
+`draft: <id>  (sbscore open <id>)` and any warnings (low-confidence notes, a guessed barring, a duration that
+disagrees with the file), and the Audio page's "Open the draft" link goes to it. A recording with no sound gives
+an empty one-bar draft with the `silent_input` warning. A result that is not valid NoteEvents fails the job and
+is not counted against your audio-seconds.
 
 ```sh
 sbscore audio usage          # audio-seconds transcribed this month, and the allowance if there is one

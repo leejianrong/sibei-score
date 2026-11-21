@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApi, memoryAudioJobStore, silentLogger } from '@sibei/api';
 import type { Api } from '@sibei/api';
@@ -72,7 +74,7 @@ describe('the free-tier cap', () => {
 
     const worker = { authorization: `Bearer ${WORKER}` };
     const claimed = (await http('POST', '/v1/worker/audio/claim', {}, worker)).body.job;
-    await http('POST', `/v1/worker/audio/jobs/${id}/complete`, { leaseToken: claimed.leaseToken, durationSeconds: 60, result: { inline: { ok: true } } }, worker);
+    await http('POST', `/v1/worker/audio/jobs/${id}/complete`, { leaseToken: claimed.leaseToken, durationSeconds: 60, result: { inline: JSON.parse(readFileSync(join(__dirname, '..', 'fixtures', 'note-events', 'valid_silent_voice.json'), 'utf8')) } }, worker);
 
     expect((await http('GET', '/v1/audio/usage')).body.usage).toMatchObject({ seconds: 60, capSeconds: 60 });
     expect((await declare(1)).status).toBe(403);
