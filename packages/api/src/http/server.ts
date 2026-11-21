@@ -5,6 +5,7 @@ import type { ManagedBlobStore } from '../blob/blob-store.js';
 import { createAudioService } from '../audio/service.js';
 import type { AudioQuotaConfig } from '../audio/quota.js';
 import { createAudioResultImporter } from '../audio/importer.js';
+import { guardLanding } from '../account/landing.js';
 import { createAudioWorkerService } from '../audio/worker-service.js';
 import type { AudioResultImporter, AudioWorkerOptions } from '../audio/worker-service.js';
 import { workerRoute } from './worker-routes.js';
@@ -246,6 +247,13 @@ export function createApi(options: ApiOptions): Api {
           eraseData: (owner) => eraser.erase(owner),
           ...options.hosted,
         });
+  // Every import lands through this: a draft for an account deleted mid-import is refused (SIB2-202). A local
+  // install has no accounts to lose, so there it is the applier itself.
+  const hostedAuth = options.hosted?.auth;
+  const landing =
+    hostedAuth === undefined
+      ? announcing
+      : guardLanding(announcing, async (owner) => (await hostedAuth.getUser(owner)) !== null, store);
   const authenticate = hosted?.authenticate ?? options.authenticate ?? resolveLocalPrincipal;
   const hostedHosts = new Set<string>([
     ...(hosted?.hosts ?? []),
@@ -266,7 +274,7 @@ export function createApi(options: ApiOptions): Api {
     // The runner's one write: land the mapped document as a new score through the applier's
     // server-only import path (V11). It is handed the applier, narrowed by `ScoreImporter` to
     // exactly `import` — it cannot reach the edit surface or a `ScoreWriter` (ADR-0003).
-    importer: announcing,
+    importer: landing,
     publisher: jobBus,
     onError: (message, error) => logger.error(message, error),
   });
@@ -396,7 +404,7 @@ export function createApi(options: ApiOptions): Api {
           blobs,
           worker: options.audioWorker,
           // The join (SIB2-E10): by default a completed job becomes a draft, landed server-only under its owner.
-          importer: options.audioImporter ?? createAudioResultImporter({ applier: announcing }),
+          importer: options.audioImporter ?? createAudioResultImporter({ applier: landing }),
         });
 
   const server = createHttpServer((request, response) => {

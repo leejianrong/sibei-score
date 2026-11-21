@@ -17,7 +17,8 @@ import type { AuthStore, UserId } from '../store/auth.js';
  * rows, the session, and the cookie.
  *
  * The content is erased first (`eraseData`) and the identity last, so a failure leaves the person signed
- * in and able to try again.
+ * in and able to try again; it is erased once more after the identity (SIB2-202) to catch an import that
+ * landed in between.
  */
 export interface AccountRoutesOptions {
   auth: AuthStore;
@@ -63,6 +64,10 @@ export function createAccountRoutes(options: AccountRoutesOptions): AccountRoute
 
       await options.eraseData(userId);
       await options.auth.deleteUser(userId);
+      // Once more, now the identity is gone: an import that passed its owner check before the deletion and
+      // committed after the first erase would otherwise be an orphan (`account/landing.ts`). Idempotent, and
+      // best effort: the person is already deleted, so a failure here must not turn the 204 into an error.
+      await options.eraseData(userId).catch(() => undefined);
       response.setHeader('set-cookie', options.clearSessionCookie());
       response.setHeader('cache-control', 'no-store');
       response.writeHead(204).end();
