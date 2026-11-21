@@ -121,6 +121,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               run through this CLI's credentials and --url; stdout carries only the protocol
   sbscore auth login                       sign in to a hosted server: prints a code, you approve it in the
               browser, and the CLI keeps the API token it is given (never a password or a GitHub token)
+  sbscore auth login --scopes read --name ci   ask for fewer scopes and a name; the approval page
+              pre-fills them, and what the person approves is what the token gets
   sbscore auth login --token-stdin         the headless fallback: read a token on stdin and keep it
               (--token VALUE works too, but leaves the token in your shell history)
   sbscore auth status                      who this server thinks you are; exit 7 when signed out

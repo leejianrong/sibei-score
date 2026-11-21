@@ -224,9 +224,13 @@ Open the address in a browser you are already signed in to, enter the code, and 
 scopes there. The CLI is handed the token once and keeps it. After that every verb works unchanged against that
 server.
 
+To ask for less, pass `--scopes read` (or `read,write`) and `--name ci`: the server puts them in the address it
+prints, and the approval page opens with them filled in. They are a request, not a grant: the person approving
+can change both, and what they approve is what the token gets.
+
 | Verb | What it does |
 |---|---|
-| `auth login` | The device flow above. `--json` prints one line for the prompt and one for the result |
+| `auth login [--scopes S] [--name N]` | The device flow above. `--json` prints one line for the prompt and one for the result |
 | `auth login --token-stdin` | The headless fallback: read a token from stdin, check it against the server, keep it. `--token VALUE` also works, but leaves the token in your shell history and process list |
 | `auth status` | Who the server thinks you are, where the credential came from, when it expires. Exit `7` when signed out |
 | `auth token` | Prints the token and nothing else, so `$(sbscore auth token)` is a token |

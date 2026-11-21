@@ -735,6 +735,25 @@ async function startDevice(): Promise<{ deviceCode: string; userCode: string; re
   return { deviceCode: body.deviceCode, userCode: body.userCode, reply };
 }
 
+describe('a device start that asks for scopes and a name', () => {
+  it('echoes the request into the approval link and rejects an unknown scope', async () => {
+    const asked = await raw('/v1/auth/device', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scopes: ['read'], name: ' ci ' }),
+    });
+    expect(asked.status).toBe(200);
+    expect(asked.json().verificationUri).toBe('http://127.0.0.1/#/device?scopes=read&name=ci');
+    const bad = await raw('/v1/auth/device', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scopes: ['mcp:write'] }),
+    });
+    expect(bad.status).toBe(422);
+    expect(bad.json().error.kind).toBe('invalid-scopes');
+  });
+});
+
 const approve = (cookie: string, body: unknown): Promise<Reply> => jsonPost('/v1/auth/device/approve', body, cookie);
 const poll = (deviceCode: string): Promise<Reply> =>
   raw('/v1/auth/device/token', {

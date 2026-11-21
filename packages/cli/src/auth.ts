@@ -20,8 +20,10 @@ import type { Io } from './commands.js';
  * token and nothing else. `login`, `status` and every error leave it out, in both output modes, so a
  * credential does not end up in a terminal recording or a CI log by being displayed on the way past.
  *
- * What the browser decides, not the CLI: the token's name and scopes are chosen where the code is
- * approved, because that is the step where a human says yes to something specific.
+ * What the browser decides: the token's name and scopes are settled where the code is approved, because
+ * that is the step where a human says yes to something specific. `login --scopes read --name ci` only
+ * *asks* — the server puts the request in the approval link, the page pre-fills it, and the person's
+ * choice is what the token gets.
  */
 
 export interface AuthContext {
@@ -73,6 +75,20 @@ function notHosted(baseUrl: string): CliError {
   );
 }
 
+function requestedFrom(flags: Flags): { scopes?: string[]; name?: string } {
+  const out: { scopes?: string[]; name?: string } = {};
+  const scopes = flags.options.get('scopes');
+  if (scopes !== undefined) {
+    out.scopes = scopes.split(',').map((s) => s.trim()).filter((s) => s !== '');
+    if (out.scopes.length === 0 || out.scopes.some((s) => s !== 'read' && s !== 'write')) {
+      throw new CliError(EXIT.usage, 'usage', '--scopes takes read, write or read,write');
+    }
+  }
+  const name = flags.options.get('name');
+  if (name !== undefined) out.name = name;
+  return out;
+}
+
 async function login(flags: Flags, context: AuthContext): Promise<ExitCode> {
   const { baseUrl } = context;
 
@@ -93,7 +109,8 @@ async function login(flags: Flags, context: AuthContext): Promise<ExitCode> {
   const anonymous = createClient(baseUrl);
   await requireHosted(anonymous, baseUrl);
 
-  const device = await anonymous.startDevice();
+  const requested = requestedFrom(flags);
+  const device = await anonymous.startDevice(requested);
   const minutes = Math.round(device.expiresIn / 60);
   if (context.json) {
     context.io.out(

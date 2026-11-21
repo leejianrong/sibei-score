@@ -118,7 +118,7 @@ export interface Client {
   /** Who this server says is asking (V20b). `local` has no accounts; `hosted` names the user, or is a 401. */
   me(): Promise<MeWire>;
   /** Begin a device authorisation (V21a). The CLI keeps `deviceCode`; a person types `userCode`. */
-  startDevice(): Promise<DeviceStartWire>;
+  startDevice(request?: { scopes?: readonly string[]; name?: string }): Promise<DeviceStartWire>;
   /** One poll. Pending and slow-down are answers, not failures; a token is returned exactly once. */
   pollDevice(deviceCode: string): Promise<DevicePollWire>;
 }
@@ -362,7 +362,7 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
   return {
     health: () => call('GET', '/v1/health'),
     me: () => call('GET', '/v1/me'),
-    startDevice: () => call('POST', '/v1/auth/device', {}),
+    startDevice: (request = {}) => call('POST', '/v1/auth/device', request),
     async pollDevice(deviceCode: string): Promise<DevicePollWire> {
       try {
         const granted = await call<Omit<Extract<DevicePollWire, { status: 'authorized' }>, 'status'>>(
