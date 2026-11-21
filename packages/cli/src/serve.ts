@@ -687,7 +687,7 @@ export async function serve(flags: Flags, io: Io, json: boolean): Promise<ExitCo
           blobs,
           audioJobs: audioJobStore,
           lifetimes: {
-            export: positiveEnv('SBSCORE_SWEEP_EXPORT_DAYS', 7) * 24 * 60 * 60 * 1000,
+            export: positiveEnv('SBSCORE_SWEEP_EXPORT_DAYS', 1) * 24 * 60 * 60 * 1000,
             audio: positiveEnv('SBSCORE_SWEEP_AUDIO_HOURS', 24) * 60 * 60 * 1000,
           },
           onError: (message, error) => consoleLogger.error(message, error),

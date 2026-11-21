@@ -26,7 +26,7 @@ export interface SweepLifetimes {
 }
 
 export const DEFAULT_SWEEP_LIFETIMES: SweepLifetimes = {
-  export: 7 * 24 * 60 * 60 * 1000,
+  export: 24 * 60 * 60 * 1000,
   audio: 24 * 60 * 60 * 1000,
 };
 
