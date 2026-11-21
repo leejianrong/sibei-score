@@ -110,6 +110,40 @@ describe('quantizeNoteEvents (ADR-0040)', () => {
     expect(r.warnings.map((w) => w.code)).toEqual(['no-downbeats']);
   });
 
+  it('starts bar 1 at the first note when every downbeat is null (real transcriber output)', () => {
+    // beats from 0; first note on beat index 3 -> bar 1 begins there, not at beat 0
+    const beats = beatsAt(0.5, 16).map((b) => ({ t_s: b.t_s, is_downbeat: null }));
+    const r = quantizeNoteEvents(doc([[1.5, 1.95, 60], [2.0, 2.45, 62]], beats));
+    expect(r.bars[0]!.number).toBe(1);
+    expect(r.bars[0]!.items[0]).toMatchObject({ kind: 'note', onset: 0 });
+    expect(r.warnings.map((w) => w.code)).toContain('no-downbeats');
+  });
+
+  it('copes with the audio repo fixtures (null downbeats, silence)', () => {
+    const bass = load('valid_bass_line.json');
+    for (const b of bass.beats) b.is_downbeat = null;
+    const r = quantizeNoteEvents(bass);
+    expect(r.bars.length).toBeGreaterThan(0);
+    for (const bar of r.bars) expect(sum(bar.items)).toBe(4 * Q);
+    const silent = quantizeNoteEvents(load('valid_silent_voice.json'));
+    expect(silent.bars).toEqual([]);
+  });
+
+  it('survives heavy onset jitter and soft-attack lateness', () => {
+    // 100 bpm, eighth notes, onsets jittered +-45 ms (about +-0.07 beat) by a fixed pattern
+    const spb = 0.6;
+    const jit = [0.03, -0.04, 0.045, -0.02, 0.01, 0.04, -0.045, 0.02];
+    const notes = Array.from({ length: 16 }, (_, i): [number, number, number] => {
+      const on = Math.max(0, i * spb / 2 + jit[i % 8]!);
+      return [on, i * spb / 2 + spb * 0.45, 60 + (i % 4)];
+    });
+    const r = quantizeNoteEvents(doc(notes, beatsAt(spb, 12)));
+    for (const bar of r.bars) {
+      expect(sum(bar.items)).toBe(4 * Q);
+      expect(bar.items.filter((i) => i.kind === 'note').map((i) => i.ticks)).toEqual(Array(8).fill(Q / 2));
+    }
+  });
+
   it('keeps one line: truncates an overlap, keeps the more confident of a collision', () => {
     const over = quantizeNoteEvents(doc([[0, 1.2, 60], [0.5, 0.95, 62]], beatsAt(0.5, 8)));
     expect(over.warnings.map((w) => w.code)).toContain('overlap');

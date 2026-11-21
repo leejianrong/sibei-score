@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "source": {
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "duration_s": 1.0
+  },
+  "instrument": "voice",
+  "producer": {
+    "model_id": "fixture",
+    "model_version": "1",
+    "stage": "transcribe"
+  },
+  "beats": [],
+  "notes": [],
+  "warnings": [
+    {
+      "code": "silent_input",
+      "message": "no audible signal in the input",
+      "t_s": null
+    }
+  ]
+}

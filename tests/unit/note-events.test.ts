@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { NoteEventsError, parseNoteEvents } from '@sibei/model';
 
 const DIR = join(__dirname, '..', 'fixtures', 'note-events');
-const fixtures = readdirSync(DIR).filter((f) => f.endsWith('.json'));
+const all = readdirSync(DIR).filter((f) => f.endsWith('.json'));
+const fixtures = all.filter((f) => !f.startsWith('invalid_'));
 const load = (name: string): Record<string, any> => JSON.parse(readFileSync(join(DIR, name), 'utf8'));
 
 function refusal(raw: unknown): NoteEventsError {
@@ -23,7 +24,20 @@ describe('NoteEvents v1 validation (ADR-0040)', () => {
   it.each(fixtures)('%s validates', (name) => {
     const doc = parseNoteEvents(load(name));
     expect(doc.schema_version).toBe(1);
-    expect(doc.notes.length).toBeGreaterThan(0);
+  });
+
+  it('refuses the audio repo\'s invalid fixtures', () => {
+    expect(refusal(load('invalid_unknown_major.json')).kind).toBe('unsupported-version');
+    const e = refusal(load('invalid_offset_not_after_onset.json'));
+    expect(e.kind).toBe('malformed');
+    expect(e.problems.join()).toContain('offset_s');
+  });
+
+  it('accepts null is_downbeat on every beat and an empty silent document', () => {
+    const raw = load('valid_bass_line.json');
+    for (const b of raw.beats) b.is_downbeat = null;
+    expect(parseNoteEvents(raw).beats.every((b) => b.is_downbeat === null)).toBe(true);
+    expect(parseNoteEvents(load('valid_silent_voice.json')).notes).toEqual([]);
   });
 
   it('rejects an unknown major with its own kind', () => {

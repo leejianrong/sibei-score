@@ -133,6 +133,8 @@ export function parseNoteEvents(raw: unknown): NoteEvents {
     if (typeof n.id !== 'string') p.push(`${at}.id is not a string`);
     if (!isNumber(n.onset_s) || n.onset_s < 0) p.push(`${at}.onset_s is not a number >= 0`);
     if (!isNumber(n.offset_s)) p.push(`${at}.offset_s is not a number`);
+    // The audio repo's contract (its invalid_offset_not_after_onset fixture): a note has a duration.
+    else if (isNumber(n.onset_s) && n.offset_s <= n.onset_s) p.push(`${at}.offset_s is not after onset_s`);
     if (!isInt(n.pitch, 0, 127)) p.push(`${at}.pitch is not an integer in 0..127`);
     if (n.cents != null && !isInt(n.cents, -50, 50)) p.push(`${at}.cents is not an integer in -50..50`);
     if (n.velocity != null && !isInt(n.velocity, 0, 127)) p.push(`${at}.velocity is not an integer in 0..127`);

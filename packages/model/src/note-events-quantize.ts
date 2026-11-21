@@ -14,7 +14,10 @@
  * - **No beat grid** → one constant tempo from the median inter-onset interval, refined once by
  *   least squares, 4/4, the first note on the downbeat, and a `no-beat-grid` warning that the barring
  *   is a guess.
- * - Downbeat flags set the bar length; without them it is 4/4 from the first beat (`no-downbeats`).
+ * - Downbeat flags set the bar length and where bar 1 starts. The real transcriber marks **every**
+ *   `is_downbeat` null (it finds beats, not bar lines), so without flags it is 4/4 and bar 1 is assumed
+ *   to start on the beat nearest the first note, with a `no-downbeats` warning the mapper turns into a
+ *   flag on bar 1 — a draft assumption the user corrects, never a fact.
  * - A note that starts in the bar before the first downbeat makes a **pickup** (bar 0). Leading silence
  *   is trimmed: the draft begins at the bar of the first note.
  * - It never rejects and never repairs a performance: a bar the rhythm does not fill is the mapper's
@@ -120,7 +123,17 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
       if (gap >= 2 && gap <= 7) beatsPerBar = gap;
     }
   } else if (usable) {
-    warnings.push({ code: 'no-downbeats', message: 'the beat grid marks no downbeats: assumed 4/4 starting on the first beat' });
+    // No downbeat flags: bar 1 starts on the beat nearest the first note (a draft assumption).
+    const first = notes.length === 0 ? 0 : notes[0]!.onset_s;
+    let best = 0;
+    for (let i = 1; i < beats.length; i++) {
+      if (Math.abs(beats[i]!.t - first) < Math.abs(beats[best]!.t - first)) best = i;
+    }
+    originIdx = best;
+    warnings.push({
+      code: 'no-downbeats',
+      message: 'the beat grid marks no downbeats: assumed 4/4 with bar 1 on the beat nearest the first note',
+    });
   }
   const time: TimeSignature = { beats: beatsPerBar, beatValue: 4 };
   const capacity = barCapacity(time);

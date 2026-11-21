@@ -96,3 +96,14 @@ This ADR decides how we receive that contract. It adds no new notation: ADR-0021
   hosted UI can say "coming soon" rather than "invalid file".
 - Transport (how a NoteEvents document reaches us from the GPU worker) is ADR-0039 decision 9
   (pull); this ADR is independent of it, since a file upload and a worker's result are the same JSON.
+
+## Amendment (2026-11-22): what the real transcriber emits
+
+The audio repo's shared fixtures (its `tests/fixtures/note_events/`, copied unchanged) and contract
+notes settled four things. `Beat.is_downbeat` is `bool | null`, and real output is **null on every
+beat** (warning `downbeats_unknown`): the importer never assumes where bar 1 starts, it infers 4/4 and
+starts bar 1 on the beat nearest the first note, and the mapper flags bar 1 as a draft assumption. A
+note whose `offset_s` is not after `onset_s` is malformed (their `invalid_offset_not_after_onset`).
+A silent or empty document (`silent_input`, no notes) is **not an error**: it imports as an empty draft
+with its warnings kept. Soft-attack voices produce late onsets and split notes, so note confidence
+drives review flags and the quantizer is tested with onset jitter.
