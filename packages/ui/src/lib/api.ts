@@ -542,6 +542,8 @@ export interface MetaSetPayload {
   /** The chord symbology (SIB2-163); `standard` clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
   layout?: 'lead-sheet' | 'score' | null;
+  /** Print each part's name at the left of its staves (SIB2-286). */
+  showInstrumentNames?: boolean | null;
   /** The tempo mark (SIB2-177); null removes it. */
   tempo?: { unit: { value: number; dots: number }; bpm: number } | null;
 }
@@ -557,6 +559,8 @@ export type Operation =
         time?: { beats: number; beatValue: NoteValue };
         barCount?: number;
         pickup?: boolean;
+        /** Start from instrument presets, top to bottom (SIB2-288): `piano`, `bass`, `drums`... */
+        instruments?: string[];
       };
     }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
@@ -693,7 +697,7 @@ export const INSTRUMENTS: readonly InstrumentOption[] = [
  * way `ExportInstrument` is. An unknown value is a 422, the same no-fallback bargain paper makes.
  * MusicXML is a codec at the edges (ADR-0004), not a render, so it ignores paper and face.
  */
-export type ExportFormat = 'pdf' | 'musicxml';
+export type ExportFormat = 'pdf' | 'musicxml' | 'svg';
 
 export interface FormatOption {
   value: ExportFormat;
@@ -704,6 +708,7 @@ export interface FormatOption {
 export const FORMATS: readonly FormatOption[] = [
   { value: 'pdf', label: 'PDF' },
   { value: 'musicxml', label: 'MusicXML' },
+  { value: 'svg', label: 'SVG' },
 ];
 
 export interface ExportChoice {
@@ -719,6 +724,8 @@ export interface ExportChoice {
   blankStaves?: boolean;
   /** Each transposing part at its own written pitch (SIB2-239); absent or false puts nothing on the query. */
   written?: boolean;
+  /** Which page an SVG is (SIB2-277, the CLI's `export --svg` one file per page); only sent for `svg`, from 1. */
+  page?: number;
 }
 
 /** The page-number choices as the query the server reads — empty when there are none, like the CLI sends it. */
@@ -734,6 +741,10 @@ function barNumbersQuery(on: boolean | undefined): string {
 
 function writtenQuery(on: boolean | undefined): string {
   return on === true ? '&written=yes' : '';
+}
+
+function pageQuery(choice: ExportChoice): string {
+  return choice.format === 'svg' ? `&page=${String(choice.page ?? 1)}` : '';
 }
 
 function blankStavesQuery(on: boolean | undefined): string {
@@ -756,14 +767,14 @@ function instrumentQuery(instrument: ExportInstrument): string {
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
   const base = new URLSearchParams({ format: choice.format, paper: choice.paper, font: choice.font });
-  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${writtenQuery(choice.written)}${barNumbersQuery(choice.barNumbers)}`;
+  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${writtenQuery(choice.written)}${barNumbersQuery(choice.barNumbers)}${pageQuery(choice)}`;
 }
 
 /** The route without an id, which is what the rail prints. A concrete id wraps the column. */
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${writtenQuery(choice.written)}${barNumbersQuery(choice.barNumbers)}`,
+    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${writtenQuery(choice.written)}${barNumbersQuery(choice.barNumbers)}${pageQuery(choice)}`,
   };
 }
 

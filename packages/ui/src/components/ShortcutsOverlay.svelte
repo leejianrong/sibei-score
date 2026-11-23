@@ -1,55 +1,29 @@
 <script lang="ts">
   /**
-   * The `?` overlay: every keyboard shortcut of the score view in one place. Plain content, no behaviour of its own
-   * beyond closing; the keys themselves live with the code that handles them (`ScoreView.svelte`,
-   * `../lib/note-input.ts`); `tests/browser/note-input.test.ts` checks the digit rule below.
+   * The `?` overlay: every keyboard shortcut of the score view in one place. No behaviour of its own beyond closing,
+   * and no list of its own either: the rows are generated from `../lib/keymap.ts`, the same table `ScoreView.svelte`
+   * dispatches keys through, so a binding cannot exist without being listed here (`tests/unit/ui-keymap.test.ts`).
    */
+  import { onDestroy } from 'svelte';
+  import { SHORTCUT_GROUPS } from '../lib/keymap.js';
+
   interface Props {
     onclose: () => void;
   }
   const { onclose }: Props = $props();
 
-  interface Group {
-    title: string;
-    note?: string;
-    rows: ReadonlyArray<[string, string]>;
-  }
+  const GROUPS = SHORTCUT_GROUPS;
 
-  const GROUPS: readonly Group[] = [
-    {
-      title: 'Anywhere in a chart',
-      rows: [
-        ['Ctrl/⌘ Z', 'Undo'],
-        ['Ctrl/⌘ Shift Z, Ctrl Y', 'Redo'],
-        ['N', 'Start note input'],
-        ['Click, Shift-click, Ctrl/⌘-click', 'Select a note, a range of notes, or add one; Shift-click a second bar for a bar range'],
-        ['Ctrl/⌘ A', 'Select the active staff'],
-        ['Delete', 'Delete a selection of several notes'],
-        ['Ctrl/⌘ C, X, V', 'Copy, cut, paste at the selected note or bar (replaces the span it covers)'],
-        ['1 to 4', 'Choose that voice of the active staff (charts with more than one lane)'],
-        ['?', 'This list'],
-      ],
-    },
-    {
-      title: 'Note input',
-      note: 'Inside note input the digits are note values, not voices. Ctrl+Alt+1 to 4 picks the voice instead.',
-      rows: [
-        ['1 2 3 4 5 6', '32nd, 16th, eighth, quarter, half, whole'],
-        ['.', 'Dot the next note'],
-        ['A to G', 'Enter that pitch, in the octave nearest the last note, in the key signature'],
-        ['Shift + A to G', 'Add that pitch above the last note, making a chord'],
-        ['R', 'Rest'],
-        ['↑ ↓', 'Move the last note a step; with Ctrl/⌘, an octave'],
-        ['+ or #  /  -  /  0', 'Sharpen, flatten or naturalise the last note (with no note before the caret: the next one)'],
-        ['T', 'Tie the last note to the next'],
-        ['Enter, Space', 'Skip forward over a value; at the end of the chart, add a bar'],
-        ['Backspace', 'Delete the previous note and step back'],
-        ['← →', 'Move the caret'],
-        ['Ctrl+Alt+1 to 4', 'Switch voice'],
-        ['Esc', 'Leave note input'],
-      ],
-    },
-  ];
+  // Focus goes into the dialog when it opens and back to where it was (else the sheet) when it closes (SIB2-269).
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  let closeButton = $state<HTMLButtonElement | null>(null);
+  $effect(() => {
+    closeButton?.focus();
+  });
+  onDestroy(() => {
+    const back = opener !== null && opener.isConnected && opener !== document.body ? opener : document.querySelector<HTMLElement>('.sheet');
+    back?.focus({ preventScroll: true });
+  });
 
   function keydown(event: KeyboardEvent): void {
     if (event.key === 'Escape' || event.key === '?') {
@@ -66,7 +40,7 @@
 <div class="dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" data-testid="shortcuts">
   <div class="top">
     <h2>Keyboard shortcuts</h2>
-    <button type="button" class="close" aria-label="Close shortcuts" onclick={onclose}>Close</button>
+    <button type="button" class="close" aria-label="Close shortcuts" bind:this={closeButton} onclick={onclose}>Close</button>
   </div>
   {#each GROUPS as group (group.title)}
     <h3>{group.title}</h3>

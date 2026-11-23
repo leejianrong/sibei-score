@@ -41,7 +41,7 @@ export const INK_CLEARANCE = 12;
 /** Where a brace sits: its right edge this far left of the system, and its width. */
 export const BRACE_WIDTH = 10;
 export const BRACKET_WIDTH = 5;
-const GROUP_GAP = 6;
+export const GROUP_GAP = 6;
 /** The padding left and right of a bar's first and last column. */
 export const ALIGN_LEFT_PAD = 10;
 export const ALIGN_RIGHT_PAD = 10;

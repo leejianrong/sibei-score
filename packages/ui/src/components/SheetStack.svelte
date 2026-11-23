@@ -38,6 +38,10 @@
 
   interface Props {
     pages: readonly RenderedPage[];
+    /** The chart's title, for each sheet's label (SIB2-269). */
+    title?: string;
+    /** The text projection `sbscore show` prints, kept off-screen as the sheet's text alternative (SIB2-269). */
+    projection?: string;
     /** Which item is selected, and its box in that page's layout units. */
     selection?: { pageIndex: number; box: OverlayBox } | null;
     /** The second note of a slur being built (SIB2-168), shift-clicked beside the selected one. */
@@ -52,14 +56,24 @@
     caret?: { pageIndex: number; box: OverlayBox } | null;
     /** The empty beat under the pointer, where a click would add a chord (V5e). */
     addHint?: { pageIndex: number; box: OverlayBox } | null;
+    /** The note or rest a click here would select (SIB2-275), lit faintly so the target is visible before the click. */
+    hoverItem?: { pageIndex: number; box: OverlayBox } | null;
     /** A click on a sheet, translated into that page's own layout units. */
-    onselect?: (pageIndex: number, point: Point, extend: boolean, additive: boolean) => void;
+    onselect?: (pageIndex: number, point: Point, extend: boolean, additive: boolean, pxPerUnit?: number) => void;
     /** The pointer moving over (or leaving, with `null`) a sheet, in that page's layout units. */
-    onhover?: (pageIndex: number, point: Point | null) => void;
+    onhover?: (pageIndex: number, point: Point | null, pxPerUnit?: number) => void;
   }
 
-  const { pages, selection = null, rangeSelection = null, multiSelection = [], chordSelection = null, barSelection = null, caret = null, addHint = null, onselect, onhover }: Props = $props();
+  const { pages, title = '', projection = '', selection = null, rangeSelection = null, multiSelection = [], chordSelection = null, barSelection = null, caret = null, addHint = null, hoverItem = null, onselect, onhover }: Props = $props();
   const multi = $derived(pages.length > 1);
+
+  /** Screen pixels per layout unit of this page as drawn, which turns a pixel slop into layout units (SIB2-275). */
+  function scaleOf(index: number, event: MouseEvent): number | undefined {
+    const page = pages[index];
+    if (page === undefined) return undefined;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    return rect.width === 0 ? undefined : rect.width / page.layout.width;
+  }
 
   function pointOf(index: number, event: MouseEvent): Point | null {
     const page = pages[index];
@@ -75,12 +89,12 @@
   function handleClick(index: number, event: MouseEvent): void {
     if (onselect === undefined) return;
     const point = pointOf(index, event);
-    if (point !== null) onselect(index, point, event.shiftKey, event.ctrlKey || event.metaKey);
+    if (point !== null) onselect(index, point, event.shiftKey, event.ctrlKey || event.metaKey, scaleOf(index, event));
   }
 
   function handleMove(index: number, event: MouseEvent): void {
     if (onhover === undefined) return;
-    onhover(index, pointOf(index, event));
+    onhover(index, pointOf(index, event), scaleOf(index, event));
   }
 
   /** An overlay box positioned in percentage space over the sheet, so it tracks zoom for free. */
@@ -94,6 +108,11 @@
   }
 </script>
 
+<!-- The text alternative to the engraved sheet (SIB2-269): the same projection `sbscore show` prints (ADR-0009), off-screen
+     and named by each sheet's `aria-describedby`. Not hidden from assistive technology, only from the eye. -->
+{#if projection !== ''}
+  <pre class="sr-only" id="sheet-text" data-testid="sheet-text">{projection}</pre>
+{/if}
 <div class="sheets">
   {#each pages as page, index (page.index)}
     {#if index > 0}
@@ -106,14 +125,18 @@
             <span class="n">{index + 1}</span><span class="of">of {pages.length}</span>
           </div>
         {/if}
-        <!-- A spatial hit-test over engraved positions, not a control with a keyboard
-             equivalent — there is nothing at a fixed tab-stop to select this way. Selecting a
-             note by keyboard is a later card's scope, not this one's. -->
+        <!-- A spatial hit-test over engraved positions. The sheet is one focus stop (Tab reaches it, SIB2-268): the arrow keys,
+             Delete and Escape then act on the selection through the keymap in `ScoreView`, so the keyboard needs no
+             per-note tab stops. `role="application"` because it takes its own keys; its label names the page. -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <div
           class="sheet"
-          aria-label="Sheet music, page {index + 1}"
+          role="application"
+          tabindex="0"
+          aria-label={`Sheet music${title === '' ? '' : `: ${title}`}, page ${index + 1} of ${pages.length}`}
+          aria-describedby={projection === '' ? undefined : 'sheet-text'}
           onclick={(event) => handleClick(index, event)}
           onmousemove={(event) => handleMove(index, event)}
           onmouseleave={() => onhover?.(index, null)}
@@ -124,6 +147,9 @@
           {/if}
           {#if caret !== null && caret.pageIndex === index}
             <div class="hit caret" data-testid="note-input-ghost" style={boxStyle(caret.box, page)}></div>
+          {/if}
+          {#if hoverItem !== null && hoverItem.pageIndex === index}
+            <div class="hit hoveritem" data-testid="hover-item" style={boxStyle(hoverItem.box, page)}></div>
           {/if}
           {#if selection !== null && selection.pageIndex === index}
             <div class="hit selected" style={boxStyle(selection.box, page)}></div>
@@ -179,6 +205,10 @@
     outline-offset: -1px;
     cursor: pointer;
   }
+  .sheet:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
   .sheet :global(svg) {
     display: block;
     width: 100%;
@@ -193,10 +223,18 @@
     pointer-events: none;
     border-radius: 2px;
   }
+  /* A selected note must read at 50% zoom as well as 100%: a solid ring a couple of pixels clear of the ink and a halo
+     of the accent, not a hairline on the head (SIB2-275). The overlay never covers the ink, so the engraving is untouched. */
   .hit.selected {
-    background: var(--accent-wash);
-    outline: 1.5px solid var(--accent);
-    outline-offset: -1.5px;
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--accent-wash);
+  }
+  /* The target under the pointer: a faint ring, lighter than a selection so the two are never confused. */
+  .hit.hoveritem {
+    outline: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 2px;
   }
   /* The note-input caret: a dashed frame and a wash over the previewed note, plus a bar at its left edge
      that reads as the insertion point. The note under it is real ink from the engraver, not drawn here. */

@@ -21,6 +21,8 @@ import type { Lane, LayoutAlignment, LayoutStaff, LayoutStaffGroup, LayoutStaffS
 import { buildLanes, fitFor, isMultiLane, lanesOf, placeLanes, sizingFor, voiceStems, voiceViewsOf } from './lanes.js';
 import type { LayoutFurniture } from './furniture.js';
 import type { Clef, LayoutBarItem, LayoutHairpin, LayoutLyricLink, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
+import type { LayoutSystemName } from './names.js';
+import { nameIndent, namesFor } from './names.js';
 import { ottavaShifts, planHairpins, planOttavas } from './ottava.js';
 import { planLyricLinks } from './lyrics.js';
 import type { PageSpec, PageSpecInput } from './page.js';
@@ -99,6 +101,8 @@ export interface LayoutSystem {
   staves?: LayoutStaff[];
   groups?: LayoutStaffGroup[];
   staffSpan?: LayoutStaffSpan;
+  /** The instrument names at the head of this system (SIB2-286); absent unless `meta.showInstrumentNames` draws one here. */
+  names?: LayoutSystemName[];
   /** An empty ruled staff added to fill the last page (SIB2-181): clef and staff lines, no bars. */
   blank?: true;
 }
@@ -135,9 +139,15 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   const multi = isMultiLane(score);
   const lanes = lanesOf(score);
   const sizing = multi ? sizingFor(score, lanes) : undefined;
+  // Names take room off the left of a system (SIB2-286). A width-fit break plans every line at the first system's
+  // narrower width, so no later line is planned wider than it can be drawn.
+  const indented = (index: number): PageSpec => {
+    const indent = nameIndent(score, lanes, index);
+    return indent === 0 ? spec : { ...spec, margin: { ...spec.margin, left: spec.margin.left + indent } };
+  };
   const planned = planSystems(
     score,
-    score.meta.layout === 'score' ? fitFor(score, lanes, spec, (bar) => bar.id === score.bars[0]?.id) : undefined,
+    score.meta.layout === 'score' ? fitFor(score, lanes, indented(0), (bar) => bar.id === score.bars[0]?.id) : undefined,
   );
 
   // System membership is independent of pagination, so ties can be resolved once the
@@ -177,6 +187,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   const policy = score.meta.signaturePolicy ?? 'every';
   const buildSystems = (showsSignatures: (index: number) => boolean): LayoutSystem[] =>
     planned.map((system, index) => {
+      const spec = indented(index);
       const allocated = allocateWidths(score, system, spec, {
         isFirstSystem: index === 0,
         showSignatures: showsSignatures(index),
@@ -261,6 +272,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           if (alignment !== undefined) bar.alignment = alignment;
         });
       }
+      const names = namesFor(score, lanes, index, built.x);
+      if (names.length > 0) built.names = names;
       return built;
     });
 

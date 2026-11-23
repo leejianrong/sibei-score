@@ -12,3 +12,4 @@ export * from './lanes.js';
 export * from './bar-items.js';
 export * from './crossing.js';
 export * from './clefs.js';
+export * from './names.js';

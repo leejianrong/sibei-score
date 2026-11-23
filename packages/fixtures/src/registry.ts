@@ -10,6 +10,7 @@ import { longFormChart } from './long-form-chart.js';
 import { fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart } from './multi-staff-charts.js';
 import { clefsAndKeysChart, voiceCollisionsChart } from './staff-engraving-charts.js';
 import { clefChangeChart, fermatasStavesChart, ottavaStavesChart } from './staff-refinement-charts.js';
+import { instrumentNamesChart } from './instrument-names-chart.js';
 import { drumChart } from './drum-chart.js';
 import { staffFurnitureChart } from './staff-furniture-chart.js';
 import { navigationChart } from './navigation-chart.js';
@@ -72,4 +73,5 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'ottava-staves': ottavaStavesChart,
   'fermatas-staves': fermatasStavesChart,
   'clef-change': clefChangeChart,
+  'instrument-names': instrumentNamesChart,
 };

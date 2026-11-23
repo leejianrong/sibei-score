@@ -508,3 +508,34 @@ lower, above is at or higher). Decisions:
   inspector's "Move to other staff" (the chosen head alone when one head of a chord is chosen) and the Staves panel's range
   form. MCP takes both through `edit_score`'s operations (the enum is `OPERATION_TYPES`). The text projection is unchanged.
 
+
+## As built: instrument names on the system (SIB2-286)
+
+- **Model.** `Part.shortName?` and `meta.showInstrumentNames?`, both optional-and-absent (ADR-0028, no migration;
+  `SCHEMA_VERSION` stays 4). Off is stored as absent, so every chart made before this lays out and renders byte-identically.
+- **Layout** (`packages/layout/src/names.ts`): with the option on, the full name heads the first system and the short name
+  every later one. Room comes off the *left* of a system (`LayoutSystem.x`/`width`), only on a system that draws a name,
+  and counts the braces and bracket that sit between the names and the staves. `LayoutSystem.names` carries each name's
+  right edge and the staves it is centred on. Widths are an estimate (no glyph is measured, ADR-0015); the engraver anchors
+  the text at its right edge, so an underestimate spills into the margin and never onto a staff. A width-fit (`score`)
+  break plans every line at the first system's narrower width.
+- **Engraver** (`engrave/src/names.ts`): `<text class="se-instrument-name">`, in the chart's text face.
+- **Surfaces.** `instrument.set`/`part.add` take `shortName` (empty or null removes it), `meta.set` takes
+  `showInstrumentNames`; `sbscore instrument set --short-name`, `meta set --instrument-names on|off`; the Staves panel's
+  short-name field and a Layout-panel checkbox. MusicXML writes and reads `<part-abbreviation>`; an import does not turn the
+  names on. Fixture `instrument-names`.
+
+## As built: score setup from instrument presets (SIB2-272, SIB2-288)
+
+- **Catalogue** (`packages/model/src/instruments.ts`, plain data): lead-sheet, piano (treble + bass), voice, guitar, bass,
+  drums (a percussion staff), trumpet-bb (+2), alto-sax-eb (+9), tenor-sax-bb (+14), flute, violin, cello. Each carries a
+  name, short name, General MIDI program, transposition (sounding to written) and its staves and clefs. The applier, the CLI's
+  error text and the browser's picker all read this one list.
+- **`score.create` gains `instruments` (preset ids, top to bottom) and a recorded `parts`.** The applier resolves the ids to
+  parts with fresh `part-N`/`staff-N` ids and **records the resolved parts in the payload**, authoritative on replay, so
+  a later change to the catalogue never alters what an old log builds. A setup turns `showInstrumentNames` on when any part
+  has a name and sets `layout: 'score'` when there is more than one staff. No `instruments` (or an empty list) is the old
+  create, unchanged. An unknown preset is a validation error listing the known ones.
+- **Surfaces.** `sbscore new --instrument piano --instrument bass --instrument drums` (a repeated option: `Flags.repeated`);
+  the New chart form's `InstrumentPicker` (choose, change, move up/down, remove rows; empty is the lead sheet).
+  `tests/unit/instrument-setup.test.ts` pins that both build the same score.

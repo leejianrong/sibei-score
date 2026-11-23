@@ -11,7 +11,7 @@ import type {
   ScoreCreatePayload,
   SectionSetPayload,
 } from '@sibei/api';
-import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
+import { allOf, optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
 import { auth } from './auth.js';
 import { CliError, DEFAULT_BASE_URL, createClient } from './client.js';
@@ -79,6 +79,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
                --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
+              [--instrument PRESET]...   start from instruments, top to bottom: piano, bass, drums, trumpet-bb, alto-sax-eb,
+                                         tenor-sax-bb, flute, violin, cello, guitar, voice, lead-sheet (repeat the flag)
   sbscore list
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
@@ -110,6 +112,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
               [--layout lead-sheet|score]   how systems break: the four-bar grid, or by width (a score of several staves)
+              [--instrument-names on|off]   print each part's name at the left of its staves (short names after the first system)
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell] [--artic staccato,accent,marcato]
   sbscore note add <id> <address> --drum snare --dur 8 [--head x|diamond|circle-x|normal]   a drum, on a percussion staff
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
@@ -127,14 +130,14 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore bar add <id> [--after <bar>] [--count N]   add empty bars (default: at the end); later bars renumber
   sbscore bar rm  <id> <bar>               remove an empty bar; later bars renumber
-  sbscore part add <id> [--name Piano] [--instrument 0|none] [--transposition -2] [--staff-type standard|percussion|tab] [--clef bass]
+  sbscore part add <id> [--name Piano] [--short-name Pno.] [--instrument 0|none] [--transposition -2] [--staff-type standard|percussion|tab] [--clef bass]
   sbscore part rm  <id> <p2> [--force]     a part holding music is refused unless --force
   sbscore staff add <id> [<p1>] [--type standard|percussion|tab] [--clef treble|bass|alto|tenor|percussion]   (default: the last part)
   sbscore staff rm  <id> <s2> [--force]
   sbscore voice add <id> [<s2>]            the next free voice of a staff, 2 to 4 (omit <s2> when there is one staff)
   sbscore voice rm  <id> <s2.v2> [--force]
   sbscore clef set <id> <s2|s2.bar5> --clef treble|bass|alto|tenor|percussion|none   a staff's clef, or a change from a bar (none clears it)
-  sbscore instrument set <id> [<p1>] [--name Piano] [--instrument 0|none] [--transposition -2]
+  sbscore instrument set <id> [<p1>] [--name Piano] [--short-name Pno.] [--instrument 0|none] [--transposition -2]
   sbscore section set <id> <bar> [--letter A] [--name Bridge]   a section boundary (ADR-0021)
   sbscore section rm  <id> <bar>
   sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|final|repeat-end]
@@ -414,6 +417,10 @@ async function create(flags: Flags, client: Client, io: Io, json: boolean): Prom
   const bars = optionalNumber(flags, 'bars');
   if (bars !== undefined) payload.barCount = bars;
   if (flags.switches.has('pickup')) payload.pickup = true;
+  // `--instrument piano --instrument bass --instrument drums` starts a multi-part chart (SIB2-288). The server judges
+  // the names, so the list of presets has one author.
+  const instruments = allOf(flags, 'instrument');
+  if (instruments.length > 0) payload.instruments = instruments;
 
   const result = await client.create([{ type: 'score.create', payload }]);
   io.out(json ? JSON.stringify(result) : `${result.scoreId}  version ${result.version}`);
@@ -987,11 +994,19 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   if (chordStyle !== undefined) payload.chordStyle = chordStyle as NonNullable<MetaSetPayload['chordStyle']>;
   const layout = flags.options.get('layout');
   if (layout !== undefined) payload.layout = layout === '' ? null : (layout as 'lead-sheet' | 'score');
+  // `--instrument-names on|off` prints each part's name at the left of its staves (SIB2-286).
+  const showNames = flags.options.get('instrument-names');
+  if (showNames !== undefined) {
+    if (showNames !== 'on' && showNames !== 'off') {
+      throw new CliError(EXIT.usage, 'usage', `--instrument-names takes on or off, not ${JSON.stringify(showNames)}`);
+    }
+    payload.showInstrumentNames = showNames === 'on';
+  }
   if (Object.keys(payload).length === 0) {
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --subtitle --composer --arranger --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo --layout',
+      'meta set needs at least one of --title --subtitle --composer --arranger --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo --layout --instrument-names',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
@@ -1288,6 +1303,8 @@ async function structure(noun: 'part' | 'staff' | 'voice' | 'clef' | 'instrument
     const payload: Record<string, unknown> = {};
     const name = flags.options.get('name');
     if (name !== undefined) payload.name = name;
+    const shortName = flags.options.get('short-name');
+    if (shortName !== undefined) payload.shortName = shortName;
     const program = programOf(flags.options.get('instrument'));
     if (program !== undefined) payload.instrument = program;
     const transposition = signedOf(flags, 'transposition');
@@ -1318,12 +1335,15 @@ async function structure(noun: 'part' | 'staff' | 'voice' | 'clef' | 'instrument
     const payload: Record<string, unknown> = {};
     const name = flags.options.get('name');
     if (name !== undefined) payload.name = name;
+    // An empty --short-name removes the abbreviation (SIB2-286).
+    const shortName = flags.options.get('short-name');
+    if (shortName !== undefined) payload.shortName = shortName === '' ? null : shortName;
     const program = programOf(flags.options.get('instrument'));
     if (program !== undefined) payload.instrument = program;
     const transposition = signedOf(flags, 'transposition');
     if (transposition !== undefined) payload.transposition = transposition;
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'instrument set needs at least one of --name --instrument --transposition');
+      throw new CliError(EXIT.usage, 'usage', 'instrument set needs at least one of --name --short-name --instrument --transposition');
     }
     return submit(flags, client, io, json, id, [op('instrument.set', at, payload)]);
   }
