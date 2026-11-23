@@ -1,4 +1,4 @@
-import { barViews } from './staves.js';
+import { allBarViews, barViews } from './staves.js';
 import { barCapacity, itemTicks } from './duration.js';
 import type { BarView, Score, TimeSignature } from './score.js';
 
@@ -75,7 +75,14 @@ export function isMetricallyValid(bar: BarView, time: TimeSignature): boolean {
 
 /** Every bar's metrics, in bar order. Consumers decide what to do about them. */
 export function scoreMetrics(score: Score): BarMetrics[] {
-  return barViews(score).map((bar) => barMetrics(bar, score.meta.time));
+  const voices = allBarViews(score);
+  if (voices.length <= 1) return barViews(score).map((bar) => barMetrics(bar, score.meta.time));
+  // ADR-0041 section 3: a bar is invalid when *any* voice of any staff does not fill it. The first invalid voice
+  // speaks for the bar; otherwise the first voice does, so a one-voice score reads exactly as it always did.
+  return score.bars.map((_, at) => {
+    const all = voices.map(({ views }) => barMetrics(views[at]!, score.meta.time));
+    return all.find((metrics) => !metrics.valid) ?? all[0]!;
+  });
 }
 
 /** The bars a human or an agent should be pointed at. */

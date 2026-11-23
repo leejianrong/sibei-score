@@ -38,12 +38,16 @@ import {
   durationTicks,
   itemTicks,
   tupletOf,
+  allBarViews,
+  barHoldsNotation,
   barViews,
   mapBarView,
+  voiceSelects,
   migrateDocument,
   withBarViews,
 } from '@sibei/model';
 import type {
+  VoiceSelect,
   AccidentalDisplay,
   Annotation,
   Articulation,
@@ -74,6 +78,7 @@ import type {
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
+import { addPart, addStaff, addVoice, removePart, removeStaff, removeVoice, setClef, setInstrument } from './structure-ops.js';
 import { isControlOperation } from './operations.js';
 import type {
   ChordSetPayload,
@@ -227,6 +232,22 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return addBars(score, operation.target, operation.payload ?? {});
     case 'bar.rm':
       return removeBar(score, operation.target);
+    case 'part.add':
+      return addPart(score, operation.payload);
+    case 'part.rm':
+      return removePart(score, operation.target, operation.payload);
+    case 'staff.add':
+      return addStaff(score, operation.target, operation.payload);
+    case 'staff.rm':
+      return removeStaff(score, operation.target, operation.payload);
+    case 'voice.add':
+      return addVoice(score, operation.target, operation.payload);
+    case 'voice.rm':
+      return removeVoice(score, operation.target, operation.payload);
+    case 'clef.set':
+      return setClef(score, operation.target, operation.payload);
+    case 'instrument.set':
+      return setInstrument(score, operation.target, operation.payload);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.
@@ -505,7 +526,7 @@ function addNote(score: Score, target: string, payload: NoteAddPayload): Applied
   if (marks.length > 0) note.articulations = marks;
 
   return {
-    score: withItemAdded(score, position.bar.id, note),
+    score: withItemAdded(score, position.bar.id, note, position.select),
     operation: { type: 'note.add', target, payload: { ...payload, id } },
     changed: [id],
   };
@@ -519,7 +540,7 @@ function addRest(score: Score, target: string, payload: RestAddPayload): Applied
   const rest = makeRest({ id, onset: position.onset, duration: validDuration(payload.duration) });
 
   return {
-    score: withItemAdded(score, position.bar.id, rest),
+    score: withItemAdded(score, position.bar.id, rest, position.select),
     operation: { type: 'rest.add', target, payload: { ...payload, id } },
     changed: [id],
   };
@@ -541,17 +562,17 @@ function refuseOccupiedOnset(bar: BarView, onset: number, target: string): void 
   throw new OperationError({
     kind: 'validation',
     detail:
-      `${target} already has a ${existing.kind} on it (${existing.id}). A bar carries one voice, ` +
-      `so set or remove that one rather than stacking another onto it.`,
+      `${target} already has a ${existing.kind} on it (${existing.id}). A voice carries one item per onset, ` +
+      `so set or remove that one, or write the other line in another voice (voice add).`,
   });
 }
 
 /** Items are kept in onset order, which `Bar.items` documents and addressing relies on. */
-function withItemAdded(score: Score, barId: Id, item: BarItem): Score {
+function withItemAdded(score: Score, barId: Id, item: BarItem, select: VoiceSelect): Score {
   return mapBar(score, barId, (bar) => ({
     ...bar,
     items: [...bar.items, item].sort((a, b) => a.onset - b.onset),
-  }));
+  }), select);
 }
 
 // ---------------------------------------------------------------------------
@@ -581,7 +602,7 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
     score: mapBar(score, resolved.bar.id, (bar) => ({
       ...bar,
       items: bar.items.map((item) => (item.id === note.id ? updated : item)),
-    })),
+    }), resolved.select),
     operation: { type: 'note.set', target, payload },
     changed: [note.id],
   };
@@ -606,7 +627,7 @@ function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applie
       tuplets: bar.tuplets
         .map((tuplet) => ({ ...tuplet, memberIds: tuplet.memberIds.filter((m) => m !== id) }))
         .filter((tuplet) => tuplet.memberIds.length > 0),
-    })),
+    }), resolved.select),
     operation: kind === 'note' ? { type: 'note.rm', target } : { type: 'rest.rm', target },
     changed: [id],
   };
@@ -693,7 +714,7 @@ function setTuplet(score: Score, target: string, payload: TupletSetPayload): App
   const id = payload.id ?? nextId(score, 'tuplet');
   const tuplet: Tuplet = { id, actual, normal, memberIds: members.map((m) => m.id) };
   return {
-    score: mapBar(score, bar.id, (b) => relayRun(b, tuplet.memberIds, [...b.tuplets, tuplet])),
+    score: mapBar(score, bar.id, (b) => relayRun(b, tuplet.memberIds, [...b.tuplets, tuplet]), resolved.select),
     operation: { type: 'tuplet.set', target, payload: { ...payload, count, id } },
     changed: [id, ...tuplet.memberIds],
   };
@@ -709,12 +730,16 @@ function removeTuplet(score: Score, target: string): Applied {
     });
   }
   return {
-    score: mapBar(score, resolved.bar.id, (b) =>
-      relayRun(
-        b,
-        tuplet.memberIds,
-        b.tuplets.filter((t) => t.id !== tuplet.id),
-      ),
+    score: mapBar(
+      score,
+      resolved.bar.id,
+      (b) =>
+        relayRun(
+          b,
+          tuplet.memberIds,
+          b.tuplets.filter((t) => t.id !== tuplet.id),
+        ),
+      resolved.select,
     ),
     operation: { type: 'tuplet.rm', target },
     changed: [tuplet.id, ...tuplet.memberIds],
@@ -737,7 +762,7 @@ function removeTuplet(score: Score, target: string): Applied {
  * kept and flagged `unparsed-chord`, never rejected (ADR-0012).
  */
 function setChord(score: Score, target: string, payload: ChordSetPayload): Applied {
-  const position = resolvePosition(score, target);
+  const position = resolvePosition(score, target, 'harmony');
   const text = validChordText(payload.text);
   const existing = position.bar.chords.find((chord) => chord.onset === position.onset);
   const id = existing?.id ?? nextId(score, 'chord');
@@ -781,7 +806,7 @@ function removeChord(score: Score, target: string): Applied {
  * Written by hand it is never flagged — only an import's guesses are.
  */
 function setText(score: Score, target: string, payload: TextSetPayload): Applied {
-  const position = resolvePosition(score, target);
+  const position = resolvePosition(score, target, 'harmony');
   if (typeof payload.text !== 'string' || payload.text.trim() === '') {
     throw new OperationError({
       kind: 'validation',
@@ -840,7 +865,7 @@ function removeText(score: Score, target: string): Applied {
       if (annotation !== undefined) found = { bar, annotation };
     }
   } else if (address.form === 'beat') {
-    const position = resolvePosition(score, address);
+    const position = resolvePosition(score, address, 'harmony');
     const annotation = position.bar.annotations.find((candidate) => candidate.onset === position.onset);
     if (annotation !== undefined) found = { bar: position.bar, annotation };
   }
@@ -887,26 +912,33 @@ function transpose(score: Score, payload: TransposePayload): Applied {
   const interval = keyInterval(score.meta.key, to);
   const changed: Id[] = [];
 
-  const views = barViews(score).map((bar) => {
-    const items = bar.items.map((item) => {
-      if (item.kind !== 'note') return item;
-      changed.push(item.id);
-      const graces =
-        item.graces === undefined
-          ? {}
-          : { graces: item.graces.map((grace) => ({ ...grace, pitch: transposePitch(grace.pitch, interval, to, false) })) };
-      return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned), ...graces };
+  // Every staff and voice moves (ADR-0041); the chord symbols are one lane, so the first pass carries them.
+  let next: Score = { ...score, meta: { ...score.meta, key: to } };
+  const selects: VoiceSelect[] = voiceSelects(score);
+  (selects.length === 0 ? [{}] : selects).forEach((select, pass) => {
+    const views = barViews(next, select).map((bar) => {
+      const items = bar.items.map((item) => {
+        if (item.kind !== 'note') return item;
+        changed.push(item.id);
+        const graces =
+          item.graces === undefined
+            ? {}
+            : { graces: item.graces.map((grace) => ({ ...grace, pitch: transposePitch(grace.pitch, interval, to, false) })) };
+        return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned), ...graces };
+      });
+      const chords =
+        pass > 0
+          ? bar.chords
+          : bar.chords.map((chord) => {
+              const moved = transposeChordText(chord.text, interval, to, chord.spellingPinned);
+              if (moved === chord.text) return chord;
+              changed.push(chord.id);
+              return { ...chord, text: moved };
+            });
+      return reflag({ ...bar, items, chords });
     });
-    const chords = bar.chords.map((chord) => {
-      const moved = transposeChordText(chord.text, interval, to, chord.spellingPinned);
-      if (moved === chord.text) return chord;
-      changed.push(chord.id);
-      return { ...chord, text: moved };
-    });
-    return reflag({ ...bar, items, chords });
+    next = withBarViews(next, views, select);
   });
-
-  const next: Score = withBarViews({ ...score, meta: { ...score.meta, key: to } }, views);
   return {
     score: next,
     operation: { type: 'transpose', payload: { to } },
@@ -1057,7 +1089,7 @@ function setFermata(score: Score, target: string, on: boolean): Applied {
     score: mapBar(score, resolved.bar.id, (bar) => ({
       ...bar,
       items: bar.items.map((other) => (other.id === item.id ? updated : other)),
-    })),
+    }), resolved.select),
     operation: { type: on ? 'fermata.set' : 'fermata.rm', target },
     changed: [item.id],
   };
@@ -1102,7 +1134,7 @@ function addGrace(score: Score, target: string, payload: GraceAddPayload): Appli
   };
   const updated: Note = { ...note, graces: [...(note.graces ?? []), grace] };
   return {
-    score: replaceNote(score, resolved.bar.id, updated),
+    score: replaceNote(score, resolved.bar.id, updated, resolved.select),
     operation: { type: 'grace.add', target, payload: { ...payload, id } },
     changed: [id],
   };
@@ -1110,15 +1142,17 @@ function addGrace(score: Score, target: string, payload: GraceAddPayload): Appli
 
 /** Remove one grace by id, or every grace on a note by its address. Absent is the none state, never `[]`. */
 function removeGrace(score: Score, target: string): Applied {
-  for (const bar of barViews(score)) {
-    for (const item of bar.items) {
-      if (item.kind !== 'note' || item.graces === undefined || !item.graces.some((grace) => grace.id === target)) continue;
-      const rest = item.graces.filter((grace) => grace.id !== target);
-      return {
-        score: replaceNote(score, bar.id, withGraces(item, rest)),
-        operation: { type: 'grace.rm', target },
-        changed: [target],
-      };
+  for (const { select, views } of allBarViews(score)) {
+    for (const bar of views) {
+      for (const item of bar.items) {
+        if (item.kind !== 'note' || item.graces === undefined || !item.graces.some((grace) => grace.id === target)) continue;
+        const rest = item.graces.filter((grace) => grace.id !== target);
+        return {
+          score: replaceNote(score, bar.id, withGraces(item, rest), select),
+          operation: { type: 'grace.rm', target },
+          changed: [target],
+        };
+      }
     }
   }
   const resolved = resolveAddress(score, target, 'note');
@@ -1127,7 +1161,7 @@ function removeGrace(score: Score, target: string): Applied {
     throw new OperationError({ kind: 'validation', detail: `${target} has no grace notes, so there is nothing to remove` });
   }
   return {
-    score: replaceNote(score, resolved.bar.id, withGraces(note, [])),
+    score: replaceNote(score, resolved.bar.id, withGraces(note, []), resolved.select),
     operation: { type: 'grace.rm', target },
     changed: note.graces.map((grace) => grace.id),
   };
@@ -1138,11 +1172,11 @@ function withGraces(note: Note, graces: GraceNote[]): Note {
   return graces.length === 0 ? rest : { ...rest, graces };
 }
 
-function replaceNote(score: Score, barId: Id, updated: Note): Score {
+function replaceNote(score: Score, barId: Id, updated: Note, select: VoiceSelect): Score {
   return mapBar(score, barId, (bar) => ({
     ...bar,
     items: bar.items.map((item) => (item.id === updated.id ? updated : item)),
-  }));
+  }), select);
 }
 
 // ---------------------------------------------------------------------------
@@ -1161,7 +1195,11 @@ function withoutSlursOn(score: Score, noteId: Id): Score {
 /** Reading-order index of every item, so "later" means the same on every bar. */
 function readingOrder(score: Score): Map<Id, number> {
   const order = new Map<Id, number>();
-  for (const bar of barViews(score)) for (const item of orderedItems(bar)) order.set(item.id, order.size);
+  // Bar by bar, then staff, then voice: "later" for a spanner across staves (ADR-0041).
+  const voices = allBarViews(score);
+  score.bars.forEach((_, at) => {
+    for (const { views } of voices) for (const item of orderedItems(views[at]!)) order.set(item.id, order.size);
+  });
   return order;
 }
 
@@ -1444,7 +1482,7 @@ function removeBar(score: Score, target: string): Applied {
     throw new OperationError({ kind: 'validation', detail: 'a chart needs at least one bar' });
   }
   const holds = [
-    bar.items.length > 0 ? 'notes or rests' : null,
+    barHoldsNotation(score, bar.id) ? 'notes or rests' : null,
     bar.chords.length > 0 ? 'chords' : null,
     bar.annotations.length > 0 ? 'text' : null,
     bar.ending !== null ? 'an ending' : null,
@@ -1566,8 +1604,8 @@ function chordReview(text: string): Review {
 // ---------------------------------------------------------------------------
 
 /** Rewrite one bar, then normalise its stored review: the derivable reason never survives a rewrite. */
-function mapBar(score: Score, barId: Id, change: (bar: BarView) => BarView): Score {
-  return mapBarView(score, barId, (view) => reflag(change(view)));
+function mapBar(score: Score, barId: Id, change: (bar: BarView) => BarView, select: VoiceSelect = {}): Score {
+  return mapBarView(score, barId, (view) => reflag(change(view)), select);
 }
 
 function reflagAllBars(score: Score): Score {
