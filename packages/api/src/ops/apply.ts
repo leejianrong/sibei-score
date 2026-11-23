@@ -1386,10 +1386,15 @@ function removeBreak(score: Score, target: string): Applied {
  * moves are pure functions of the document and the payload, and the new ids are recorded, so replay
  * (and undo, which is replay) reproduces them exactly.
  */
-function shiftBars(score: Score, after: number, by: number): { bars: BarView[]; sections: Score['sections'] } {
+function shiftBars(
+  bars: readonly BarView[],
+  sections: Score['sections'],
+  after: number,
+  by: number,
+): { bars: BarView[]; sections: Score['sections'] } {
   return {
-    bars: barViews(score).map((bar) => (bar.number > after ? { ...bar, number: bar.number + by } : bar)),
-    sections: score.sections.map((s) => (s.startBar > after ? { ...s, startBar: s.startBar + by } : s)),
+    bars: bars.map((bar) => (bar.number > after ? { ...bar, number: bar.number + by } : bar)),
+    sections: sections.map((s) => (s.startBar > after ? { ...s, startBar: s.startBar + by } : s)),
   };
 }
 
@@ -1412,7 +1417,7 @@ function addBars(score: Score, target: string | undefined, payload: BarAddPayloa
   }
   const added = ids.map((id, offset) => makeBar({ id, number: after + 1 + offset }));
 
-  const shifted = shiftBars(score, after, count);
+  const shifted = shiftBars(barViews(score), score.sections, after, count);
   const at = shifted.bars.filter((bar) => bar.number <= after).length;
   const bars = [...shifted.bars.slice(0, at), ...added, ...shifted.bars.slice(at)];
 
@@ -1453,9 +1458,7 @@ function removeBar(score: Score, target: string): Applied {
   }
 
   // A direction's dashed line that ended on the removed bar loses its end rather than dangling (SIB2-170).
-  const remaining = {
-    ...score,
-    bars: barViews(score)
+  const remaining = barViews(score)
       .filter((b) => b.id !== bar.id)
       .map((b) =>
         b.annotations.some((a) => a.lineEndBarId === bar.id)
@@ -1467,9 +1470,8 @@ function removeBar(score: Score, target: string): Applied {
               }),
             }
           : b,
-      ),
-  };
-  const shifted = shiftBars(remaining, bar.number, -1);
+      );
+  const shifted = shiftBars(remaining, score.sections, bar.number, -1);
   return {
     score: withBarViews({ ...score, sections: shifted.sections }, shifted.bars),
     operation: { type: 'bar.rm', target },

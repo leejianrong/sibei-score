@@ -10,7 +10,7 @@ import {
   NEEDS_REVIEW,
   NO_SECTIONS_ADVISORY,
   projectScore,
-  reviewSummary,
+  reviewSummary, barViews, withBarViews,
 } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
@@ -154,14 +154,14 @@ describe('reviewSummary', () => {
     // The other half of the same decision: "empty" must not become a way to hide a real problem.
     // One quarter in a 4/4 bar is a rhythm, and a wrong one.
     const score = blankChart(8);
-    const started: Score = {
-      ...score,
-      bars: score.bars.map((bar, index) =>
+    const started: Score = withBarViews(
+      score,
+      barViews(score).map((bar, index) =>
         index === 0
           ? { ...bar, items: [makeNote({ id: 'note-1', onset: 0, duration: dur(4), pitch: 'C5' })] }
           : bar,
       ),
-    };
+    );
     expect(reviewSummary(started).invalidBars).toEqual([1]);
     expect(reviewSummary(started).meterNote).toBe('1 bar does not fill the meter');
   });

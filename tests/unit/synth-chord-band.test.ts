@@ -1,4 +1,5 @@
 import { barViews } from '@sibei/model';
+import { toLegacyDocument } from '../fixtures/legacy-document.js';
 import { createHash } from 'node:crypto';
 import { CANONICAL_CHORD_STYLE, chordGlyphText } from '@sibei/engrave';
 import { formatChord } from '@sibei/music';
@@ -115,7 +116,7 @@ describe('opt-in corpus widening (SIB2-203)', () => {
 
   it('leaves a seeded corpus byte-identical when nothing opts in', () => {
     const digest = createHash('sha256')
-      .update(JSON.stringify(sweep()))
+      .update(JSON.stringify(sweep().map((entry) => ({ ...entry, score: toLegacyDocument(entry.score) }))))
       .update(JSON.stringify(buildChordVocabulary().symbols))
       .digest('hex');
     expect(digest).toBe(PINNED_DIGEST);

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION, migrateDocument, barViews } from '@sibei/model';
 import type { RawDocument } from '@sibei/model';
+import { toLegacyDocument } from '../fixtures/legacy-document.js';
 
 /**
  * Real fixture documents, each carried from the schema version a build actually wrote to the
@@ -69,8 +70,10 @@ describe('a real fixture climbs from the earliest schema version to the current 
     // The expected current document is the v1 one with exactly `spellingPinned: false` added to each
     // note and chord and the version bumped. Deep equality proves the migration added those and
     // touched nothing else — structure, ties, the repeat, the ending and the section all preserved.
+    // The v4 step (ADR-0041) rearranges the shape, so the comparison is made in the v3 shape: the migrated score is
+    // read back through `toLegacyDocument`, which is exactly what the v3 -> v4 step is the inverse of.
     const expected = v1();
-    expected.schemaVersion = SCHEMA_VERSION;
+    expected.schemaVersion = 3;
     for (const bar of expected.bars as RawDocument[]) {
       bar.items = (bar.items as RawDocument[]).map((item) =>
         item.kind === 'note' ? { ...item, spellingPinned: false } : item,
@@ -78,7 +81,7 @@ describe('a real fixture climbs from the earliest schema version to the current 
       bar.chords = (bar.chords as RawDocument[]).map((chord) => ({ ...chord, spellingPinned: false }));
     }
 
-    expect(score).toEqual(expected);
+    expect(toLegacyDocument(score)).toEqual(expected);
   });
 
   it('preserves the musical content a reader would check first', () => {
@@ -112,9 +115,9 @@ describe('a real v2 fixture climbs the last step, KAN-610', () => {
   it('changes nothing else — only the dropped reason and the version', () => {
     const { score } = migrateDocument(v2InvalidBar());
     const expected = v2InvalidBar();
-    expected.schemaVersion = SCHEMA_VERSION;
+    expected.schemaVersion = 3;
     (expected.bars as RawDocument[])[0]!.review = { flagged: false, reasons: [] };
-    expect(score).toEqual(expected);
+    expect(toLegacyDocument(score)).toEqual(expected);
   });
 
   it('preserves the musical content a reader would check first', () => {

@@ -1,0 +1,452 @@
+[
+ {
+  "type": "score.create",
+  "payload": {
+   "id": "v3-chart",
+   "title": "Replay Chart",
+   "composer": "Fixture",
+   "barCount": 8,
+   "pickup": true,
+   "bars": [
+    {
+     "id": "bar-0",
+     "number": 0
+    },
+    {
+     "id": "bar-1",
+     "number": 1
+    },
+    {
+     "id": "bar-2",
+     "number": 2
+    },
+    {
+     "id": "bar-3",
+     "number": 3
+    },
+    {
+     "id": "bar-4",
+     "number": 4
+    },
+    {
+     "id": "bar-5",
+     "number": 5
+    },
+    {
+     "id": "bar-6",
+     "number": 6
+    },
+    {
+     "id": "bar-7",
+     "number": 7
+    },
+    {
+     "id": "bar-8",
+     "number": 8
+    }
+   ]
+  }
+ },
+ {
+  "type": "meta.set",
+  "payload": {
+   "style": "Medium swing",
+   "barsPerSystem": 4
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar0.beat4",
+  "payload": {
+   "pitch": "G4",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "id": "note-1"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar1.beat1",
+  "payload": {
+   "pitch": "C5",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "tie": "start",
+   "id": "note-2"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar1.beat2",
+  "payload": {
+   "pitch": "C5",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "tie": "stop",
+   "id": "note-3"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar1.beat3",
+  "payload": {
+   "pitch": "E5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-4"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar1.beat3.5",
+  "payload": {
+   "pitch": "F#5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "spellingPinned": true,
+   "id": "note-5"
+  }
+ },
+ {
+  "type": "rest.add",
+  "target": "bar1.beat4",
+  "payload": {
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "id": "rest-1"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar2.beat1",
+  "payload": {
+   "pitch": "D5",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "articulations": [
+    "staccato"
+   ],
+   "id": "note-6"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar2.beat2",
+  "payload": {
+   "pitch": "E5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-7"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar2.beat2.5",
+  "payload": {
+   "pitch": "F5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-8"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar2.beat3",
+  "payload": {
+   "pitch": "G5",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "id": "note-9"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar2.beat4",
+  "payload": {
+   "pitch": "A5",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "id": "note-10"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar3.beat1",
+  "payload": {
+   "pitch": "Bb4",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "id": "note-11"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar3.beat2",
+  "payload": {
+   "pitch": "C5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-12"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar3.beat2.5",
+  "payload": {
+   "pitch": "D5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-13"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar3.beat3",
+  "payload": {
+   "pitch": "E5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-14"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar3.beat3.5",
+  "payload": {
+   "pitch": "F5",
+   "duration": {
+    "value": 8,
+    "dots": 0
+   },
+   "id": "note-15"
+  }
+ },
+ {
+  "type": "note.add",
+  "target": "bar3.beat4",
+  "payload": {
+   "pitch": "G5",
+   "duration": {
+    "value": 4,
+    "dots": 0
+   },
+   "id": "note-16"
+  }
+ },
+ {
+  "type": "chord.set",
+  "target": "bar1.beat1",
+  "payload": {
+   "text": "Cmaj7",
+   "id": "chord-1"
+  }
+ },
+ {
+  "type": "chord.set",
+  "target": "bar1.beat3",
+  "payload": {
+   "text": "A7(b9)",
+   "id": "chord-2"
+  }
+ },
+ {
+  "type": "chord.set",
+  "target": "bar2.beat1",
+  "payload": {
+   "text": "Dm7",
+   "id": "chord-3"
+  }
+ },
+ {
+  "type": "chord.set",
+  "target": "bar3.beat1",
+  "payload": {
+   "text": "Gm7",
+   "id": "chord-4"
+  }
+ },
+ {
+  "type": "chord.set",
+  "target": "bar4.beat1",
+  "payload": {
+   "text": "not a chord!?",
+   "id": "chord-5"
+  }
+ },
+ {
+  "type": "text.set",
+  "target": "bar2.beat1",
+  "payload": {
+   "text": "solo break",
+   "until": "bar5",
+   "id": "annotation-1"
+  }
+ },
+ {
+  "type": "text.set",
+  "target": "bar6.beat3",
+  "payload": {
+   "text": "D.S.",
+   "id": "annotation-2"
+  }
+ },
+ {
+  "type": "tuplet.set",
+  "target": "bar2.n2",
+  "payload": {
+   "actual": 3,
+   "normal": 2,
+   "count": 3,
+   "id": "tuplet-1"
+  }
+ },
+ {
+  "type": "slur.set",
+  "target": "bar1.n1",
+  "payload": {
+   "to": "bar1.n4",
+   "id": "slur-1"
+  }
+ },
+ {
+  "type": "ottava.set",
+  "target": "bar2.n4",
+  "payload": {
+   "to": "bar3.n1",
+   "shift": "up",
+   "id": "ottava-1"
+  }
+ },
+ {
+  "type": "grace.add",
+  "target": "bar1.n3",
+  "payload": {
+   "pitch": "D5",
+   "slashed": true,
+   "id": "grace-1"
+  }
+ },
+ {
+  "type": "fermata.set",
+  "target": "bar3.n5"
+ },
+ {
+  "type": "section.set",
+  "target": "bar1",
+  "payload": {
+   "letter": "A",
+   "name": "Head",
+   "id": "section-1"
+  }
+ },
+ {
+  "type": "section.set",
+  "target": "bar5",
+  "payload": {
+   "letter": "B",
+   "id": "section-2"
+  }
+ },
+ {
+  "type": "barline.set",
+  "target": "bar1",
+  "payload": {
+   "start": "repeat-start"
+  }
+ },
+ {
+  "type": "barline.set",
+  "target": "bar4",
+  "payload": {
+   "end": "repeat-end"
+  }
+ },
+ {
+  "type": "ending.set",
+  "target": "bar3",
+  "payload": {
+   "numbers": [
+    1
+   ],
+   "role": "start-stop"
+  }
+ },
+ {
+  "type": "break.set",
+  "target": "bar6",
+  "payload": {
+   "kind": "after"
+  }
+ },
+ {
+  "type": "bar.add",
+  "target": "bar8",
+  "payload": {
+   "count": 2,
+   "ids": [
+    "bar-9",
+    "bar-10"
+   ]
+  }
+ },
+ {
+  "type": "bar.rm",
+  "target": "bar10"
+ },
+ {
+  "type": "note.add",
+  "target": "bar7.beat1",
+  "payload": {
+   "pitch": "C5",
+   "duration": {
+    "value": 1,
+    "dots": 0
+   },
+   "id": "note-17"
+  }
+ },
+ {
+  "type": "note.rm",
+  "target": "bar7.n1"
+ },
+ {
+  "type": "transpose",
+  "payload": {
+   "to": {
+    "tonic": "F",
+    "alter": 0,
+    "mode": "major"
+   }
+  }
+ }
+]
