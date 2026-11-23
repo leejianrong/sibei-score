@@ -186,9 +186,8 @@ Voice    { index (1-based), items: BarItem[], tuplets: Tuplet[] }
   shape (a default chart's text is byte-identical), the other voices under `s2.v1`-style headers, and addresses with
   the qualifier. MCP takes the ops through its batch. The browser still edits staff 1, voice 1 (selecting a staff or
   voice is slice 5).
-- **Not drawn yet.** Layout and the engraver read `barViews(score)`, so only staff 1, voice 1 is drawn until slices
-  3 and 4; a multi-staff score renders without error. The layout's per-bar metrics (the rose wash on an invalid bar)
-  still look at that voice only.
+- **Not drawn yet.** The engraver (slice 4) still draws staff 1, voice 1 only; a multi-staff score renders without
+  error. Layout alignment is slice 3's.
 
 ## As built: slice 3 (SIB2-227, layout)
 

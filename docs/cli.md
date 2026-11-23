@@ -284,7 +284,7 @@ Once it has more, a bare address is an error (exit 3) that lists the candidates,
 takes a note address (`note`, `rest`, `tuplet`, `slur`, `ottava`, `fermata`, `grace`) also takes `--staff N --voice M`,
 which only writes that qualifier for you. `part rm`, `staff rm` and `voice rm` refuse something holding notes or rests
 unless `--force`; a score always keeps one part, one staff, and voice 1. A bar is flagged when any voice of any staff
-does not fill it (an empty voice is fine). Layout and the PDF draw only staff 1, voice 1 until slices 3 and 4 land.
+does not fill it (an empty voice is fine). The PDF and the browser draw only staff 1, voice 1 until the engraver slice lands.
 
 ## Transpose, structure
 
