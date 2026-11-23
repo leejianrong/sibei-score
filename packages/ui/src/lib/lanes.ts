@@ -81,7 +81,11 @@ export function tupletOf(score: Score, id: Id): Tuplet | null {
 /** A note's spelling pin, on any staff or voice. */
 export function notePinnedIn(score: Score, id: Id): boolean {
   for (const found of itemsWithLane(score)) {
-    if (found.item.id === id && found.item.kind === 'note') return found.item.spellingPinned;
+    if (found.item.kind !== 'note') continue;
+    if (found.item.id === id) return found.item.spellingPinned;
+    // A pitch of a stacked chord keeps its own pin (SIB2-252).
+    const member = found.item.stack?.find((tone) => tone.id === id);
+    if (member !== undefined) return member.spellingPinned;
   }
   return false;
 }

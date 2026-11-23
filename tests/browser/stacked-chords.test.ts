@@ -1,7 +1,7 @@
 import type { Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Score } from '@sibei/model';
-import { firstNoteTarget, type NoteTarget } from './support/geometry.js';
+import { firstNoteTarget, toneTarget, type NoteTarget } from './support/geometry.js';
 import { startStack, type Stack } from './support/stack.js';
 
 /**
@@ -75,4 +75,53 @@ describe('editing a stacked chord in the browser', () => {
       await page.close();
     }
   }, 120_000);
+
+  it('selects the middle pitch of a triad and sets its tie, accidental display and spelling lock, read back through the CLI', async () => {
+    const id = 'e2e-stacked-pitch';
+    stack.cli(['new', '--id', id, '--title', 'Triad', '--key', 'C', '--bars', '2']);
+    stack.cli(['note', 'add', id, 'bar1.beat1', '--pitch', 'C4', '--dur', '4']);
+    stack.cli(['note', 'add', id, 'bar1.beat1', '--pitch', 'E4', '--dur', '4']);
+    stack.cli(['note', 'add', id, 'bar1.beat1', '--pitch', 'G4', '--dur', '4']);
+    const page = await openScore(id);
+    try {
+      const score = (stack.cli(['open', id]) as Doc).score;
+      await click(page, toneTarget(score, 'E4'));
+      const head = page.getByRole('group', { name: 'Chosen head', exact: true });
+      await head.waitFor({ timeout: 5_000 });
+
+      await head.getByRole('group', { name: 'Tie on the chosen head' }).getByRole('button', { name: 'Start' }).click();
+      await expect.poll(() => toneOf(id, 'E4').tie, { timeout: 20_000 }).toBe('start');
+      expect(toneOf(id, 'C4').tie).toBe('none');
+      expect(toneOf(id, 'G4').tie).toBe('none');
+
+      await head.getByRole('group', { name: 'Sign on the chosen head' }).getByRole('button', { name: 'Show' }).click();
+      await expect.poll(() => toneOf(id, 'E4').accidental, { timeout: 20_000 }).toBe('show');
+
+      await head.getByLabel('Spelling lock on the chosen head').check();
+      await expect.poll(() => toneOf(id, 'E4').spellingPinned, { timeout: 20_000 }).toBe(true);
+      expect(toneOf(id, 'C4').spellingPinned).toBe(false);
+    } finally {
+      await page.close();
+    }
+  }, 120_000);
 });
+
+interface ToneDoc {
+  tie: string;
+  accidental: string;
+  spellingPinned: boolean;
+}
+
+/** One pitch of bar 1's first chord, as the store holds it. */
+function toneOf(id: string, pitch: string): ToneDoc {
+  const doc = stack.cli(['open', id]) as Doc;
+  const item = doc.score.parts[0]!.staves[0]!.bars[0]!.voices[0]!.items[0]! as unknown as {
+    pitch: { step: string; alter: number; octave: number };
+    stack?: { pitch: { step: string; alter: number; octave: number } }[];
+  } & ToneDoc;
+  const text = (p: { step: string; alter: number; octave: number }): string => `${p.step}${p.alter === 1 ? '#' : p.alter === -1 ? 'b' : ''}${p.octave}`;
+  const all = [item, ...(item.stack ?? [])] as (ToneDoc & { pitch: { step: string; alter: number; octave: number } })[];
+  const found = all.find((tone) => text(tone.pitch) === pitch);
+  if (found === undefined) throw new Error(`no ${pitch} in the chord`);
+  return found;
+}

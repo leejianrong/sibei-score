@@ -484,4 +484,6 @@ and Add above / Add below (a diatonic third from the top / bottom pitch). Add is
 duration; Remove is `note.rm` by position and pitch (`s2.v1.bar3.beat2.E4`, which the address grammar now accepts at a beat as
 well as at an ordinal), and both keep the chord selected so a chord can be built in a row. Duration, articulations and fermata in
 the inspector are the whole chord's, and the pitch field edits the carrying note's pitch. Per-pitch **tie, accidental and
-spelling pin** are CLI-only for now (`note set bar3.n2.E4 --tie start`): a documented gap in Q79, not a refusal.
+spelling pin** closed in SIB2-252: clicking one head of a chord selects that pitch (hit-testing already returned the head), and a
+"Chosen head" section of the inspector sets its tie, accidental display and spelling lock at once, each a `note set` at the pitch's
+address (`note set bar3.n2.E4 --tie start` on the CLI). A lone note has no such section.

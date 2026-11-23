@@ -42,7 +42,7 @@
     /** The grace notes before this note (SIB2-185), each removable. */
     graces: readonly { id: Id; pitch: string; value: 8 | 16 | 32; slashed: boolean }[];
     /** Every pitch of the chord this note is, low to high (SIB2-243); a lone note has one. */
-    tones: readonly { id: Id; pitch: string }[];
+    tones: readonly { id: Id; pitch: string; tie: TieRole; accidental: AccidentalDisplay; spellingPinned: boolean }[];
   }
 
   export interface RestSelection {
@@ -102,6 +102,8 @@
     selectedTone?: Id | null;
     ontoneadd?: (pitch: string) => void;
     ontonerm?: (pitch: string) => void;
+    /** One pitch's own tie, accidental or spelling pin (SIB2-252), applied at once like the slur controls. */
+    ontoneset?: (pitch: string, change: { tie?: TieRole; accidental?: AccidentalDisplay; spellingPinned?: boolean }) => void;
     ongracerm?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
     /** The tuplet holding this item, or null. */
@@ -133,6 +135,7 @@
     selectedTone = null,
     ontoneadd,
     ontonerm,
+    ontoneset,
     onsave,
     tuplet = null,
     onsettuplet,
@@ -191,6 +194,12 @@
     ontoneadd?.(pitch);
     tonePitch = '';
   }
+
+  // The head the click landed on, when it is one of several (SIB2-252). A lone note has no such section.
+  const chosenTone = $derived(
+    selection.kind === 'note' && selection.tones.length > 1 ? selection.tones.find((tone) => tone.id === selectedTone) : undefined,
+  );
+  const TIES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOT_COUNTS: readonly Dots[] = [0, 1, 2];
@@ -463,6 +472,40 @@
             <p class="field-error">{toneError}</p>
           {/if}
         </div>
+
+        {#if chosenTone !== undefined && ontoneset !== undefined}
+          <div class="field slur-field" role="group" aria-label="Chosen head">
+            <span class="field-label">Chosen head: {chosenTone.pitch}</span>
+            <p class="inspector-note">Applies at once to this one note of the chord, as the CLI's note set at its address.</p>
+            <SegmentedControl
+              label="Tie on the chosen head"
+              options={TIES}
+              value={chosenTone.tie}
+              display={(option) => option.charAt(0).toUpperCase() + option.slice(1)}
+              onselect={(chosen) => ontoneset(chosenTone.pitch, { tie: chosen })}
+            />
+            <SegmentedControl
+              label="Sign on the chosen head"
+              options={ACCIDENTALS}
+              value={chosenTone.accidental}
+              display={(option) => (option === 'parens' ? '(♯)' : option.charAt(0).toUpperCase() + option.slice(1))}
+              onselect={(chosen) => ontoneset(chosenTone.pitch, { accidental: chosen })}
+            />
+            <label class="pin">
+              <input
+                type="checkbox"
+                aria-label="Spelling lock on the chosen head"
+                checked={chosenTone.spellingPinned}
+                disabled={saving}
+                onchange={(event) => ontoneset(chosenTone.pitch, { spellingPinned: (event.currentTarget as HTMLInputElement).checked })}
+              />
+              <span class="pin-text">
+                Lock spelling
+                <em>Holds this one note's spelling through a transpose.</em>
+              </span>
+            </label>
+          </div>
+        {/if}
       {/if}
 
       {#if ongraceadd !== undefined}

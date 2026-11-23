@@ -41,6 +41,26 @@ export function firstNoteTarget(score: Score): NoteTarget {
   throw new Error('the score has no note to target');
 }
 
+/** Where to click one head of a stacked chord (SIB2-252): the box of the pitch written `pitch` (`E4`). */
+export function toneTarget(score: Score, pitch: string): NoteTarget {
+  const pages = renderScorePages(score, { paper: 'a4' }, { font: DEFAULT_MUSIC_FONT });
+  const font = loadFont(DEFAULT_MUSIC_FONT);
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    const page = pages[pageIndex];
+    if (page === undefined) continue;
+    const head = pageItemBoxes(page.layout, font).find((box) => box.kind === 'note' && box.pitch === pitch);
+    if (head !== undefined) {
+      return {
+        noteId: head.toneId ?? head.id,
+        pageIndex,
+        cx: (head.x + head.width / 2) / page.layout.width,
+        cy: (head.y + head.height / 2) / page.layout.height,
+      };
+    }
+  }
+  throw new Error(`the score has no head written ${pitch}`);
+}
+
 /**
  * Where to click in the **chord band** above a bar to add a chord at a beat (V5e) — the same layout
  * the app hit-tests against, so the test cannot disagree with the app about where the band is. The

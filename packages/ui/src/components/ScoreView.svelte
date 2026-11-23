@@ -22,7 +22,7 @@
   import type { MusicFontName } from '@sibei/engrave';
   import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
   import { displayTitle, formatKeySignature, formatPitch, pitchToMidi, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
-  import type { Id, KeySignature, Score } from '@sibei/model';
+  import type { AccidentalDisplay, Id, KeySignature, Score, TieRole } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
   import {
     ApiError,
@@ -373,9 +373,18 @@
         articulations: item.articulations ?? [],
         ...(item.drum === undefined ? {} : { drum: item.drum }),
         ...(item.head === undefined ? {} : { head: item.head }),
-        tones: [{ id: item.noteId, pitch: item.pitch }, ...(item.tones ?? []).map((tone) => ({ id: tone.toneId, pitch: tone.pitch }))]
+        tones: [
+          { id: item.noteId, pitch: item.pitch, tie: item.tie, accidental: item.accidental },
+          ...(item.tones ?? []).map((tone) => ({ id: tone.toneId, pitch: tone.pitch, tie: tone.tie, accidental: tone.accidental })),
+        ]
           .sort((a, b) => pitchToMidi(a.pitch) - pitchToMidi(b.pitch))
-          .map((tone) => ({ id: tone.id, pitch: formatPitch(tone.pitch) })),
+          .map((tone) => ({
+            id: tone.id,
+            pitch: formatPitch(tone.pitch),
+            tie: tone.tie,
+            accidental: tone.accidental,
+            spellingPinned: notePinned(tone.id),
+          })),
         graces: (item.graces ?? []).map((grace) => ({
           id: grace.graceId,
           pitch: formatPitch(grace.pitch),
@@ -780,6 +789,13 @@
     if (score === null || located === null || located.item.kind !== 'note') return;
     const here = qualifierOf(score, { staff: located.staffIndex + 1, voice: located.voice });
     await runOps([{ type: 'note.rm', target: chordToneAddress(here, located.barNumber, located.item.beat, pitch) } as Operation], true);
+  }
+
+  /** Change one pitch of the selected chord's tie, accidental or spelling pin (SIB2-252): `note.set` at its pitch address. */
+  async function handleToneSet(pitch: string, change: { tie?: TieRole; accidental?: AccidentalDisplay; spellingPinned?: boolean }): Promise<void> {
+    if (score === null || located === null || located.item.kind !== 'note') return;
+    const here = qualifierOf(score, { staff: located.staffIndex + 1, voice: located.voice });
+    await runOps([{ type: 'note.set', target: chordToneAddress(here, located.barNumber, located.item.beat, pitch), payload: change } as Operation], true);
   }
 
   /** Bracket a run as a tuplet from the selected item, or take it off (SIB2-166). One op, so one undo. */
@@ -1385,6 +1401,7 @@
               {selectedTone}
               ontoneadd={(pitch) => void handleToneAdd(pitch)}
               ontonerm={(pitch) => void handleToneRemove(pitch)}
+              ontoneset={(pitch, change) => void handleToneSet(pitch, change)}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}
