@@ -20,6 +20,7 @@ export * from './lanes.js';
 export * from './note-input.js';
 export * from './render.js';
 export * from './routing.js';
+export * from './selection.js';
 export * from './session.js';
 export * from './slur-edits.js';
 export * from './staff-edits.js';
