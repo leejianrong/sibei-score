@@ -76,6 +76,8 @@ export interface MetaSetPayload {
   barsPerSystem?: number | null;
   /** The chord symbology (SIB2-163): `standard`, `dash`, `words` or `real-book`. `standard` or null clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book' | null;
+  /** How systems are broken (ADR-0041 section 5): `lead-sheet` (the four-bar grid, the default) or `score` (by width). `lead-sheet` or null clears it. */
+  layout?: 'lead-sheet' | 'score' | null;
   /** The tempo mark (SIB2-177): the beat and beats per minute. Null removes it. */
   tempo?: { unit: { value: number; dots?: number }; bpm: number } | null;
 }

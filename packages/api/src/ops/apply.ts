@@ -11,6 +11,7 @@ import {
   LINE_BREAKS,
   MAX_BARS_PER_SYSTEM,
   MIN_BARS_PER_SYSTEM,
+  SCORE_LAYOUT_KINDS,
   SIGNATURE_POLICIES,
   OCTAVE_SHIFTS,
   SPANNER_PLACEMENTS,
@@ -77,6 +78,7 @@ import type {
   PageFooter,
   Review,
   Score,
+  ScoreLayoutKind,
   SignaturePolicy,
   Spanner,
   Tempo,
@@ -368,6 +370,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const chordStyle = nextChordStyle(score, payload);
   const perSystem = nextBarsPerSystem(score, payload);
   const tempo = nextTempo(score, payload);
+  const layout = nextLayout(score, payload);
   const {
     footer: _footer,
     subtitle: _subtitle,
@@ -376,6 +379,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     chordStyle: _style,
     barsPerSystem: _bars,
     tempo: _tempo,
+    layout: _layout,
     ...rest
   } = score.meta;
   const next: Score = {
@@ -394,6 +398,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       ...(chordStyle === undefined ? {} : { chordStyle }),
       ...(perSystem === undefined ? {} : { barsPerSystem: perSystem }),
       ...(tempo === undefined ? {} : { tempo }),
+      ...(layout === undefined ? {} : { layout }),
     },
   };
 
@@ -420,6 +425,20 @@ function nextSignaturePolicy(score: Score, payload: MetaSetPayload): SignaturePo
     });
   }
   return asked === 'every' ? undefined : asked;
+}
+
+/** The system-break policy after a `meta.set` (ADR-0041 section 5). `lead-sheet` is stored as absent, so there is one way to say it. */
+function nextLayout(score: Score, payload: MetaSetPayload): ScoreLayoutKind | undefined {
+  const asked = payload.layout;
+  if (asked === undefined) return score.meta.layout;
+  if (asked === null || asked === 'lead-sheet') return undefined;
+  if (!SCORE_LAYOUT_KINDS.includes(asked)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `layout must be ${SCORE_LAYOUT_KINDS.join(' or ')}, not ${JSON.stringify(asked)}`,
+    });
+  }
+  return asked;
 }
 
 /** The tempo mark after a `meta.set` (SIB2-177): untouched unless named; null removes it. */

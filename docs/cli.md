@@ -90,6 +90,7 @@ sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [
                       [--footer TEXT] [--footer-pages first|last|all]
                       [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
+                      [--layout lead-sheet|score]
                       [--tempo 4=120]
 ```
 
@@ -119,6 +120,13 @@ path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`)
 a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
 carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
 
+`--layout` says how the systems of a chart with several staves are broken (ADR-0041 section 5): `lead-sheet`
+(the default, and what a chart without the setting does) keeps the four-bar grid of a lead sheet, `score` breaks a
+system when the next bar would not fit the line, the way a score is set (`--bars-per-system` and section breaks
+still apply to `lead-sheet` only). `lead-sheet` or an empty `--layout ''` clears it. It is a logged, undoable edit
+with a Layout select in the score view's rail, `show` prints `layout: score` when it is set, and MusicXML has no
+home for it (a file of several staves imported from MusicXML comes in as `score`).
+
 `--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (after the pickup, if any; `4=120`, `4.=60` for a
 dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text
 `--style` line, and it is notation only: nothing plays. MusicXML carries it as a `<metronome>` and a
@@ -145,9 +153,10 @@ exit 2 and creates nothing. A silent file imports as an empty one-bar draft with
 
 `import FILE.musicxml` (also `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any file name)
 reads **MusicXML** through the codec into an editable draft with a fresh history, and needs **no worker**.
-It is single-voice, single-staff, and **never silent about what it drops**: extra parts or staves, a second
-voice, chord tones, lyrics, dynamics, grace notes, a mid-piece key or meter change, unsupported
-articulations and the like are listed under the success line (and are the job's `diagnostic` in `--json`).
+Parts, staves and up to four voices a staff become real parts, staves and voices (a draft of several staves is
+set by width, `meta.layout` `score`), and the import **never goes silent about what it drops**: chord tones,
+lyrics, dynamics, a fifth voice, a mid-piece key or meter change, unsupported articulations or clefs, a file
+past 32 parts or 32 staves and the like are listed under the success line (and are the job's `diagnostic` in `--json`).
 The file is untrusted, so it is bounded (10 MB of XML, an `.mxl` may not expand past that, nesting is capped,
 declared entities are never expanded). A file that is not MusicXML, is `score-timewise`, or is too large is
 refused with exit 2 (`invalid-musicxml` / `unsupported-musicxml`, never retryable) and creates nothing.
