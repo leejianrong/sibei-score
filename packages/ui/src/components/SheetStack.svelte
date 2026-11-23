@@ -46,6 +46,8 @@
     chordSelection?: { pageIndex: number; box: OverlayBox } | null;
     /** Which bar is selected (V7c) — a bracket over the whole bar rather than a tight box on one glyph. */
     barSelection?: { pageIndex: number; box: OverlayBox } | null;
+    /** The note-input caret (SIB2-155): the box of the previewed note, engraved by the one render path. */
+    caret?: { pageIndex: number; box: OverlayBox } | null;
     /** The empty beat under the pointer, where a click would add a chord (V5e). */
     addHint?: { pageIndex: number; box: OverlayBox } | null;
     /** A click on a sheet, translated into that page's own layout units. */
@@ -54,7 +56,7 @@
     onhover?: (pageIndex: number, point: Point | null) => void;
   }
 
-  const { pages, selection = null, rangeSelection = null, chordSelection = null, barSelection = null, addHint = null, onselect, onhover }: Props = $props();
+  const { pages, selection = null, rangeSelection = null, chordSelection = null, barSelection = null, caret = null, addHint = null, onselect, onhover }: Props = $props();
   const multi = $derived(pages.length > 1);
 
   function pointOf(index: number, event: MouseEvent): Point | null {
@@ -117,6 +119,9 @@
           {@html page.svg}
           {#if barSelection !== null && barSelection.pageIndex === index}
             <div class="hit barsel" style={boxStyle(barSelection.box, page)}></div>
+          {/if}
+          {#if caret !== null && caret.pageIndex === index}
+            <div class="hit caret" data-testid="note-input-ghost" style={boxStyle(caret.box, page)}></div>
           {/if}
           {#if selection !== null && selection.pageIndex === index}
             <div class="hit selected" style={boxStyle(selection.box, page)}></div>
@@ -185,6 +190,14 @@
     background: var(--accent-wash);
     outline: 1.5px solid var(--accent);
     outline-offset: -1.5px;
+  }
+  /* The note-input caret: a dashed frame and a wash over the previewed note, plus a bar at its left edge
+     that reads as the insertion point. The note under it is real ink from the engraver, not drawn here. */
+  .hit.caret {
+    background: var(--accent-wash);
+    outline: 1.5px dashed var(--accent);
+    outline-offset: 1px;
+    box-shadow: -3px 0 0 var(--accent);
   }
   /* A selected bar is a region, not a glyph: a lighter wash and a full outline so it reads as
      "this whole bar" without burying the ink it sits over. */

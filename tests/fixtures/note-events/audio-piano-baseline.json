@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "source": {
+    "sha256": "fcafe157539f66d7ef6073235411a484b9ff681ef79a48de9e5c08b5b752469a",
+    "duration_s": 11.364036281179139
+  },
+  "instrument": "piano",
+  "producer": {
+    "model_id": "cqt-poly-baseline",
+    "model_version": "1",
+    "stage": "transcribe"
+  },
+  "beats": [],
+  "notes": [
+    {
+      "id": "n0",
+      "onset_s": 0.0,
+      "offset_s": 2.716734693877551,
+      "pitch": 37,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7161901959679274,
+      "drum_class": null
+    },
+    {
+      "id": "n1",
+      "onset_s": 0.0,
+      "offset_s": 2.716734693877551,
+      "pitch": 40,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7905600012815426,
+      "drum_class": null
+    },
+    {
+      "id": "n2",
+      "onset_s": 0.0,
+      "offset_s": 2.2523356009070294,
+      "pitch": 52,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6404771835246126,
+      "drum_class": null
+    },
+    {
+      "id": "n3",
+      "onset_s": 0.0,
+      "offset_s": 2.1362358276643993,
+      "pitch": 56,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6064895268637566,
+      "drum_class": null
+    },
+    {
+      "id": "n4",
+      "onset_s": 0.023219954648526078,
+      "offset_s": 2.7631746031746034,
+      "pitch": 44,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7507967662667122,
+      "drum_class": null
+    },
+    {
+      "id": "n5",
+      "onset_s": 0.023219954648526078,
+      "offset_s": 2.7631746031746034,
+      "pitch": 49,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6183707676285441,
+      "drum_class": null
+    },
+    {
+      "id": "n6",
+      "onset_s": 0.023219954648526078,
+      "offset_s": 0.6965986394557824,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.9614535548909376,
+      "drum_class": null
+    },
+    {
+      "id": "n7",
+      "onset_s": 0.7430385487528345,
+      "offset_s": 0.8126984126984127,
+      "pitch": 72,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.11232330780413088,
+      "drum_class": null
+    },
+    {
+      "id": "n8",
+      "onset_s": 0.7662585034013606,
+      "offset_s": 1.1377777777777778,
+      "pitch": 66,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.9014023819707037,
+      "drum_class": null
+    },
+    {
+      "id": "n9",
+      "onset_s": 1.1377777777777778,
+      "offset_s": 1.811156462585034,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.968316176618179,
+      "drum_class": null
+    },
+    {
+      "id": "n10",
+      "onset_s": 1.8808163265306124,
+      "offset_s": 2.9257142857142857,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.8780003342818807,
+      "drum_class": null
+    },
+    {
+      "id": "n11",
+      "onset_s": 2.972154195011338,
+      "offset_s": 5.712108843537415,
+      "pitch": 40,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7912864178106621,
+      "drum_class": null
+    },
+    {
+      "id": "n12",
+      "onset_s": 2.995374149659864,
+      "offset_s": 5.712108843537415,
+      "pitch": 37,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7184864056128475,
+      "drum_class": null
+    },
+    {
+      "id": "n13",
+      "onset_s": 3.01859410430839,
+      "offset_s": 5.758548752834467,
+      "pitch": 44,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7528936999059688,
+      "drum_class": null
+    },
+    {
+      "id": "n14",
+      "onset_s": 3.01859410430839,
+      "offset_s": 5.27092970521542,
+      "pitch": 52,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6419872903404117,
+      "drum_class": null
+    },
+    {
+      "id": "n15",
+      "onset_s": 3.01859410430839,
+      "offset_s": 5.131609977324263,
+      "pitch": 56,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6037477688807501,
+      "drum_class": null
+    },
+    {
+      "id": "n16",
+      "onset_s": 3.01859410430839,
+      "offset_s": 3.3668934240362813,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.9601428688333485,
+      "drum_class": null
+    },
+    {
+      "id": "n17",
+      "onset_s": 3.0418140589569163,
+      "offset_s": 5.758548752834467,
+      "pitch": 49,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6176976682873805,
+      "drum_class": null
+    },
+    {
+      "id": "n18",
+      "onset_s": 3.0650340136054424,
+      "offset_s": 3.1579138321995464,
+      "pitch": 78,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.12453243721213543,
+      "drum_class": null
+    },
+    {
+      "id": "n19",
+      "onset_s": 3.1346938775510207,
+      "offset_s": 3.2043537414965986,
+      "pitch": 74,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.10968253884772342,
+      "drum_class": null
+    },
+    {
+      "id": "n20",
+      "onset_s": 3.3901133786848074,
+      "offset_s": 3.9938321995464854,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.9257377940792735,
+      "drum_class": null
+    },
+    {
+      "id": "n21",
+      "onset_s": 3.5062131519274375,
+      "offset_s": 3.575873015873016,
+      "pitch": 72,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.12706453319426794,
+      "drum_class": null
+    },
+    {
+      "id": "n22",
+      "onset_s": 4.08671201814059,
+      "offset_s": 4.295691609977324,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.44185845092386866,
+      "drum_class": null
+    },
+    {
+      "id": "n23",
+      "onset_s": 4.481451247165533,
+      "offset_s": 4.574331065759638,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.3776470898176041,
+      "drum_class": null
+    },
+    {
+      "id": "n24",
+      "onset_s": 4.899410430839002,
+      "offset_s": 5.2477097505668935,
+      "pitch": 69,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.8486971112795816,
+      "drum_class": null
+    },
+    {
+      "id": "n25",
+      "onset_s": 5.27092970521542,
+      "offset_s": 5.9675283446712015,
+      "pitch": 69,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.8257168725112212,
+      "drum_class": null
+    },
+    {
+      "id": "n26",
+      "onset_s": 5.9675283446712015,
+      "offset_s": 8.730702947845804,
+      "pitch": 40,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.7925375623207963,
+      "drum_class": null
+    },
+    {
+      "id": "n27",
+      "onset_s": 5.990748299319728,
+      "offset_s": 8.730702947845804,
+      "pitch": 37,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.719829419739152,
+      "drum_class": null
+    },
+    {
+      "id": "n28",
+      "onset_s": 6.013968253968254,
+      "offset_s": 8.753922902494331,
+      "pitch": 44,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.754153288314648,
+      "drum_class": null
+    },
+    {
+      "id": "n29",
+      "onset_s": 6.013968253968254,
+      "offset_s": 8.266303854875284,
+      "pitch": 52,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6436593270048807,
+      "drum_class": null
+    },
+    {
+      "id": "n30",
+      "onset_s": 6.013968253968254,
+      "offset_s": 8.126984126984127,
+      "pitch": 56,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6047867544085835,
+      "drum_class": null
+    },
+    {
+      "id": "n31",
+      "onset_s": 6.013968253968254,
+      "offset_s": 6.710566893424036,
+      "pitch": 69,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n32",
+      "onset_s": 6.03718820861678,
+      "offset_s": 8.70748299319728,
+      "pitch": 49,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.6165909868186401,
+      "drum_class": null
+    },
+    {
+      "id": "n33",
+      "onset_s": 6.757006802721088,
+      "offset_s": 7.685804988662132,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.9127310057638534,
+      "drum_class": null
+    },
+    {
+      "id": "n34",
+      "onset_s": 7.291065759637188,
+      "offset_s": 7.360725623582766,
+      "pitch": 72,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.07131342767081958,
+      "drum_class": null
+    },
+    {
+      "id": "n35",
+      "onset_s": 7.848344671201814,
+      "offset_s": 7.964444444444444,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.3545386485439052,
+      "drum_class": null
+    },
+    {
+      "id": "n36",
+      "onset_s": 8.266303854875284,
+      "offset_s": 8.614603174603175,
+      "pitch": 64,
+      "cents": null,
+      "velocity": null,
+      "confidence": 0.9932164131631404,
+      "drum_class": null
+    }
+  ],
+  "warnings": []
+}
