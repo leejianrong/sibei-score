@@ -1,11 +1,13 @@
 import type { BarItem, BarView, Id, Part, Score, Staff, StaffType, TimeSignature } from '@sibei/model';
 import { TICKS_PER_QUARTER, allStaves, barCapacity, barView, isDrumKitStaff, itemTicks, keyFifths } from '@sibei/model';
 import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
-import type { Clef, LayoutBarItem, LayoutTie } from './items.js';
+import { clefChangeOf, effectiveClef, hasClefChanges } from './clefs.js';
+import { crossingFlips } from './crossing.js';
+import type { Clef, LayoutBarItem, LayoutOttava, LayoutTie } from './items.js';
 import type { LayoutBar } from './layout.js';
 import type { PageSpec } from './page.js';
 import type { SystemVertical } from './vertical.js';
-import { staffInk } from './vertical.js';
+import { OTTAVA_BAND, OTTAVA_GAP, staffInk } from './vertical.js';
 import type { AllocatedBar, BarPrefix, BarSizing } from './widths.js';
 import { estimateBarWidth, rigidBarWidth } from './widths.js';
 
@@ -65,6 +67,8 @@ export interface LayoutStaffBar {
   barId: Id;
   /** Which of the clef, key and time signature this staff draws at the head of this bar. */
   prefix: BarPrefix;
+  /** The clef in force over this bar, only where it is not the staff's opening one (SIB2-241). */
+  clef?: Clef;
   voices: LayoutVoice[];
 }
 
@@ -89,6 +93,9 @@ export interface LayoutStaff {
   /** The ink this staff's notes reach above and below its lines on this system, for ledger-line room. */
   inkAbove: number;
   inkBelow: number;
+  /** Units above this staff's top line / below its bottom line of an 8va / 8vb line on it. Lower staves only (SIB2-233). */
+  ottavaAboveOffset?: number;
+  ottavaBelowOffset?: number;
   bars: LayoutStaffBar[];
   /** Ties between this staff's notes, any voice, on this system. */
   ties: LayoutTie[];
@@ -160,7 +167,11 @@ export function lanesOf(score: Score): Lane[] {
 export function isMultiLane(score: Score): boolean {
   const staves = allStaves(score);
   if (staves.length > 1) return true;
-  return staves.some((staff) => staff.bars.some((bar) => bar.voices.filter((voice) => voice.items.length > 0).length > 1));
+  return (
+    staves.some((staff) => staff.bars.some((bar) => bar.voices.filter((voice) => voice.items.length > 0).length > 1)) ||
+    // A clef change is drawn by the staved path, even on a lone staff (SIB2-241).
+    staves.some((staff) => hasClefChanges(score, staff))
+  );
 }
 
 export interface VoiceView {
@@ -180,17 +191,38 @@ export function voiceViewsOf(score: Score, staff: Staff, bar: BarView): VoiceVie
  * The notes whose stems a numbered voice fixes: in a staff-bar with two or more voices that have music, voices 1 and 3
  * stem up and 2 and 4 down (ADR-0041). Every other note keeps the stem its pitch gives it, so a single voice is untouched.
  */
-export function voiceStems(perBar: readonly (readonly VoiceView[])[]): Map<Id, 'up' | 'down'> {
+export function voiceStems(
+  perBar: readonly (readonly VoiceView[])[],
+  shifts?: ReadonlyMap<Id, 'up' | 'down'>,
+): Map<Id, 'up' | 'down'> {
   const stems = new Map<Id, 'up' | 'down'>();
   for (const voices of perBar) {
     if (voices.filter((voice) => voice.view.items.length > 0).length < 2) continue;
+    // Where two voices cross at a note the stems turn away from each other (`crossingFlips`, SIB2-233).
+    const flips = crossingFlips(
+      voices.map((voice) => ({
+        index: voice.index,
+        notes: voice.view.items.flatMap((item) =>
+          item.kind === 'note'
+            ? [{ id: item.id, onset: item.onset, pitch: item.pitch, duration: item.duration, tupletId: tupletOf(voice.view, item.id) }]
+            : [],
+        ),
+      })),
+      shifts,
+    );
     for (const voice of voices) {
       for (const item of voice.view.items) {
-        if (item.kind === 'note') stems.set(item.id, voice.index % 2 === 1 ? 'up' : 'down');
+        if (item.kind !== 'note') continue;
+        const numbered = voice.index % 2 === 1 ? 'up' : 'down';
+        stems.set(item.id, flips.has(item.id) ? (numbered === 'up' ? 'down' : 'up') : numbered);
       }
     }
   }
   return stems;
+}
+
+function tupletOf(view: BarView, id: Id): Id | null {
+  return view.tuplets.find((tuplet) => tuplet.memberIds.includes(id))?.id ?? null;
 }
 
 /**
@@ -364,6 +396,8 @@ export interface BuildLanesInput {
   /** Per staff id, the ties of that staff's notes by system index. */
   tiesByStaff: Map<Id, Map<number, LayoutTie[]>>;
   systemIndex: number;
+  /** The ottava lines of this system, so a staff below the top one reserves room for its own (SIB2-233). */
+  ottavas?: readonly LayoutOttava[];
 }
 
 export interface BuiltLanes extends LayoutLanes {
@@ -395,7 +429,10 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       perBar.flatMap((voices) => voices.map((voice) => voice.view)),
       input.shifts,
       kit ? 'treble' : lane.staff.clef,
-      kit ? kitStems(perBar) : voiceStems(perBar),
+      kit ? kitStems(perBar) : voiceStems(perBar, input.shifts),
+      true,
+      // Where the staff changes clef, each bar is measured in the clef in force there (SIB2-241).
+      !kit && hasClefChanges(score, lane.staff) ? (bar) => effectiveClef(score, lane.staff, bar.id) : undefined,
     );
     const bars = allocated.map((entry, barIndex): LayoutStaffBar => {
       const voices = perBar[barIndex] ?? [];
@@ -403,6 +440,9 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       return {
         barId: entry.bar.id,
         prefix: staffPrefix(lane.staff.type, entry.prefix),
+        ...(effectiveClef(score, lane.staff, entry.bar.id) === lane.staff.clef
+          ? {}
+          : { clef: effectiveClef(score, lane.staff, entry.bar.id) }),
         voices: voices.map((voice, voiceIndex): LayoutVoice => {
           const stems: StemDirection = twoOrMore ? (voice.index % 2 === 1 ? 'up' : 'down') : kit ? 'up' : 'auto';
           // The top staff's first voice is the lead-sheet bar's own item list.
@@ -412,6 +452,22 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
         }),
       };
     });
+    // A lower staff's ottava line rides past its own ink, as the top staff's does in `systemVertical` (SIB2-233).
+    let inkAbove = ink.inkAbove;
+    let inkBelow = laneIndex === 0 ? vertical.belowStaff : ink.inkBelow;
+    let ottavaAboveOffset: number | undefined;
+    let ottavaBelowOffset: number | undefined;
+    if (laneIndex > 0) {
+      const own = (input.ottavas ?? []).filter((line) => line.staff === laneIndex);
+      if (own.some((line) => line.shift === 'up')) {
+        ottavaAboveOffset = inkAbove + OTTAVA_GAP;
+        inkAbove = ottavaAboveOffset + OTTAVA_BAND;
+      }
+      if (own.some((line) => line.shift === 'down')) {
+        ottavaBelowOffset = inkBelow + OTTAVA_GAP;
+        inkBelow = ottavaBelowOffset + OTTAVA_BAND;
+      }
+    }
     return {
       index: laneIndex,
       staffId: lane.staff.id,
@@ -422,8 +478,10 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       staveOffset: 0,
       staveY: 0,
       height: spec.staffHeight,
-      inkAbove: ink.inkAbove,
-      inkBelow: laneIndex === 0 ? vertical.belowStaff : ink.inkBelow,
+      inkAbove,
+      inkBelow,
+      ...(ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset }),
+      ...(ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset }),
       bars,
       ties: input.tiesByStaff.get(lane.staff.id)?.get(input.systemIndex) ?? [],
     };
@@ -502,7 +560,11 @@ function laneItems(
   const bar = voice.view;
   if (first) {
     const prefix = staffPrefix(staff.type, entry.prefix);
-    if (prefix.clef) items.push({ kind: 'clef', clef: staff.clef });
+    if (prefix.clef) items.push({ kind: 'clef', clef: effectiveClef(score, staff, entry.bar.id) });
+    else if (entry.prefix.clefChange === true && staff.type !== 'percussion') {
+      const change = clefChangeOf(score, staff, entry.bar.id);
+      if (change !== null) items.push({ kind: 'clef', clef: change, change: true });
+    }
     if (prefix.keySignature) {
       items.push({ kind: 'keySignature', key: score.meta.key, fifths: keyFifths(score.meta.key) });
     }

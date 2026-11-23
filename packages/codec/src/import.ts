@@ -20,6 +20,9 @@ import {
   MAX_TEMPO,
   MAX_VOICES,
   MIN_TEMPO,
+  NAV_KINDS,
+  NAV_SIGNS,
+  NAV_TEXT,
   barCapacity,
   durationTicks,
   restPieces,
@@ -56,6 +59,7 @@ import type {
   EndingRole,
   KeySignature,
   Mode,
+  NavKind,
   NoteValue,
   Score,
   Articulation,
@@ -459,6 +463,7 @@ class PartReader {
     const annotations: { id: string; onset: number; text: string }[] = [];
 
     let cursor = 0;
+    const navs: NavKind[] = [];
     let startBarline: 'none' | 'repeat-start' = 'none';
     let endBarline: 'single' | 'double' | 'final' | 'repeat-end' = 'single';
     let hasStart = false;
@@ -597,6 +602,15 @@ class PartReader {
             this.readOctaveShift(child);
             break;
           }
+          // A navigation mark (SIB2-175) is the bar's, and its words ("D.S. al Coda") are not a text direction.
+          const nav = this.navOf(child);
+          if (nav !== null) {
+            const jump = !NAV_SIGNS.includes(nav);
+            if (navs.includes(nav)) break;
+            if (jump && navs.some((k) => !NAV_SIGNS.includes(k))) this.note(`a second jump mark (${NAV_TEXT[nav]}) on bar ${number} was dropped: one per bar`);
+            else navs.push(nav);
+            break;
+          }
           const words = this.wordsOf(child);
           if (words !== null) {
             const offset = childText(child, 'offset');
@@ -643,7 +657,7 @@ class PartReader {
 
     const ending = this.resolveEnding(hasStart, hasStop, endingNumbers);
 
-    return makeBar({
+    const bar = makeBar({
       id: this.id('bar'),
       number,
       chords: chords.map((c) => makeChord(c)),
@@ -652,6 +666,7 @@ class PartReader {
       endBarline,
       ending,
     });
+    return navs.length === 0 ? bar : { ...bar, nav: NAV_KINDS.filter((k) => navs.includes(k)) };
   }
 
   /**
@@ -1014,6 +1029,28 @@ class PartReader {
     const bassText =
       bass === null ? '' : `/${childText(bass, 'bass-step') ?? ''}${alterMark(Number(childText(bass, 'bass-alter') ?? 0))}`;
     return `${rootText}${KIND_SUFFIX[kindValue] ?? ''}${bassText}`;
+  }
+
+  /**
+   * A navigation mark (SIB2-175): `<segno/>` or `<coda/>`, or a `<sound>` that jumps (`dacapo`, `dalsegno`, `tocoda`,
+   * `fine`), the printed words saying which "al" it is. Words that are exactly a mark's text with no `<sound>` are
+   * read as the mark too, for files that print "D.S. al Coda" and encode nothing.
+   */
+  private navOf(direction: XmlElement): NavKind | null {
+    const types = childElements(direction, 'direction-type');
+    if (types.some((type) => firstChild(type, 'segno') !== null)) return 'segno';
+    if (types.some((type) => firstChild(type, 'coda') !== null)) return 'coda';
+    const sound = firstChild(direction, 'sound');
+    const words = (this.wordsOf(direction) ?? '').toLowerCase();
+    const al = (base: 'dc' | 'ds'): NavKind => (words.includes('fine') ? `${base}-al-fine` : words.includes('coda') ? `${base}-al-coda` : base) as NavKind;
+    if (sound !== null) {
+      if (attr(sound, 'dacapo') === 'yes') return al('dc');
+      if (attr(sound, 'dalsegno') !== null) return al('ds');
+      if (attr(sound, 'tocoda') !== null) return 'to-coda';
+      if (attr(sound, 'fine') !== null) return 'fine';
+      return null;
+    }
+    return NAV_KINDS.find((kind) => NAV_TEXT[kind]?.toLowerCase() === words) ?? null;
   }
 
   /** The text of a `<words>` direction (a cue, a tempo, "unis."), or null when it is some other kind. */

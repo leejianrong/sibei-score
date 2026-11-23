@@ -53,6 +53,9 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
     for (const bar of breaks) parts.push(`${bar.lineBreak === 'after' ? 'break after' : 'join at'} bar${bar.number}`);
     lines.push(`  lines: ${parts.join(', ')}`);
   }
+  // Navigation marks (SIB2-175), with the bar addresses `nav rm` accepts.
+  const navs = score.bars.flatMap((bar) => (bar.nav ?? []).map((kind) => `${kind} at bar${bar.number}`));
+  if (navs.length > 0) lines.push(`  navigation: ${navs.join(', ')}`);
   if (score.meta.signaturePolicy !== undefined) {
     lines.push(`  clef and key: ${score.meta.signaturePolicy === 'first' ? 'first system only' : 'first system of each page'}`);
   }
@@ -78,8 +81,8 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   // A non-blocking layout advisory, not a review flag: a section-less chart lays out on a plain
   // four-bar grid because sections drive line-breaking (ADR-0015), and a fresh import has none
   // (ADR-0021). The wording is the model's, shared with the score rail (V14) — never refused,
-  // never a `!` (ADR-0013/0019). It rides `hasSections`, so it is not per-surface reasoning.
-  if (!review.hasSections) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
+  // never a `!` (ADR-0013/0019). It rides `showNoSectionsAdvisory` (not shown on a `score` layout, SIB2-238), so it is not per-surface reasoning.
+  if (review.showNoSectionsAdvisory) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
   lines.push('');
 
   const structured = isStructured(score);

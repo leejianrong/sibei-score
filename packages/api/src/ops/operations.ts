@@ -9,6 +9,7 @@ import type {
   EndingRole,
   Id,
   KeySignature,
+  NavKind,
   Score,
   OctaveShift,
   SpannerPlacement,
@@ -314,6 +315,15 @@ export interface BreakSetPayload {
 }
 export type BreakRmPayload = Record<string, never>;
 
+/** A navigation mark on a bar (SIB2-175, ADR-0021 amendment). */
+export interface NavSetPayload {
+  kind: NavKind;
+}
+/** Remove one mark by kind, or every mark of the bar when `kind` is left out. */
+export interface NavRmPayload {
+  kind?: NavKind;
+}
+
 /**
  * Create a whole score from a document in one operation (V8c, ADR-0003). "An import is itself one
  * operation, carrying the whole parsed document" — the ADR's own words — and duplicate is exactly
@@ -446,6 +456,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string; payload?: TupletRmPayload }
   | { type: 'break.set'; target: string; payload?: BreakSetPayload }
   | { type: 'break.rm'; target: string; payload?: BreakRmPayload }
+  | { type: 'nav.set'; target: string; payload: NavSetPayload }
+  | { type: 'nav.rm'; target: string; payload?: NavRmPayload }
   | { type: 'fermata.set'; target: string; payload?: FermataSetPayload }
   | { type: 'fermata.rm'; target: string; payload?: FermataRmPayload }
   | { type: 'slur.set'; target: string; payload: SlurSetPayload }
@@ -489,6 +501,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'tuplet.rm',
   'break.set',
   'break.rm',
+  'nav.set',
+  'nav.rm',
   'fermata.set',
   'fermata.rm',
   'slur.set',

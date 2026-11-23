@@ -26,6 +26,17 @@ export interface MarkAnchor {
  * A fermata, centred over its note or rest, above the staff and above the note's own ink. Its baseline (the
  * dot) sits `FERMATA_BASE` over the top staff line, or `FERMATA_GAP` over a taller note or stem.
  */
+/**
+ * A fermata under its note (SIB2-233): where a stem-down voice's note takes it, or a note below the staff, so the mark sits
+ * over the note's own side instead of crossing the staff to the far side of it. The glyph hangs from its origin, which
+ * sits `FERMATA_BASE` under the bottom line, or `FERMATA_GAP` under the head's own ink when that is lower still.
+ */
+export function fermataBelow(font: MusicFont, anchor: { x: number; width: number; staveY: number; inkBottomY: number }): SvgElement {
+  const fromStaff = anchor.staveY + units(4) + FERMATA_BASE;
+  const fromInk = anchor.inkBottomY + FERMATA_GAP;
+  return font.element('fermataBelow', anchor.x + anchor.width / 2 - font.width('fermataBelow') / 2, Math.max(fromStaff, fromInk));
+}
+
 export function fermata(font: MusicFont, anchor: MarkAnchor): SvgElement {
   const fromStaff = anchor.staveY - FERMATA_BASE;
   const fromInk = anchor.inkTopY === null ? fromStaff : anchor.inkTopY - FERMATA_GAP;

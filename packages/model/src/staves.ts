@@ -124,9 +124,10 @@ export function findBarView(score: Score, barId: Id, select: VoiceSelect = {}): 
 
 /** The grid entry of a view: the view without its lifted content. */
 export function gridBar(view: Bar): Bar {
-  const { id, number, startBarline, endBarline, ending, review, lineBreak } = view as BarView;
+  const { id, number, startBarline, endBarline, ending, review, lineBreak, nav } = view as BarView;
   const bar: Bar = { id, number, startBarline, endBarline, ending, review };
   if (lineBreak !== undefined) bar.lineBreak = lineBreak;
+  if (nav !== undefined) bar.nav = nav;
   return bar;
 }
 

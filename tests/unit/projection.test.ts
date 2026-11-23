@@ -12,6 +12,7 @@ import {
   makeSection,
   NO_SECTIONS_ADVISORY,
   projectScore,
+  reviewSummary,
   resolveAddress, barViews } from '@sibei/model';
 import type { BarView, Score } from '@sibei/model';
 import { nastyChart } from '@sibei/fixtures';
@@ -410,6 +411,14 @@ describe('the no-sections advisory (V14, ADR-0015)', () => {
     // Not dressed up as review: no bang, and it does not claim anything needs review.
     expect(advisory).not.toContain('!');
     expect(advisory).not.toContain('needs review');
+  });
+
+  it('says nothing on a score-layout chart, whose systems break by width (SIB2-238)', () => {
+    const score = chart([makeBar({ id: 'bar-1', number: 1 })]);
+    const scoreLayout = { ...score, meta: { ...score.meta, layout: 'score' as const } };
+    expect(projectScore(scoreLayout)).not.toContain(NO_SECTIONS_ADVISORY);
+    expect(reviewSummary(scoreLayout).showNoSectionsAdvisory).toBe(false);
+    expect(projectScore(score)).toContain(NO_SECTIONS_ADVISORY);
   });
 
   it('says nothing once the chart carries a section', () => {
