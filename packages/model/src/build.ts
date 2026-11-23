@@ -1,4 +1,6 @@
 import { durationTicks } from './duration.js';
+import { drumDisplayPitch } from './drums.js';
+import type { DrumId, NoteheadKind } from './drums.js';
 import { parsePitch } from './pitch.js';
 import type {
   Annotation,
@@ -54,8 +56,16 @@ export interface NoteInit {
   accidental?: Note['accidental'];
   tie?: Note['tie'];
   spellingPinned?: boolean;
+  /** A drum on a percussion staff (slice 6). `pitch` should then be its display pitch; `makeDrumNote` does that. */
+  drum?: DrumId;
+  head?: NoteheadKind;
   confidence?: Note['confidence'];
   review?: Review;
+}
+
+/** A note that strikes a drum: the display pitch from the drum map, no accidental, and the head only when it differs. */
+export function makeDrumNote(init: Omit<NoteInit, 'pitch' | 'accidental'> & { drum: DrumId }): Note {
+  return makeNote({ ...init, pitch: drumDisplayPitch(init.drum), accidental: 'hide' });
 }
 
 export function makeNote(init: NoteInit): Note {
@@ -69,6 +79,8 @@ export function makeNote(init: NoteInit): Note {
     tie: init.tie ?? 'none',
     spellingPinned: init.spellingPinned ?? false,
     confidence: init.confidence ?? null,
+    ...(init.drum === undefined ? {} : { drum: init.drum }),
+    ...(init.head === undefined ? {} : { head: init.head }),
     review: init.review ?? noReview(),
   };
 }

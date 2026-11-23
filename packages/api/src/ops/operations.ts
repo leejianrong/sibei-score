@@ -94,8 +94,12 @@ export interface TextSetPayload {
 }
 
 export interface NoteAddPayload {
-  /** A compact spec (`Eb5`) or the structure. */
-  pitch: string | { step: string; alter: number; octave: number };
+  /** A compact spec (`Eb5`) or the structure. Absent for a drum, whose place on the staff the drum map gives it. */
+  pitch?: string | { step: string; alter: number; octave: number };
+  /** A drum on a percussion staff (slice 6, `model/src/drums.ts`): `kick`, `snare`, `hihat`, `hihat-open`, `crash` and the rest. */
+  drum?: string;
+  /** A notehead other than the drum's own: `normal`, `x`, `diamond` or `circle-x`. */
+  head?: string;
   duration: Duration;
   accidental?: AccidentalDisplay;
   tie?: TieRole;
@@ -108,6 +112,10 @@ export interface NoteAddPayload {
 
 export interface NoteSetPayload {
   pitch?: string | { step: string; alter: number; octave: number };
+  /** Names the drum a note on a percussion staff strikes (and so where it is written); `null` makes it a plain note. */
+  drum?: string | null;
+  /** The notehead, `null` to return to the drum's own. */
+  head?: string | null;
   duration?: Duration;
   accidental?: AccidentalDisplay;
   tie?: TieRole;

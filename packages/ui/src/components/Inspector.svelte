@@ -16,8 +16,8 @@
    * one that owns the conflict recovery rule (ADR-0003): reload, never retry with the server's
    * number wearing a disguise.
    */
-  import { ARTICULATIONS, parsePitch } from '@sibei/model';
-  import type { AccidentalDisplay, Articulation, Dots, Duration, Id, NoteValue, Spanner, TieRole } from '@sibei/model';
+  import { ARTICULATIONS, DRUMS, NOTEHEAD_KINDS, isDrumId, parsePitch } from '@sibei/model';
+  import type { AccidentalDisplay, Articulation, Dots, DrumId, Duration, Id, NoteValue, NoteheadKind, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
 
@@ -34,6 +34,10 @@
     fermata: boolean;
     /** Staccato, accent and marcato marks on this note (SIB2-179). */
     articulations: readonly Articulation[];
+    /** The drum this note strikes, on a percussion staff (slice 6): it is then picked, not typed as a pitch. */
+    drum?: DrumId;
+    /** A notehead other than the drum's own. */
+    head?: NoteheadKind;
     /** The grace notes before this note (SIB2-185), each removable. */
     graces: readonly { id: Id; pitch: string; value: 8 | 16 | 32; slashed: boolean }[];
   }
@@ -54,7 +58,11 @@
   }
 
   export interface NoteEdits {
-    pitch: string;
+    /** Absent for a drum note, whose place is its drum's (slice 6). */
+    pitch?: string;
+    drum?: DrumId;
+    /** `null` returns to the drum's own head. */
+    head?: NoteheadKind | null;
     duration: Duration;
     accidental: AccidentalDisplay;
     spellingPinned: boolean;
@@ -172,6 +180,10 @@
   let spellingPinned = $state(untrack(() => (selection.kind === 'note' ? selection.spellingPinned : false)));
   let marks = $state<Articulation[]>(untrack(() => (selection.kind === 'note' ? [...selection.articulations] : [])));
   let pitchError = $state<string | null>(null);
+  // A drum note (slice 6): its drum and head, picked rather than typed.
+  let drumPick = $state<DrumId>(untrack(() => (selection.kind === 'note' && selection.drum !== undefined ? selection.drum : 'snare')));
+  let headPick = $state<'default' | NoteheadKind>(untrack(() => (selection.kind === 'note' && selection.head !== undefined ? selection.head : 'default')));
+  const isDrum = $derived(selection.kind === 'note' && selection.drum !== undefined);
 
   function toggleMark(mark: Articulation): void {
     marks = marks.includes(mark) ? marks.filter((m) => m !== mark) : ARTICULATIONS.filter((m) => m === mark || marks.includes(m));
@@ -192,6 +204,10 @@
     const duration: Duration = { value, dots };
     if (selection.kind === 'rest') {
       onsave({ duration });
+      return;
+    }
+    if (isDrum) {
+      onsave({ drum: drumPick, head: headPick === 'default' ? null : headPick, duration, accidental, spellingPinned, articulations: marks });
       return;
     }
     try {
@@ -221,7 +237,34 @@
       <button type="button" class="btn-reload" onclick={onreload}>Reload chart</button>
     </div>
   {:else}
-    {#if selection.kind === 'note'}
+    {#if selection.kind === 'note' && isDrum}
+      <div class="field">
+        <span class="field-label">Drum</span>
+        <select
+          class="pitch-input"
+          aria-label="Drum"
+          value={drumPick}
+          onchange={(event) => {
+            const chosen = (event.currentTarget as HTMLSelectElement).value;
+            if (isDrumId(chosen)) drumPick = chosen;
+          }}
+        >
+          {#each DRUMS as drum (drum.id)}
+            <option value={drum.id}>{drum.label}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="field">
+        <span class="field-label">Notehead</span>
+        <SegmentedControl
+          label="Notehead"
+          options={['default', ...NOTEHEAD_KINDS] as const}
+          value={headPick}
+          display={(option) => (option === 'circle-x' ? 'Circle-x' : option.charAt(0).toUpperCase() + option.slice(1))}
+          onselect={(chosen) => (headPick = chosen)}
+        />
+      </div>
+    {:else if selection.kind === 'note'}
       <div class="field">
         <span class="field-label">Pitch</span>
         <input

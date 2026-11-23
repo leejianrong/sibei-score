@@ -4,15 +4,17 @@ import type {
   BarItem,
   Chord,
   Duration,
+  DrumId,
   EndBarline,
   Ending,
   IdFactory,
   Note,
+  NoteheadKind,
   Rest,
   StartBarline,
   Tuplet,
 } from '@sibei/model';
-import { durationTicks, makeAnnotation, makeBar, makeChord, makeNote, makeRest } from '@sibei/model';
+import { durationTicks, makeAnnotation, makeBar, makeChord, makeDrumNote, makeNote, makeRest } from '@sibei/model';
 
 /**
  * Fixture-authoring sugar. Bars are written as a sequence and onsets fall out of the
@@ -28,6 +30,7 @@ export interface BarSpec {
 
 type Entry =
   | { kind: 'note'; pitch: string; duration: Duration; tie?: Note['tie'] }
+  | { kind: 'drum'; drum: DrumId; duration: Duration; head?: NoteheadKind }
   | { kind: 'rest'; duration: Duration }
   | { kind: 'tuplet'; actual: number; normal: number; entries: Entry[] };
 
@@ -43,6 +46,12 @@ export class BarBuilder {
 
   note(pitch: string, duration: Duration, tie?: Note['tie']): this {
     this.entries.push({ kind: 'note', pitch, duration, ...(tie === undefined ? {} : { tie }) });
+    return this;
+  }
+
+  /** A hit on a drum (slice 6): written where the drum map puts it, with its own head unless one is given. */
+  drum(drum: DrumId, duration: Duration, head?: NoteheadKind): this {
+    this.entries.push({ kind: 'drum', drum, duration, ...(head === undefined ? {} : { head }) });
     return this;
   }
 
@@ -109,6 +118,16 @@ export class BarBuilder {
           ...(entry.tie === undefined ? {} : { tie: entry.tie }),
         });
         items.push(note);
+      } else if (entry.kind === 'drum') {
+        items.push(
+          makeDrumNote({
+            id: this.ids.next('note'),
+            onset: cursor,
+            duration: entry.duration,
+            drum: entry.drum,
+            ...(entry.head === undefined ? {} : { head: entry.head }),
+          }),
+        );
       } else {
         const rest: Rest = makeRest({
           id: this.ids.next('rest'),

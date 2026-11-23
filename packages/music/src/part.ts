@@ -89,7 +89,7 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
   const views = barViews(score).map((bar) => ({
     ...bar,
     items: bar.items.map((item) =>
-      item.kind === 'note'
+      item.kind === 'note' && item.drum === undefined
         ? {
             ...item,
             pitch: transposePitch(item.pitch, interval, key, item.spellingPinned),

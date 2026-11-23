@@ -1,3 +1,5 @@
+import type { DrumId, NoteheadKind } from './drums.js';
+
 /**
  * The score model. The runtime truth (ADR-0004) — MusicXML is a codec at the edges
  * and never appears here.
@@ -137,6 +139,15 @@ export interface Note {
    * `SCHEMA_VERSION` stays (ADR-0028, ADR-0041).
    */
   graces?: GraceNote[];
+  /**
+   * On a percussion staff, which drum this note strikes (ADR-0041 slice 6, `drums.ts`). `pitch` is then its display
+   * pitch, where the drum is written on the five lines. Optional-and-absent on a pitched note, so no stored document
+   * changes shape and `SCHEMA_VERSION` stays (ADR-0028); a note on a percussion staff without it is the older
+   * one-line staff's unspecified hit.
+   */
+  drum?: DrumId;
+  /** The notehead, when it is not the drum's own (a diamond ride bell, an open hi-hat's circle). Optional-and-absent. */
+  head?: NoteheadKind;
   confidence: Confidence;
   review: Review;
 }

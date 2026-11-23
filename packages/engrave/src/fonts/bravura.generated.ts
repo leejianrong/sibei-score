@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Bravura 1.392: the metrics the engraver
- * anchors to, and the outlines of the 58 glyphs it draws.
+ * anchors to, and the outlines of the 62 glyphs it draws.
  * Bravura is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * bravura-1.392, outlines from the font's own SVG font.
  *
@@ -367,6 +367,51 @@ export const BRAVURA = {
       anchors: {},
       path:
         'M189 -66l-65 -53c-4 -4 -9 -6 -14 -6h-88c-12 0 -21 11 -21 22c0 6 2 12 7 17l84 86l-84 86c-5 5 -8 11 -8 17c0 11 11 22 21 22h89c5 0 10 -2 14 -6l65 -54l64 54c4 4 9 6 14 6h89c11 0 20 -11 20 -22c0 -6 -2 -12 -7 -17l-83 -86l83 -86c5 -5 8 -11 8 -17 c0 -11 -10 -22 -22 -22h-88c-5 0 -10 2 -14 6zM268 -98h49l-109 98l109 98h-49l-79 -67l-80 67h-48l109 -98l-109 -98h48l80 67z',
+    },
+    noteheadCircleX: {
+      codepoint: 'U+E0B3',
+      advance: 0.996,
+      bBoxSW: [0, -0.5],
+      bBoxNE: [0.996, 0.5],
+      anchors: {
+        stemDownNW: [0, 0],
+        stemUpSE: [0.996, 0],
+      },
+      path:
+        'M124 125c69 0 125 -56 125 -125s-56 -125 -125 -125c-68 0 -124 56 -124 125s56 125 124 125zM181 78c-16 11 -35 18 -57 18c-21 0 -40 -7 -56 -18l57 -57zM220 0c0 21 -7 42 -18 58l-57 -57l58 -58c11 16 17 36 17 57zM28 0c0 -21 6 -42 19 -58l58 59l-57 57 c-13 -16 -20 -36 -20 -58zM66 -77c17 -12 37 -19 58 -19c22 0 42 7 58 19l-57 58z',
+    },
+    noteheadDiamondBlack: {
+      codepoint: 'U+E0DB',
+      advance: 1,
+      bBoxSW: [0, -0.5],
+      bBoxNE: [1, 0.5],
+      anchors: {
+        stemDownNW: [0, 0],
+        stemUpSE: [1, 0],
+      },
+      path:
+        'M248 -4l-118 -119c-2 -2 -4 -2 -5 -2c-2 0 -3 0 -5 2l-117 118c-2 2 -3 4 -3 6s0 3 2 5l117 117c1 1 4 2 6 2c3 0 5 -1 6 -2l117 -117c1 -1 2 -3 2 -5s-1 -4 -2 -5z',
+    },
+    noteheadDiamondHalf: {
+      codepoint: 'U+E0D9',
+      advance: 1.004,
+      bBoxSW: [0, -0.5],
+      bBoxNE: [1.004, 0.5],
+      anchors: {
+        stemDownNW: [0, 0],
+        stemUpSE: [1.004, 0],
+      },
+      path:
+        'M249 -5l-118 -118c-2 -2 -4 -2 -6 -2c-1 0 -3 0 -4 2l-118 118c-2 1 -3 3 -3 5s1 3 3 5l118 118c1 1 3 2 4 2c2 0 4 -1 6 -2l118 -118c1 -2 2 -3 2 -5s-1 -4 -2 -5zM185 18c0 17 -20 33 -36 33c-26 0 -88 -42 -88 -68c0 -5 1 -13 6 -18c8 -9 17 -14 29 -14 c26 0 89 41 89 67z',
+    },
+    noteheadDiamondWhole: {
+      codepoint: 'U+E0D8',
+      advance: 1.08,
+      bBoxSW: [0, -0.5],
+      bBoxNE: [1.08, 0.5],
+      anchors: {},
+      path:
+        'M268 -16l-79 -106c-1 -2 -3 -3 -6 -3c-1 0 -2 1 -4 1l-176 129c-1 2 -3 6 -3 7s1 2 2 4l78 107c1 2 3 2 5 2s4 0 5 -1l176 -129c2 -1 4 -4 4 -6s-1 -3 -2 -5zM46 28l140 -103c2 -1 3 -2 5 -2c1 0 2 0 34 45c0 3 -1 5 -3 6l-140 103c-1 0 -2 1 -4 1c-1 0 -2 0 -2 -1 l-33 -44c0 -2 2 -4 3 -5z',
     },
     repeatDot: {
       codepoint: 'U+E044',

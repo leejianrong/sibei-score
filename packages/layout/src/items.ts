@@ -4,6 +4,8 @@ import type {
   Clef as ModelClef,
   Alter,
   Duration,
+  DrumId,
+  NoteheadKind,
   EndBarline,
   EndingRole,
   Id,
@@ -112,6 +114,10 @@ export interface NoteItem {
   articulations?: Articulation[];
   /** Grace notes before this note, in reading order (SIB2-185). */
   graces?: GraceItem[];
+  /** The drum this note strikes on a percussion staff (slice 6): `pitch` is then where it is written. */
+  drum?: DrumId;
+  /** A notehead other than the drum's own. */
+  head?: NoteheadKind;
 }
 
 export interface RestItem {

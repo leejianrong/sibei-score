@@ -340,7 +340,8 @@ function describe(item: BarItem, bar: BarView): string {
   const opens = tie === 'stop' || tie === 'both';
   const closes = tie === 'start' || tie === 'both';
 
-  const body = item.kind === 'note' ? formatPitch(item.pitch).toLowerCase() : 'r';
+  // A drum note prints its drum (`snare/8`), since its pitch is only where it is written (slice 6).
+  const body = item.kind === 'note' ? (item.drum ?? formatPitch(item.pitch).toLowerCase()) : 'r';
   const tuplet = tupletOf(item.id, bar);
   const ratio =
     tuplet === null ? '' : tuplet.actual === 3 && tuplet.normal === 2 ? '(3)' : `(${tuplet.actual}:${tuplet.normal})`;
@@ -350,7 +351,8 @@ function describe(item: BarItem, bar: BarView): string {
   const hold = item.fermata === true ? '^' : '';
   // Articulations print after the tie as `:stac:acc:mar` (SIB2-179): `.` is taken by dotted durations.
   const marks = item.kind === 'note' ? (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('') : '';
-  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${marks}${hold}${flag === '' ? '' : ` ${flag}`}`;
+  const head = item.kind === 'note' && item.head !== undefined ? `:${item.head}` : '';
+  return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${head}${marks}${hold}${flag === '' ? '' : ` ${flag}`}`;
 }
 
 /** A band symbol (chord or quoted annotation) with its review flag and, on imports, its confidence. */
