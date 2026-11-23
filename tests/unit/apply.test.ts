@@ -129,12 +129,12 @@ describe('note.add', () => {
     expect(barViews(score)[0]!.items[0]!.onset).toBe(8 * Q);
   });
 
-  it('refuses a second item on an onset that is taken', () => {
-    // Two items at one onset is a second voice, and single-voice is load-bearing in layout.
+  it('stacks a second note of the same duration onto a held onset, and refuses any other second item', () => {
+    // A note onto a note is a chord (SIB2-243, tests/unit/stacked-chords.test.ts); a rest is still in the way.
     const score = applyOperation(create(), quarterAt('bar1.beat1', 'Eb5')).score;
-    expect(() => applyOperation(score, quarterAt('bar1.beat1', 'G5'))).toThrow(
-      /already has a note on it \(note-1\)/,
-    );
+    expect(barViews(applyOperation(score, quarterAt('bar1.beat1', 'G5')).score)[0]!.items).toHaveLength(1);
+    const rested = applyOperation(create(), { type: 'rest.add', target: 'bar1.beat1', payload: { duration: { value: 4, dots: 0 } } }).score;
+    expect(() => applyOperation(rested, quarterAt('bar1.beat1', 'G5'))).toThrow(/already has a rest on it \(rest-1\)/);
   });
 
   it.each([

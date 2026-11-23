@@ -238,7 +238,7 @@ describe('replaying the log from empty reproduces the document exactly', () => {
 
   it('holds through a rejected write, because a rejected write logs nothing', async () => {
     const context = await authorAChart();
-    await expect(edit(context, note('bar1.beat1', 'C5'))).rejects.toThrow(/already has a note/);
+    await expect(edit(context, note('bar1.beat1', 'Eb5'))).rejects.toThrow(/already has Eb5 in its chord/);
 
     const { store } = context;
     const stored = (await store.get(LOCAL_OWNER, 'score-1'))!.score;
@@ -373,10 +373,10 @@ describe('a batch is transactional (ADR-0008)', () => {
         context,
         note('bar1.beat4', 'Ab5'), // fine
         note('bar2.beat1', 'Bb5'), // fine
-        note('bar1.beat1', 'C5'), // occupied — the batch dies here
+        note('bar1.beat1', 'Eb5'), // occupied — the batch dies here
         note('bar2.beat2', 'C6'), // never reached
       ),
-    ).rejects.toThrow(/already has a note/);
+    ).rejects.toThrow(/already has Eb5 in its chord/);
 
     const after = (await store.get(LOCAL_OWNER, 'score-1'))!;
     expect(after.version).toBe(before.version);
@@ -388,7 +388,7 @@ describe('a batch is transactional (ADR-0008)', () => {
   it('says which operation in the batch failed', async () => {
     const context = await authorAChart();
     try {
-      await edit(context, note('bar1.beat4', 'Ab5'), note('bar1.beat1', 'C5'));
+      await edit(context, note('bar1.beat4', 'Ab5'), note('bar1.beat1', 'Eb5'));
       expect.unreachable();
     } catch (error) {
       // 1-based in the message, 0-based in the structure. An agent needs to know which one.
@@ -402,7 +402,7 @@ describe('a batch is transactional (ADR-0008)', () => {
     // Was `expect(() => edit(...)).not.toThrow(/^operation 1:/)`, which also passed when the call threw
     // an error that did not match — and this one does throw (occupied beat), so keep that meaning.
     try {
-      await edit(context, note('bar1.beat1', 'C5'));
+      await edit(context, note('bar1.beat1', 'Eb5'));
     } catch (error) {
       expect((error as OperationError).message).not.toMatch(/^operation 1:/);
     }

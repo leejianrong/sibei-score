@@ -17,6 +17,7 @@ export * from './note-events.js';
 export * from './note-events-quantize.js';
 export * from './note-events-map.js';
 export * from './staves.js';
+export * from './chord-notes.js';
 export * from './build-staves.js';
 export * from './drums.js';
 export * from './note-events-drums.js';

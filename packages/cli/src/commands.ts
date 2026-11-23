@@ -111,7 +111,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
               [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
               [--drum NAME|none] [--head x|diamond|circle-x|normal|default]   a drum, on a percussion staff
-  sbscore note rm  <id> <address>
+  sbscore note rm  <id> <address>   (bar3.n2.Eb5 names one pitch of a chord; note add onto a held onset stacks a chord)
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
   sbscore chord set <id> <address> --text F#m7b5 [--spell]

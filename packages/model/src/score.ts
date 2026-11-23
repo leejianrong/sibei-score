@@ -148,8 +148,29 @@ export interface Note {
   drum?: DrumId;
   /** The notehead, when it is not the drum's own (a diamond ride bell, an open hi-hat's circle). Optional-and-absent. */
   head?: NoteheadKind;
+  /**
+   * The other pitches struck together with this one, sharing its stem, duration, beam position, marks and
+   * tuplet (ADR-0041 "As built: stacked chords", SIB2-243). The note's own `pitch` is one member of the chord and
+   * these are the rest, so a note with no `stack` is a lone note and **no stored document changes shape**
+   * (ADR-0028): optional-and-absent, never `[]`. Members are kept in the order they were added; reading order
+   * low to high is `chordTones`. Never set on a percussion note: drums struck together stay voices (slice 6).
+   */
+  stack?: StackedNote[];
   confidence: Confidence;
   review: Review;
+}
+
+/**
+ * One more pitch of a stacked chord (see `Note.stack`). It owns what is per-note in notation: its id, pitch,
+ * accidental display, tie and spelling pin. Everything per-chord (duration, onset, articulations, fermata, graces,
+ * tuplet, review, confidence) lives on the carrying `Note`.
+ */
+export interface StackedNote {
+  id: Id;
+  pitch: Pitch;
+  accidental: AccidentalDisplay;
+  tie: TieRole;
+  spellingPinned: boolean;
 }
 
 /** The written value of a grace note: an eighth, sixteenth or thirty-second. It sets the flags and beams only. */

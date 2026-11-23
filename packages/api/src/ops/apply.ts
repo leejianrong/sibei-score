@@ -53,8 +53,18 @@ import {
   DRUMS,
   migrateDocument,
   withBarViews,
+  MAX_CHORD_TONES,
+  chordTones,
+  mapTones,
+  samePitch,
+  toneWithPitch,
+  withoutTone,
+  formatPitch,
 } from '@sibei/model';
 import type {
+  Position,
+  Resolved,
+  StackedNote,
   VoiceSelect,
   AccidentalDisplay,
   Annotation,
@@ -538,6 +548,10 @@ function nextFooter(score: Score, payload: MetaSetPayload): PageFooter | undefin
 
 function addNote(score: Score, target: string, payload: NoteAddPayload): Applied {
   const position = resolvePosition(score, target);
+  const occupant = position.bar.items.find((item) => item.onset === position.onset);
+  // A note onto an onset a note already holds in this voice joins it as another pitch of one chord (ADR-0041
+  // "As built: stacked chords"); anything else there is still refused.
+  if (occupant?.kind === 'note') return stackNote(score, target, payload, position, occupant);
   refuseOccupiedOnset(position.bar, position.onset, target);
 
   const id = payload.id ?? nextId(score, 'note');
@@ -577,6 +591,50 @@ function addNote(score: Score, target: string, payload: NoteAddPayload): Applied
     score: withItemAdded(score, position.bar.id, note, position.select),
     operation: { type: 'note.add', target, payload: { ...payload, id } },
     changed: [id],
+  };
+}
+
+/** `note.add` onto a held onset: one more pitch in the chord, sharing the carrying note's stem, duration and marks. */
+function stackNote(score: Score, target: string, payload: NoteAddPayload, position: Position, host: Note): Applied {
+  const refuse = (detail: string): never => {
+    throw new OperationError({ kind: 'validation', detail });
+  };
+  if (host.drum !== undefined || payload.drum !== undefined || payload.head !== undefined) {
+    refuse(`${target} is on a drum: drums struck together are written one per voice (voice add), not stacked`);
+  }
+  if (payload.pitch === undefined) refuse('a pitch is required to add a note to a chord');
+  const duration = validDuration(payload.duration);
+  if (duration.value !== host.duration.value || duration.dots !== host.duration.dots) {
+    refuse(
+      `${target} already holds a ${host.duration.value}${'.'.repeat(host.duration.dots)} note (${host.id}); a chord's ` +
+        `pitches share one duration, so add this one with the same duration, or write the other line in another voice (voice add)`,
+    );
+  }
+  if (payload.articulations !== undefined && validArticulations(payload.articulations).length > 0) {
+    refuse('articulations belong to the whole chord: set them with note set on the chord (bar12.n3), not on one pitch');
+  }
+  const pitch = validPitch(payload.pitch!);
+  if (toneWithPitch(host, pitch) !== undefined) {
+    refuse(`${target} already has ${formatPitch(pitch)} in its chord`);
+  }
+  if (chordTones(host).length >= MAX_CHORD_TONES) {
+    refuse(`a chord holds at most ${MAX_CHORD_TONES} pitches`);
+  }
+  const id = payload.id ?? nextId(score, 'note');
+  const tone: StackedNote = {
+    id,
+    pitch,
+    accidental: payload.accidental === undefined ? 'auto' : validAccidental(payload.accidental),
+    tie: payload.tie === undefined ? 'none' : validTie(payload.tie),
+    spellingPinned: payload.spellingPinned === undefined ? false : validPinned(payload.spellingPinned),
+  };
+  return {
+    score: mapBar(score, position.bar.id, (bar) => ({
+      ...bar,
+      items: bar.items.map((item) => (item.id === host.id ? { ...host, stack: [...(host.stack ?? []), tone] } : item)),
+    }), position.select),
+    operation: { type: 'note.add', target, payload: { ...payload, id } },
+    changed: [id, host.id],
   };
 }
 
@@ -630,6 +688,7 @@ function withItemAdded(score: Score, barId: Id, item: BarItem, select: VoiceSele
 function setNote(score: Score, target: string, payload: NoteSetPayload): Applied {
   const resolved = resolveAddress(score, target, 'note');
   const note = resolved.target as Note;
+  if (resolved.tone !== undefined && !resolved.tone.primary) return setTone(score, target, payload, resolved, note);
 
   const drum = payload.drum === undefined || payload.drum === null ? undefined : validDrum(payload.drum);
   const head = payload.head === undefined || payload.head === null ? undefined : validHead(payload.head);
@@ -668,6 +727,41 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
   };
 }
 
+/** `note.set` on one pitch of a chord (`bar12.n3.Eb5`, or its id): pitch, accidental, tie and pin only. */
+function setTone(score: Score, target: string, payload: NoteSetPayload, resolved: Resolved, note: Note): Applied {
+  const refused = (['duration', 'drum', 'head', 'articulations'] as const).filter((field) => payload[field] !== undefined);
+  if (refused.length > 0) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${refused.join(', ')} belong to the whole chord, not one pitch: address the chord (${target.replace(/\.[A-Ga-g][#b]*-?\d+$/, '')}) to set them`,
+    });
+  }
+  const toneId = resolved.tone!.id;
+  const pitch = payload.pitch === undefined ? undefined : validPitch(payload.pitch);
+  if (pitch !== undefined && chordTones(note).some((tone) => tone.id !== toneId && samePitch(tone.pitch, pitch))) {
+    throw new OperationError({ kind: 'validation', detail: `${target} would repeat ${formatPitch(pitch)}, already in its chord` });
+  }
+  const stack = (note.stack ?? []).map((tone) =>
+    tone.id !== toneId
+      ? tone
+      : {
+          ...tone,
+          ...(pitch === undefined ? {} : { pitch }),
+          ...(payload.accidental === undefined ? {} : { accidental: validAccidental(payload.accidental) }),
+          ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
+          ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
+        },
+  );
+  return {
+    score: mapBar(score, resolved.bar.id, (bar) => ({
+      ...bar,
+      items: bar.items.map((item) => (item.id === note.id ? { ...note, stack } : item)),
+    }), resolved.select),
+    operation: { type: 'note.set', target, payload },
+    changed: [toneId, note.id],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // note.rm, rest.rm
 // ---------------------------------------------------------------------------
@@ -675,6 +769,20 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
 function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applied {
   const resolved = resolveAddress(score, target, kind);
   const id = resolved.target.id;
+
+  // One pitch of a chord goes; the rest stay (ADR-0041 "As built: stacked chords"). The last pitch is the whole note.
+  if (kind === 'note' && resolved.tone !== undefined && chordTones(resolved.target as Note).length > 1) {
+    const toneId = resolved.tone.id;
+    const trimmed = withoutTone(resolved.target as Note, toneId)!;
+    return {
+      score: mapBar(score, resolved.bar.id, (bar) => ({
+        ...bar,
+        items: bar.items.map((item) => (item.id === id ? trimmed : item)),
+      }), resolved.select),
+      operation: { type: 'note.rm', target },
+      changed: [toneId, id],
+    };
+  }
 
   // A removed item may be a tuplet member. Dropping it from the grouping keeps the bar coherent;
   // a tuplet left holding a dangling id would be a document that says something untrue.
@@ -985,7 +1093,8 @@ function transpose(score: Score, payload: TransposePayload): Applied {
           item.graces === undefined
             ? {}
             : { graces: item.graces.map((grace) => ({ ...grace, pitch: transposePitch(grace.pitch, interval, to, false) })) };
-        return { ...item, pitch: transposePitch(item.pitch, interval, to, item.spellingPinned), ...graces };
+        const moved = mapTones(item, (tone) => transposePitch(tone.pitch, interval, to, tone.spellingPinned));
+        return { ...moved, ...graces };
       });
       const chords =
         pass > 0
