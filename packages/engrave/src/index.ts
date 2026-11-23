@@ -15,3 +15,5 @@ export * from './tuplets.js';
 export * from './shading.js';
 export * from './graces.js';
 export * from './engrave.js';
+export * from './groups.js';
+export * from './voices.js';

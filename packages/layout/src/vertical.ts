@@ -93,6 +93,8 @@ export interface SystemVerticalInput {
   ottavaBelow?: boolean;
   /** The clef of the staff the ink is measured against; absent is treble, as every chart has always been. */
   clef?: Clef;
+  /** Notes whose stem direction a voice fixes, so the ink is measured where it will be drawn. */
+  stems?: ReadonlyMap<Id, 'up' | 'down'>;
 }
 
 export interface StaffInk {
@@ -110,6 +112,7 @@ export function staffInk(
   bars: readonly BarView[],
   shifts: Map<Id, OctaveShift> | undefined,
   clef: Clef = 'treble',
+  stems?: ReadonlyMap<Id, 'up' | 'down'>,
 ): StaffInk {
   if (clef === 'percussion') return { inkAbove: 0, inkBelow: 0 };
   const TOP_LINE = CLEF_TOP_LINE[clef];
@@ -126,7 +129,9 @@ export function staffInk(
       if (item.kind !== 'note') continue;
       const shift = shifts?.get(item.id);
       const index = diatonic(item.pitch) + (shift === undefined ? 0 : shift === 'up' ? -7 : 7);
-      const stemUp = index < MIDDLE_LINE;
+      // A numbered voice's stems are fixed (up for 1 and 3, down for 2 and 4), whatever the pitch (slice 4).
+      const forced = stems?.get(item.id);
+      const stemUp = forced === undefined ? index < MIDDLE_LINE : forced === 'up';
       const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
       const below = (BOTTOM_LINE - index) * STEP_UNITS + NOTEHEAD_UNITS;
       inkAbove = Math.max(inkAbove, above + (stemUp ? STEM_UNITS : 0));
@@ -157,7 +162,7 @@ export function staffInk(
 }
 
 export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
-  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef);
+  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems);
 
   // An ottava line goes between the notes and everything above (or below) them, so the chord row rises with it.
   let ottavaAboveOffset: number | undefined;

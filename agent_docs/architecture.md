@@ -65,8 +65,27 @@ draws from:
   is the four-bar grid of ADR-0015, unchanged, even for a multi-staff score. `score` breaks a line when the next bar
   (its rigid width over all staves, at least `minBarWidth`) would not fit; sections and `lineBreak` still apply. No op
   sets it yet.
-- Not drawn yet: the engraver still draws `system.bars` only (the first staff), so a multi-staff score shows its top
-  staff until slice 4. Per-part transposed keys, tabs' six lines and cross-staff beams are not modelled.
+- Per-part transposed keys, tabs' six lines and cross-staff beams are not modelled. The engraver draws all of it (below).
+
+**How the engraver draws a staved system (slice 4, SIB2-228).** `engraveSystem` takes the single-staff path unchanged
+unless `system.staves` is present, then `engraveStavedSystem` (`engrave.ts`): staff lines per staff (five, or one for
+a percussion staff; a tab staff is five lines for now), the system's brace/bracket (`groups.ts`, filled paths inside
+layout's boxes) and one **joined barline** per bar from `staffSpan` (`barlines.ts`'s `BarlineJoin`: one tall rect, repeat
+dots still on each staff; a one-line percussion staff at either end shortens the run to a space either side of its
+line), then one `engraveBar` call per voice of every staff, steered by a `BarMode`. `SINGLE_STAFF` is every field at the
+value the engraver always had, which is what keeps a lead sheet byte-identical. The first voice of each staff carries
+that staff's clef/key/time; only the top staff's first voice carries chords, text, rehearsal marks, bar number and the
+invalid-bar wash. Notes sit on layout's `item.x` (`placeAligned`) rather than being spaced here. Clefs are
+`signatures.ts`'s table (glyph + origin line); a position is `staffPositionIn(pitch, clef)`, a distance from the clef's
+top line (`staff.ts`); a key signature in another clef is the treble pattern shifted and folded back onto the staff.
+**Voices** (`voices.ts`): with two or more voices holding music, 1 and 3 stem up and 2 and 4 down (`stemsOf`), a rest
+rides two half-spaces up or down (`restShiftOf`), and the later voice's head moves one head-width right where the heads
+are a second or less apart, a pair that crossed, or a unison of different heads (`noteShifts`); a unison of the same head
+is shared. Its accidental stays at the unmoved x. A single voice keeps the position-based stem rule exactly. Layout
+measures the ink of forced stems too (`voiceStems` in `lanes.ts`, fed to `staffInk`), so the chord row clears an up stem.
+Ties and slurs are drawn per staff from that staff's own anchors; ottava lines are the top staff's. A percussion note is
+an x head (`percussionNoteheadFor`) on the one line, stems up. Seen with `pnpm proof <fixture>`: `grand-staff`,
+`two-voice`, `lead-bass`, `full-band`, `voice-collisions`, `clefs-and-keys`, `staff-furniture`, each with a committed snapshot.
 
 **See alignment without an engraver:** `pnpm layout:overlay [fixture] [--page N]` draws staff lines, groups, the barline
 span, the aligned columns and every item's x as an SVG/PNG in `out/layout-overlay/`. Fixtures: `grand-staff`,

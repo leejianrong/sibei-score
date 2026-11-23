@@ -7,6 +7,8 @@ import { aabaChart } from './aaba-chart.js';
 import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
 import { fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart } from './multi-staff-charts.js';
+import { clefsAndKeysChart, voiceCollisionsChart } from './staff-engraving-charts.js';
+import { staffFurnitureChart } from './staff-furniture-chart.js';
 import { nastyChart } from './nasty-chart.js';
 import { marksChart } from './marks-chart.js';
 import { slurChart } from './slur-chart.js';
@@ -50,4 +52,7 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'two-voice': twoVoiceChart,
   'lead-bass': leadBassChart,
   'full-band': fullBandChart,
+  'voice-collisions': voiceCollisionsChart,
+  'clefs-and-keys': clefsAndKeysChart,
+  'staff-furniture': staffFurnitureChart,
 };

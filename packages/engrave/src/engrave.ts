@@ -2,16 +2,23 @@ import type {
   EndingItem,
   LayoutBar,
   LayoutBarItemKind,
+  LayoutStaff,
+  LayoutStaffGroup,
+  LayoutStaffSpan,
   LayoutResult,
   LayoutSystem,
   NoteItem,
   RestItem,
 } from '@sibei/layout';
 import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, writtenPitch } from '@sibei/layout';
-import type { Id, TimeSignature } from '@sibei/model';
+import type { Clef, Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
 import { furnitureText } from './furniture.js';
+import type { BarlineJoin } from './barlines.js';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
+import { staffGroups } from './groups.js';
+import type { VoiceShift } from './voices.js';
+import { noteShifts, restShiftOf, stemsOf, voicesWithMusic } from './voices.js';
 import type { BeamCandidate } from './beam-groups.js';
 import { beamGroupIndices, secondaryBreaks } from './beam-groups.js';
 import type { BeamMember } from './beams.js';
@@ -26,10 +33,10 @@ import {
   flaggedItemShade,
   invalidBarShade,
 } from './shading.js';
-import { clef, keySignature, timeSignature } from './signatures.js';
+import { clef, clefWidth, keySignature, timeSignature } from './signatures.js';
 import type { PlacedItem } from './spacing.js';
-import { ACCIDENTAL_GAP, accidentalGlyph, placeItems } from './spacing.js';
-import { ledgerLines, positionY, staffLines, staffPosition } from './staff.js';
+import { ACCIDENTAL_GAP, accidentalGlyph, placeAligned, placeItems } from './spacing.js';
+import { ledgerLines, positionY, staffLines, staffPosition, staffPositionIn } from './staff.js';
 import type { Stem, StemDirection } from './stems.js';
 import {
   beamCount,
@@ -39,6 +46,7 @@ import {
   groupStemDirection,
   hasStem,
   noteheadFor,
+  percussionNoteheadFor,
   stem,
   stemDirection,
   stemElement,
@@ -198,6 +206,9 @@ export function engraveSystem(
   options: EngraveOptions,
   skipped: Map<LayoutBarItemKind, number>,
 ): SvgElement[] {
+  if (system.staves !== undefined && system.staffSpan !== undefined) {
+    return engraveStavedSystem(font, system, system.staves, system.staffSpan, system.groups ?? [], time, options, skipped);
+  }
   // Only the head of a system gets an opening line: elsewhere the previous bar's closing
   // barline is the junction, and two lines at one x would double it up. A system that
   // opens on a repeat already has its own thick line there, and would double it the same
@@ -297,6 +308,179 @@ export function engraveSystem(
 }
 
 // ---------------------------------------------------------------------------
+// A system of several staves or voices (ADR-0041, slice 4)
+// ---------------------------------------------------------------------------
+
+/**
+ * A system that layout has stacked into staves. Everything about where things go was decided there: each staff's top
+ * line (`staveY`), each bar's shared columns (every note's `x`), the groups and the run a barline makes. What is
+ * drawn here is the same vocabulary as the single-staff path, one staff at a time, plus what only exists once there are
+ * several: the brace and bracket, barlines through every staff, a clef of each kind and voices that give way to each
+ * other. `all geometry, then all ink` holds per call of `engraveBar`; the system's own lines go down first.
+ *
+ * Chords, text, rehearsal marks and bar numbers stay above the top staff only, and are the top staff's first voice's.
+ */
+function engraveStavedSystem(
+  font: MusicFont,
+  system: LayoutSystem,
+  staves: readonly LayoutStaff[],
+  span: LayoutStaffSpan,
+  groups: readonly LayoutStaffGroup[],
+  time: TimeSignature,
+  options: EngraveOptions,
+  skipped: Map<LayoutBarItemKind, number>,
+): SvgElement[] {
+  const bands: Bands = {
+    top: system.staveY - system.aboveStaff,
+    chordBaseline: system.staveY - system.chordBaselineOffset,
+  };
+  // A barline reaches from the top line of the first staff to the bottom line of the last, except at a one-line
+  // percussion staff, where it runs a space either side of the line instead of the five-line staff's whole height.
+  const firstStaff = staves[span.firstStaff];
+  const lastStaff = staves[span.lastStaff];
+  const joinTop = firstStaff?.type === 'percussion' ? firstStaff.staveY + units(1) : span.y;
+  const joinBottom = lastStaff?.type === 'percussion' ? lastStaff.staveY + units(3) : span.y + span.height;
+  const join: BarlineJoin = {
+    y: joinTop,
+    height: joinBottom - joinTop,
+    staveYs: staves.map((staff) => staff.staveY),
+  };
+  const opensOnRepeat = system.bars[0]?.items.some((item) => item.kind === 'barline') ?? false;
+
+  const shading: SvgElement[] = [];
+  const barInk: SvgElement[] = [];
+  const barlineInk: SvgElement[] = [];
+  const anchorsByStaff: NoteAnchors[] = staves.map(() => new Map());
+
+  // Barlines run through every staff in one piece, drawn once from the top staff's bar items.
+  for (const bar of system.bars) {
+    for (const item of bar.items) {
+      if (item.kind === 'barline') {
+        barlineInk.push(...startBarline(font, item.barline, bar.x + bar.prefixWidth, system.staveY, join));
+      } else if (item.kind === 'endBarline') {
+        barlineInk.push(...endBarline(font, item.barline, bar.x + bar.width, system.staveY, join));
+      }
+    }
+  }
+
+  for (const [barIndex, bar] of system.bars.entries()) {
+    for (const staff of staves) {
+      const staffBar = staff.bars[barIndex];
+      if (staffBar === undefined) continue;
+      const anchors = anchorsByStaff[staff.index];
+      if (anchors === undefined) continue;
+      const percussion = staff.type === 'percussion';
+      for (const [voiceIndex, voice] of staffBar.voices.entries()) {
+        const first = voiceIndex === 0;
+        const mode: BarMode = {
+          staveY: staff.staveY,
+          clef: staff.clef,
+          percussion,
+          chrome: staff.index === 0 && first,
+          prefix: first,
+          barlines: false,
+          aligned: true,
+          stems: stemsOf(voice, staffBar.voices),
+          restShift: restShiftOf(voice, staffBar.voices),
+          shifts: noteShifts(font, { voice, voices: staffBar.voices, clef: staff.clef }),
+          centreWholeRest: voicesWithMusic(staffBar.voices) < 2,
+        };
+        // The staff's bar as the single-staff engraver knows it: this voice's items in the bar's box.
+        const layoutBar: LayoutBar = { ...bar, items: voice.items };
+        barInk.push(...engraveBar(font, layoutBar, system, time, options, bands, anchors, shading, skipped, mode));
+      }
+    }
+  }
+
+  const children: SvgElement[] = [...shading];
+  if (options.staffLines) {
+    for (const staff of staves) {
+      // A tab staff is drawn as five lines for now (the six-line staff and its fret numbers are a later slice).
+      children.push(
+        ...staffLines(font, { x: system.x, width: system.width, staveY: staff.staveY }, staff.type === 'percussion'),
+      );
+    }
+    if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY, join));
+    children.push(...staffGroups(groups));
+  }
+  children.push(...barlineInk, ...barInk);
+
+  // Where this system's music begins, as the single-staff path does: past the clef and key signature.
+  const opening = system.bars[0];
+  const musicLeft = opening === undefined ? system.x : opening.x + opening.prefixWidth;
+  const systemRight = system.x + system.width;
+
+  // Ties and slurs belong to a staff: a tie to the staff of its notes, a slur to the staff of its first note, with only
+  // that staff's notes under the curve for clearance. Every curve is drawn after all the ink, as on one staff.
+  for (const staff of staves) {
+    const anchors = anchorsByStaff[staff.index] ?? new Map();
+    for (const layoutTie of staff.ties) {
+      const curve = tie(font, {
+        from: layoutTie.fromNoteId === null ? null : (anchors.get(layoutTie.fromNoteId) ?? null),
+        to: layoutTie.toNoteId === null ? null : (anchors.get(layoutTie.toNoteId) ?? null),
+        systemLeft: musicLeft,
+        systemRight,
+      });
+      if (curve !== null) children.push(curve);
+    }
+  }
+  for (const layoutSlur of system.slurs) {
+    const owner = anchorsByStaff.find(
+      (anchors) =>
+        (layoutSlur.fromNoteId !== null && anchors.has(layoutSlur.fromNoteId)) ||
+        (layoutSlur.toNoteId !== null && anchors.has(layoutSlur.toNoteId)),
+    );
+    if (owner === undefined) continue;
+    const staffIndex = anchorsByStaff.indexOf(owner);
+    const from = layoutSlur.fromNoteId === null ? null : (owner.get(layoutSlur.fromNoteId) ?? null);
+    const to = layoutSlur.toNoteId === null ? null : (owner.get(layoutSlur.toNoteId) ?? null);
+    const lowest = Math.min(from?.x ?? musicLeft, to?.x ?? musicLeft);
+    const highest = Math.max(from?.x ?? systemRight, to?.x ?? systemRight);
+    const under = [...owner.values()].filter((end) => end.x >= lowest && end.x <= highest);
+    const curve = slur(font, {
+      from,
+      to,
+      under,
+      placement: layoutSlur.placement,
+      systemLeft: musicLeft,
+      systemRight,
+      // Above the top staff a slur stays under the chord row; between staves there is the gap to arch in.
+      ceiling: staffIndex === 0 ? bands.chordBaseline : (staves[staffIndex]?.staveY ?? 0) - units(2),
+    });
+    if (curve !== null) children.push(curve);
+  }
+
+  // Ottava lines are the top staff's: their height was reserved above and below it (SIB2-184).
+  const top = anchorsByStaff[0] ?? new Map();
+  for (const line of system.ottavas) {
+    const y =
+      line.shift === 'up'
+        ? system.ottavaAboveOffset === undefined
+          ? undefined
+          : system.staveY - system.ottavaAboveOffset
+        : system.ottavaBelowOffset === undefined
+          ? undefined
+          : system.staveY + units(4) + system.ottavaBelowOffset;
+    if (y === undefined) continue;
+    const from = line.fromNoteId === null ? undefined : top.get(line.fromNoteId);
+    const to = line.toNoteId === null ? undefined : top.get(line.toNoteId);
+    children.push(
+      ...ottavaLine({
+        shift: line.shift,
+        from: from === undefined ? musicLeft : from.x,
+        to: to === undefined ? systemRight : to.x + to.noteheadWidth,
+        y,
+        labelled: line.labelled,
+        hooked: line.toNoteId !== null,
+        size: options.chordFontSize * 0.9,
+      }),
+    );
+  }
+
+  return children;
+}
+
+// ---------------------------------------------------------------------------
 // A bar
 // ---------------------------------------------------------------------------
 
@@ -304,12 +488,59 @@ export function engraveSystem(
 interface EngravedNote {
   item: NoteItem | RestItem;
   x: number;
+  /** Where the accidental goes when the head was moved aside for another voice's (slice 4). */
+  accidentalX?: number;
   position: number;
   glyph: MusicGlyphName;
   levels: number;
   /** Null for a whole note and for every rest. */
   stem: Stem | null;
 }
+
+/**
+ * What one call of `engraveBar` is drawing (ADR-0041, slice 4). A single-staff chart is one call with `SINGLE_STAFF`,
+ * which is every field at the value the engraver always had, so its output is the bytes it always was. A multi-staff
+ * system is one call per voice of every staff: the first voice of each staff carries that staff's clef, key and time
+ * signature, the top staff's first voice alone carries the chord row, text and bar number, and every voice draws its own
+ * notes, rests, beams and tuplets.
+ */
+interface BarMode {
+  /** The y of this staff's top line. */
+  staveY: number;
+  clef: Clef;
+  /** A percussion staff: x noteheads, every note on its one line, stems up unless a voice says otherwise. */
+  percussion: boolean;
+  /** Bar number, tempo, rehearsal mark, endings, chord symbols, text and the invalid-bar wash: the top staff's. */
+  chrome: boolean;
+  /** The clef, key signature and time signature at the head of the bar. */
+  prefix: boolean;
+  /** This bar's own barlines; off on a multi-staff system, whose barlines run through every staff in one piece. */
+  barlines: boolean;
+  /** Notes sit on layout's shared columns (`item.x`) rather than being spaced here. */
+  aligned: boolean;
+  /** `up`/`down` once the staff-bar has two voices with music. */
+  stems: 'up' | 'down' | 'auto';
+  /** Half-spaces to move this voice's rests: up for the upper voice, down for the lower. */
+  restShift: number;
+  /** Noteheads moved aside for another voice's. */
+  shifts: ReadonlyMap<Id, VoiceShift>;
+  /** A bar whose one voice holds a whole-bar rest centres it; a rest in a two-voice bar does not. */
+  centreWholeRest: boolean;
+}
+
+const SINGLE_STAFF = (staveY: number): BarMode => ({
+  staveY,
+  clef: 'treble',
+  percussion: false,
+  chrome: true,
+  prefix: true,
+  barlines: true,
+  aligned: false,
+  stems: 'auto',
+  restShift: 0,
+  shifts: new Map(),
+  centreWholeRest: true,
+});
 
 function engraveBar(
   font: MusicFont,
@@ -321,20 +552,23 @@ function engraveBar(
   anchors: NoteAnchors,
   shading: SvgElement[],
   skipped: Map<LayoutBarItemKind, number>,
+  mode: BarMode = SINGLE_STAFF(system.staveY),
 ): SvgElement[] {
-  const staveY = system.staveY;
+  const staveY = mode.staveY;
   const before: SvgElement[] = [];
   const after: SvgElement[] = [];
 
   // A bar whose rhythm does not fill the meter gets a wash under its whole box (ADR-0013).
   // The metric verdict is layout's, carried on `bar.metrics`, never re-derived here. It goes
   // in first so a flagged object's own stripe reads on top of it (V14c).
-  if (!bar.metrics.valid) shading.push(invalidBarShade(bar.x, bar.width, staveY));
+  if (mode.chrome && !bar.metrics.valid) shading.push(invalidBarShade(bar.x, bar.width, staveY));
 
   // The prefix is drawn inside the room layout allocated for it, left to right.
   let prefixX = bar.x + units(0.6);
 
   const chords: {
+    /** The x layout gave it, on a multi-staff system, where every column is shared across staves. */
+    x?: number;
     anchorItemId: Id | null;
     onset: number;
     text: string;
@@ -353,18 +587,21 @@ function engraveBar(
   for (const item of bar.items) {
     switch (item.kind) {
       case 'clef':
-        before.push(clef(font, prefixX, staveY));
-        prefixX += font.width('gClef') + units(0.4);
+        if (!mode.prefix) break;
+        before.push(clef(font, prefixX, staveY, item.clef));
+        prefixX += clefWidth(font, item.clef) + units(0.4);
         break;
 
       case 'keySignature': {
-        const drawn = keySignature(font, item.fifths, prefixX, staveY);
+        if (!mode.prefix) break;
+        const drawn = keySignature(font, item.fifths, prefixX, staveY, mode.clef);
         before.push(...drawn.elements);
         prefixX += drawn.width + units(0.4);
         break;
       }
 
       case 'timeSignature': {
+        if (!mode.prefix) break;
         const drawn = timeSignature(font, item.time, prefixX, staveY);
         before.push(...drawn.elements);
         prefixX += drawn.width;
@@ -372,6 +609,7 @@ function engraveBar(
       }
 
       case 'barNumber':
+        if (!mode.chrome) break;
         before.push(
           text({
             text: item.text,
@@ -385,6 +623,7 @@ function engraveBar(
         break;
 
       case 'tempo': {
+        if (!mode.chrome) break;
         hasRehearsalMark = true;
         // After the clef, key and time signature, and clear of a rehearsal box on the same bar.
         const afterBox = rehearsalRight === null ? 0 : rehearsalRight - bar.x + units(1);
@@ -401,6 +640,7 @@ function engraveBar(
       }
 
       case 'rehearsalMark': {
+        if (!mode.chrome) break;
         hasRehearsalMark = true;
         // The top of the band, not a baseline: the box's own padding is the adapter's
         // to allow for, and layout reserved the band from `bands.top` down.
@@ -433,19 +673,24 @@ function engraveBar(
       case 'barline':
         // After the clef and key signature, not before them: a repeat sign belongs to
         // the music, and the prefix belongs to the system.
+        if (!mode.barlines) break;
         before.push(...startBarline(font, item.barline, bar.x + bar.prefixWidth, staveY));
         break;
 
       case 'endBarline':
+        if (!mode.barlines) break;
         after.push(...endBarline(font, item.barline, bar.x + bar.width, staveY));
         break;
 
       case 'ending':
+        if (!mode.chrome) break;
         endings.push(item);
         break;
 
       case 'chordSymbol':
+        if (!mode.chrome) break;
         chords.push({
+          ...(item.x === undefined ? {} : { x: item.x }),
           anchorItemId: item.anchorItemId,
           onset: item.onset,
           text: item.text,
@@ -455,7 +700,9 @@ function engraveBar(
         break;
 
       case 'annotation':
+        if (!mode.chrome) break;
         chords.push({
+          ...(item.x === undefined ? {} : { x: item.x }),
           anchorItemId: item.anchorItemId,
           onset: item.onset,
           text: item.text,
@@ -466,6 +713,7 @@ function engraveBar(
         break;
 
       case 'directionLine':
+        if (!mode.chrome) break;
         lineSegments.push({ endsHere: item.endsHere });
         break;
 
@@ -483,12 +731,23 @@ function engraveBar(
     }
   }
 
-  const placed = placeItems(font, bar);
+  const placed = mode.aligned ? placeAligned(font, bar, mode.centreWholeRest) : placeItems(font, bar);
+  // A head moved aside for another voice's keeps its accidental where the head would have been (slice 4).
+  for (const entry of placed) {
+    const shift = entry.item.kind === 'note' ? mode.shifts.get(entry.item.noteId) : undefined;
+    if (shift === undefined) continue;
+    entry.accidentalX = entry.x;
+    entry.x += shift.dx;
+  }
   const groups = beamGroups(placed, time);
   const beamed = new Set<PlacedItem>(groups.flat());
 
+  // The direction every stem on this staff-bar is forced to: a numbered voice's, or up on a percussion staff.
+  const forced: StemDirection | null = mode.stems === 'auto' ? (mode.percussion ? 'up' : null) : mode.stems;
+  const where: ItemContext = { clef: mode.clef, percussion: mode.percussion, restShift: mode.restShift };
+
   const notes = new Map<PlacedItem, EngravedNote>();
-  for (const entry of placed) notes.set(entry, engraveItem(font, entry, staveY, null));
+  for (const entry of placed) notes.set(entry, engraveItem(font, entry, staveY, forced, where));
 
   // A beamed group takes one stem direction, so its members' stems are rebuilt from the
   // group's decision before the beam is fitted to them.
@@ -496,10 +755,10 @@ function engraveBar(
   const beamedIds = new Set<Id>();
   for (const group of groups) {
     const members: BeamMember[] = [];
-    const direction = groupStemDirection(group.map((entry) => notes.get(entry)?.position ?? 0));
+    const direction = forced ?? groupStemDirection(group.map((entry) => notes.get(entry)?.position ?? 0));
     const breaks = secondaryBreaks(group.map((entry) => entry.item.onset), time);
     for (const [at, entry] of group.entries()) {
-      const rebuilt = engraveItem(font, entry, staveY, direction);
+      const rebuilt = engraveItem(font, entry, staveY, direction, where);
       notes.set(entry, rebuilt);
       if (entry.item.kind === 'note') beamedIds.add(entry.item.noteId);
       if (rebuilt.stem !== null) {
@@ -547,7 +806,7 @@ function engraveBar(
           width: font.width(note.glyph),
           y: positionY(note.position, staveY),
           staveY,
-          stem: note.stem?.direction ?? stemDirection(note.position),
+          stem: note.stem?.direction ?? forced ?? stemDirection(note.position),
           marks: entry.item.articulations,
         }),
       );
@@ -575,7 +834,7 @@ function engraveBar(
     const members = spec.memberIds
       .map((id) => byItemId.get(id))
       .filter((note): note is EngravedNote => note !== undefined);
-    const bracket = tupletBracket(font, members, spec.actual, beamedIds, staveY);
+    const bracket = tupletBracket(font, members, spec.actual, beamedIds, staveY, forced);
     if (bracket !== null) after.push(...bracket);
   }
 
@@ -598,7 +857,7 @@ function engraveBar(
   // A chord sits at its beat, not just at the nearest note: when no item starts on its onset it is
   // interpolated across the anchor's span, so two chords over one half note or a whole rest read as
   // two (SIB2-165). Symbols that still touch are pushed right, never left over their own beat.
-  const chordXs = chordPositions(chords, placed, bar, options.chordFontSize, options.chordStyle);
+  const chordXs = chordPositions(chords, placed, bar, options.chordFontSize, options.chordStyle, mode.aligned);
   for (const [index, chord] of chords.entries()) {
     const x = chordXs[index] ?? bar.x + bar.prefixWidth + units(1);
     // A flagged chord symbol or annotation gets a wash behind it (ADR-0019). Its box is
@@ -674,15 +933,18 @@ const CHORD_ADVANCE_EM = 0.6;
 const CHORD_GAP_EM = 0.5;
 
 function chordPositions(
-  chords: { anchorItemId: Id | null; onset: number; text: string; plain: boolean }[],
+  chords: { x?: number; anchorItemId: Id | null; onset: number; text: string; plain: boolean }[],
   placed: PlacedItem[],
   bar: LayoutBar,
   size: number,
   style: ChordStyle,
+  aligned = false,
 ): number[] {
   const fallback = bar.x + bar.prefixWidth + units(1);
   const right = bar.x + bar.width - units(1);
   const xs = chords.map((chord) => {
+    // On a multi-staff system layout has already put the chord on its column, shared with every staff's notes.
+    if (aligned && chord.x !== undefined) return chord.x;
     const anchorIndex = placed.findIndex((entry) => {
       const id = entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId;
       return id === chord.anchorItemId;
@@ -734,11 +996,21 @@ function chordPositions(
   return xs;
 }
 
+/** What a staff adds to where a note or rest sits: its clef, whether it is unpitched, and a voice's rest offset. */
+interface ItemContext {
+  clef: Clef;
+  percussion: boolean;
+  restShift: number;
+}
+
+const TREBLE_ITEMS: ItemContext = { clef: 'treble', percussion: false, restShift: 0 };
+
 function engraveItem(
   font: MusicFont,
   entry: PlacedItem,
   staveY: number,
   direction: StemDirection | null,
+  context: ItemContext = TREBLE_ITEMS,
 ): EngravedNote {
   const { item } = entry;
 
@@ -746,18 +1018,22 @@ function engraveItem(
     return {
       item,
       x: entry.x,
-      position: restPosition(item.duration),
+      position: restPosition(item.duration) + context.restShift,
       glyph: restFor(item.duration),
       levels: 0,
       stem: null,
     };
   }
 
-  const glyph = noteheadFor(item.duration);
-  const position = staffPosition(writtenPitch(item.pitch, item.ottava));
+  const glyph = context.percussion ? percussionNoteheadFor(item.duration) : noteheadFor(item.duration);
+  const position =
+    context.clef === 'treble'
+      ? staffPosition(writtenPitch(item.pitch, item.ottava))
+      : staffPositionIn(writtenPitch(item.pitch, item.ottava), context.clef);
   return {
     item,
     x: entry.x,
+    ...(entry.accidentalX === undefined ? {} : { accidentalX: entry.accidentalX }),
     position,
     glyph,
     levels: beamCount(item.duration),
@@ -796,16 +1072,17 @@ function noteInk(
       // Spacing already reserved exactly this much room to the left of the notehead, so
       // the accidental lands in it rather than on top of whatever came before.
       const glyph = accidentalGlyph(note.item.accidentalGlyph);
+      const headX = note.accidentalX ?? note.x;
       if (note.item.accidental === 'parens') {
         // A cautionary accidental (SIB2-182): the accidental between two SMuFL brackets, the pair
         // sitting in the room spacing reserved (`parensWidth`).
-        const right = note.x - ACCIDENTAL_GAP - font.width('accidentalParensRight');
+        const right = headX - ACCIDENTAL_GAP - font.width('accidentalParensRight');
         const glyphX = right - font.width(glyph);
         elements.push(font.element('accidentalParensRight', right, y));
         elements.push(font.element(glyph, glyphX, y));
         elements.push(font.element('accidentalParensLeft', glyphX - font.width('accidentalParensLeft'), y));
       } else {
-        elements.push(font.element(glyph, note.x - ACCIDENTAL_GAP - font.width(glyph), y));
+        elements.push(font.element(glyph, headX - ACCIDENTAL_GAP - font.width(glyph), y));
       }
     }
   }
@@ -847,12 +1124,13 @@ function tupletBracket(
   actual: number,
   beamedIds: ReadonlySet<Id>,
   staveY: number,
+  forced: StemDirection | null = null,
 ): SvgElement[] | null {
   const first = members[0];
   const last = members[members.length - 1];
   if (first === undefined || last === undefined) return null;
 
-  const direction = groupStemDirection(members.map((member) => member.position));
+  const direction = forced ?? groupStemDirection(members.map((member) => member.position));
   const away = direction === 'up' ? -1 : 1;
 
   // The extreme the group's ink reaches on the bracket's side: a stem end, or a notehead

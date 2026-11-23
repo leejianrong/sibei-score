@@ -1,5 +1,5 @@
 import { STAFF_SPACE } from '@sibei/layout';
-import type { Pitch } from '@sibei/model';
+import type { Clef, Pitch } from '@sibei/model';
 import { STEPS } from '@sibei/model';
 import type { MusicFont } from './font.js';
 import type { SvgElement } from './svg.js';
@@ -42,6 +42,33 @@ export function staffPosition(pitch: Pitch): number {
   return TOP_LINE_DIATONIC - diatonic(pitch);
 }
 
+/**
+ * The pitch on each clef's top line (ADR-0041, slice 4): F5 treble, A3 bass, G4 alto, E4 tenor. Everything else about a
+ * clef is this one number, because a position is only a distance from the top line. A percussion staff is unpitched, so
+ * it has none; its notes all sit on the one line (`PERCUSSION_LINE`) until slice 6 maps a drum to a position.
+ */
+const CLEF_TOP_LINE: Record<Exclude<Clef, 'percussion'>, number> = {
+  treble: TOP_LINE_DIATONIC,
+  bass: diatonic({ step: 'A', alter: 0, octave: 3 }),
+  alto: diatonic({ step: 'G', alter: 0, octave: 4 }),
+  tenor: diatonic({ step: 'E', alter: 0, octave: 4 }),
+};
+
+/** The staff position of the one line of a one-line percussion staff: the middle line of the five. */
+export const PERCUSSION_LINE = 4;
+
+/** `staffPosition` against a given clef. Treble is `staffPosition` itself, so a lead sheet is untouched. */
+export function staffPositionIn(pitch: Pitch, clef: Clef): number {
+  if (clef === 'percussion') return PERCUSSION_LINE;
+  return CLEF_TOP_LINE[clef] - diatonic(pitch);
+}
+
+/** How far a clef's top line sits from treble's, in staff positions: what a key signature shifts by (see signatures.ts). */
+export function clefTopOffset(clef: Clef): number {
+  if (clef === 'percussion') return 0;
+  return CLEF_TOP_LINE[clef] - TOP_LINE_DIATONIC;
+}
+
 export function positionY(position: number, staveY: number): number {
   return staveY + position * HALF_SPACE;
 }
@@ -75,9 +102,11 @@ export interface StaffLinesSpec {
  * The five lines. Centred on their positions rather than hanging below them, so the
  * staff's outer edges are symmetric about the notes.
  */
-export function staffLines(font: MusicFont, spec: StaffLinesSpec): SvgElement[] {
+export function staffLines(font: MusicFont, spec: StaffLinesSpec, oneLine = false): SvgElement[] {
   const lines: SvgElement[] = [];
-  for (let line = 0; line <= BOTTOM_LINE; line += 2) {
+  // A percussion staff is a single line, the middle one (ADR-0041): the same box as a five-line staff, so the
+  // systems stack unchanged and a barline or brace spans it like any other.
+  for (let line = oneLine ? PERCUSSION_LINE : 0; line <= (oneLine ? PERCUSSION_LINE : BOTTOM_LINE); line += 2) {
     lines.push(
       el('rect', {
         class: 'se-stafflines',

@@ -172,3 +172,24 @@ output contract are in `agent_docs/architecture.md` ("Staves and voices in the l
   by width. No op or verb sets it yet (a later slice, with its CLI verb and UI control, Q79).
 - Braces come from a part's staves, the bracket from there being several parts; there is no explicit grouping field.
 - `makeStaffedScore` (`packages/model/src/build-staves.ts`) builds multi-staff scores for tests and fixtures without ops.
+
+## As built: slice 4 (SIB2-228, the engraver)
+
+The engraver draws every staff and voice that layout emits. No schema change. Details and the module map are in
+`agent_docs/architecture.md` ("How the engraver draws a staved system"); what was decided here:
+
+- **One path, one mode.** `engraveBar` gained a `BarMode`; the single-staff call passes `SINGLE_STAFF`, every field at its
+  old value, so every committed snapshot and the browser/server byte-identity test pass unmodified.
+- **Stems by voice.** With two or more voices holding music, voices 1 and 3 stem up and 2 and 4 down; a lone voice keeps
+  the pitch-based rule. Layout's ink measurement follows (`voiceStems`), so the chord row clears forced up stems.
+- **Collisions.** Rests offset two half-spaces per voice; the later voice's head moves aside for a second, a crossing or a
+  unison of different heads; a unison of one head is shared; a moved head's accidental stays at the unmoved x.
+- **Clefs** treble, bass, alto, tenor and percussion from five SMuFL glyphs added to the vendored slice (`fClef`, `cClef`,
+  `unpitchedPercussionClef1`, `noteheadXBlack/Half/Whole`; the slice is now 58 glyphs). Key signatures follow the clef.
+- **Percussion** is a one-line staff with x heads and stems up; the drum-to-line mapping is slice 6. **Tab** draws five
+  plain lines until its own slice.
+- **Layout touch-ups the engraver needed:** the first column starts later when it opens with an accidental or a repeat
+  sign (`ALIGN_ACCIDENTAL_ROOM`, `ALIGN_REPEAT_START`), and forced stems count toward a staff's ink.
+- **Known imperfect:** voices that cross draw each stem through the other's head; three voices with up stems are not
+  merged into chords; a fermata sits over the staff, not over a low note inside it; instrument names, per-part
+  transposition and cross-staff beams are later items; an ottava line is the top staff's only.
