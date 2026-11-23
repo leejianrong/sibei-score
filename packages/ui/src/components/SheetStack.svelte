@@ -42,6 +42,8 @@
     selection?: { pageIndex: number; box: OverlayBox } | null;
     /** The second note of a slur being built (SIB2-168), shift-clicked beside the selected one. */
     rangeSelection?: { pageIndex: number; box: OverlayBox } | null;
+    /** The other items of a multi-selection (SIB2-278), each boxed like the primary one. */
+    multiSelection?: { pageIndex: number; box: OverlayBox }[];
     /** Which chord is selected (V5e) — drawn the same way, since only one thing is selected at once. */
     chordSelection?: { pageIndex: number; box: OverlayBox } | null;
     /** Which bar is selected (V7c) — a bracket over the whole bar rather than a tight box on one glyph. */
@@ -51,12 +53,12 @@
     /** The empty beat under the pointer, where a click would add a chord (V5e). */
     addHint?: { pageIndex: number; box: OverlayBox } | null;
     /** A click on a sheet, translated into that page's own layout units. */
-    onselect?: (pageIndex: number, point: Point, extend: boolean) => void;
+    onselect?: (pageIndex: number, point: Point, extend: boolean, additive: boolean) => void;
     /** The pointer moving over (or leaving, with `null`) a sheet, in that page's layout units. */
     onhover?: (pageIndex: number, point: Point | null) => void;
   }
 
-  const { pages, selection = null, rangeSelection = null, chordSelection = null, barSelection = null, caret = null, addHint = null, onselect, onhover }: Props = $props();
+  const { pages, selection = null, rangeSelection = null, multiSelection = [], chordSelection = null, barSelection = null, caret = null, addHint = null, onselect, onhover }: Props = $props();
   const multi = $derived(pages.length > 1);
 
   function pointOf(index: number, event: MouseEvent): Point | null {
@@ -73,7 +75,7 @@
   function handleClick(index: number, event: MouseEvent): void {
     if (onselect === undefined) return;
     const point = pointOf(index, event);
-    if (point !== null) onselect(index, point, event.shiftKey);
+    if (point !== null) onselect(index, point, event.shiftKey, event.ctrlKey || event.metaKey);
   }
 
   function handleMove(index: number, event: MouseEvent): void {
@@ -126,6 +128,11 @@
           {#if selection !== null && selection.pageIndex === index}
             <div class="hit selected" style={boxStyle(selection.box, page)}></div>
           {/if}
+          {#each multiSelection as extra, at (at)}
+            {#if extra.pageIndex === index}
+              <div class="hit selected" data-testid="picked-item" style={boxStyle(extra.box, page)}></div>
+            {/if}
+          {/each}
           {#if rangeSelection !== null && rangeSelection.pageIndex === index}
             <div class="hit selected" style={boxStyle(rangeSelection.box, page)}></div>
           {/if}

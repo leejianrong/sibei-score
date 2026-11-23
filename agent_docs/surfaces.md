@@ -178,3 +178,5 @@ is the item that ends at the caret, read from the score, and `ScoreView` runs ac
 score the last one left. One key action is one batch is one undo; cross-request coalescing would need the op log to group
 batches (ADR-0003), which this does not change. The preview is `ghostScore()`: a copy of the score with the next note at the
 caret, rendered through the one `layout()` + `engravePage()` path; the adapter only boxes the note whose id is `GHOST_ID`.
+
+**Multi-selection (SIB2-278).** The selection is ids: the clicked note, the shift-click range to a second note (the same second click the slur control uses, now also a range), ctrl/cmd-clicked additions, a shift-clicked bar range, or Ctrl/Cmd A for the active staff (`lib/selection.ts`: `itemsBetween`/`itemsInBars`/`itemsInStaff`, pure). With more than one picked, `SelectionPanel` rides above the sheet; each button is a `SelectionEdit` that `selectionOps` expands into ordinary ops (`note.set` pitch/duration/tie/articulations, `note.rm`/`rest.rm`, `note.move`) sent as **one batch, so one ctrl-Z undoes it**. A step move takes the key signature accidental for the new step.
