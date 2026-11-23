@@ -1,15 +1,22 @@
 import {
+  PERCUSSION_LINE,
   musicFontNamed,
+  noteShifts,
   noteheadFor,
+  percussionNoteheadFor,
+  placeAligned,
   placeItems,
   positionY,
   restFor,
   restPosition,
+  restShiftOf,
   staffPosition,
+  staffPositionIn,
   units,
+  voicesWithMusic,
 } from '@sibei/engrave';
 import type { MusicFont, MusicFontName } from '@sibei/engrave';
-import type { LayoutPage, NoteItem, RestItem } from '@sibei/layout';
+import type { LayoutBar, LayoutPage, NoteItem, RestItem } from '@sibei/layout';
 import { writtenPitch } from '@sibei/layout';
 import type { Id } from '@sibei/model';
 
@@ -32,6 +39,9 @@ import type { Id } from '@sibei/model';
 export interface ItemBox {
   id: Id;
   kind: 'note' | 'rest';
+  /** The staff it sits on, as its index in the system's `staves` (0 for a one-staff chart), and its voice (1-based). */
+  staffIndex: number;
+  voice: number;
   /** Layout units — the same space as the page's SVG `viewBox`. */
   x: number;
   y: number;
@@ -48,10 +58,54 @@ export function loadFont(name: MusicFontName): MusicFont {
   return musicFontNamed(name);
 }
 
-/** Every note and rest on a page, boxed exactly as the engraver placed and sized them. */
+/**
+ * Every note and rest on a page, boxed exactly as the engraver placed and sized them. A one-staff,
+ * one-voice chart takes the original path below; a staved system (ADR-0041) walks every staff and voice
+ * the way `engraveStavedSystem` does — aligned x, the staff's clef, a voice's rest offset and the head
+ * moved aside for another voice — so a click on staff 2, voice 2 hits the ink it was drawn as.
+ */
 export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
   const boxes: ItemBox[] = [];
   for (const system of page.systems) {
+    if (system.staves !== undefined) {
+      for (const staff of system.staves) {
+        for (const [barIndex, staffBar] of staff.bars.entries()) {
+          const bar = system.bars[barIndex];
+          if (bar === undefined) continue;
+          for (const voice of staffBar.voices) {
+            const layoutBar: LayoutBar = { ...bar, items: voice.items };
+            const shifts = noteShifts(font, { voice, voices: staffBar.voices, clef: staff.clef });
+            const restShift = restShiftOf(voice, staffBar.voices);
+            const percussion = staff.type === 'percussion';
+            for (const placed of placeAligned(font, layoutBar, voicesWithMusic(staffBar.voices) < 2)) {
+              const { item } = placed;
+              const glyph =
+                item.kind === 'note' ? (percussion ? percussionNoteheadFor(item.duration) : noteheadFor(item.duration)) : restFor(item.duration);
+              const position =
+                item.kind === 'note'
+                  ? percussion
+                    ? PERCUSSION_LINE
+                    : staffPositionIn(writtenPitch(item.pitch, item.ottava), staff.clef)
+                  : restPosition(item.duration) + restShift;
+              const y = positionY(position, staff.staveY);
+              const box = font.box(glyph);
+              const dx = item.kind === 'note' ? (shifts.get(item.noteId)?.dx ?? 0) : 0;
+              boxes.push({
+                id: item.kind === 'note' ? item.noteId : item.restId,
+                kind: item.kind,
+                staffIndex: staff.index,
+                voice: voice.index,
+                x: placed.x + dx,
+                y: y + box.top,
+                width: font.width(glyph),
+                height: box.height,
+              });
+            }
+          }
+        }
+      }
+      continue;
+    }
     for (const bar of system.bars) {
       for (const placed of placeItems(font, bar)) {
         const { item } = placed;
@@ -62,6 +116,8 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
         boxes.push({
           id: item.kind === 'note' ? item.noteId : item.restId,
           kind: item.kind,
+          staffIndex: 0,
+          voice: 1,
           x: placed.x,
           y: y + box.top,
           width: font.width(glyph),
@@ -109,6 +165,9 @@ export interface LocatedItem {
   /** Which bar it sits in — a rest's address for `rest.add` needs it; a note's does not (V4c
    *  addresses an existing note by its own id, never by position). */
   barNumber: number;
+  /** Its staff (index in the system's `staves`) and voice, so an edit by position can be qualified. */
+  staffIndex: number;
+  voice: number;
 }
 
 /**
@@ -117,11 +176,29 @@ export interface LocatedItem {
  * never from re-deriving them out of the stored `Score` a second way.
  */
 export function findItem(page: LayoutPage, id: Id): LocatedItem | null {
+  const idOf = (item: NoteItem | RestItem): Id => (item.kind === 'note' ? item.noteId : item.restId);
   for (const system of page.systems) {
+    if (system.staves !== undefined) {
+      for (const staff of system.staves) {
+        for (const [barIndex, staffBar] of staff.bars.entries()) {
+          const barNumber = system.bars[barIndex]?.barNumber;
+          if (barNumber === undefined) continue;
+          for (const voice of staffBar.voices) {
+            for (const item of voice.items) {
+              if ((item.kind === 'note' || item.kind === 'rest') && idOf(item) === id) {
+                return { item, barNumber, staffIndex: staff.index, voice: voice.index };
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
     for (const bar of system.bars) {
       for (const item of bar.items) {
-        if (item.kind === 'note' && item.noteId === id) return { item, barNumber: bar.barNumber };
-        if (item.kind === 'rest' && item.restId === id) return { item, barNumber: bar.barNumber };
+        if ((item.kind === 'note' || item.kind === 'rest') && idOf(item) === id) {
+          return { item, barNumber: bar.barNumber, staffIndex: 0, voice: 1 };
+        }
       }
     }
   }

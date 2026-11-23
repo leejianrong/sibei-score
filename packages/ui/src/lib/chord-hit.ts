@@ -79,7 +79,8 @@ export function pageChordBoxes(page: LayoutPage, font: MusicFont): ChordBox[] {
       const noteX = noteXByItemId(font, bar);
       for (const item of bar.items) {
         if (item.kind !== 'chordSymbol' && item.kind !== 'annotation') continue;
-        const x = item.anchorItemId === null ? fallbackX(bar) : (noteX.get(item.anchorItemId) ?? fallbackX(bar));
+        // A staved system stamps the aligned x on the item itself; a lead sheet leaves it to the anchor note.
+        const x = item.x ?? (item.anchorItemId === null ? fallbackX(bar) : (noteX.get(item.anchorItemId) ?? fallbackX(bar)));
         const width = Math.max(SIZE * 1.5, item.text.length * CHAR);
         boxes.push({
           chordId: item.kind === 'chordSymbol' ? item.chordId : item.annotationId,
