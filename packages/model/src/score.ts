@@ -266,7 +266,54 @@ export interface Bar {
    * which would otherwise force a break. Optional-and-absent, so no stored document changes (ADR-0028).
    */
   lineBreak?: LineBreak;
+  /**
+   * Navigation marks (SIB2-175, ADR-0021 amendment): a segno or coda sign at the bar's start, and one jump text
+   * ("D.S. al Coda") at its end. At most one of each kind, in `NAV_KINDS` order. Optional-and-absent, so no stored
+   * document changes (ADR-0028). Purely navigational: nothing plays or repeats from them.
+   */
+  nav?: NavKind[];
 }
+
+export type NavKind =
+  | 'segno'
+  | 'coda'
+  | 'to-coda'
+  | 'fine'
+  | 'dc'
+  | 'ds'
+  | 'dc-al-fine'
+  | 'dc-al-coda'
+  | 'ds-al-fine'
+  | 'ds-al-coda';
+
+/** Canonical order: the signs first, then the jump texts. */
+export const NAV_KINDS: readonly NavKind[] = [
+  'segno',
+  'coda',
+  'to-coda',
+  'fine',
+  'dc',
+  'ds',
+  'dc-al-fine',
+  'dc-al-coda',
+  'ds-al-fine',
+  'ds-al-coda',
+];
+
+/** The two kinds drawn as a glyph at the bar's start; every other kind is a text at its end. */
+export const NAV_SIGNS: readonly NavKind[] = ['segno', 'coda'];
+
+/** The text a jump kind prints. Signs have none. */
+export const NAV_TEXT: Readonly<Partial<Record<NavKind, string>>> = {
+  'to-coda': 'To Coda',
+  fine: 'Fine',
+  dc: 'D.C.',
+  ds: 'D.S.',
+  'dc-al-fine': 'D.C. al Fine',
+  'dc-al-coda': 'D.C. al Coda',
+  'ds-al-fine': 'D.S. al Fine',
+  'ds-al-coda': 'D.S. al Coda',
+};
 
 /** One voice's content of one bar of one staff (ADR-0041). `index` is 1-based and is the `v2` of an address. */
 export interface Voice {

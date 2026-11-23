@@ -317,6 +317,8 @@ sbscore tuplet set <id> <address> --notes 3 [--in 2] [--over 3]       # bracket 
 sbscore tuplet rm  <id> <address>
 sbscore break set <id> <bar> [--join]                            # end the line after <bar>; --join: a section shares the line
 sbscore break rm  <id> <bar>
+sbscore nav set <id> <bar> --segno|--coda|--to-coda|--fine|--dc|--ds|--dc-al-fine|--dc-al-coda|--ds-al-fine|--ds-al-coda
+sbscore nav rm  <id> <bar> [--segno|--coda|...]                  # one mark, or every mark of the bar
 ```
 
 A section's `--letter` and `--name` each draw as a box above the bar the section starts on, the name beside the
@@ -341,6 +343,14 @@ sit on one line; `break rm` returns a bar to the grid. `meta set --bars-per-syst
 count for the whole chart. With none of these set nothing changes. `show` lists them on a `lines:` line.
 MusicXML carries a break as `<print new-system="yes"/>` and reads one back; `--join` and the count have no
 MusicXML form. In the browser, click a bar for its line break and use Bars per line in the rail.
+
+**Navigation marks** (ADR-0021 amendment, SIB2-175). `nav set <id> bar8 --ds-al-coda` puts a mark on a bar. A
+`--segno` or `--coda` sign is drawn above the start of the bar; a jump text (`--to-coda`, `--fine`, `--dc`, `--ds`,
+`--dc-al-fine`, `--dc-al-coda`, `--ds-al-fine`, `--ds-al-coda`) is drawn in bold italic at its end. A bar holds
+a segno and a coda and one jump, so a second jump replaces the first. `nav rm` takes a flag to remove that mark, or
+none to clear the bar. `show` lists them on a `navigation:` line. They only mark the page: nothing plays or
+repeats from them. MusicXML carries them as `<segno/>`, `<coda/>` and `<sound dacapo/dalsegno/tocoda/fine>` with
+the printed words, and reads them back. In the browser, click a bar and use Navigation.
 
 ## Undo, redo and batches
 

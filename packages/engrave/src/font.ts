@@ -77,6 +77,8 @@ export type MusicGlyphName =
   | 'noteheadDiamondHalf'
   | 'noteheadDiamondWhole'
   | 'repeatDot'
+  | 'segno'
+  | 'coda'
   | 'fermataAbove'
   | 'fermataBelow'
   | 'articStaccatoAbove'

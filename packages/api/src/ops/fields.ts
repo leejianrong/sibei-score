@@ -39,6 +39,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'tuplet.rm': [],
   'break.set': ['kind'],
   'break.rm': [],
+  'nav.set': ['kind'],
+  'nav.rm': ['kind'],
   'fermata.set': [],
   'fermata.rm': [],
   'slur.set': ['to', 'placement', 'id'],

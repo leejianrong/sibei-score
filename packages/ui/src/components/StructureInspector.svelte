@@ -1,5 +1,6 @@
 <script lang="ts" module>
-  import type { EndBarline, EndingRole, StartBarline } from '@sibei/model';
+  import { NAV_KINDS, NAV_SIGNS, NAV_TEXT } from '@sibei/model';
+  import type { EndBarline, EndingRole, NavKind, StartBarline } from '@sibei/model';
   import type { BarStructure, LineBreakChoice, StructureEdits } from '../lib/structure-edits.js';
 
   /** The model's ending roles, worn as words a reader recognises (the approved V7c labels). */
@@ -10,6 +11,21 @@
     { value: 'continue', label: 'Mid' },
     { value: 'stop', label: 'End' },
   ];
+
+  type SignChoice = 'none' | 'segno' | 'coda' | 'both';
+  const SIGN_OPTIONS: { value: SignChoice; label: string }[] = [
+    { value: 'none', label: 'None' },
+    { value: 'segno', label: 'Segno' },
+    { value: 'coda', label: 'Coda' },
+    { value: 'both', label: 'Both' },
+  ];
+  /** The jump texts, in the model's order; `''` is none. */
+  const JUMP_KINDS = NAV_KINDS.filter((kind) => !NAV_SIGNS.includes(kind));
+  const signOf = (nav: NavKind[]): SignChoice => {
+    const segno = nav.includes('segno');
+    const coda = nav.includes('coda');
+    return segno && coda ? 'both' : segno ? 'segno' : coda ? 'coda' : 'none';
+  };
 
   const BREAK_OPTIONS: { value: LineBreakChoice; label: string }[] = [
     { value: 'none', label: 'Grid' },
@@ -69,6 +85,8 @@
   let end = $state(untrack(() => bar.endBarline));
   let role = $state<'none' | EndingRole>(untrack(() => bar.ending?.role ?? 'none'));
   let lineBreak = $state<LineBreakChoice>(untrack(() => bar.lineBreak));
+  let sign = $state<SignChoice>(untrack(() => signOf(bar.nav)));
+  let jump = $state<NavKind | ''>(untrack(() => bar.nav.find((kind) => !NAV_SIGNS.includes(kind)) ?? ''));
   let numbersInput = $state(untrack(() => (bar.ending === null ? '1' : bar.ending.numbers.join(', '))));
   let numbersError = $state<string | null>(null);
   let textBeat = $state('1');
@@ -101,7 +119,12 @@
       ending = { numbers, role };
     }
     numbersError = null;
-    onsave({ letter: letter.trim(), name: name.trim(), startBarline: start, endBarline: end, ending, lineBreak });
+    const nav: NavKind[] = [
+      ...(sign === 'segno' || sign === 'both' ? (['segno'] as const) : []),
+      ...(sign === 'coda' || sign === 'both' ? (['coda'] as const) : []),
+      ...(jump === '' ? [] : [jump]),
+    ];
+    onsave({ letter: letter.trim(), name: name.trim(), startBarline: start, endBarline: end, ending, lineBreak, nav });
   }
 </script>
 
@@ -217,6 +240,36 @@
           several. Numbers <code>1</code> or <code>1, 2</code>.
         </p>
       {/if}
+    </div>
+
+    <div class="field">
+      <span class="field-label">Navigation</span>
+      <SegmentedControl
+        label="Segno or coda sign"
+        options={SIGN_OPTIONS.map((o) => o.value)}
+        value={sign}
+        display={(o) => SIGN_OPTIONS.find((x) => x.value === o)?.label ?? String(o)}
+        fill
+        onselect={(chosen) => (sign = chosen)}
+      />
+      <div class="field-row">
+        <span class="mini-label">Jump</span>
+        <select
+          class="txt grow"
+          aria-label="Jump text"
+          value={jump}
+          onchange={(event) => (jump = (event.currentTarget as HTMLSelectElement).value as NavKind | '')}
+        >
+          <option value="">None</option>
+          {#each JUMP_KINDS as kind (kind)}
+            <option value={kind}>{NAV_TEXT[kind]}</option>
+          {/each}
+        </select>
+      </div>
+      <p class="note">
+        A <b>sign</b> sits above the start of this bar; a <b>jump</b> (<i>To Coda</i>, <i>Fine</i>, <i>D.S. al Coda</i>) at its end. Navigation only:
+        nothing plays or repeats from them (<code>nav set</code>).
+      </p>
     </div>
 
     {#if error !== null}

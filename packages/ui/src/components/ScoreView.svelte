@@ -481,6 +481,7 @@
       endBarline: bar.endBarline,
       ending: bar.ending,
       lineBreak: bar.lineBreak ?? 'none',
+      nav: bar.nav ?? [],
       texts: [...bar.annotations]
         .sort((a, b) => a.onset - b.onset)
         .map((a) => ({
