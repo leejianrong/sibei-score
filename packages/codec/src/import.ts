@@ -256,8 +256,8 @@ function drumInstruments(root: XmlElement, partId: string): Map<string, DrumId> 
 }
 
 /** A `<score-part>`'s name and General MIDI program (1-based in MusicXML, 0-based here), by its id. */
-function partNames(root: XmlElement): Map<string, { name: string; program: number | null }> {
-  const out = new Map<string, { name: string; program: number | null }>();
+function partNames(root: XmlElement): Map<string, { name: string; shortName: string; program: number | null }> {
+  const out = new Map<string, { name: string; shortName: string; program: number | null }>();
   const list = firstChild(root, 'part-list');
   if (list === null) return out;
   for (const scorePart of childElements(list, 'score-part')) {
@@ -267,6 +267,7 @@ function partNames(root: XmlElement): Map<string, { name: string; program: numbe
     const program = midi === null ? NaN : Number(childText(midi, 'midi-program'));
     out.set(id, {
       name: (childText(scorePart, 'part-name') ?? '').trim(),
+      shortName: (childText(scorePart, 'part-abbreviation') ?? '').trim(),
       program: Number.isInteger(program) && program >= 1 && program <= 128 ? program - 1 : null,
     });
   }
@@ -1253,7 +1254,7 @@ function buildPart(
   partIndex: number,
   staffOffset: number,
   score: Score,
-  info: { name: string; program: number | null } | null,
+  info: { name: string; shortName: string; program: number | null } | null,
   warnings: string[],
 ): Part {
   const shift = content.transpose;
@@ -1308,6 +1309,7 @@ function buildPart(
   return {
     id: `part-${partIndex + 1}`,
     name,
+    ...(info === null || info.shortName === '' ? {} : { shortName: info.shortName }),
     instrument: info?.program ?? null,
     transposition: shift?.semitones ?? 0,
     staves,

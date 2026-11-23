@@ -45,7 +45,7 @@
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
-  import { boxFor, findItem, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
+  import { boxFor, findItem, hitMargin, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
   import type { Point } from '../lib/hit-test.js';
   import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
   import type { ChordBox } from '../lib/chord-hit.js';
@@ -154,6 +154,8 @@
   // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
   // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
   let format = $state<ExportFormat>('pdf');
+  // Which page an SVG export is (SIB2-277): the CLI writes one file per page, so the rail names the page it will download.
+  let svgPage = $state(1);
 
   // The instrument part on view (V6e). `concert` is the stored score; a transposing instrument is a
   // render-time view (ADR-0016) — the sheet shows the written part and the same choice drives the
@@ -248,6 +250,12 @@
     if (score === null || kind === (score.meta.layout ?? 'lead-sheet')) return;
     deselect();
     await runOps([{ type: 'meta.set', payload: { layout: kind === 'lead-sheet' ? null : kind } }]);
+  }
+
+  async function handleInstrumentNames(show: boolean): Promise<void> {
+    if (score === null || show === (score.meta.showInstrumentNames === true)) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { showInstrumentNames: show ? true : null } }]);
   }
 
   async function handleSignaturePolicy(policy: 'every' | 'first' | 'page'): Promise<void> {
@@ -411,11 +419,13 @@
   // The beat under the pointer while it is over a chord band and nothing is being saved — the
   // "click above the staff to add a chord" affordance (the approved V5e interaction).
   let hoverSlot = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
+  // The note or rest a click would select (SIB2-275): lit faintly under the pointer so a reader sees what the click hits.
+  let hoverItem = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
 
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }, noteInput !== null && editable ? new Set([noteInput.caret.bar]) : undefined),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
@@ -787,7 +797,7 @@
    * deselect — clicking white space is how the mockup's "Deselect" affordance behaves without a
    * second control for it.
    */
-  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false): void {
+  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false, pxPerUnit?: number): void {
     // A part view is read-only: its notes are written pitches, and an edit there would be submitted
     // against the concert score at the wrong pitch. So a click does nothing until you are on concert.
     if (saving || !editable) return;
@@ -797,27 +807,30 @@
     saveError = null;
 
     if (noteInput !== null && score !== null) {
-      handleInputClick(page, point);
+      handleInputClick(page, point, pxPerUnit);
       return;
     }
 
     // A chord first: its band sits above the staff, clear of the notes, so a click there is never
     // ambiguous with a note. Clicking an existing chord edits it; clicking an empty beat in the band
     // adds one there (Q32). Only then does a click fall through to the notes and rests below.
-    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point);
+    const slop = hitMargin(pxPerUnit);
+    const itemBoxes = pageItemBoxes(page.layout, musicFont);
+    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point, slop);
     if (chordHit !== null && !chordHit.plain) {
       selectChord(pageIndex, 'edit', chordHit.chordId, chordHit.addr, chordHit.barNumber, chordHit.beat, chordHit.text, chordHit);
       return;
     }
     if (score !== null) {
       const slot = beatSlotAt(page.layout, point, score.meta.time);
-      if (slot !== null && chordHit === null) {
+      // A click straight on a notehead is the note even when its head reaches up into the chord band (a high note).
+      if (slot !== null && chordHit === null && hitTest(itemBoxes, point, 0) === null) {
         selectChord(pageIndex, 'add', null, slot.addr, slot.barNumber, slot.beat, '', slot);
         return;
       }
     }
 
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    const hit = hitTest(itemBoxes, point, slop);
     // Shift-click a second note while one is selected: the other end of a slur (SIB2-168).
     if (extend && hit !== null && selectedId !== null && hit.id !== selectedId) {
       rangeId = hit.id;
@@ -956,10 +969,10 @@
   }
 
   /** In note input a click only moves the caret: onto a note (typing then overwrites it) or to the end of a bar's music. */
-  function handleInputClick(page: (typeof pages)[number], point: Point): void {
+  function handleInputClick(page: (typeof pages)[number], point: Point, pxPerUnit?: number): void {
     if (score === null || noteInput === null) return;
     const ctx = inputContext(score);
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point, hitMargin(pxPerUnit));
     if (hit !== null) {
       if (hit.id === GHOST_ID) return;
       const found = findItem(page.layout, hit.id);
@@ -1057,7 +1070,8 @@
   }
 
   /** The pointer moved over a sheet: light the add-a-chord marker if it is in an empty band beat. */
-  function handleSheetHover(pageIndex: number, point: Point | null): void {
+  function handleSheetHover(pageIndex: number, point: Point | null, pxPerUnit?: number): void {
+    hoverItem = null;
     if (point === null || saving || score === null || !editable) {
       hoverSlot = null;
       return;
@@ -1068,7 +1082,17 @@
       return;
     }
     // Don't offer "add" where a chord already sits — that is an edit target, not an empty beat.
-    if (chordAt(pageChordBoxes(page.layout, musicFont), point) !== null) {
+    if (chordAt(pageChordBoxes(page.layout, musicFont), point, hitMargin(pxPerUnit)) !== null) {
+      hoverSlot = null;
+      return;
+    }
+    const itemBoxes = pageItemBoxes(page.layout, musicFont);
+    const over = hitTest(itemBoxes, point, hitMargin(pxPerUnit));
+    if (over !== null && noteInput === null) {
+      const box = boxFor(itemBoxes, over.id);
+      if (box !== null) hoverItem = { pageIndex, box };
+    }
+    if (over !== null && hitTest(itemBoxes, point, 0) !== null) {
       hoverSlot = null;
       return;
     }
@@ -1720,6 +1744,14 @@
           <option value="score">Score (lines break by width)</option>
         </select>
         <p class="control-note">For a chart of several staves. A logged, undoable edit (<code>meta set --layout</code>).</p>
+        <label class="control-note"
+          ><input
+            type="checkbox"
+            aria-label="Print instrument names"
+            checked={score.meta.showInstrumentNames === true}
+            disabled={saving}
+            onchange={(event) => void handleInstrumentNames((event.currentTarget as HTMLInputElement).checked)}
+          /> Print instrument names (full on the first line, short after; <code>meta set --instrument-names</code>)</label>
       </RailPanel>
 
       <RailPanel title="Clef and key">
@@ -1916,17 +1948,35 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers, page: Math.min(svgPage, pages.length) })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
         </a>
+        {#if format === 'svg' && pages.length > 1}
+          <!-- One SVG per page, like `export --svg`: say which page the link downloads rather than silently giving page 1. -->
+          <select
+            class="part-select"
+            aria-label="SVG page to export"
+            value={String(Math.min(svgPage, pages.length))}
+            onchange={(event) => (svgPage = Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each pages as _, at (at)}
+              <option value={String(at + 1)}>Page {at + 1} of {pages.length}</option>
+            {/each}
+          </select>
+        {/if}
         <!-- The route, not the instance: the id is already in the facts above, and a
              40-character id wraps this column into nonsense. -->
         <p class="url">
           <span class="u-path">{route.path}</span>
           <span class="u-q">{route.query}</span>
         </p>
+        {#if format === 'svg'}
+          <p class="control-note">
+            The browser's own drawing as SVG, one file per page (<code>export --svg</code>). Pick the page above.
+          </p>
+        {/if}
         {#if format === 'musicxml'}
           <p class="control-note">
             MusicXML is a codec at the edges (ADR-0004) — lossy in known ways, and it ignores the
@@ -2068,6 +2118,7 @@
             chordSelection={chordOverlay}
             barSelection={barOverlay}
             addHint={hoverSlot}
+            hoverItem={hoverItem}
             onselect={handleSheetClick}
             onhover={handleSheetHover}
           />
@@ -2300,6 +2351,10 @@
   .part-select {
     flex: 1;
     min-width: 0;
+    /* A select is as wide as its longest option; inside the rail it must not run past the rail's edge (SIB2-276). */
+    max-width: 100%;
+    box-sizing: border-box;
+    text-overflow: ellipsis;
     background: var(--panel-2);
     border: 1px solid var(--rule);
     color: var(--ink);

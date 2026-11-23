@@ -27,6 +27,7 @@ export interface StaffInit {
 export interface PartInit {
   id?: Id;
   name?: string;
+  shortName?: string;
   instrument?: number | null;
   transposition?: number;
   staves: StaffInit[];
@@ -50,6 +51,7 @@ export function makeStaffedScore(init: StaffedScoreInit): Score {
     (part, partIndex): Part => ({
       id: part.id ?? `part-${partIndex + 1}`,
       name: part.name ?? '',
+      ...(part.shortName === undefined ? {} : { shortName: part.shortName }),
       instrument: part.instrument ?? null,
       transposition: part.transposition ?? 0,
       staves: part.staves.map((staff): Staff => {

@@ -116,4 +116,24 @@ describe('keyboard note input', () => {
       await page.close();
     }
   }, 120_000);
+
+  it('does not wash the bar being typed into rose, and does once the mode is left (SIB2-280)', async () => {
+    const id = 'e2e-note-input-wash';
+    stack.cli(['new', '--id', id, '--title', 'Wash', '--key', 'C', '--bars', '4']);
+    const page = await openScore(id);
+    try {
+      const washes = (): Promise<number> => page.locator('.sheet .se-invalidbar').count();
+      await page.getByRole('button', { name: 'Note input', exact: true }).click();
+      await page.getByTestId('note-input-panel').waitFor({ timeout: 10_000 });
+      await page.keyboard.type('4c');
+      await expect.poll(() => melody(id)[0]!.length, { timeout: 20_000 }).toBe(1);
+      await page.getByTestId('note-input-ghost').waitFor({ timeout: 5_000 });
+      // One quarter in a 4/4 bar plus the ghost: under-filled, but still being typed.
+      expect(await washes()).toBe(0);
+      await page.keyboard.press('Escape');
+      await expect.poll(washes, { timeout: 10_000 }).toBe(1);
+    } finally {
+      await page.close();
+    }
+  }, 120_000);
 });

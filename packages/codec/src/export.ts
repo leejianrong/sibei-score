@@ -162,12 +162,15 @@ function partList(score: Score): XmlElement {
     const hasInstrument = part.instrument !== null || percussion;
     const id = `${partId(index)}-I1`;
     const name = exportedPartName(score, part, index);
+    // `<part-abbreviation>` follows `<part-name>` in the schema (SIB2-286).
+    const abbreviation = part.shortName === undefined ? null : leaf('part-abbreviation', part.shortName);
     // A drum kit names each drum it uses as an instrument of its own, with the General MIDI key it plays, so a note
     // can say which (`<instrument id>`) and a reader can map it (`<midi-unpitched>`, 1-based).
     const drums = drumsOfPart(part);
     if (drums.length > 0) {
       return elem('score-part', { id: partId(index) }, [
         leaf('part-name', name),
+        abbreviation,
         ...drums.map((drum) => elem('score-instrument', { id: drumInstrumentId(index, drum) }, [leaf('instrument-name', drumById(drum).label)])),
         ...drums.map((drum) =>
           elem('midi-instrument', { id: drumInstrumentId(index, drum) }, [leaf('midi-channel', 10), leaf('midi-unpitched', drumById(drum).gm + 1)]),
@@ -185,6 +188,7 @@ function partList(score: Score): XmlElement {
     }
     return elem('score-part', { id: partId(index) }, [
       leaf('part-name', name),
+      abbreviation,
       hasInstrument ? elem('score-instrument', { id }, [leaf('instrument-name', name)]) : null,
       midi,
     ]);

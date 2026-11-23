@@ -19,7 +19,7 @@ import type { Operation, OperationType } from './operations.js';
 const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'score.create': ['id', 'title', 'composer', 'style', 'key', 'time', 'barCount', 'pickup', 'bars'],
   'score.import': ['document'],
-  'meta.set': ['title', 'subtitle', 'composer', 'arranger', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem', 'tempo', 'layout'],
+  'meta.set': ['title', 'subtitle', 'composer', 'arranger', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem', 'tempo', 'layout', 'showInstrumentNames'],
   'note.add': ['pitch', 'drum', 'head', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations', 'id'],
   'note.set': ['pitch', 'drum', 'head', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations'],
   'note.rm': [],
@@ -59,14 +59,14 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'grace.rm': [],
   'bar.add': ['count', 'ids'],
   'bar.rm': [],
-  'part.add': ['name', 'instrument', 'transposition', 'staffType', 'clef', 'id', 'staffId'],
+  'part.add': ['name', 'shortName', 'instrument', 'transposition', 'staffType', 'clef', 'id', 'staffId'],
   'part.rm': ['force'],
   'staff.add': ['type', 'clef', 'id'],
   'staff.rm': ['force'],
   'voice.add': ['index'],
   'voice.rm': ['force'],
   'clef.set': ['clef'],
-  'instrument.set': ['name', 'instrument', 'transposition'],
+  'instrument.set': ['name', 'shortName', 'instrument', 'transposition'],
 };
 
 /** Throws a validation failure naming the first payload field the operation does not know. */

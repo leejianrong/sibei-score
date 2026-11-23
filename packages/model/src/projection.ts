@@ -70,6 +70,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (score.meta.tempo !== undefined) lines.push(`  tempo: ${tempoText(score.meta.tempo)}`);
   if (score.meta.chordStyle !== undefined) lines.push(`  chord style: ${score.meta.chordStyle}`);
   if (score.meta.layout === 'score') lines.push('  layout: score (systems break by width)');
+  if (score.meta.showInstrumentNames === true) lines.push('  instrument names: shown');
 
   // The wording lives in `review.ts`, not here, because the score rail says the same sentence
   // (V4b): the engraver draws no flag, so the chrome carries review state and must carry it in
@@ -148,6 +149,7 @@ function isStructured(score: Score): boolean {
   return score.parts.some(
     (part) =>
       part.name !== '' ||
+      part.shortName !== undefined ||
       part.instrument !== null ||
       part.transposition !== 0 ||
       part.staves.some(
@@ -174,7 +176,7 @@ function structureLines(score: Score): string[] {
   const lines: string[] = [];
   let number = 0;
   score.parts.forEach((part, at) => {
-    const facts = [`p${at + 1}`, part.name === '' ? null : JSON.stringify(part.name), part.instrument === null ? null : `gm${part.instrument}`, part.transposition === 0 ? null : `transposition ${part.transposition > 0 ? '+' : ''}${part.transposition}`];
+    const facts = [`p${at + 1}`, part.name === '' ? null : JSON.stringify(part.name), part.shortName === undefined ? null : `short ${JSON.stringify(part.shortName)}`, part.instrument === null ? null : `gm${part.instrument}`, part.transposition === 0 ? null : `transposition ${part.transposition > 0 ? '+' : ''}${part.transposition}`];
     lines.push(`  part ${facts.filter((fact) => fact !== null).join(' ')}`);
     for (const staff of part.staves) {
       number += 1;

@@ -508,3 +508,19 @@ lower, above is at or higher). Decisions:
   inspector's "Move to other staff" (the chosen head alone when one head of a chord is chosen) and the Staves panel's range
   form. MCP takes both through `edit_score`'s operations (the enum is `OPERATION_TYPES`). The text projection is unchanged.
 
+
+## As built: instrument names on the system (SIB2-286)
+
+- **Model.** `Part.shortName?` and `meta.showInstrumentNames?`, both optional-and-absent (ADR-0028, no migration;
+  `SCHEMA_VERSION` stays 4). Off is stored as absent, so every chart made before this lays out and renders byte-identically.
+- **Layout** (`packages/layout/src/names.ts`): with the option on, the full name heads the first system and the short name
+  every later one. Room comes off the *left* of a system (`LayoutSystem.x`/`width`), only on a system that draws a name,
+  and counts the braces and bracket that sit between the names and the staves. `LayoutSystem.names` carries each name's
+  right edge and the staves it is centred on. Widths are an estimate (no glyph is measured, ADR-0015); the engraver anchors
+  the text at its right edge, so an underestimate spills into the margin and never onto a staff. A width-fit (`score`)
+  break plans every line at the first system's narrower width.
+- **Engraver** (`engrave/src/names.ts`): `<text class="se-instrument-name">`, in the chart's text face.
+- **Surfaces.** `instrument.set`/`part.add` take `shortName` (empty or null removes it), `meta.set` takes
+  `showInstrumentNames`; `sbscore instrument set --short-name`, `meta set --instrument-names on|off`; the Staves panel's
+  short-name field and a Layout-panel checkbox. MusicXML writes and reads `<part-abbreviation>`; an import does not turn the
+  names on. Fixture `instrument-names`.
