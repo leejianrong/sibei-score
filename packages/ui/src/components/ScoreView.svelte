@@ -1218,10 +1218,11 @@
   }
 
   /** Put a note or a rest at a beat of the selected bar, in the active staff and voice (slice 5b). */
-  async function handleNewItem(item: NewItemSpec): Promise<void> {
-    if (score === null || barSel === null) return;
+  async function handleNewItem(item: NewItemSpec): Promise<boolean> {
+    if (score === null || barSel === null) return false;
     const lane = { staff: barSel.staffIndex + 1, voice: activeLane.voice };
-    await runOps([newItemOp(qualifierOf(score, lane), barSel.barNumber, item)]);
+    // The bar stays selected (SIB2-265), so the next note is typed without clicking the bar again.
+    return await runOps([newItemOp(qualifierOf(score, lane), barSel.barNumber, item)], true);
   }
 
   async function handleReload(): Promise<void> {
@@ -1539,7 +1540,8 @@
               laneText={laneLabel(score, { staff: barSel!.staffIndex + 1, voice: activeLane.voice })}
               seedPitch={seedPitchFor(staffClef(score, barSel!.staffIndex + 1) ?? 'treble')}
               {saving}
-              onnew={(item) => void handleNewItem(item)}
+              beatValue={score.meta.time.beatValue}
+              onnew={(item) => handleNewItem(item)}
             />
           {/key}
         {:else}

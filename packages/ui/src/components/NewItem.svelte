@@ -17,10 +17,13 @@
     laneText: string;
     seedPitch: string;
     saving: boolean;
-    onnew: (item: NewItem) => void;
+    /** The chart's beat unit (4 in 4/4, 8 in 6/8), so the beat field can advance by what was just entered. */
+    beatValue?: number;
+    /** Resolves true when the item landed. The bar stays selected then (SIB2-265), so entry can go on. */
+    onnew: (item: NewItem) => void | Promise<boolean>;
   }
 
-  const { barNumber, laneText, seedPitch, saving, onnew }: Props = $props();
+  const { barNumber, laneText, seedPitch, saving, beatValue = 4, onnew }: Props = $props();
 
   const VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOTS = [0, 1, 2] as const;
@@ -32,9 +35,21 @@
 
   const beatValid = $derived(Number.isFinite(Number(beat)) && Number(beat) >= 1);
 
-  function put(kind: 'note' | 'rest'): void {
+  let pitchField = $state<HTMLInputElement | null>(null);
+
+  /** How many of the chart's beats an item lasts: a quarter is one beat in 4/4, two in 6/8. Dots add half, then a quarter more. */
+  function beatsOf(duration: { value: number; dots: number }): number {
+    return (beatValue / duration.value) * (2 - 1 / 2 ** duration.dots);
+  }
+
+  async function put(kind: 'note' | 'rest'): Promise<void> {
     if (!beatValid) return;
-    onnew({ kind, beat: Number(beat), pitch: pitch.trim(), duration: { value, dots } });
+    const duration = { value, dots };
+    const landed = await onnew({ kind, beat: Number(beat), pitch: pitch.trim(), duration });
+    if (landed === false) return;
+    // The next item goes right after this one, and the pitch field keeps the focus, so the next note is typed at once (SIB2-265).
+    beat = String(Math.round((Number(beat) + beatsOf(duration)) * 1000) / 1000);
+    pitchField?.focus();
   }
 </script>
 
@@ -51,6 +66,7 @@
     <input
       class="field"
       aria-label="Name of the new note"
+      bind:this={pitchField}
       placeholder="Eb4, F#3…"
       value={pitch}
       oninput={(event) => (pitch = (event.currentTarget as HTMLInputElement).value)}
