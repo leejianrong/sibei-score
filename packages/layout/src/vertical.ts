@@ -54,8 +54,8 @@ export const GRACE_SCALE = 0.65;
 export const GRACE_STEM_UNITS = 23;
 
 /** An ottava line sits this far past the highest or lowest note ink, and takes this much room itself (SIB2-184). */
-const OTTAVA_GAP = 15;
-const OTTAVA_BAND = 6;
+export const OTTAVA_GAP = 15;
+export const OTTAVA_BAND = 6;
 
 /**
  * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and
@@ -84,6 +84,8 @@ export interface SystemVertical {
 }
 
 export interface SystemVerticalInput {
+  /** A staved system's fermata rule (`staffInk`), SIB2-233. */
+  lowFermatas?: boolean;
   bars: BarView[];
   hasChords: boolean;
   hasRehearsalMark: boolean;
@@ -113,6 +115,8 @@ export function staffInk(
   shifts: Map<Id, OctaveShift> | undefined,
   clef: Clef = 'treble',
   stems?: ReadonlyMap<Id, 'up' | 'down'>,
+  /** A staved system puts a fermata under a stem-down voice's note and under a note below the staff (SIB2-233). */
+  lowFermatas = false,
 ): StaffInk {
   if (clef === 'percussion') return { inkAbove: 0, inkBelow: 0 };
   const TOP_LINE = CLEF_TOP_LINE[clef];
@@ -141,7 +145,12 @@ export function staffInk(
         if (stemUp) inkBelow = Math.max(inkBelow, below + room);
         else inkAbove = Math.max(inkAbove, above + room);
       }
-      if (item.fermata === true) {
+      if (item.fermata === true && lowFermatas && (forced === 'down' || index < BOTTOM_LINE)) {
+        // Hung under the note: its head, a down stem and an up stem's marks below the head all lie above it.
+        const marks = (item.articulations?.length ?? 0) * ARTICULATION_BAND;
+        const reach = below + (stemUp ? marks : STEM_UNITS);
+        inkBelow = Math.max(inkBelow, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
+      } else if (item.fermata === true) {
         const marks = (item.articulations?.length ?? 0) * ARTICULATION_BAND;
         const reach = above + (stemUp ? STEM_UNITS : marks);
         inkAbove = Math.max(inkAbove, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
@@ -162,7 +171,7 @@ export function staffInk(
 }
 
 export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
-  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems);
+  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems, input.lowFermatas === true);
 
   // An ottava line goes between the notes and everything above (or below) them, so the chord row rises with it.
   let ottavaAboveOffset: number | undefined;

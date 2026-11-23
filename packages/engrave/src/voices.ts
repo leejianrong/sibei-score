@@ -1,5 +1,5 @@
 import type { LayoutVoice, NoteItem } from '@sibei/layout';
-import { writtenPitch } from '@sibei/layout';
+import { crossingFlips, writtenPitch } from '@sibei/layout';
 import type { Clef, Id } from '@sibei/model';
 import type { MusicFont } from './font.js';
 import { staffPositionIn } from './staff.js';
@@ -36,6 +36,69 @@ export interface VoiceContext {
   /** Every voice of the staff-bar, this one included. */
   voices: readonly LayoutVoice[];
   clef: Clef;
+  /** Notes whose numbered stem is reversed because their voice crosses another's at that onset (`stemFlips`). */
+  flips?: ReadonlySet<Id>;
+  /** Voice-3 notes merged onto voice 1's stems (`stemMerges`). */
+  merges?: ReadonlyMap<Id, StemMerge>;
+}
+
+/**
+ * Where two voices cross, the stems turn away from each other for that note (Gould; SIB2-233): the notes of a staff-bar
+ * whose numbered direction is reversed. Empty on any staff-bar without a crossing, so nothing else moves.
+ */
+export function stemFlips(voices: readonly LayoutVoice[]): Set<Id> {
+  const shifts = new Map<Id, 'up' | 'down'>();
+  const input = voices.map((voice) => ({
+    index: voice.index,
+    notes: notesOf(voice).map((note) => {
+      if (note.ottava !== undefined) shifts.set(note.noteId, note.ottava);
+      return { id: note.noteId, onset: note.onset, pitch: note.pitch, duration: note.duration, tupletId: note.tupletId };
+    }),
+  }));
+  return voicesWithMusic(voices) < 2 ? new Set() : crossingFlips(input, shifts);
+}
+
+/**
+ * A voice-3 note that shares voice 1's stem (SIB2-233). Voices 1 and 3 both stem up, so where they strike the same
+ * duration together they are one chord, not two stems side by side (Gould, ch. 4): one stem, from the lower head up past
+ * the higher. `owns` is the head that draws that stem (the lower, voice 1's on a unison), `reach` the other head's
+ * position, which the owner's stem must also clear, and `partner` the other note. Only an unbeamed quarter or half
+ * outside a tuplet merges, since a beam would have to be shared too.
+ */
+export interface StemMerge {
+  owns: boolean;
+  partner: Id;
+  /** The staff position of the other head, for the owner's stem to reach. */
+  reach: number;
+  /** The other head is the upper one of a second: it is the head that moves to the right of the stem. */
+  displaced: boolean;
+}
+
+export function stemMerges(
+  voices: readonly LayoutVoice[],
+  clef: Clef,
+  flips: ReadonlySet<Id>,
+): Map<Id, StemMerge> {
+  const merges = new Map<Id, StemMerge>();
+  const first = voices.find((voice) => voice.index === 1);
+  const third = voices.find((voice) => voice.index === 3);
+  if (first === undefined || third === undefined || voicesWithMusic(voices) < 2) return merges;
+  const mergeable = (note: NoteItem): boolean =>
+    note.duration.value >= 2 && note.duration.value < 8 && note.tupletId === null && !flips.has(note.noteId);
+  const positionOf = (note: NoteItem): number => staffPositionIn(writtenPitch(note.pitch, note.ottava), clef);
+  for (const b of notesOf(third)) {
+    const a = notesOf(first).find((note) => note.onset === b.onset);
+    if (a === undefined || !mergeable(a) || !mergeable(b)) continue;
+    if (a.duration.value !== b.duration.value || a.duration.dots !== b.duration.dots) continue;
+    const pa = positionOf(a);
+    const pb = positionOf(b);
+    // Lower on the page is the larger position; voice 1 owns the stem of a unison.
+    const aOwns = pa >= pb;
+    const second = Math.abs(pa - pb) === 1;
+    merges.set(a.noteId, { owns: aOwns, partner: b.noteId, reach: pb, displaced: second && !aOwns });
+    merges.set(b.noteId, { owns: !aOwns, partner: a.noteId, reach: pa, displaced: second && aOwns });
+  }
+  return merges;
 }
 
 function hasMusic(voice: LayoutVoice): boolean {
@@ -70,17 +133,25 @@ export function noteShifts(font: MusicFont, context: VoiceContext): Map<Id, Voic
   const shifts = new Map<Id, VoiceShift>();
   const { voice, voices, clef } = context;
   if (voicesWithMusic(voices) < 2) return shifts;
-  const mine = stemsOf(voice, voices);
+  const flips = context.flips ?? new Set<Id>();
+  // A note's own direction: its voice's, or the reverse where the voices cross.
+  const turned = (note: NoteItem, numbered: 'up' | 'down' | 'auto'): 'up' | 'down' | 'auto' =>
+    numbered !== 'auto' && flips.has(note.noteId) ? (numbered === 'up' ? 'down' : 'up') : numbered;
   const positionOf = (note: NoteItem): number => staffPositionIn(writtenPitch(note.pitch, note.ottava), clef);
 
   for (const note of notesOf(voice)) {
     const position = positionOf(note);
-    let dx = 0;
+    const mine = turned(note, stemsOf(voice, voices));
+    // One chord on one stem: the upper head of a second sits right of it, whichever voice it is in (`stemMerges`).
+    const merge = context.merges?.get(note.noteId);
+    let dx = merge?.displaced === true ? font.width(noteheadFor(note.duration)) : 0;
     for (const other of voices) {
       if (other.index >= voice.index || !hasMusic(other)) continue;
-      const theirs = stemsOf(other, voices);
       for (const against of notesOf(other)) {
         if (against.onset !== note.onset) continue;
+        // The partner of a merged chord is not a collision: it shares the stem.
+        if (merge !== undefined && merge.partner === against.noteId) continue;
+        const theirs = turned(against, stemsOf(other, voices));
         const there = positionOf(against);
         const width = font.width(noteheadFor(against.duration));
         let collides: boolean;

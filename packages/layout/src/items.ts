@@ -276,6 +276,8 @@ export interface LayoutOttava {
   fromNoteId: Id | null;
   toNoteId: Id | null;
   labelled: boolean;
+  /** The staff of a multi-staff system the line belongs to, when it is not the top one (ADR-0041, SIB2-233). */
+  staff?: number;
 }
 
 /**
