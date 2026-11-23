@@ -75,7 +75,10 @@
   import { hashOf } from '../lib/routing.js';
   import NoteInputPanel from './NoteInputPanel.svelte';
   import SelectionPanel from './SelectionPanel.svelte';
-  import { countNotes, itemsBetween, itemsInBars, itemsInStaff, liveItems, selectionOps } from '../lib/selection.js';
+  import { countNotes, itemsBetween, itemsInBars, itemsInStaff, liveItems, selectionOps, selectionSpan } from '../lib/selection.js';
+  import { clipboard, clipSummary, clipText, parseClipText, pasteOp } from '../lib/clipboard.js';
+  import { copyRange } from '@sibei/model';
+  import type { Clip } from '@sibei/model';
   import type { SelectionEdit } from '../lib/selection.js';
   import ShortcutsOverlay from './ShortcutsOverlay.svelte';
   import { GHOST_ID, actionForKey, caretAtItem, caretLabel, ghostScore, inputContext, startInput, stepInput } from '../lib/note-input.js';
@@ -360,6 +363,9 @@
   let noteInput = $state<InputState | null>(null);
   let inputMessage = $state<string | null>(null);
   let showShortcuts = $state(false);
+  // Copy and paste (SIB2-279): the clip lives in `../lib/clipboard.ts`; these are the status line and whether Paste has anything.
+  let clipNote = $state<string | null>(null);
+  let clipHeld = $state(clipboard.get() !== null);
   let inputQueue: InputAction[] = [];
   let inputBusy = false;
   const inputCtx = $derived(score === null ? null : inputContext(score));
@@ -818,6 +824,74 @@
     laneChoice = { staff: barHit.staffIndex + 1, voice: laneChoice.voice };
   }
 
+  /** What copy, cut and duplicate act on: the picked items, else the selected bar. */
+  function copySource(): { clip: Clip; lane: Lane; first: { bar: number; onset: number }; after: { bar: number; onset: number }; remove: Operation[] } | null {
+    if (score === null) return null;
+    try {
+      if (pickedIds.length > 0) {
+        const span = selectionSpan(score, pickedIds);
+        if (span === null) return null;
+        return { clip: copyRange(score, span.spec), lane: span.lane, first: span.first, after: span.after, remove: selectionOps(score, pickedIds, { type: 'delete' }) };
+      }
+      if (barSel !== null) {
+        const staff = barSel.staffIndex + 1;
+        const bar = barSel.barNumber;
+        const next = score.bars.map((candidate) => candidate.number).find((number) => number > bar) ?? bar + 1;
+        return {
+          clip: copyRange(score, { staff, from: { bar }, to: { bar } }),
+          lane: { staff, voice: activeLane.voice },
+          first: { bar, onset: 0 },
+          after: { bar: next, onset: 0 },
+          remove: [{ type: 'range.clear', payload: { staff: `s${staff}`, first: bar, last: bar, harmony: true } }],
+        };
+      }
+    } catch (error) {
+      clipNote = error instanceof Error ? error.message : String(error);
+    }
+    return null;
+  }
+
+  /** Put the clip in the app clipboard and, with `data` (a copy event) or when the browser allows, on the system one as JSON. */
+  function holdClip(clip: Clip, verb: string, data?: DataTransfer | null): void {
+    clipboard.set(clip);
+    clipHeld = true;
+    clipNote = `${verb} ${clipSummary(clip, score?.meta.time ?? { beats: 4, beatValue: 4 })}`;
+    if (data !== undefined && data !== null) data.setData('text/plain', clipText(clip));
+    else void navigator.clipboard?.writeText(clipText(clip)).catch(() => {});
+  }
+
+  async function handleCopy(cut: boolean, data?: DataTransfer | null): Promise<void> {
+    const source = copySource();
+    if (source === null) return;
+    holdClip(source.clip, cut ? 'Cut' : 'Copied', data);
+    if (cut) await runOps(source.remove);
+  }
+
+  /** Paste at the first selected item or the selected bar: the span it covers is replaced, one undo. */
+  async function handlePaste(clip: Clip | null = clipboard.get()): Promise<void> {
+    if (score === null || clip === null) return;
+    let at: { lane: Lane; bar: number; onset: number } | null = null;
+    if (pickedIds.length > 0) {
+      const span = selectionSpan(score, pickedIds);
+      if (span !== null) at = { lane: span.lane, ...span.first };
+    } else if (barSel !== null) {
+      at = { lane: { staff: barSel.staffIndex + 1, voice: activeLane.voice }, bar: barSel.barNumber, onset: 0 };
+    }
+    if (at === null) {
+      clipNote = 'Select a note or a bar to paste at.';
+      return;
+    }
+    if (await runOps([pasteOp(score, clip, at)])) clipNote = `Pasted ${clipSummary(clip, score.meta.time)}`;
+  }
+
+  /** Copy the selection and lay it down again right after itself. */
+  async function handleDuplicate(): Promise<void> {
+    const source = copySource();
+    if (source === null || score === null) return;
+    holdClip(source.clip, 'Duplicated');
+    await runOps([pasteOp(score, source.clip, { lane: source.lane, ...source.after })]);
+  }
+
   /** One edit over the whole selection, as one batch and so one undo (SIB2-278). */
   async function handleSelectionEdit(edit: SelectionEdit): Promise<void> {
     if (score === null) return;
@@ -1196,6 +1270,37 @@
    * everything else (ctrl-Z, the browser's own shortcuts) passes through. `?` shows the shortcut list anywhere.
    * Stands down over a text field, and Enter/Space over a focused button (they press it).
    */
+  // Ctrl/Cmd C, X and V arrive as clipboard events, which need no permission and carry the text. Stand down in a text field.
+  $effect(() => {
+    const live = (event: ClipboardEvent): boolean =>
+      noteInput === null && !showShortcuts && !isTextField(event.target) && score !== null && editable && !saving;
+    const oncopy = (event: ClipboardEvent): void => {
+      if (!live(event) || copySource() === null) return;
+      event.preventDefault();
+      void handleCopy(false, event.clipboardData);
+    };
+    const oncut = (event: ClipboardEvent): void => {
+      if (!live(event) || copySource() === null) return;
+      event.preventDefault();
+      void handleCopy(true, event.clipboardData);
+    };
+    const onpaste = (event: ClipboardEvent): void => {
+      if (!live(event)) return;
+      const clip = parseClipText(event.clipboardData?.getData('text/plain') ?? '') ?? clipboard.get();
+      if (clip === null) return;
+      event.preventDefault();
+      void handlePaste(clip);
+    };
+    window.addEventListener('copy', oncopy);
+    window.addEventListener('cut', oncut);
+    window.addEventListener('paste', onpaste);
+    return () => {
+      window.removeEventListener('copy', oncopy);
+      window.removeEventListener('cut', oncut);
+      window.removeEventListener('paste', onpaste);
+    };
+  });
+
   $effect(() => {
     function onSelectionKey(event: KeyboardEvent): void {
       if (noteInput !== null || showShortcuts || isTextField(event.target) || score === null || !editable || saving) return;
@@ -1763,6 +1868,7 @@
             <span>
               {pages.length} {pages.length === 1 ? 'page' : 'pages'}
               {#if multiLane}· <span class="lane-status" data-testid="active-lane">{laneLabel(score, activeLane)}</span>{/if}
+              {#if clipNote !== null}· <span class="lane-status" data-testid="clip-note">{clipNote}</span>{/if}
               {#if !editable}· <span class="part-flag">{INSTRUMENTS.find((o) => o.value === instrument)?.label} part</span>{/if}
             </span>
             {#if editable}
@@ -1862,6 +1968,11 @@
                 {saving}
                 error={saveError}
                 onedit={(edit) => void handleSelectionEdit(edit)}
+                hasClip={clipHeld}
+                oncopy={() => void handleCopy(false)}
+                oncut={() => void handleCopy(true)}
+                onduplicate={() => void handleDuplicate()}
+                onpaste={() => void handlePaste()}
                 onclear={deselect}
               />
             </div>
