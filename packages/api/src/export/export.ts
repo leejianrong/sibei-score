@@ -82,6 +82,13 @@ export interface ExportRequest {
   barNumbers?: boolean;
   /** Fill the last PDF page with empty staves (SIB2-181). Absent or false: no, as before. */
   blankStaves?: boolean;
+  /**
+   * Write each transposing part at its own written pitch on a PDF or SVG (SIB2-239). Absent or false: the concert
+   * score, as before (ADR-0016: the stored truth is concert, and a print is concert unless asked). MusicXML always
+   * writes a part's own transposition, so this changes nothing there. Only meaningful with `instrument: 'concert'`;
+   * a named instrument already applies each part's own transposition.
+   */
+  written?: boolean;
 }
 
 export interface Artefact {
@@ -174,6 +181,8 @@ export function exportBlobKey(
     ...(request.format !== 'musicxml' && request.barNumbers === false ? ['nobn'] : []),
     // Likewise last and absent when off, so no key made before blank staves existed changes (SIB2-181).
     ...(request.format !== 'musicxml' && request.blankStaves ? ['blank'] : []),
+    // Likewise last and absent when off (SIB2-239).
+    ...(request.format !== 'musicxml' && request.written ? ['written'] : []),
   ].join(':');
 }
 
@@ -209,7 +218,7 @@ export function createExporter(
         },
       });
 
-      const part = writtenPart(record.score, request.instrument);
+      const part = writtenPart(record.score, request.instrument, { ownParts: request.format !== 'musicxml' && request.written === true });
       // An SVG is one page, so say how many there are and refuse one that is not there, hit or miss.
       const pages = request.format === 'svg' ? svgPageCount(part, request) : undefined;
       if (pages !== undefined && (request.page ?? 1) > pages) return { ok: false, reason: 'no-such-page', pages };
@@ -328,6 +337,11 @@ export function parseExportPage(raw: string | null): number | null {
 export function parseExportBlankStaves(raw: string | null): boolean | null {
   if (raw === null || raw === '' || raw === 'no') return false;
   return raw === 'yes' ? true : null;
+}
+
+/** `written=yes|no` (SIB2-239): no unless `yes` is asked for. Returns null for anything else (a 422). */
+export function parseExportWritten(raw: string | null): boolean | null {
+  return parseExportBlankStaves(raw);
 }
 
 /** `barnumbers=yes|no` (SIB2-191): yes unless `no` is asked for. Returns null for anything else (a 422). */
