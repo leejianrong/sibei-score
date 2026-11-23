@@ -1,4 +1,5 @@
 export * from './score.js';
+export * from './lyrics.js';
 export * from './duration.js';
 export * from './pitch.js';
 export * from './spelling.js';

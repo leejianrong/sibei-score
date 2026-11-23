@@ -69,6 +69,34 @@ export const DYNAMICS_ASCENT = 17;
 export const DYNAMICS_DESCENT = 7;
 export const DYNAMICS_MID = 6;
 
+/**
+ * The lyric rows under the staff (SIB2-273): one baseline per verse in use, the first `LYRIC_GAP + LYRIC_ASCENT` below
+ * whatever is above it (the ink, an 8vb line, the dynamics row) and each next one `LYRIC_PITCH` below. The engraver
+ * sets its text at `LYRIC_SIZE` and places by the same numbers.
+ */
+export const LYRIC_SIZE = 13;
+export const LYRIC_GAP = 6;
+export const LYRIC_ASCENT = 10;
+export const LYRIC_DESCENT = 4;
+export const LYRIC_PITCH = 17;
+
+/** The highest verse number any note of these bars carries; 0 when there are no lyrics. */
+export function lyricVerses(bars: readonly BarView[]): number {
+  let verses = 0;
+  for (const bar of bars) {
+    for (const item of bar.items) {
+      if (item.kind === 'note') for (const lyric of item.lyrics ?? []) verses = Math.max(verses, lyric.verse);
+    }
+  }
+  return verses;
+}
+
+/** Put `verses` lyric rows under `inkBelow`: the first baseline's offset below the bottom line, and the ink left. */
+export function lyricsRow(inkBelow: number, verses: number): { offset: number; inkBelow: number } {
+  const offset = inkBelow + LYRIC_GAP + LYRIC_ASCENT;
+  return { offset, inkBelow: offset + (verses - 1) * LYRIC_PITCH + LYRIC_DESCENT };
+}
+
 /** Whether any note or rest of these bars carries a dynamic. */
 export function hasDynamics(bars: readonly BarView[]): boolean {
   return bars.some((bar) => bar.items.some((item) => item.dynamic !== undefined));
@@ -108,6 +136,9 @@ export interface SystemVertical {
   ottavaBelowOffset?: number;
   /** Units below the bottom staff line of the dynamics baseline, when the system's top staff has dynamics or a hairpin. */
   dynamicsOffset?: number;
+  /** Units below the bottom staff line of the first lyric verse's baseline, and how many verses have a row (SIB2-273). */
+  lyricOffset?: number;
+  lyricVerses?: number;
   height: number;
 }
 
@@ -235,6 +266,14 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
     inkBelow = row.inkBelow;
   }
 
+  let lyricOffset: number | undefined;
+  const verses = lyricVerses(input.bars);
+  if (verses > 0) {
+    const row = lyricsRow(inkBelow, verses);
+    lyricOffset = row.offset;
+    inkBelow = row.inkBelow;
+  }
+
   const chordBaselineOffset = input.hasChords ? inkAbove + spec.chordClearance : 0;
   const chordBand = input.hasChords ? chordBaselineOffset + spec.chordAscent : inkAbove;
   const markBand = input.hasRehearsalMark ? chordBand + spec.rehearsalBand : chordBand;
@@ -249,6 +288,7 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
     ...(ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset }),
     ...(ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset }),
     ...(dynamicsOffset === undefined ? {} : { dynamicsOffset }),
+    ...(lyricOffset === undefined ? {} : { lyricOffset, lyricVerses: verses }),
     height: aboveStaff + spec.staffHeight + belowStaff,
   };
 }

@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { lyricsChart, lyricsStavesChart, dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -42,6 +42,8 @@ const FIXTURES: Record<string, () => Score> = {
   navigation: navigationChart,
   dynamics: dynamicsChart,
   'dynamics-staves': dynamicsStavesChart,
+  lyrics: lyricsChart,
+  'lyrics-staves': lyricsStavesChart,
   untitled: untitledChart,
   slurs: slurChart,
   marks: marksChart,

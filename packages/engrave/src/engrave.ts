@@ -3,6 +3,7 @@ import type {
   LayoutBar,
   LayoutBarItemKind,
   LayoutHairpin,
+  LayoutLyricLink,
   LayoutStaff,
   LayoutStaffGroup,
   LayoutStaffSpan,
@@ -12,7 +13,7 @@ import type {
   RestItem,
 } from '@sibei/layout';
 import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, NAV_BAND, writtenPitch } from '@sibei/layout';
-import type { AccidentalDisplay, Alter, Clef, Dynamic, Id, TimeSignature } from '@sibei/model';
+import type { AccidentalDisplay, Alter, Clef, Dynamic, Id, Lyric, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks, headOf } from '@sibei/model';
 import { furnitureText } from './furniture.js';
 import type { BarlineJoin } from './barlines.js';
@@ -78,6 +79,8 @@ import {
 import { navMark } from './nav.js';
 import { ottavaLine } from './ottava.js';
 import { dynamicMark, dynamicWidth, hairpin } from './dynamics.js';
+import { lyricInk } from './lyrics.js';
+import type { LyricMark } from './lyrics.js';
 import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
@@ -203,9 +206,23 @@ type NoteAnchors = Map<Id, TieEnd>;
 interface BelowMark {
   x: number;
   width: number;
-  dynamic: Dynamic;
+  dynamic?: Dynamic;
+  /** Lyric syllables under this note (SIB2-273), centred under its head by `lyricInk`. */
+  lyrics?: Lyric[];
 }
 type BelowMarks = Map<Id, BelowMark>;
+
+/** The notes of a staff's below-marks that carry lyrics, as `lyricInk` wants them. */
+function lyricMarks(below: BelowMarks, anchors: NoteAnchors): Map<Id, LyricMark> {
+  const out = new Map<Id, LyricMark>();
+  // Every note is a place a line can end (a melisma runs over notes that sing nothing), so the notes without a
+  // syllable are in too, with none.
+  for (const [id, end] of anchors) out.set(id, { x: end.x, width: end.noteheadWidth, lyrics: [] });
+  for (const [id, mark] of below) {
+    if (mark.lyrics !== undefined) out.set(id, { x: mark.x, width: mark.width, lyrics: mark.lyrics });
+  }
+  return out;
+}
 
 /**
  * The dynamics row of one staff (SIB2-274): each dynamic centred under its note or rest, and each hairpin of this
@@ -222,7 +239,9 @@ function dynamicsInk(
   systemRight: number,
 ): SvgElement[] {
   const out: SvgElement[] = [];
-  for (const [, mark] of below) out.push(dynamicMark(font, mark.dynamic, mark.x + mark.width / 2, baseline));
+  for (const [, mark] of below) {
+    if (mark.dynamic !== undefined) out.push(dynamicMark(font, mark.dynamic, mark.x + mark.width / 2, baseline));
+  }
   const gap = units(0.4);
   for (const line of hairpins) {
     const start = line.fromNoteId === null ? undefined : anchors.get(line.fromNoteId);
@@ -234,13 +253,17 @@ function dynamicsInk(
         ? musicLeft
         : startMark === undefined
           ? start.x + start.noteheadWidth / 2
-          : startMark.x + startMark.width / 2 + dynamicWidth(font, startMark.dynamic) / 2 + gap;
+          : startMark.dynamic === undefined
+            ? start.x + start.noteheadWidth / 2
+            : startMark.x + startMark.width / 2 + dynamicWidth(font, startMark.dynamic) / 2 + gap;
     const to =
       end === undefined
         ? systemRight
         : endMark === undefined
           ? end.x + end.noteheadWidth
-          : endMark.x + endMark.width / 2 - dynamicWidth(font, endMark.dynamic) / 2 - gap;
+          : endMark.dynamic === undefined
+            ? end.x + end.noteheadWidth
+            : endMark.x + endMark.width / 2 - dynamicWidth(font, endMark.dynamic) / 2 - gap;
     const wedge = hairpin({ shape: line.shape, from, to, baseline });
     if (wedge !== null) out.push(wedge);
   }
@@ -369,6 +392,12 @@ export function engraveSystem(
   if (system.dynamicsOffset !== undefined) {
     children.push(
       ...dynamicsInk(font, below, anchors, system.hairpins ?? [], system.staveY + units(4) + system.dynamicsOffset, musicLeft, system.x + system.width),
+    );
+  }
+  // Lyrics (SIB2-273) sit in their own rows under the dynamics row.
+  if (system.lyricOffset !== undefined) {
+    children.push(
+      ...lyricInk(lyricMarks(below, anchors), system.lyricLinks ?? [], system.staveY + units(4) + system.lyricOffset, musicLeft, system.x + system.width, options.textFont),
     );
   }
 
@@ -586,6 +615,13 @@ function engraveStavedSystem(
         musicLeft,
         systemRight,
       ),
+    );
+  }
+  for (const staff of staves) {
+    if (staff.lyricOffset === undefined) continue;
+    const mine: LayoutLyricLink[] = (system.lyricLinks ?? []).filter((link) => (link.staff ?? 0) === staff.index);
+    children.push(
+      ...lyricInk(lyricMarks(belowByStaff[staff.index] ?? new Map(), anchorsByStaff[staff.index] ?? new Map()), mine, staff.staveY + units(4) + staff.lyricOffset, musicLeft, systemRight, options.textFont),
     );
   }
 
@@ -947,11 +983,12 @@ function engraveBar(
     const note = notes.get(entry);
     if (note === undefined) continue;
     byItemId.set(entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId, note);
-    if (below !== undefined && entry.item.dynamic !== undefined) {
+    if (below !== undefined && (entry.item.dynamic !== undefined || (entry.item.kind === 'note' && entry.item.lyrics !== undefined))) {
       below.set(entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId, {
         x: note.x,
         width: font.width(note.glyph),
-        dynamic: entry.item.dynamic,
+        ...(entry.item.dynamic === undefined ? {} : { dynamic: entry.item.dynamic }),
+        ...(entry.item.kind === 'note' && entry.item.lyrics !== undefined ? { lyrics: entry.item.lyrics } : {}),
       });
     }
     if (entry.item.kind === 'note') {

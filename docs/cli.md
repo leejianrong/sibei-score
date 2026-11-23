@@ -256,6 +256,9 @@ sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from 
 sbscore slur rm  <id> <slur-id|from>
 sbscore ottava set <id> <from> <to> --up|--down                  # an 8va (--up) or 8vb (--down) line over a run
 sbscore ottava rm  <id> <ottava-id|from>
+sbscore lyric set <id> <address> <syllable> [--verse 1-4] [--extend]   # one syllable under a note: hel- begins a word, -lo ends it
+sbscore lyric rm  <id> <address> [--verse N]                     # one verse's syllable, or all of the note's
+sbscore lyrics set <id> <bars> "text" [--verse 1-4] [--staff s1] [--voice N]   # a verse over a bar range
 sbscore dynamic set <id> <address> <ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp|rfz>   # a dynamic under a note or rest
 sbscore dynamic rm  <id> <address>
 sbscore hairpin set <id> <from> <to> --cresc|--dim               # a wedge under a run of notes
@@ -344,6 +347,22 @@ the staff (under each staff of a grand staff), which a chart without either does
 `<dynamics>` and `<wedge>` and reads them back; a dynamic outside the set is dropped with a warning. Playback is not
 modelled. In the browser, the Selected panel has a Dynamic field, and a Hairpin field beside Ottava (shift-click a
 second note). Charts written before them need no migration.
+
+**Lyrics** sit under the staff, one syllable per verse on a note (up to four verses, stacked). The quick way in is the
+bulk verb: `sbscore lyrics set <id> 1-8 "Ho-ly mo-ments fill the air so _ sweet"` spreads words over the notes of
+bars 1 to 8 (`--staff s2`, `--voice 2` pick another), replaces that verse in the range, and is one undo. Words are
+separated by spaces, syllables of a word by hyphens (`hel-lo` or `hel - lo`), and `_` is a note the previous syllable is
+held over (it draws an extender line). Rests and notes tied from the one before take no syllable; more syllables than
+notes is refused with both counts, fewer leaves the rest bare. For one note, `sbscore lyric set <id> bar1.n2 hel-
+--verse 2` (a trailing hyphen continues the word, a leading one `-lo` ends it; `--syllabic begin|middle|end` and
+`--text "-lo"` say it outright), and `lyric rm` clears a verse or all of them. `show` prints `c5/4"hel-"2"la"_` (verse 1
+bare, verse 2 numbered, `_` an extender). A hyphen is drawn centred between a word's syllables and trails after the text
+at a system break; an extender runs to the verse's next syllable; rows are reserved only under a system that has lyrics.
+MusicXML carries `<lyric number><syllabic><text><extend/>` and reads it back (a lyric past verse 4, a second one for a
+verse, or one with no text is dropped with a warning). A long syllable on a short note can crowd the next one: layout
+gives a bar room for its words but spaces notes within the bar by the music alone. In the browser, the Selected panel's
+Lyric field sets one syllable (verse, text, extender) and Verse over bars distributes a pasted verse. Playback is not
+modelled; charts written before lyrics need no migration.
 
 ## Parts, staves and voices
 

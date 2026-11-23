@@ -5,6 +5,7 @@ export * from './grid.js';
 export * from './widths.js';
 export * from './vertical.js';
 export * from './ottava.js';
+export * from './lyrics.js';
 export * from './layout.js';
 export * from './furniture.js';
 export * from './lanes.js';

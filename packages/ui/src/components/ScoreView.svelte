@@ -510,6 +510,7 @@
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
         ...(item.dynamic === undefined ? {} : { dynamic: item.dynamic }),
+        ...(item.lyrics === undefined ? {} : { lyrics: item.lyrics }),
         articulations: item.articulations ?? [],
         ...(item.drum === undefined ? {} : { drum: item.drum }),
         ...(item.head === undefined ? {} : { head: item.head }),
@@ -609,6 +610,17 @@
     if (score === null || selectedId === null || rangeId === null) return;
     const operation = ottavaOp(score, selectedId, rangeId, shift);
     if (operation !== null) await runOps([operation]);
+  }
+
+  /** A verse over a bar range of the selected note's staff and voice (SIB2-273). */
+  async function handleLyrics(range: { first: number; last: number; verse: number; text: string }): Promise<void> {
+    if (located === null) return;
+    await runOps([
+      {
+        type: 'lyrics.set',
+        payload: { staff: `s${located.staffIndex + 1}`, voice: located.voice, first: range.first, last: range.last, verse: range.verse, text: range.text },
+      } as Operation,
+    ]);
   }
 
   // Hairpins (SIB2-274) use the same two-note selection.
@@ -1696,6 +1708,17 @@
                     ? ({ type: 'dynamic.rm', target: selection!.id } as Operation)
                     : ({ type: 'dynamic.set', target: selection!.id, payload: { value } } as Operation),
                 ])}
+              onlyric={(change) =>
+                void runOps([
+                  {
+                    type: 'lyric.set',
+                    target: selection!.id,
+                    payload: { text: change.text, verse: change.verse, ...(change.extend ? { extend: true } : {}) },
+                  } as Operation,
+                ])}
+              onrmlyric={(verse) => void runOps([{ type: 'lyric.rm', target: selection!.id, payload: { verse } } as Operation])}
+              onlyrics={(range) => void handleLyrics(range)}
+              lyricBars={located === null ? null : { bar: located.barNumber, last: score?.bars[score.bars.length - 1]?.number ?? located.barNumber }}
               hairpins={hairpinsHere}
               onhairpin={(shape) => void handleHairpin(shape)}
               onrmhairpin={(id) => void runOps([removeHairpinOp(id)])}

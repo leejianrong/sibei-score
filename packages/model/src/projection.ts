@@ -4,6 +4,7 @@ import { formatKeySignature, formatPitch } from './pitch.js';
 import { formatBeat, orderedItems } from './address.js';
 import { chordTones, isStackedChord } from './chord-notes.js';
 import { NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary, scoreBarReview } from './review.js';
+import { formatSyllable } from './lyrics.js';
 import type { BarView, BarItem, Confidence, Review, Score, Tempo, TimeSignature } from './score.js';
 import type { VoiceSelect } from './staves.js';
 
@@ -378,7 +379,7 @@ function describe(item: BarItem, bar: BarView): string {
       stacked === null ? '' : stacked.actual === 3 && stacked.normal === 2 ? '(3)' : `(${stacked.actual}:${stacked.normal})`;
     const stackFlag = flagSuffix(item.review, item.confidence);
     const stackMarks = (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('');
-    return `[${tones.join(' ')}]/${value(item)}${stackRatio}${stackMarks}${item.fermata === true ? '^' : ''}${item.dynamic === undefined ? '' : `@${item.dynamic}`}${stackFlag === '' ? '' : ` ${stackFlag}`}`;
+    return `[${tones.join(' ')}]/${value(item)}${stackRatio}${stackMarks}${item.fermata === true ? '^' : ''}${item.dynamic === undefined ? '' : `@${item.dynamic}`}${lyricSuffix(item)}${stackFlag === '' ? '' : ` ${stackFlag}`}`;
   }
   const body = item.kind === 'note' ? (item.drum ?? formatPitch(item.pitch).toLowerCase()) : 'r';
   const tuplet = tupletOf(item.id, bar);
@@ -387,11 +388,22 @@ function describe(item: BarItem, bar: BarView): string {
 
   const flag = flagSuffix(item.review, item.confidence);
   // `^` is a fermata (SIB2-183), after the tie so `c5/4~^` reads as a held, tied note.
-  const hold = (item.fermata === true ? '^' : '') + (item.dynamic === undefined ? '' : `@${item.dynamic}`);
+  const hold = (item.fermata === true ? '^' : '') + (item.dynamic === undefined ? '' : `@${item.dynamic}`) + lyricSuffix(item);
   // Articulations print after the tie as `:stac:acc:mar` (SIB2-179): `.` is taken by dotted durations.
   const marks = item.kind === 'note' ? (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('') : '';
   const head = item.kind === 'note' && item.head !== undefined ? `:${item.head}` : '';
   return `${opens ? '~' : ''}${body}/${value(item)}${ratio}${closes ? '~' : ''}${head}${marks}${hold}${flag === '' ? '' : ` ${flag}`}`;
+}
+
+/**
+ * A note's lyrics (SIB2-273) as `"hel-"`: the hyphens `lyric set` reads, a verse number before the quote from verse 2
+ * (`2"la"`), and a trailing `_` for an extender line. Verse 1 alone is the common case, so it stays bare.
+ */
+function lyricSuffix(item: BarItem): string {
+  if (item.kind !== 'note' || item.lyrics === undefined) return '';
+  return item.lyrics
+    .map((lyric) => `${lyric.verse === 1 ? '' : lyric.verse}"${formatSyllable(lyric)}"${lyric.extend === true ? '_' : ''}`)
+    .join('');
 }
 
 /** A band symbol (chord or quoted annotation) with its review flag and, on imports, its confidence. */

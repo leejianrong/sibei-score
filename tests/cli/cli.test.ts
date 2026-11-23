@@ -774,13 +774,13 @@ describe('the import verb (V11)', () => {
   });
 
   it('imports a MusicXML file by its extension, listing what was dropped, and refuses a bad one with exit 2 (SIB2-152)', async () => {
-    const xml = `<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"/></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type><lyric><text>la</text></lyric></note></measure></part></score-partwise>`;
+    const xml = `<?xml version="1.0"?><score-partwise><part-list><score-part id="P1"/></part-list><part id="P1"><measure number="1"><attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><type>whole</type><lyric number="9"><text>la</text></lyric></note></measure></part></score-partwise>`;
     const path = join(dir, 'tune.musicxml');
     writeFileSync(path, xml);
     const result = await runImport('import', path);
     expect(result.code).toBe(EXIT.ok);
     expect(result.out).toContain('imported MusicXML to import-');
-    expect(result.out).toContain('lyrics were dropped');
+    expect(result.out).toContain('a lyric in verse 9 was dropped');
 
     const bad = join(dir, 'bad.xml');
     writeFileSync(bad, '<html/>');

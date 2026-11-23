@@ -13,6 +13,7 @@ import type {
   NavKind,
   Dynamic,
   HairpinShape,
+  Lyric,
   Pitch,
   StartBarline,
   TieRole,
@@ -138,6 +139,8 @@ export interface NoteItem {
   fermata?: boolean;
   /** A dynamic marking under this note (SIB2-274). */
   dynamic?: Dynamic;
+  /** Lyric syllables under this note, in verse order (SIB2-273). */
+  lyrics?: Lyric[];
   /** Staccato, accent and marcato marks, in stacking order (SIB2-179). */
   articulations?: Articulation[];
   /** Grace notes before this note, in reading order (SIB2-185). */
@@ -339,5 +342,20 @@ export interface LayoutHairpin {
   fromNoteId: Id | null;
   toNoteId: Id | null;
   /** The staff of a multi-staff system the wedge belongs to, when it is not the top one. */
+  staff?: number;
+}
+
+/**
+ * The line between two syllables of one verse (SIB2-273): a `hyphen` between a `begin` or `middle` syllable and the next,
+ * or an `extend` line from a syllable on through the notes it is held over. A null `toNoteId` is a hyphen with no next
+ * syllable on this system (it trails after its own text) or an extender that carries on past the system's edge; a null
+ * `fromNoteId` is an extender arriving from the previous system.
+ */
+export interface LayoutLyricLink {
+  verse: number;
+  kind: 'hyphen' | 'extend';
+  fromNoteId: Id | null;
+  toNoteId: Id | null;
+  /** The staff of a multi-staff system the syllables are under, when it is not the top one. */
   staff?: number;
 }

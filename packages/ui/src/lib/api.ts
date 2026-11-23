@@ -601,6 +601,9 @@ export type Operation =
   | { type: 'dynamic.rm'; target: string }
   | { type: 'hairpin.set'; target: string; payload: { to: string; shape: 'crescendo' | 'diminuendo' } }
   | { type: 'hairpin.rm'; target: string }
+  | { type: 'lyric.set'; target: string; payload: { text: string; verse?: number; extend?: boolean } }
+  | { type: 'lyric.rm'; target: string; payload?: { verse?: number } }
+  | { type: 'lyrics.set'; payload: { staff?: string; voice?: number; first: number; last: number; text: string; verse?: number } }
   | { type: 'grace.add'; target: string; payload: { pitch: string; value: 8 | 16 | 32; slashed: boolean } }
   | { type: 'grace.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }

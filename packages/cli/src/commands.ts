@@ -1,8 +1,8 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
-import { DYNAMICS, NAV_KINDS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
-import type { KeySignature, NavKind, NoteValue, TimeSignature } from '@sibei/model';
+import { DYNAMICS, NAV_KINDS, SYLLABICS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
+import type { KeySignature, NavKind, Syllabic, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
   EndingSetPayload,
@@ -158,6 +158,11 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore slur rm  <id> <slur-id|from>
   sbscore ottava set <id> <from> <to> --up|--down   an 8va (--up) or 8vb (--down) line over a run of notes
   sbscore ottava rm  <id> <ottava-id|from>
+  sbscore lyric set <id> <address> <syllable> [--verse 1-4] [--extend]   one syllable under a note: "hel-" begins a word, "-lo" ends it
+              (or --syllabic single|begin|middle|end; --text "-lo" when it starts with a hyphen)
+  sbscore lyric rm  <id> <address> [--verse N]   one verse's syllable, or all of the note's
+  sbscore lyrics set <id> <bars> "text" [--verse 1-4] [--staff s1] [--voice N]   a verse over a bar range: words by spaces,
+              syl-la-bles by hyphens, _ for a note the last syllable is held over; replaces that verse in the range
   sbscore dynamic set <id> <address> <ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp|rfz>   a dynamic under a note or rest
   sbscore dynamic rm  <id> <address>
   sbscore hairpin set <id> <from> <to> --cresc|--dim   a crescendo or diminuendo wedge under a run of notes
@@ -367,6 +372,10 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return slur(flags, client, io, json);
     case 'ottava':
       return ottava(flags, client, io, json);
+    case 'lyric':
+      return lyric(flags, client, io, json);
+    case 'lyrics':
+      return lyrics(flags, client, io, json);
     case 'dynamic':
       return dynamic(flags, client, io, json);
     case 'hairpin':
@@ -1574,6 +1583,62 @@ async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Prom
  * (`--up`: written an octave below the sound, line above the staff) or 8vb (`--down`) line over a run of notes.
  * The notes keep their sounding pitch. Same addresses as `slur set`; the server judges order and overlap.
  */
+/** `--verse N` as the op wants it: absent stays absent so the server's default (verse 1) is the one place it lives. */
+function verseOption(flags: Flags): { verse?: number } {
+  const given = flags.options.get('verse');
+  if (given === undefined) return {};
+  const verse = Number(given);
+  if (!Number.isInteger(verse)) throw new CliError(EXIT.usage, 'usage', `--verse is a whole number from 1 to 4, not ${JSON.stringify(given)}`);
+  return { verse };
+}
+
+/**
+ * `sbscore lyric set <id> <address> <syllable>` and `lyric rm <id> <address>` (SIB2-273): one syllable of one verse under
+ * a note. The text's own hyphens place it in its word (`hel-`, `-lo`); `--begin|--middle|--end` say so outright.
+ */
+async function lyric(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `lyric ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, 'a note address', `lyric ${sub}`));
+  if (sub === 'set') {
+    const text = flags.options.get('text') ?? requiredPositional(flags, 4, 'the syllable', 'lyric set');
+    const kind = flags.options.get('syllabic');
+    if (kind !== undefined && !SYLLABICS.includes(kind as Syllabic)) {
+      throw new CliError(EXIT.usage, 'usage', `--syllabic is one of ${SYLLABICS.join(', ')}, not ${JSON.stringify(kind)}`);
+    }
+    const payload = {
+      text,
+      ...verseOption(flags),
+      ...(kind === undefined ? {} : { syllabic: kind as Syllabic }),
+      ...(flags.switches.has('extend') ? { extend: true } : {}),
+    };
+    return submit(flags, client, io, json, id, [{ type: 'lyric.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') return submit(flags, client, io, json, id, [{ type: 'lyric.rm', target, payload: verseOption(flags) } as Operation]);
+  throw new CliError(EXIT.usage, 'usage', 'lyric takes set or rm');
+}
+
+/** `sbscore lyrics set <id> <bars> "text"` (SIB2-273): a whole verse over a bar range, distributed onto its notes. */
+async function lyrics(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  if (sub !== 'set') throw new CliError(EXIT.usage, 'usage', 'lyrics takes set');
+  const id = requiredPositional(flags, 2, 'a score id', 'lyrics set');
+  const bars = /^(?:bar)?(\d+)(?:-(?:bar)?(\d+))?$/.exec(requiredPositional(flags, 3, 'a bar range like 1-4', 'lyrics set'));
+  if (bars === null) throw new CliError(EXIT.usage, 'usage', 'a bar range is 5, 3-6 or bar3-bar6');
+  const text = flags.options.get('text') ?? requiredPositional(flags, 4, 'the verse text', 'lyrics set');
+  const first = Number(bars[1]);
+  const voice = flags.options.get('voice');
+  const payload = {
+    staff: flags.options.get('staff') ?? 's1',
+    ...(voice === undefined ? {} : { voice: Number(voice) }),
+    first,
+    last: bars[2] === undefined ? first : Number(bars[2]),
+    text,
+    ...verseOption(flags),
+  };
+  return submit(flags, client, io, json, id, [{ type: 'lyrics.set', payload } as Operation]);
+}
+
 async function dynamic(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `dynamic ${sub}`);

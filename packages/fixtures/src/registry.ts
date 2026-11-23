@@ -16,6 +16,7 @@ import { drumChart } from './drum-chart.js';
 import { staffFurnitureChart } from './staff-furniture-chart.js';
 import { navigationChart } from './navigation-chart.js';
 import { dynamicsChart, dynamicsStavesChart } from './dynamics-chart.js';
+import { lyricsChart, lyricsStavesChart } from './lyrics-chart.js';
 import { nastyChart } from './nasty-chart.js';
 import { marksChart } from './marks-chart.js';
 import { slurChart } from './slur-chart.js';
@@ -52,6 +53,8 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   navigation: navigationChart,
   dynamics: dynamicsChart,
   'dynamics-staves': dynamicsStavesChart,
+  lyrics: lyricsChart,
+  'lyrics-staves': lyricsStavesChart,
   untitled: untitledChart,
   slurs: slurChart,
   marks: marksChart,

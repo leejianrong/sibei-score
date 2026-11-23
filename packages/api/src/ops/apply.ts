@@ -102,6 +102,7 @@ import type {
   Tuplet,
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
+import { removeLyric, setLyric, setLyrics } from './lyric-ops.js';
 import { OperationError } from './errors.js';
 import { addPart, addStaff, addVoice, plannedSetup, removePart, removeStaff, removeVoice, setClef, setInstrument, setPage, withSetup } from './structure-ops.js';
 import { moveHand, moveNote } from './move-ops.js';
@@ -255,6 +256,12 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setNav(score, operation.target, operation.payload);
     case 'nav.rm':
       return removeNav(score, operation.target, operation.payload ?? {});
+    case 'lyric.set':
+      return setLyric(score, operation.target, operation.payload, mapBar);
+    case 'lyric.rm':
+      return removeLyric(score, operation.target, operation.payload, mapBar);
+    case 'lyrics.set':
+      return setLyrics(score, operation.payload, mapBar);
     case 'dynamic.set':
       return setDynamic(score, operation.target, operation.payload);
     case 'dynamic.rm':

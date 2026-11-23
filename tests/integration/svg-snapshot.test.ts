@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { lyricsChart, lyricsStavesChart, dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -76,6 +76,17 @@ describe('rendered SVG', () => {
   it('matches the committed snapshot for the dynamics-on-staves chart', () => {
     // SIB2-274: a grand staff, each staff with its own dynamics row and hairpin.
     snapshotScore(dynamicsStavesChart(), 'dynamics-staves');
+  });
+
+  it('matches the committed snapshot for the lyrics chart', () => {
+    // SIB2-273: two verses, hyphens across a barline and a trailing one at the system edge, a melisma extender,
+    // beamed notes, a rest and a tied note that take no syllable.
+    snapshotScore(lyricsChart(), 'lyrics');
+  });
+
+  it('matches the committed snapshot for the lyrics-on-staves chart', () => {
+    // SIB2-273: two verses under the upper staff of a grand staff, the rows between the staves.
+    snapshotScore(lyricsStavesChart(), 'lyrics-staves');
   });
 
   it('matches the committed snapshot for the slur chart', () => {
