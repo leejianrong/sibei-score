@@ -1,6 +1,7 @@
 import type {
   Articulation,
   AccidentalDisplay,
+  Clef as ModelClef,
   Alter,
   Duration,
   EndBarline,
@@ -24,7 +25,8 @@ import type {
  * assumes when it lists what VexFlow supplies and what stays ours.
  */
 
-export type Clef = 'treble';
+/** The model's clefs. A single-staff chart only ever carries `treble`; the others appear on a multi-staff system. */
+export type Clef = ModelClef;
 
 export interface ClefItem {
   kind: 'clef';
@@ -98,6 +100,12 @@ export interface NoteItem {
   tie: TieRole;
   tupletId: Id | null;
   flagged: boolean;
+  /**
+   * The x the item's column sits at on this system, in layout units: set only on a multi-staff or multi-voice
+   * system (SIB2-227), where every item with the same onset in a bar, on any staff or voice, shares one x. Absent on a
+   * single-staff single-voice chart, whose adapter spaces the bar's notes itself.
+   */
+  x?: number;
   /** A fermata above this note (SIB2-183). */
   fermata?: boolean;
   /** Staccato, accent and marcato marks, in stacking order (SIB2-179). */
@@ -114,6 +122,8 @@ export interface RestItem {
   duration: Duration;
   tupletId: Id | null;
   flagged: boolean;
+  /** See `NoteItem.x`. */
+  x?: number;
   /** A fermata above this rest (SIB2-183). */
   fermata?: boolean;
 }
@@ -131,6 +141,8 @@ export interface ChordSymbolItem {
    */
   anchorItemId: Id | null;
   flagged: boolean;
+  /** See `NoteItem.x`. */
+  x?: number;
 }
 
 export interface AnnotationItem {
@@ -141,6 +153,8 @@ export interface AnnotationItem {
   text: string;
   anchorItemId: Id | null;
   flagged: boolean;
+  /** See `NoteItem.x`. */
+  x?: number;
   /** A dashed line begins after this text (SIB2-170); `endsHere` when it closes in this same bar. */
   line?: { endsHere: boolean };
 }

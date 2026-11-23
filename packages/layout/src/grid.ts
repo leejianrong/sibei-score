@@ -17,22 +17,39 @@ export interface PlannedSystem {
   bars: BarView[];
 }
 
-export function planSystems(score: Score): PlannedSystem[] {
+/**
+ * What `meta.layout: 'score'` needs to break a line by width (SIB2-227): the room a line has, and what a bar needs there
+ * (its content floor, with the clef and key signature when it heads the line). Layout supplies it; the grid never
+ * measures anything itself.
+ */
+export interface FitOptions {
+  available: number;
+  barWidth: (bar: BarView, headsSystem: boolean) => number;
+}
+
+export function planSystems(score: Score, fit?: FitOptions): PlannedSystem[] {
   const pickup = pickupBar(score);
   const rows: BarView[][] = [];
   let current: BarView[] = [];
 
+  // `score` breaks a line when the next bar would not fit it; `lead-sheet` (the default) is the grid below, untouched.
+  const byWidth = score.meta.layout === 'score' && fit !== undefined;
+  let used = byWidth && pickup !== null ? fit.barWidth(pickup, true) : 0;
   const perSystem = score.meta.barsPerSystem ?? BARS_PER_SYSTEM;
   for (const bar of gridBars(score)) {
+    const needed = byWidth ? fit.barWidth(bar, current.length === 0) : 0;
+    const overfull = byWidth ? current.length > 0 && used + needed > fit.available : current.length >= perSystem;
     // A section forces a break unless that bar was told to `join` the line (SIB2-174); a bar marked
     // `after` ends its line wherever it falls.
     const wouldBreakForSection =
       current.length > 0 && startsSection(score, bar.number) && bar.lineBreak !== 'join';
     const previousEndsLine = current[current.length - 1]?.lineBreak === 'after';
-    if (current.length >= perSystem || wouldBreakForSection || previousEndsLine) {
+    if (overfull || wouldBreakForSection || previousEndsLine) {
       rows.push(current);
       current = [];
+      used = 0;
     }
+    used += byWidth ? fit.barWidth(bar, current.length === 0) : 0;
     current.push(bar);
   }
   if (current.length > 0) rows.push(current);

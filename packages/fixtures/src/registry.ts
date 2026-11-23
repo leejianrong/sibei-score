@@ -6,6 +6,7 @@ import { graceNotesChart } from './grace-notes-chart.js';
 import { aabaChart } from './aaba-chart.js';
 import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
+import { fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart } from './multi-staff-charts.js';
 import { nastyChart } from './nasty-chart.js';
 import { marksChart } from './marks-chart.js';
 import { slurChart } from './slur-chart.js';
@@ -45,4 +46,8 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   articulations: articulationsChart,
   'grace-notes': graceNotesChart,
   'title-block': titleBlockChart,
+  'grand-staff': grandStaffChart,
+  'two-voice': twoVoiceChart,
+  'lead-bass': leadBassChart,
+  'full-band': fullBandChart,
 };

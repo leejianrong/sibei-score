@@ -144,6 +144,19 @@ export interface AllocateOptions {
    * `isFirstSystem` because the policy can drop them from later systems, which still start a line.
    */
   showSignatures: boolean;
+  /**
+   * What each bar is sized by. A multi-staff system (SIB2-227) sizes a bar by its **widest staff** for the weight and by
+   * the **union of every staff and voice** for the rigid floor, because simultaneous notes share a column. Absent means
+   * the bar itself, which is what every single-staff chart does, so its allocation is unchanged.
+   */
+  sizing?: BarSizing;
+}
+
+export interface BarSizing {
+  /** The view whose `estimateBarWidth` is the bar's weight. */
+  estimate: (bar: BarView) => BarView;
+  /** The view whose `rigidBarWidth` is the bar's floor. */
+  rigid: (bar: BarView) => BarView;
 }
 
 export function allocateWidths(
@@ -162,7 +175,7 @@ export function allocateWidths(
   if (system.pickup !== null) {
     // The pickup is the first bar of the score, so it carries the whole prefix.
     const prefix: BarPrefix = { clef: true, keySignature: true, timeSignature: true };
-    const width = pickupWidth(score, system.pickup, prefix, available);
+    const width = pickupWidth(score, options.sizing?.estimate(system.pickup) ?? system.pickup, prefix, available);
     allocated.push({
       bar: system.pickup,
       x,
@@ -192,10 +205,12 @@ export function allocateWidths(
   );
 
   const weights = system.bars.map(
-    (bar, index) => estimateBarWidth(score, bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
+    (bar, index) =>
+      estimateBarWidth(score, options.sizing?.estimate(bar) ?? bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
   );
   const mins = system.bars.map(
-    (bar, index) => rigidBarWidth(score, bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
+    (bar, index) =>
+      rigidBarWidth(score, options.sizing?.rigid(bar) ?? bar, prefixes[index] ?? noPrefix()) + (leadIns[index] ?? 0),
   );
   const widths = withContentFloor(distribute(weights, remaining, spec), mins, remaining);
 
