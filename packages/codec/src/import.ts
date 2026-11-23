@@ -20,6 +20,13 @@ import {
   MAX_TEMPO,
   MAX_VOICES,
   MIN_TEMPO,
+  barCapacity,
+  durationTicks,
+  restPieces,
+  drumById,
+  drumForGm,
+  isNoteheadKind,
+  parseDrum,
   makeAnnotation,
   makeBar,
   makeChord,
@@ -34,8 +41,10 @@ import type {
   Alter,
   BarItem,
   Clef,
+  DrumId,
   Ending,
   Interval,
+  NoteheadKind,
   Part,
   Staff,
   StaffBar,
@@ -133,7 +142,7 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   for (const [index, element] of partElements.entries()) {
     const measures = childElements(element, 'measure');
     warnLossyContent(measures, warnings);
-    const reader = new PartReader(warnings, counter, index === 0);
+    const reader = new PartReader(warnings, counter, index === 0, drumInstruments(root, attr(element, 'id') ?? ''));
     const result = reader.read(measures);
     if (index > 0 && (index >= MAX_PARTS || staves + result.content.staffCount > MAX_TOTAL_STAVES)) {
       const dropped = partElements.length - index;
@@ -207,6 +216,33 @@ interface ReadPart {
   element: XmlElement;
   measures: XmlElement[];
   result: ReadResult;
+}
+
+/**
+ * The drum each `<score-instrument>` of a part stands for (slice 6): by its `<midi-unpitched>` (1-based General MIDI
+ * key) when the drum map knows it, else by its name. An instrument neither says anything about stays unmapped, and its
+ * notes are plain percussion hits at their display pitch.
+ */
+function drumInstruments(root: XmlElement, partId: string): Map<string, DrumId> {
+  const out = new Map<string, DrumId>();
+  const list = firstChild(root, 'part-list');
+  if (list === null) return out;
+  const scorePart = childElements(list, 'score-part').find((candidate) => attr(candidate, 'id') === partId);
+  if (scorePart === undefined) return out;
+  const midiKeys = new Map<string, number>();
+  for (const midi of childElements(scorePart, 'midi-instrument')) {
+    const id = attr(midi, 'id');
+    const key = Number(childText(midi, 'midi-unpitched'));
+    if (id !== null && Number.isInteger(key)) midiKeys.set(id, key - 1);
+  }
+  for (const instrument of childElements(scorePart, 'score-instrument')) {
+    const id = attr(instrument, 'id');
+    if (id === null) continue;
+    const key = midiKeys.get(id);
+    const drum = (key === undefined ? null : drumForGm(key)) ?? parseDrum(childText(instrument, 'instrument-name') ?? '');
+    if (drum !== null) out.set(id, drum);
+  }
+  return out;
 }
 
 /** A `<score-part>`'s name and General MIDI program (1-based in MusicXML, 0-based here), by its id. */
@@ -317,6 +353,8 @@ interface OpenTuplet {
 
 class PartReader {
   private percussionStaves = new Set<number>();
+  /** Where the last note of the measure began, for a `<chord/>` note that shares it. */
+  private lastOnset: number | null = null;
   private labels = new Map<number, string[]>();
   private staffCount = 1;
   private transpose: PartContent['transpose'] = null;
@@ -352,6 +390,8 @@ class PartReader {
     private readonly warnings: string[],
     private readonly counter: { n: number },
     private readonly primary: boolean,
+    /** The drums this part's `<score-instrument>`s stand for, by instrument id (slice 6). */
+    private readonly drums: ReadonlyMap<string, DrumId> = new Map(),
   ) {}
 
   private id(prefix: string): string {
@@ -454,12 +494,34 @@ class PartReader {
             if (grace !== null) this.pendingGraces.push(grace);
             break;
           }
+          if (firstChild(child, 'chord') !== null && firstChild(child, 'unpitched') !== null && this.lastOnset !== null) {
+            // Drums struck together are written as a chord in one voice (hi-hat and snare); a voice here holds one item
+            // per onset, so each further drum goes to a voice of its own beside it (slice 6).
+            const at = this.lastOnset;
+            let target: VoiceAcc | null = null;
+            for (let n = 1; n <= MAX_VOICES && target === null; n += 1) {
+              const candidate = this.voiceAcc(content, staff as number, `${label}+c${n}`);
+              if (candidate === null) break;
+              if (!candidate.items.some((item) => item.onset === at)) target = candidate;
+            }
+            if (target === null) {
+              this.note('a chord note (a second simultaneous pitch) was dropped: one pitch per voice');
+              break;
+            }
+            const parsed = this.readNote(child, at);
+            this.percussionStaves.add(staff as number);
+            target.items.push(parsed.item);
+            target.end = Math.max(target.end, at + parsed.ticks);
+            this.note('drums struck together were read as separate voices');
+            break;
+          }
           if (firstChild(child, 'chord') !== null) {
             // A second note at the same onset: one pitch to a voice (ADR-0021), so this is dropped rather than refused.
             this.note('a chord note (a second simultaneous pitch) was dropped: one pitch per voice');
             break;
           }
           const parsed = this.readNote(child, cursor);
+          this.lastOnset = cursor;
           if (parsed.unpitched) this.percussionStaves.add(staff as number);
           const notations = firstChild(child, 'notations');
           if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
@@ -839,6 +901,8 @@ class PartReader {
     const written = firstChild(el, 'accidental');
     const cautionary = written !== null && attr(written, 'parentheses') === 'yes';
 
+    const drum = display ? this.drumOf(el) : null;
+    const head = display ? this.headOf(el, drum) : null;
     return {
       item: makeNote({
         id: this.id('note'),
@@ -847,11 +911,36 @@ class PartReader {
         pitch: { step, alter, octave },
         tie: tieOf(el),
         ...(cautionary ? { accidental: 'parens' as const } : {}),
+        ...(drum === null ? {} : { drum, accidental: 'hide' as const }),
+        ...(head === null ? {} : { head }),
       }),
       ticks,
       tuplet,
       unpitched: display,
     };
+  }
+
+  /** The drum a percussion note names through `<instrument id>`, if the part's instruments say. */
+  private drumOf(el: XmlElement): DrumId | null {
+    const instrument = firstChild(el, 'instrument');
+    const id = instrument === null ? null : attr(instrument, 'id');
+    return id === null ? null : (this.drums.get(id) ?? null);
+  }
+
+  /**
+   * A percussion note's `<notehead>`, kept only when it is not what its drum is drawn with anyway (the model derives the
+   * drum's own head). A kind the model has no head for is read as an x, with a note.
+   */
+  private headOf(el: XmlElement, drum: DrumId | null): NoteheadKind | null {
+    const text = childText(el, 'notehead')?.trim();
+    if (text === undefined || text === '') return null;
+    let kind: NoteheadKind;
+    if (isNoteheadKind(text)) kind = text;
+    else {
+      this.note(`a notehead of kind "${text}" was read as an x`);
+      kind = 'x';
+    }
+    return drum !== null && drumById(drum).head === kind ? null : kind;
   }
 
   /** Grow, close and open tuplet runs. Consecutive members of one ratio form one Tuplet. */
@@ -1092,7 +1181,7 @@ function buildPart(
       const voices = indexes.map((index): Voice => {
         const label = [...labelMap].find(([, mapped]) => mapped === index)?.[0];
         const acc = label === undefined ? undefined : measure?.voices.get(`${number}|${label}`);
-        const items = acc?.items ?? [];
+        const items = label !== undefined && label.includes('+c') ? withRestsBetween(acc?.items ?? [], score, barIndex, `${staffOffset + number}-${index}`) : (acc?.items ?? []);
         return {
           index,
           items: toConcert === null ? items : items.map((item) => concertItem(item, toConcert, score.meta.key)),
@@ -1130,6 +1219,33 @@ function concertItem(item: BarItem, interval: Interval, key: KeySignature): BarI
 
 function clampPitch(pitch: { step: Step; alter: Alter; octave: number }): { step: Step; alter: Alter; octave: number } {
   return { ...pitch, alter: clampAlter(pitch.alter) };
+}
+
+/**
+ * A voice made from a drum chord (slice 6) holds only the hits that were struck with another, so its gaps are filled
+ * with rests the way every other voice's are (the file's rests belong to the voice the chord began in). They are not
+ * drawn on a drum kit (voices 3 and 4), but they make the voice fill its bar.
+ */
+function withRestsBetween(items: BarItem[], score: Score, barIndex: number, key: string): BarItem[] {
+  const bar = score.bars[barIndex];
+  const capacity = bar === undefined || bar.number === 0 ? 0 : barCapacity(score.meta.time);
+  const out: BarItem[] = [];
+  let cursor = 0;
+  let serial = 0;
+  const fill = (to: number): void => {
+    for (const duration of restPieces(cursor, to - cursor)) {
+      serial += 1;
+      out.push(makeRest({ id: `rest-c${key}-${barIndex}-${serial}`, onset: cursor, duration }));
+      cursor += durationTicks(duration);
+    }
+  };
+  for (const item of items) {
+    if (item.onset > cursor) fill(item.onset);
+    out.push(item);
+    cursor = Math.max(cursor, item.onset + durationTicks(item.duration));
+  }
+  if (items.length > 0 && cursor < capacity) fill(capacity);
+  return out;
 }
 
 /**

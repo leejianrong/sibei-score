@@ -331,3 +331,15 @@ before the voice's next hit, followed by a rest. It is a flagged review draft li
 hits and unknown keys are flagged, bar 1 is flagged when the barring is a guess. The audio repo's contract is unchanged
 and not edited: this only reads `instrument` and `drum_class`. Fixtures: `drums-single-bar.json` (was the refused-instrument
 fixture), `drums-rock-groove.json` (README records provenance). A hit's duration is a notation choice, not the recording's.
+
+**Slice 6c: MusicXML unpitched percussion (SIB2-237).** Export: a part whose percussion staves name drums gets a
+`<score-instrument id="P1-I36">` (the drum's label) and a `<midi-instrument>` per drum used, with `<midi-channel>10` and
+`<midi-unpitched>` (the GM key plus one: MusicXML counts from 1); each drum note is `<unpitched>` with its display pitch,
+`<instrument id>` and, when its head is not an ordinary oval or the note overrides its drum's, `<notehead>`. A percussion
+part with no named drum writes exactly what slice 5a wrote. Import maps an `<instrument id>` to a drum by its
+`<midi-unpitched>` when the drum map knows the key, else by its name; keeps a `<notehead>` only when it differs from the
+drum's own; reads an unknown notehead as an x with a warning; and reads **drums struck together** (`<chord/>`
+notes, how drum charts write a hat with a snare) as separate voices beside the first (`label+c1`), the voice's gaps
+filled with rests, where slice 5a dropped them. A file with a drum staff but no usable instruments reads as the older
+one-line staff at the file's own display pitch. Still lossy: stems and beams as the file draws them, a drum's own
+`<notehead-text>`, instruments with no drum in the map (kept as plain hits).

@@ -52,7 +52,7 @@ function flag(): Review {
 }
 
 /** A tick span to legal rests, largest first, each starting on its own alignment (a quarter on a beat, else a grid step). */
-function restPieces(onset: number, ticks: number): Duration[] {
+export function restPieces(onset: number, ticks: number): Duration[] {
   const out: Duration[] = [];
   let at = onset;
   let left = ticks;
