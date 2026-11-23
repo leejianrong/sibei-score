@@ -80,6 +80,15 @@ describe('addressing one pitch', () => {
     expect(() => resolveAddress(score, 'bar1.n1.D4', 'note')).toThrow(/pitches are C4, E4, G4/);
   });
 
+  it('names a pitch at a beat too, which is how the browser addresses it', () => {
+    const { score } = run(base);
+    expect(parseAddress('s1.v1.bar1.beat1.E4')).toMatchObject({ form: 'beat', beat: 1, tone: 'E4' });
+    expect(resolveAddress(score, 'bar1.beat1.E4', 'note').tone?.id).toBe('note-4');
+    expect(() => resolveAddress(score, 'bar1.beat2.E4', 'note')).toThrow(/pitches are A4/);
+    const removed = run([...base, { type: 'note.rm', target: 'bar1.beat1.G4' }]).score;
+    expect(chordTones(noteAt(removed, 0)).map((t) => t.pitch.step)).toEqual(['C', 'E']);
+  });
+
   it('removes one pitch, promoting the lowest when the carrying one goes, and the last pitch removes the note', () => {
     const { score, log } = run([...base, { type: 'note.rm', target: 'bar1.n1.E4' }]);
     expect(chordTones(noteAt(score, 0)).map((t) => t.pitch.step)).toEqual(['C', 'G']);

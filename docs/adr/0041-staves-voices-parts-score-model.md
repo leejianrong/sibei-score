@@ -461,3 +461,14 @@ way, and `truthNotes` expands a chord into its struck pitches, so note F1 is sti
 importer returns the same struck notes as the voice-per-tone version on every heavy seed; the table in `docs/eval.md` moved
 only because the ground truth's note order, and so each note's jitter draw, changed. The drum importer (ADR-0041 slice 6c) is
 untouched: two limbs on one beat stay two voices, which is the convention for a drum chart.
+
+**PR 5 as built (SIB2-249): the browser editor.** A click on any head of a chord selects the chord (the carrying note's id, so
+slurs, tuplets and the inspector keep addressing it) and remembers which head was hit; `hit-test.ts` gives each head its own
+box where the engraver draws it (the stem-side column, and the far-side head one notehead across; a beam that flips a chord's
+stem moves a far-side head by one notehead, which the click margin absorbs) and the selection outline is the union of the heads.
+The inspector gains **Chord pitches**: each pitch with Remove (when the chord has more than one), a typed pitch with Add pitch,
+and Add above / Add below (a diatonic third from the top / bottom pitch). Add is `note.add` onto the chord's own onset with its
+duration; Remove is `note.rm` by position and pitch (`s2.v1.bar3.beat2.E4`, which the address grammar now accepts at a beat as
+well as at an ordinal), and both keep the chord selected so a chord can be built in a row. Duration, articulations and fermata in
+the inspector are the whole chord's, and the pitch field edits the carrying note's pitch. Per-pitch **tie, accidental and
+spelling pin** are CLI-only for now (`note set bar3.n2.E4 --tie start`): a documented gap in Q79, not a refusal.

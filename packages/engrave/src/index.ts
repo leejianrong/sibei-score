@@ -4,6 +4,7 @@ export * from './fonts/index.js';
 export * from './text.js';
 export * from './staff.js';
 export * from './spacing.js';
+export * from './chords.js';
 export * from './stems.js';
 export * from './rests.js';
 export * from './beam-groups.js';

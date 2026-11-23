@@ -190,8 +190,8 @@ sbscore note rm  <id> <address>      # bar3.n2.Eb5 removes one pitch of a chord
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
 # Stacked chord: `note add` onto a beat a note of the same duration already holds adds a pitch to its chord (one
-# stem, counted once in the bar; `show` prints `[c4 e4 g4]/4`). `bar3.n2` is the whole chord and `bar3.n2.E4` one
-# pitch of it, for `note set` (pitch, accidental, tie, spelling) and `note rm`. Duration and articulations are the
+# stem, counted once in the bar; `show` prints `[c4 e4 g4]/4`). `bar3.n2` is the whole chord and `bar3.n2.E4` (or
+# `bar3.beat2.E4`) one pitch of it, for `note set` (pitch, accidental, tie, spelling) and `note rm`. Duration and articulations are the
 # whole chord's: set them on `bar3.n2`. At most ten pitches; drums struck together stay in separate voices.
 sbscore chord set <id> <address> --text "F#m7b5" [--spell]      # upsert a chord symbol
 sbscore chord rm  <id> <address>
