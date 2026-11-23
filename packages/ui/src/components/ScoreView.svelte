@@ -154,6 +154,8 @@
   // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
   // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
   let format = $state<ExportFormat>('pdf');
+  // Which page an SVG export is (SIB2-277): the CLI writes one file per page, so the rail names the page it will download.
+  let svgPage = $state(1);
 
   // The instrument part on view (V6e). `concert` is the stored score; a transposing instrument is a
   // render-time view (ADR-0016) — the sheet shows the written part and the same choice drives the
@@ -415,7 +417,7 @@
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }, noteInput !== null && editable ? new Set([noteInput.caret.bar]) : undefined),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
@@ -1892,17 +1894,35 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers, page: Math.min(svgPage, pages.length) })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
         </a>
+        {#if format === 'svg' && pages.length > 1}
+          <!-- One SVG per page, like `export --svg`: say which page the link downloads rather than silently giving page 1. -->
+          <select
+            class="part-select"
+            aria-label="SVG page to export"
+            value={String(Math.min(svgPage, pages.length))}
+            onchange={(event) => (svgPage = Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each pages as _, at (at)}
+              <option value={String(at + 1)}>Page {at + 1} of {pages.length}</option>
+            {/each}
+          </select>
+        {/if}
         <!-- The route, not the instance: the id is already in the facts above, and a
              40-character id wraps this column into nonsense. -->
         <p class="url">
           <span class="u-path">{route.path}</span>
           <span class="u-q">{route.query}</span>
         </p>
+        {#if format === 'svg'}
+          <p class="control-note">
+            The browser's own drawing as SVG, one file per page (<code>export --svg</code>). Pick the page above.
+          </p>
+        {/if}
         {#if format === 'musicxml'}
           <p class="control-note">
             MusicXML is a codec at the edges (ADR-0004) — lossy in known ways, and it ignores the
@@ -2276,6 +2296,10 @@
   .part-select {
     flex: 1;
     min-width: 0;
+    /* A select is as wide as its longest option; inside the rail it must not run past the rail's edge (SIB2-276). */
+    max-width: 100%;
+    box-sizing: border-box;
+    text-overflow: ellipsis;
     background: var(--panel-2);
     border: 1px solid var(--rule);
     color: var(--ink);

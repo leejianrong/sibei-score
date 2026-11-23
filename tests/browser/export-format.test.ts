@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startStack, type Stack } from './support/stack.js';
@@ -52,6 +55,37 @@ describe('the export format toggle (V8e)', () => {
       expect((await response.text()).startsWith('<?xml')).toBe(true);
     } finally {
       await page.close();
+    }
+  });
+});
+
+describe('the SVG export (SIB2-277)', () => {
+  it('downloads the same SVG the CLI writes, and lets a multi-page chart pick its page', async () => {
+    stack.cli(['new', '--id', 'svgfmt', '--title', 'Svg Format', '--key', 'C', '--bars', '96']);
+    stack.cli(['note', 'add', 'svgfmt', 'bar1.beat1', '--pitch', 'C5', '--dur', '4']);
+    const directory = mkdtempSync(join(tmpdir(), 'sbscore-svg-'));
+    const page = await openScore('svgfmt');
+    try {
+      stack.cli(['export', 'svgfmt', '--svg', '-o', `${directory}/`]);
+      const files = readdirSync(directory).sort();
+      expect(files.length).toBeGreaterThan(1);
+
+      const exportLink = page.locator('a.export');
+      await page.getByRole('group', { name: 'Export format' }).getByRole('button', { name: 'SVG' }).click();
+      expect((await exportLink.textContent())?.trim()).toBe('Export SVG');
+      const choose = page.getByLabel('SVG page to export');
+
+      for (const [index, file] of files.entries()) {
+        await choose.selectOption(String(index + 1));
+        await expect.poll(() => exportLink.getAttribute('href')).toContain(`page=${String(index + 1)}`);
+        const href = await exportLink.getAttribute('href');
+        const response = await page.request.get(`${stack.uiUrl}${href}`);
+        expect(response.headers()['content-disposition']).toContain('Svg Format');
+        expect(await response.text()).toBe(readFileSync(join(directory, file), 'utf8'));
+      }
+    } finally {
+      await page.close();
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 });
