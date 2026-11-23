@@ -223,3 +223,18 @@ The engraver draws every staff and voice that layout emits. No schema change. De
 - **Known imperfect:** voices that cross draw each stem through the other's head; three voices with up stems are not
   merged into chords; a fermata sits over the staff, not over a low note inside it; instrument names, per-part
   transposition and cross-staff beams are later items; an ottava line is the top staff's only.
+
+## As built: slice 5b (SIB2-229, the browser editor)
+
+The editor opens and edits any staff and voice (this supersedes slice 2's "the browser still edits staff 1, voice 1").
+
+- **Hit-testing reads the layout's `staves`.** `pageItemBoxes`, `findItem` and `pageBarBoxes` (`packages/ui/src/lib`) walk
+  `system.staves` when it is present, with the engraver's own `placeAligned`, `noteShifts`, `restShiftOf` and the staff's
+  clef, so a click resolves to the staff and voice it was drawn on; a lead sheet takes the unchanged path (`staffIndex` 0,
+  `voice` 1). Each box and each bar band carries its `staffIndex`, and a chord's x is the aligned `item.x`.
+- **The active lane** (`lib/lanes.ts`: `Lane { staff, voice }`, 1-based as the address grammar numbers them) is set by a click and
+  shown in the stage bar (`Staff 2 · bass · Voice 2`) and in the inspector, only when the chart needs a qualifier
+  (`needsQualifier`: more than one staff, or a staff with more than one voice). Edits of an existing note go by id; edits by
+  position (a rest replaced, a note added) carry `qualifierOf(score, lane)`, which is empty for a one-staff, one-voice chart
+  so its ops are byte-identical to before.
+- A slur or ottava joins two notes of one lane only; the controls stay off across lanes.

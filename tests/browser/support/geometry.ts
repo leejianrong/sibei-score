@@ -112,3 +112,47 @@ export function firstChordTarget(score: Score): NoteTarget {
   }
   throw new Error('the score has no chord to target');
 }
+
+/**
+ * Where to click the first note of one lane (ADR-0041): a staff by its index in the system (0 is the top) and a voice.
+ * The same boxes the browser hit-tests against, so the click lands on that staff's ink and not the top staff's.
+ */
+export function laneNoteTarget(score: Score, staffIndex: number, voice = 1, kind: 'note' | 'rest' = 'note'): NoteTarget {
+  const pages = renderScorePages(score, { paper: 'a4' }, { font: DEFAULT_MUSIC_FONT });
+  const font = loadFont(DEFAULT_MUSIC_FONT);
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    const page = pages[pageIndex];
+    if (page === undefined) continue;
+    const note = pageItemBoxes(page.layout, font).find(
+      (box) => box.kind === kind && box.staffIndex === staffIndex && box.voice === voice,
+    );
+    if (note !== undefined) {
+      return {
+        noteId: note.id,
+        pageIndex,
+        cx: (note.x + note.width / 2) / page.layout.width,
+        cy: (note.y + note.height / 2) / page.layout.height,
+      };
+    }
+  }
+  throw new Error(`staff ${staffIndex + 1} voice ${voice} has no ${kind} to target`);
+}
+
+/** Where to click one staff's empty bar (the staff band of bar `barNumber` in staff `staffIndex`), to select it. */
+export function staffBarTarget(score: Score, barNumber: number, staffIndex: number): NoteTarget {
+  const pages = renderScorePages(score, { paper: 'a4' }, { font: DEFAULT_MUSIC_FONT });
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    const page = pages[pageIndex];
+    if (page === undefined) continue;
+    const box = barBoxFor(pageBarBoxes(page.layout), barNumber, staffIndex);
+    if (box !== null) {
+      return {
+        noteId: `bar${barNumber}`,
+        pageIndex,
+        cx: (box.x + box.width * 0.3) / page.layout.width,
+        cy: (box.y + box.height * 0.82) / page.layout.height,
+      };
+    }
+  }
+  throw new Error(`no bar ${barNumber} in staff ${staffIndex + 1} to target`);
+}

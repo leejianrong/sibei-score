@@ -20,6 +20,8 @@ import type { Point } from './hit-test.js';
  */
 
 export interface BarBox {
+  /** The staff this band belongs to: its index in the system's `staves`, 0 for a one-staff chart. */
+  staffIndex: number;
   barNumber: number;
   barId: Id;
   /** Layout units — the same space as the page's SVG `viewBox`. */
@@ -32,21 +34,28 @@ export interface BarBox {
 /** How far above the top line and below the bottom line still counts as the bar's band. */
 const BAND_MARGIN = STAFF_SPACE;
 
-/** Every bar on a page, boxed as the staff region the engraver drew under it. */
+/** Every bar on a page, boxed as the staff region the engraver drew under it — one box per staff of a staved system. */
 export function pageBarBoxes(page: LayoutPage): BarBox[] {
   const boxes: BarBox[] = [];
   for (const system of page.systems) {
-    const top = positionY(TOP_LINE, system.staveY) - BAND_MARGIN;
-    const bottom = positionY(BOTTOM_LINE, system.staveY) + BAND_MARGIN;
-    for (const bar of system.bars) {
-      boxes.push({
-        barNumber: bar.barNumber,
-        barId: bar.barId,
-        x: bar.x,
-        y: top,
-        width: bar.width,
-        height: bottom - top,
-      });
+    const bands =
+      system.staves !== undefined
+        ? system.staves.map((staff) => ({ index: staff.index, staveY: staff.staveY }))
+        : [{ index: 0, staveY: system.staveY }];
+    for (const band of bands) {
+      const top = positionY(TOP_LINE, band.staveY) - BAND_MARGIN;
+      const bottom = positionY(BOTTOM_LINE, band.staveY) + BAND_MARGIN;
+      for (const bar of system.bars) {
+        boxes.push({
+          staffIndex: band.index,
+          barNumber: bar.barNumber,
+          barId: bar.barId,
+          x: bar.x,
+          y: top,
+          width: bar.width,
+          height: bottom - top,
+        });
+      }
     }
   }
   return boxes;
@@ -67,6 +76,6 @@ export function barAt(boxes: readonly BarBox[], point: Point): BarBox | null {
 }
 
 /** The box for a bar number already known — after a fresh render, to redraw the selection outline. */
-export function barBoxFor(boxes: readonly BarBox[], barNumber: number): BarBox | null {
-  return boxes.find((box) => box.barNumber === barNumber) ?? null;
+export function barBoxFor(boxes: readonly BarBox[], barNumber: number, staffIndex = 0): BarBox | null {
+  return boxes.find((box) => box.barNumber === barNumber && box.staffIndex === staffIndex) ?? null;
 }
