@@ -96,6 +96,7 @@ export interface QuantizeWarning {
     | 'no-downbeats'
     | 'overlap'
     | 'collapsed-onset'
+    | 'dropped-note'
     | 'no-notes';
   message: string;
   /** Where in the recording, when it has a place. */

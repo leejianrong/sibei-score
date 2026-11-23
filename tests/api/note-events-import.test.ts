@@ -73,6 +73,18 @@ describe('POST /v1/imports with a NoteEvents document (ADR-0040)', () => {
     expect(projectScore(score)).toContain('snare/4');
   });
 
+  it('imports a piano document to a grand-staff draft with the hand-split caveat on the job (SIB2-144)', async () => {
+    const created = await upload(fixture('piano-two-hands.json'));
+    expect(created.status).toBe(202);
+    const job = await settle(created.body.job.id);
+    expect(job.status).toBe('succeeded');
+    expect(job.diagnostic).toContain('hand-split');
+    const score = await scoreOf(job.scoreId);
+    expect(allStaves(score).map((s) => s.clef)).toEqual(['treble', 'bass']);
+    expect(score.meta.layout).toBe('score');
+    expect(score.parts[0]!.name).toBe('Piano');
+  });
+
   it('imports a silent document to an empty draft, not an error', async () => {
     const job = await settle((await upload(fixture('valid_silent_voice.json'))).body.job.id);
     expect(job.status).toBe('succeeded');

@@ -50,6 +50,27 @@ not measuring what it claims. The `real` row is the hand-labelled control set
 (`tests/fixtures/eval/real/`, see its README) — the gap between it and `clean` is the
 synthetic→real gap every training decision has to respect.
 
+## The piano rows (SIB2-144)
+
+`pnpm eval` and `pnpm eval --engine note-events` also print a **piano import** table: each seed is a synthetic
+grand-staff passage (`generatePianoScore` in `packages/synth/src/note-events-piano.ts`: melody, chords or an inner
+line on the right, bass, stride, walking or arpeggios on the left, with the hands drifting toward each other in a
+quarter of the bars), rendered to piano NoteEvents at the same jitter levels and imported through
+`mapNoteEventsToScore`. **noteF1** is F1 on (absolute tick, pitch) of the struck notes; **handAcc** is, of the
+notes found, the share on the staff the truth has them on. Before numbers, as the mapper landed (6 charts, 8 bars):
+
+| Level | noteF1 | handAcc |
+|---|---|---|
+| clean | 0.996 | 0.959 |
+| light | 0.996 | 0.959 |
+| medium | 0.947 | 0.961 |
+| heavy | 0.730 | 0.961 |
+| unmarked | 0.947 | 0.961 |
+
+The hand split is a pitch-and-continuity rule; hand accuracy does not move with jitter because the split reads
+pitch, not timing. The corpus is synthetic and its hands are tidier than real playing (no real crossings, no
+pedalled sustain), so treat 0.96 as an upper bound on real piano.
+
 ## The NoteEvents-import rows (ADR-0040)
 
 `pnpm eval` also prints a second table, and `pnpm eval --engine note-events` prints only it (no worker, no

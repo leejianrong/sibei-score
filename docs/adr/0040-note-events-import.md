@@ -92,7 +92,7 @@ This ADR decides how we receive that contract. It adds no new notation: ADR-0021
   (the NoteEvents-import row) so that improving it is measurable.
 - Fixtures are hand-made against the v1 schema while the audio repo's corpus is empty; they are
   replaced or joined by its fixtures when they exist, and the recorded commit says which.
-- Piano, drums and guitar stay refused until the model ADR lands. The error kind is distinct so the
+- Guitar stays refused (piano and drums now import, see the amendments below). The error kind is distinct so the
   hosted UI can say "coming soon" rather than "invalid file".
 - Transport (how a NoteEvents document reaches us from the GPU worker) is ADR-0039 decision 9
   (pull); this ADR is independent of it, since a file upload and a worker's result are the same JSON.
@@ -107,3 +107,28 @@ note whose `offset_s` is not after `onset_s` is malformed (their `invalid_offset
 A silent or empty document (`silent_input`, no notes) is **not an error**: it imports as an empty draft
 with its warnings kept. Soft-attack voices produce late onsets and split notes, so note confidence
 drives review flags and the quantizer is tested with onset jitter.
+
+## Amendment (2026-11-23): piano imports as a grand staff with a guessed hand split (SIB2-144)
+
+`instrument: piano` is now notated (`packages/model/src/note-events-piano.ts`; decision 3's refusal list loses
+`piano`, and `guitar` and `other` stay refused). The draft is **one part named Piano (General MIDI program 0)
+with a treble and a bass staff**, `meta.layout: 'score'` so systems break by width (ADR-0041 section 5), and it
+shares the beat grid, snap, key inference and spelling of the other mappers; a silent file is an empty two-staff
+draft with its warnings.
+
+- **The hand split is a guess, and the draft says so**: every piano import carries a `hand-split:` diagnostic (on
+  the job and under the CLI's success line). The rule is deterministic and goes onset by onset. The notes struck
+  together are cut by pitch at every possible point; each cut is priced by the distance of each hand's new notes from
+  that hand's recent centre (smoothed, so a hand is stable rather than flipping per note), by reach (an octave and a
+  third is free, more is heavily penalised, counting the hand's still-sounding notes, so a wide chord is split and a
+  hand does not stretch), by crossing the other hand's held notes, and by a mild pull toward the split point (middle
+  C, `splitPoint` in the mapper options). Measured on the synthetic corpus (`docs/eval.md`): about 96% of the notes
+  found land on the right staff.
+- **No chord notes in the model** (ADR-0041: a voice holds one item per onset), so the notes a hand plays together
+  are spread over that staff's voices, highest first (a triad is voices 1 to 3), and notes that overlap in time without
+  starting together take the next free voice. A fifth simultaneous note on one staff is dropped with a warning. This is
+  the named imperfection; stacked chord notes are a separate card.
+- **Correcting the split** is `note rm` plus `note add` by qualified address, note by note, today; a move op for notes
+  and bar ranges is a card.
+- `splitPoint` is not yet reachable from a surface (it would have to be kept on the job), so the default is what every
+  surface uses.
