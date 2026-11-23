@@ -47,8 +47,24 @@ export function renderScorePages(
   score: Score,
   pageSpec: PageSpecInput = {},
   options: Partial<RenderOptions> = {},
+  /**
+   * Bar numbers whose "does not fill the meter" wash is left off (SIB2-280). Note input previews the next note in a
+   * copy of the score, so the bar being typed into is under-filled by construction and would flash rose with every
+   * key. The bar is still stored and judged as written (ADR-0013); only this draw skips the wash, and nothing
+   * changes when the set is empty, so the byte-identical guarantee with the server holds for every other render.
+   */
+  quietBars: ReadonlySet<number> = new Set(),
 ): RenderedPage[] {
   const result = layout(score, pageSpec);
+  if (quietBars.size > 0) {
+    for (const page of result.pages) {
+      for (const system of page.systems) {
+        for (const bar of system.bars) {
+          if (quietBars.has(bar.barNumber) && !bar.metrics.valid) bar.metrics = { ...bar.metrics, valid: true };
+        }
+      }
+    }
+  }
   return result.pages.map((page) => ({
     index: page.index,
     svg: engravePage(result, page.index, options).svg,
