@@ -1690,14 +1690,14 @@
             {#if editable}
               <button
                 type="button"
-                class="scan-toggle"
+                class="stage-toggle"
                 aria-pressed={noteInput !== null}
                 onclick={() => (noteInput === null ? startNoteInput() : stopNoteInput())}
               >
                 Note input
               </button>
             {/if}
-            <button type="button" class="scan-toggle" aria-label="Keyboard shortcuts" onclick={() => (showShortcuts = true)}>?</button>
+            <button type="button" class="stage-toggle" aria-label="Keyboard shortcuts" onclick={() => (showShortcuts = true)}>?</button>
             <!-- The scan toggle lives here — always visible, so it can bring the scan back after it is
                  hidden (the pane itself is gone then). Shown only for a chart that has a scan. -->
             {#if hasSource}
@@ -2103,7 +2103,8 @@
   }
 
   /* The scan toggle in the stage bar: a quiet text button, since it flips a view and writes nothing. */
-  .scan-toggle {
+  .scan-toggle,
+  .stage-toggle {
     background: none;
     border: 1px solid var(--rule);
     color: var(--ink-soft);
@@ -2113,11 +2114,13 @@
     cursor: pointer;
     text-transform: uppercase;
   }
-  .scan-toggle:hover {
+  .scan-toggle:hover,
+  .stage-toggle:hover {
     color: var(--accent);
     border-color: var(--accent);
   }
-  .scan-toggle[aria-pressed='true'] {
+  .scan-toggle[aria-pressed='true'],
+  .stage-toggle[aria-pressed='true'] {
     color: var(--accent);
     border-color: var(--accent);
   }
