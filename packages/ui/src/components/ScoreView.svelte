@@ -18,6 +18,7 @@
    * no second write path — and a stale write recovers by reloading, never by retrying with the
    * server's version (ADR-0003).
    */
+  import { tick } from 'svelte';
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
@@ -76,12 +77,13 @@
   import { hashOf } from '../lib/routing.js';
   import NoteInputPanel from './NoteInputPanel.svelte';
   import SelectionPanel from './SelectionPanel.svelte';
-  import { countNotes, itemsBetween, itemsInBars, itemsInStaff, liveItems, selectionOps, selectionSpan } from '../lib/selection.js';
+  import { countNotes, edgeItem, itemsBetween, itemsInBars, itemsInStaff, liveItems, neighbourItem, selectionOps, selectionSpan } from '../lib/selection.js';
   import { clipboard, clipSummary, clipText, parseClipText, pasteOp } from '../lib/clipboard.js';
   import { copyRange } from '@sibei/model';
   import type { Clip } from '@sibei/model';
-  import type { SelectionEdit } from '../lib/selection.js';
+  import type { ArrowStep, SelectionEdit } from '../lib/selection.js';
   import ShortcutsOverlay from './ShortcutsOverlay.svelte';
+  import { chartActionFor } from '../lib/keymap.js';
   import { GHOST_ID, actionForKey, caretAtItem, caretLabel, ghostScore, inputContext, startInput, stepInput } from '../lib/note-input.js';
   import type { InputAction, InputState } from '../lib/note-input.js';
 
@@ -962,6 +964,42 @@
     await runOps(operations, edit.type !== 'delete' && edit.type !== 'move');
   }
 
+  /** Select one note or rest by id, as a click on it would, wherever it is drawn; keeps it in view (SIB2-268). */
+  function selectItem(id: Id): void {
+    for (const [pageIndex, page] of pages.entries()) {
+      const found = findItem(page.layout, id);
+      if (found === null) continue;
+      extraIds = [];
+      rangeId = null;
+      rangePage = null;
+      chordSel = null;
+      barSel = null;
+      selectedId = id;
+      selectedTone = null;
+      selectedPage = pageIndex;
+      laneChoice = { staff: found.staffIndex + 1, voice: found.voice };
+      void tick().then(() => document.querySelector('.hit.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+      return;
+    }
+  }
+
+  /**
+   * The arrow keys. From a selected note or rest they walk the score (`neighbourItem`); with nothing selected they take
+   * the first or last item of the selected bar, else of the active voice, so the keyboard always has a way in.
+   */
+  function moveSelection(step: ArrowStep): void {
+    if (score === null) return;
+    if (selectedId !== null) {
+      const next = neighbourItem(score, selectedId, step);
+      if (next !== null) selectItem(next);
+      return;
+    }
+    const backwards = step === 'prev' || step === 'prev-bar';
+    const lane = barSel === null ? activeLane : { staff: barSel.staffIndex + 1, voice: activeLane.voice };
+    const first = edgeItem(score, lane, backwards ? 'last' : 'first', barSel?.barNumber);
+    if (first !== null) selectItem(first);
+  }
+
   function selectAllInStaff(): void {
     if (score === null || !editable) return;
     deselect();
@@ -1303,47 +1341,6 @@
   }
 
   /**
-   * Ctrl-Z / ⌘-Z undo, and Ctrl-Shift-Z / ⌘-Shift-Z / Ctrl-Y redo — the global affordance PLAN.md
-   * names (P4), the browser half of `sbscore undo`. Registered on the window once (the effect reads
-   * nothing reactive synchronously, so it does not re-bind on every edit) and reads the live state
-   * at keypress. It stands down over a text field so the chord editor keeps its own undo, and over a
-   * part preview, where editing — and so undo — is off (the sheet is not the concert truth).
-   */
-  $effect(() => {
-    function onKeydown(event: KeyboardEvent): void {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const key = event.key.toLowerCase();
-      const undo = key === 'z' && !event.shiftKey;
-      const redo = (key === 'z' && event.shiftKey) || key === 'y';
-      if (!undo && !redo) return;
-      if (isTextField(event.target) || score === null || !editable || saving) return;
-      event.preventDefault();
-      void runMove(undo ? 'undo' : 'redo');
-    }
-    window.addEventListener('keydown', onKeydown);
-    return () => window.removeEventListener('keydown', onKeydown);
-  });
-
-  /**
-   * Keys 1 to 4 pick that voice of the active staff (slice 5b), only on a chart that has more than one lane and only
-   * when nothing else wants the key: not in a text field, not with a modifier, not over a focused control (a button
-   * or a select owns its own keys). Nothing else in the score view binds a bare digit, so a lead sheet is unaffected.
-   */
-  $effect(() => {
-    function onVoiceKey(event: KeyboardEvent): void {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (score === null || !editable || saving || !multiLane || noteInput !== null || isTextField(event.target)) return;
-      if (event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName)) return;
-      const voice = voiceForKey(score, activeLane, event.key);
-      if (voice === null) return;
-      event.preventDefault();
-      laneChoice = { staff: activeLane.staff, voice };
-    }
-    window.addEventListener('keydown', onVoiceKey);
-    return () => window.removeEventListener('keydown', onVoiceKey);
-  });
-
-  /**
    * The note-input keys (SIB2-155). `N` opens the mode; while it is open the keys of `actionForKey` are claimed and
    * everything else (ctrl-Z, the browser's own shortcuts) passes through. `?` shows the shortcut list anywhere.
    * Stands down over a text field, and Enter/Space over a focused button (they press it).
@@ -1379,46 +1376,82 @@
     };
   });
 
-  $effect(() => {
-    function onSelectionKey(event: KeyboardEvent): void {
-      if (noteInput !== null || showShortcuts || isTextField(event.target) || score === null || !editable || saving) return;
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
-        event.preventDefault();
-        selectAllInStaff();
-      } else if ((event.key === 'Delete' || event.key === 'Backspace') && pickedIds.length > 1) {
-        event.preventDefault();
-        void handleSelectionEdit({ type: 'delete' });
-      } else if (event.key === 'Escape' && (pickedIds.length > 0 || barSel !== null)) {
-        deselect();
-      }
-    }
-    window.addEventListener('keydown', onSelectionKey);
-    return () => window.removeEventListener('keydown', onSelectionKey);
-  });
-
+  /**
+   * Every key of the score view goes through the one table in `../lib/keymap.ts` (SIB2-268), which is also what the `?`
+   * overlay prints: undo/redo, the note-input switch, the voice digits, and the selection keys (arrows, Delete, Escape,
+   * select-all). While note input is open the table claims only undo, redo and `?`; every other key is the mode's
+   * (`actionForKey`). Stands down over a text field, and for the keys a focused control owns (a select's arrows, a
+   * button's Enter), so the rail's own controls keep working from the keyboard. Reads the live state at the keypress.
+   */
   $effect(() => {
     function onKey(event: KeyboardEvent): void {
       if (isTextField(event.target) || score === null) return;
-      const control = event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName);
-      if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const tag = event.target instanceof HTMLElement ? event.target.tagName : '';
+      const control = ['BUTTON', 'SELECT', 'A', 'SUMMARY'].includes(tag);
+      const action = chartActionFor(event, noteInput !== null);
+      if (action === 'help') {
         event.preventDefault();
         showShortcuts = !showShortcuts;
         return;
       }
-      if (showShortcuts) return;
-      if (noteInput === null) {
-        if ((event.key === 'n' || event.key === 'N') && !event.ctrlKey && !event.metaKey && !event.altKey && !control && editable && !saving) {
-          event.preventDefault();
-          startNoteInput();
-        }
+      if (action === 'undo' || action === 'redo') {
+        if (!editable || saving) return;
+        event.preventDefault();
+        void runMove(action);
         return;
       }
-      if (!editable) return;
-      const action = actionForKey(event);
-      if (action === null) return;
-      if (control && action.type === 'advance') return;
-      event.preventDefault();
-      dispatchInput(action);
+      if (showShortcuts) return;
+      if (noteInput !== null) {
+        if (!editable) return;
+        const input = actionForKey(event);
+        if (input === null) return;
+        if (control && input.type === 'advance') return;
+        event.preventDefault();
+        dispatchInput(input);
+        return;
+      }
+      if (action === null || !editable || saving) return;
+      // A focused control owns its own keys: a select's arrows, a button's Delete, a link's Enter.
+      if (control) return;
+      switch (action) {
+        case 'note-input':
+          event.preventDefault();
+          startNoteInput();
+          return;
+        case 'voice': {
+          if (!multiLane) return;
+          const voice = voiceForKey(score, activeLane, event.key);
+          if (voice === null) return;
+          event.preventDefault();
+          laneChoice = { staff: activeLane.staff, voice };
+          return;
+        }
+        case 'select-all':
+          event.preventDefault();
+          selectAllInStaff();
+          return;
+        case 'delete':
+          if (pickedIds.length > 0) {
+            event.preventDefault();
+            void handleSelectionEdit({ type: 'delete' });
+          } else if (chordSel !== null && chordSel.mode === 'edit') {
+            event.preventDefault();
+            void handleChordRemove();
+          }
+          return;
+        case 'deselect':
+          if (pickedIds.length > 0 || barSel !== null || chordSel !== null) deselect();
+          return;
+        case 'next':
+        case 'prev':
+        case 'next-bar':
+        case 'prev-bar':
+        case 'up':
+        case 'down':
+          event.preventDefault();
+          moveSelection(action);
+          return;
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

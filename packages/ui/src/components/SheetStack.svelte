@@ -116,13 +116,16 @@
             <span class="n">{index + 1}</span><span class="of">of {pages.length}</span>
           </div>
         {/if}
-        <!-- A spatial hit-test over engraved positions, not a control with a keyboard
-             equivalent — there is nothing at a fixed tab-stop to select this way. Selecting a
-             note by keyboard is a later card's scope, not this one's. -->
+        <!-- A spatial hit-test over engraved positions. The sheet is one focus stop (Tab reaches it, SIB2-268): the arrow keys,
+             Delete and Escape then act on the selection through the keymap in `ScoreView`, so the keyboard needs no
+             per-note tab stops. `role="application"` because it takes its own keys; its label names the page. -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <div
           class="sheet"
+          role="application"
+          tabindex="0"
           aria-label="Sheet music, page {index + 1}"
           onclick={(event) => handleClick(index, event)}
           onmousemove={(event) => handleMove(index, event)}
@@ -191,6 +194,10 @@
     outline: 1px solid var(--sheet-edge);
     outline-offset: -1px;
     cursor: pointer;
+  }
+  .sheet:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .sheet :global(svg) {
     display: block;
