@@ -31,9 +31,12 @@ const CLEFS: Record<Clef, { glyph: MusicGlyphName; line: number }> = {
   percussion: { glyph: 'unpitchedPercussionClef1', line: 4 },
 };
 
-export function clef(font: MusicFont, x: number, staveY: number, kind: Clef = 'treble'): SvgElement {
+/** A clef change in mid-system is drawn at this fraction of the opening clef's size (Gould, SIB2-241). */
+export const CLEF_CHANGE_SIZE = 0.75;
+
+export function clef(font: MusicFont, x: number, staveY: number, kind: Clef = 'treble', size = 1): SvgElement {
   const spec = CLEFS[kind];
-  return font.element(spec.glyph, x, positionY(spec.line, staveY));
+  return font.element(spec.glyph, x, positionY(spec.line, staveY), size);
 }
 
 export function clefWidth(font: MusicFont, kind: Clef = 'treble'): number {

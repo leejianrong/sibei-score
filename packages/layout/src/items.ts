@@ -33,6 +33,8 @@ export type Clef = ModelClef;
 export interface ClefItem {
   kind: 'clef';
   clef: Clef;
+  /** A clef change in the middle of a system (SIB2-241): drawn small, in the bar's lead-in, not the system's opening clef. */
+  change?: true;
 }
 
 export interface KeySignatureItem {
@@ -276,6 +278,8 @@ export interface LayoutOttava {
   fromNoteId: Id | null;
   toNoteId: Id | null;
   labelled: boolean;
+  /** The staff of a multi-staff system the line belongs to, when it is not the top one (ADR-0041, SIB2-233). */
+  staff?: number;
 }
 
 /**

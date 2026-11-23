@@ -17,8 +17,8 @@ import { furnitureText } from './furniture.js';
 import type { BarlineJoin } from './barlines.js';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
 import { staffGroups } from './groups.js';
-import type { VoiceShift } from './voices.js';
-import { noteShifts, restShiftOf, stemsOf, voicesWithMusic } from './voices.js';
+import type { StemMerge, VoiceShift } from './voices.js';
+import { noteShifts, stemFlips, stemMerges, restShiftOf, stemsOf, voicesWithMusic } from './voices.js';
 import type { BeamCandidate } from './beam-groups.js';
 import { beamGroupIndices, secondaryBreaks } from './beam-groups.js';
 import type { BeamMember } from './beams.js';
@@ -33,7 +33,7 @@ import {
   flaggedItemShade,
   invalidBarShade,
 } from './shading.js';
-import { clef, clefWidth, keySignature, timeSignature } from './signatures.js';
+import { CLEF_CHANGE_SIZE, clef, clefWidth, keySignature, timeSignature } from './signatures.js';
 import type { PlacedItem } from './spacing.js';
 import { ACCIDENTAL_GAP, accidentalGlyph, placeAligned, placeItems } from './spacing.js';
 import { ledgerLines, positionY, staffLines, staffPosition, staffPositionIn } from './staff.js';
@@ -57,7 +57,7 @@ import { el, serialise } from './svg.js';
 import type { TieEnd } from './ties.js';
 import { tie } from './ties.js';
 import { slur } from './slurs.js';
-import { articulations, fermata } from './marks.js';
+import { articulations, fermata, fermataBelow } from './marks.js';
 import { graceInk } from './graces.js';
 import type { ChordStyle } from './text.js';
 import {
@@ -371,11 +371,15 @@ function engraveStavedSystem(
       const anchors = anchorsByStaff[staff.index];
       if (anchors === undefined) continue;
       const percussion = staff.type === 'percussion';
+      // The clef in force over this bar: the staff's opening one unless a change has come (SIB2-241).
+      const barClef = staffBar.clef ?? staff.clef;
+      const flips = percussion ? new Set<Id>() : stemFlips(staffBar.voices);
+      const merges = percussion ? new Map<Id, StemMerge>() : stemMerges(staffBar.voices, barClef, flips);
       for (const [voiceIndex, voice] of staffBar.voices.entries()) {
         const first = voiceIndex === 0;
         const mode: BarMode = {
           staveY: staff.staveY,
-          clef: staff.clef,
+          clef: barClef,
           percussion,
           drumKit: staff.drumKit === true,
           chrome: staff.index === 0 && first,
@@ -390,7 +394,10 @@ function engraveStavedSystem(
                 ? KIT_FEET_REST_SHIFT
                 : restShiftOf(voice, staffBar.voices)
               : restShiftOf(voice, staffBar.voices),
-          shifts: noteShifts(font, { voice, voices: staffBar.voices, clef: staff.clef }),
+          shifts: noteShifts(font, { voice, voices: staffBar.voices, clef: barClef, flips, merges }),
+          flips,
+          merges,
+          lowFermatas: true,
           centreWholeRest: voicesWithMusic(staffBar.voices) < 2,
         };
         // The staff's bar as the single-staff engraver knows it: this voice's items in the bar's box.
@@ -461,20 +468,26 @@ function engraveStavedSystem(
     if (curve !== null) children.push(curve);
   }
 
-  // Ottava lines are the top staff's: their height was reserved above and below it (SIB2-184).
-  const top = anchorsByStaff[0] ?? new Map();
+  // Ottava lines (SIB2-184) ride on the staff of their first note: layout reserved the height above and below that
+  // staff, the top one's in the system and the others' on the staff itself (SIB2-233).
   for (const line of system.ottavas) {
+    const staffIndex = line.staff ?? 0;
+    const staff = staves[staffIndex];
+    if (staff === undefined) continue;
+    const anchors = anchorsByStaff[staffIndex] ?? new Map();
+    const aboveOffset = staffIndex === 0 ? system.ottavaAboveOffset : staff.ottavaAboveOffset;
+    const belowOffset = staffIndex === 0 ? system.ottavaBelowOffset : staff.ottavaBelowOffset;
     const y =
       line.shift === 'up'
-        ? system.ottavaAboveOffset === undefined
+        ? aboveOffset === undefined
           ? undefined
-          : system.staveY - system.ottavaAboveOffset
-        : system.ottavaBelowOffset === undefined
+          : staff.staveY - aboveOffset
+        : belowOffset === undefined
           ? undefined
-          : system.staveY + units(4) + system.ottavaBelowOffset;
+          : staff.staveY + units(4) + belowOffset;
     if (y === undefined) continue;
-    const from = line.fromNoteId === null ? undefined : top.get(line.fromNoteId);
-    const to = line.toNoteId === null ? undefined : top.get(line.toNoteId);
+    const from = line.fromNoteId === null ? undefined : anchors.get(line.fromNoteId);
+    const to = line.toNoteId === null ? undefined : anchors.get(line.toNoteId);
     children.push(
       ...ottavaLine({
         shift: line.shift,
@@ -537,6 +550,12 @@ interface BarMode {
   restShift: number;
   /** Noteheads moved aside for another voice's. */
   shifts: ReadonlyMap<Id, VoiceShift>;
+  /** Notes whose numbered stem turns the other way where their voice crosses another's (SIB2-233). */
+  flips?: ReadonlySet<Id>;
+  /** A staved system hangs a fermata under a stem-down voice's note and under a note below the staff (SIB2-233). */
+  lowFermatas?: boolean;
+  /** Voice-3 notes sharing voice 1's stem: the one that does not own it draws none (SIB2-233). */
+  merges?: ReadonlyMap<Id, StemMerge>;
   /** A bar whose one voice holds a whole-bar rest centres it; a rest in a two-voice bar does not. */
   centreWholeRest: boolean;
 }
@@ -605,6 +624,12 @@ function engraveBar(
     switch (item.kind) {
       case 'clef':
         if (!mode.prefix) break;
+        if (item.change === true) {
+          // A change of clef: small, in the lead-in, after which the bar's own clef is the new one (SIB2-241).
+          before.push(clef(font, prefixX, staveY, item.clef, CLEF_CHANGE_SIZE));
+          prefixX += clefWidth(font, item.clef) * CLEF_CHANGE_SIZE + units(0.4);
+          break;
+        }
         before.push(clef(font, prefixX, staveY, item.clef));
         prefixX += clefWidth(font, item.clef) + units(0.4);
         break;
@@ -764,7 +789,12 @@ function engraveBar(
   const where: ItemContext = { clef: mode.clef, percussion: mode.percussion, drumKit: mode.drumKit, restShift: mode.restShift };
 
   const notes = new Map<PlacedItem, EngravedNote>();
-  for (const entry of placed) notes.set(entry, engraveItem(font, entry, staveY, forced, where));
+  for (const entry of placed) {
+    // A crossing turns this note's stem away from the other voice's (SIB2-233); only a staved bar has any.
+    const turned = entry.item.kind === 'note' && mode.flips?.has(entry.item.noteId) === true && forced !== null;
+    const engraved = engraveItem(font, entry, staveY, turned ? (forced === 'up' ? 'down' : 'up') : forced, where);
+    notes.set(entry, entry.item.kind === 'note' ? mergedStem(font, engraved, mode.merges?.get(entry.item.noteId), staveY) : engraved);
+  }
 
   // A beamed group takes one stem direction, so its members' stems are rebuilt from the
   // group's decision before the beam is fitted to them.
@@ -831,6 +861,21 @@ function engraveBar(
     if (entry.item.fermata === true) {
       const headTop = positionY(note.position, staveY) - units(0.5);
       const up = note.stem !== null && note.stem.direction === 'up';
+      // Under the note, not across the staff from it, for a stem-down voice or a head below the bottom line (SIB2-233).
+      const under = mode.lowFermatas === true && entry.item.kind === 'note' && (mode.stems === 'down' || note.position > 8);
+      if (under) {
+        const headBottom = positionY(note.position, staveY) + units(0.5);
+        const marks = (entry.item.kind === 'note' ? (entry.item.articulations?.length ?? 0) : 0) * ARTICULATION_BAND;
+        ink.push(
+          fermataBelow(font, {
+            x: note.x,
+            width: font.width(note.glyph),
+            staveY,
+            inkBottomY: (note.stem !== null && !up ? Math.max(headBottom, note.stem.endY) : headBottom) + (up ? marks : 0),
+          }),
+        );
+        continue;
+      }
       ink.push(
         fermata(font, {
           x: note.x,
@@ -1070,6 +1115,17 @@ function engraveItem(
         })
       : null,
   };
+}
+
+/**
+ * A voice-3 note on voice 1's stem (`stemMerges`): the head that does not own the stem draws none, and the owner's runs up
+ * past the other head as well, so the two read as one chord (SIB2-233).
+ */
+function mergedStem(font: MusicFont, note: EngravedNote, merge: StemMerge | undefined, staveY: number): EngravedNote {
+  if (merge === undefined || note.stem === null) return note;
+  if (!merge.owns) return { ...note, stem: null };
+  const other = stem(font, { notehead: note.glyph, direction: note.stem.direction, noteX: note.x, position: merge.reach, staveY });
+  return { ...note, stem: { ...note.stem, endY: Math.min(note.stem.endY, other.endY) } };
 }
 
 function noteInk(

@@ -4,7 +4,7 @@ import type { MusicFontData } from '../font.js';
  * GENERATED FILE — do not edit. Regenerate with `pnpm vendor:fonts`.
  *
  * A slice of Bravura 1.392: the metrics the engraver
- * anchors to, and the outlines of the 62 glyphs it draws.
+ * anchors to, and the outlines of the 63 glyphs it draws.
  * Bravura is SIL OFL 1.1 — see packages/engrave/NOTICE.md. Source:
  * bravura-1.392, outlines from the font's own SVG font.
  *
@@ -430,6 +430,15 @@ export const BRAVURA = {
       anchors: {},
       path:
         'M302 221c-206 0 -251 -153 -263 -194c-1 -4 -2 -8 -3 -9c-6 -14 -11 -21 -20 -21c-8 0 -13 3 -13 13c0 3 0 7 1 11c61 306 268 308 300 308c29 0 238 -2 300 -308c1 -4 1 -7 1 -10c0 -10 -5 -14 -14 -14c-10 0 -14 7 -21 21c-1 1 -1 4 -2 7c-10 38 -53 196 -266 196z M358 52c0 -30 -25 -55 -55 -55c-29 0 -54 25 -54 55c0 29 25 54 54 54c30 0 55 -25 55 -54z',
+    },
+    fermataBelow: {
+      codepoint: 'U+E4C1',
+      advance: 2.42,
+      bBoxSW: [0.012, -1.328],
+      bBoxNE: [2.42, 0],
+      anchors: {},
+      path:
+        'M302 -224c213 0 256 158 266 196c1 3 1 6 2 7c7 14 11 21 21 21c9 0 14 -4 14 -14c0 -3 0 -6 -1 -10c-62 -306 -271 -308 -300 -308c-32 0 -239 2 -300 308c-1 4 -1 8 -1 11c0 10 5 13 13 13c9 0 14 -7 20 -21c1 -1 2 -5 3 -9c12 -41 57 -194 263 -194zM358 -55 c0 -29 -25 -54 -55 -54c-29 0 -54 25 -54 54c0 30 25 55 54 55c30 0 55 -25 55 -55z',
     },
     articStaccatoAbove: {
       codepoint: 'U+E4A2',

@@ -1,4 +1,4 @@
-import type { BarView, BarMetrics, ChordStylePreset, Id, KeySignature, Note, Score, TimeSignature } from '@sibei/model';
+import type { BarView, BarMetrics, ChordStylePreset, Id, KeySignature, Note, Score, Staff, TimeSignature } from '@sibei/model';
 import {
   TICKS_PER_QUARTER,
   annotationsOfBar,
@@ -11,6 +11,7 @@ import {
   sectionStartingAt,
   tupletOf,
 } from '@sibei/model';
+import { clefChangeOf, effectiveClef, hasClefChanges } from './clefs.js';
 import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
 import { planSystems } from './grid.js';
 import { buildFurniture, footerReserve } from './furniture.js';
@@ -131,6 +132,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   // System membership is independent of pagination, so ties can be resolved once the
   // systems are known and before they are placed on pages.
   const systemOfNote = new Map<Id, number>();
+  // Which staff of a multi-staff score a note is on, so an ottava line can be drawn on its own staff (SIB2-233).
+  const staffOfNote = new Map<Id, number>();
   planned.forEach((system, index) => {
     for (const bar of [...(system.pickup === null ? [] : [system.pickup]), ...system.bars]) {
       for (const item of bar.items) {
@@ -142,6 +145,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           for (const voice of voiceViewsOf(score, lane.staff, bar)) {
             for (const item of voice.view.items) {
               if (item.kind === 'note') systemOfNote.set(item.id, index);
+              if (item.kind === 'note') staffOfNote.set(item.id, lanes.indexOf(lane));
             }
           }
         }
@@ -151,7 +155,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   const tiesBySystem = planTies(notesInReadingOrder(score).map((entry) => entry.note), systemOfNote);
   const tiesByStaff = multi ? planLaneTies(score, lanes, systemOfNote) : new Map<Id, Map<number, LayoutTie[]>>();
   const slursBySystem = planSlurs(score, systemOfNote);
-  const ottavasBySystem = planOttavas(score, systemOfNote);
+  const ottavasBySystem = planOttavas(score, systemOfNote, multi ? staffOfNote : undefined);
   const shifts = ottavaShifts(score);
 
   // Which systems draw the clef and key signature (SIB2-173). Widths depend on it, pagination does not
@@ -175,11 +179,15 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
             ? {}
             : {
                 clef: top.staff.clef,
-                stems: voiceStems(allocated.map((entry) => voiceViewsOf(score, top.staff, entry.bar))),
+                stems: voiceStems(allocated.map((entry) => voiceViewsOf(score, top.staff, entry.bar)), shifts),
               }),
           shifts,
-          ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up'),
-          ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down'),
+          ...(top === undefined ? {} : { lowFermatas: true }),
+          ...(top !== undefined && hasClefChanges(score, top.staff)
+            ? { clefOf: (view: BarView) => effectiveClef(score, top.staff, view.id) }
+            : {}),
+          ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up' && line.staff === undefined),
+          ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down' && line.staff === undefined),
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
           hasRehearsalMark:
             bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))) ||
@@ -189,7 +197,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         spec,
       );
 
-      const layoutBars = allocated.map((entry) => buildBar(score, entry, shifts, spec.barNumbers, top?.staff.clef));
+      const layoutBars = allocated.map((entry) => buildBar(score, entry, shifts, spec.barNumbers, top?.staff));
       const built: LayoutSystem = {
         index,
         x: spec.margin.left,
@@ -220,6 +228,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           systemX: built.x,
           tiesByStaff,
           systemIndex: index,
+          ottavas: built.ottavas,
         });
         built.height = lanesBuilt.height;
         built.belowStaff = lanesBuilt.belowStaff;
@@ -431,7 +440,7 @@ function buildBar(
   entry: AllocatedBar,
   shifts: Map<Id, 'up' | 'down'>,
   barNumbers: boolean,
-  clef: Clef = 'treble',
+  staff?: Staff,
 ): LayoutBar {
   const { bar } = entry;
   return {
@@ -443,7 +452,7 @@ function buildBar(
     prefix: entry.prefix,
     prefixWidth: entry.prefixWidth,
     metrics: barMetrics(bar, score.meta.time),
-    items: buildBarItems(score, bar, entry, shifts, barNumbers, clef),
+    items: buildBarItems(score, bar, entry, shifts, barNumbers, staff),
   };
 }
 
@@ -453,12 +462,16 @@ function buildBarItems(
   entry: AllocatedBar,
   shifts: Map<Id, 'up' | 'down'>,
   barNumbers: boolean,
-  clef: Clef,
+  staff: Staff | undefined,
 ): LayoutBarItem[] {
   const time = score.meta.time;
   const items: LayoutBarItem[] = [];
 
-  if (entry.prefix.clef) items.push({ kind: 'clef', clef });
+  if (entry.prefix.clef) items.push({ kind: 'clef', clef: staff === undefined ? 'treble' : effectiveClef(score, staff, bar.id) });
+  else if (entry.prefix.clefChange === true && staff !== undefined) {
+    const change = clefChangeOf(score, staff, bar.id);
+    if (change !== null) items.push({ kind: 'clef', clef: change, change: true });
+  }
   if (entry.prefix.keySignature) {
     items.push({ kind: 'keySignature', key: score.meta.key, fifths: keyFifths(score.meta.key) });
   }

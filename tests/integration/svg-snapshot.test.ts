@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -130,6 +130,18 @@ describe('rendered SVG', () => {
 
   it('matches the committed snapshot for voices meeting (shared unison, seconds, a crossing, a third voice, a triplet and a tie)', () => {
     snapshotScore(voiceCollisionsChart(), 'voice-collisions');
+  });
+
+  it('matches the committed snapshot for an ottava line on each staff of a grand staff', () => {
+    snapshotScore(ottavaStavesChart(), 'ottava-staves');
+  });
+
+  it('matches the committed snapshot for fermatas under a note below the staff and a stem-down voice', () => {
+    snapshotScore(fermatasStavesChart(), 'fermatas-staves');
+  });
+
+  it('matches the committed snapshot for a clef change at a bar (small clef mid-system, full clef at a system head)', () => {
+    snapshotScore(clefChangeChart(), 'clef-change');
   });
 
   it('matches the committed snapshot for every clef in a flat key', () => {
