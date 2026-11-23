@@ -442,12 +442,17 @@ async function submitImport(
   // MusicXML (SIB2-152): `application/xml`, `text/xml`, `application/vnd.recordare.musicxml[+xml]`, or a zip (`.mxl`).
   const isMusicXml = /^(application\/(xml|zip|x-zip-compressed|vnd\.recordare\.musicxml)|text\/xml)/.test(declared) || declared.includes('+xml');
   const needsNoWorker = isNoteEvents || isMusicXml;
-  if (!needsNoWorker && context.imports !== undefined && !context.imports.photoImport) {
-    return send(response, photoImportUnavailable());
-  }
-  // A NoteEvents document (ADR-0040) needs no OMR worker, so it skips the worker-availability check.
-  if (context.imports === undefined || (!needsNoWorker && !context.imports.available)) {
-    return send(response, noImportPipeline());
+  // A multipart body is images (a scan) or several NoteEvents stems (SIB2-147); which is only known once it is read.
+  const boundary = multipartBoundary(request.headers['content-type'] ?? undefined);
+  const photoGate = (): Problem | null => {
+    if (context.imports !== undefined && !context.imports.photoImport) return photoImportUnavailable();
+    if (context.imports === undefined || !context.imports.available) return noImportPipeline();
+    return null;
+  };
+  if (context.imports === undefined) return send(response, noImportPipeline());
+  if (!needsNoWorker && boundary === null) {
+    const refused = photoGate();
+    if (refused !== null) return send(response, refused);
   }
 
   const bytes = await readRawBody(request, response);
@@ -461,13 +466,17 @@ async function submitImport(
     return sendJson(response, 202, { job });
   }
 
-  if (isNoteEvents) {
-    const check = validateNoteEventsUpload(bytes);
+  // Several NoteEvents files as a multipart upload: every part is JSON, so it is a set of stems, not pages.
+  const jsonParts = boundary === null ? null : parseMultipartImages(bytes, boundary);
+  const stemsUpload = jsonParts !== null && jsonParts.length > 0 && jsonParts.every((part) => /^\s*[[{]/.test(part.subarray(0, 64).toString('utf8')));
+  if (isNoteEvents || stemsUpload) {
+    const body = stemsUpload ? stemsBody(jsonParts!) : bytes;
+    const check = validateNoteEventsUpload(body);
     if (!check.ok) return send(response, badNoteEvents(check.reason, check.message, check.problems));
     // A piano file's hand split pivots on `?splitPoint=` (SIB2-244), kept on the job.
     const splitPoint = validSplitPoint(new URL(request.url ?? '/', 'http://localhost').searchParams.get('splitPoint'));
     if (splitPoint === null) return send(response, badSplitPoint());
-    const job = await context.imports.submitNoteEvents(context.owner, bytes, splitPoint === undefined ? {} : { splitPoint });
+    const job = await context.imports.submitNoteEvents(context.owner, check.bytes, splitPoint === undefined ? {} : { splitPoint });
     response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
     return sendJson(response, 202, { job });
   }
@@ -475,7 +484,8 @@ async function submitImport(
   // Several pages in one `multipart/form-data` upload (Q26), or a single raw image body (the V10
   // shape, still accepted). Either way every page is validated by *decoding* it (ADR-0029) before a
   // job is enqueued: one bad page refuses the whole import rather than failing halfway through it.
-  const boundary = multipartBoundary(request.headers['content-type'] ?? undefined);
+  const refused = photoGate();
+  if (refused !== null) return send(response, refused);
   const images = boundary === null ? [bytes] : parseMultipartImages(bytes, boundary);
   if (images.length === 0) return send(response, badUpload('empty', 'the upload contained no image'));
   for (const [index, image] of images.entries()) {
@@ -491,6 +501,11 @@ async function submitImport(
   // 202, not 201: the resource exists but its result does not yet — recognition runs in the
   // background. The Location points at the job to poll, not at a finished artefact.
   return sendJson(response, 202, { job });
+}
+
+/** The parts of a multipart upload of NoteEvents files as one JSON array body, which is what a set of stems is. */
+function stemsBody(parts: readonly Buffer[]): Buffer {
+  return Buffer.from(`[${parts.map((part) => part.toString('utf8').trim()).join(',')}]`);
 }
 
 /**

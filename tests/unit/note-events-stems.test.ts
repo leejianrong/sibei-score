@@ -191,8 +191,9 @@ describe('the multi-part draft goes where any score goes', () => {
     expect(back.score.bars).toHaveLength(score.bars.length);
   });
   it('renders to SVG without error', () => {
-    const svg = renderScoreToSvg(score, { paper: 'letter' });
-    expect(svg.length).toBeGreaterThan(0);
+    const pages = renderScoreToSvg(score, {});
+    expect(pages.length).toBeGreaterThan(0);
+    expect(pages.every((p) => p.svg.startsWith('<svg') || p.svg.includes('<svg'))).toBe(true);
   });
 });
 

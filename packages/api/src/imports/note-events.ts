@@ -1,5 +1,5 @@
-import { NOTE_EVENTS_SUPPORTED_INSTRUMENTS, NoteEventsError, parseNoteEvents } from '@sibei/model';
-import type { NoteEvents } from '@sibei/model';
+import { MAX_STEMS, NOTE_EVENTS_SUPPORTED_INSTRUMENTS, NoteEventsError, checkStems, mapNoteEventsToScore, mapStemsToScore, parseNoteEvents } from '@sibei/model';
+import type { NoteEvents, NoteEventsDraft, NoteEventsMapOptions } from '@sibei/model';
 
 /**
  * The NoteEvents upload boundary (ADR-0040 #7), the sibling of `upload.ts`'s image decode (ADR-0029).
@@ -55,7 +55,15 @@ export function validSplitPoint(raw: unknown): number | undefined | null {
 export type NoteEventsRejection = 'malformed' | 'unsupported-version' | 'unsupported-instrument';
 
 export type NoteEventsCheck =
-  | { ok: true; document: NoteEvents }
+  | {
+      ok: true;
+      /** The first (or only) document. */
+      document: NoteEvents;
+      /** Every document: one for the v1 case, one per stem for a set (SIB2-147). */
+      documents: NoteEvents[];
+      /** What to store as the job's source: the upload's own bytes for one document, `{ "stems": [...] }` for a set. */
+      bytes: Buffer;
+    }
   | { ok: false; reason: NoteEventsRejection; message: string; problems: string[] };
 
 export function validateNoteEventsUpload(bytes: Buffer): NoteEventsCheck {
@@ -65,10 +73,67 @@ export function validateNoteEventsUpload(bytes: Buffer): NoteEventsCheck {
   } catch {
     return refuse('malformed', 'the upload is not valid JSON', ['document is not valid JSON']);
   }
-  return checkNoteEvents(raw);
+  return checkNoteEventsInput(raw, bytes);
 }
 
-/** The same checks on an already-parsed document: the audio worker's `complete` hands one over as JSON. */
+/**
+ * The stems a result or upload names, or `null` for the v1 case of one document. A set is `{ "stems": [...] }` (the
+ * audio worker's `complete`, and what a set is stored as) or a bare JSON array (an upload). A NoteEvents document has
+ * no `stems` key, so the two shapes never collide (ADR-0034 amendment, SIB2-147).
+ */
+function stemsOf(raw: unknown): unknown[] | 'not-an-array' | null {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'object' && raw !== null && 'stems' in raw) {
+    const stems = (raw as { stems: unknown }).stems;
+    return Array.isArray(stems) ? stems : 'not-an-array';
+  }
+  return null;
+}
+
+/**
+ * Check a whole NoteEvents input, one document or several stems. A one-element set is exactly the single document
+ * (same refusals, same draft); two or more must come from one recording (`checkStems`), each stem must be valid v1, and
+ * a stem with an instrument we cannot notate is kept (as a melody staff with a warning) rather than refused, since
+ * refusing it would discard the band (ADR-0040 amendment). A refusal names the stem index and nothing is stored.
+ */
+export function checkNoteEventsInput(raw: unknown, original?: Buffer): NoteEventsCheck {
+  const stems = stemsOf(raw);
+  if (stems === null) {
+    const single = checkNoteEvents(raw);
+    return single.ok ? { ...single, documents: [single.document], bytes: original ?? Buffer.from(JSON.stringify(raw)) } : single;
+  }
+  if (stems === 'not-an-array') return refuse('malformed', 'stems is not an array', ['stems is not an array']);
+  if (stems.length === 1) {
+    const only = checkNoteEvents(stems[0]);
+    return only.ok ? { ...only, documents: [only.document], bytes: Buffer.from(JSON.stringify(stems[0])) } : only;
+  }
+  if (stems.length === 0 || stems.length > MAX_STEMS) {
+    const problem = stems.length === 0 ? 'stems is empty' : `stems has ${stems.length} entries; at most ${MAX_STEMS} are read`;
+    return refuse('malformed', problem, [problem]);
+  }
+  const documents: NoteEvents[] = [];
+  const problems: string[] = [];
+  let reason: NoteEventsRejection = 'malformed';
+  stems.forEach((stem, index) => {
+    try {
+      documents.push(parseNoteEvents(stem));
+    } catch (error) {
+      if (!(error instanceof NoteEventsError)) throw error;
+      if (error.kind === 'unsupported-version') reason = 'unsupported-version';
+      problems.push(...error.problems.map((p) => `stems[${index}]: ${p}`));
+    }
+  });
+  if (problems.length === 0) problems.push(...checkStems(documents));
+  if (problems.length > 0) return refuse(reason, `NoteEvents stems refused (${reason}): ${problems.join('; ')}`, problems);
+  return { ok: true, document: documents[0]!, documents, bytes: Buffer.from(JSON.stringify({ stems })) };
+}
+
+/** Map a checked input (one document or several stems) to a draft: the single mapper, or the stem combiner. */
+export function mapNoteEventsDocuments(documents: readonly NoteEvents[], options: NoteEventsMapOptions): NoteEventsDraft {
+  return documents.length === 1 ? mapNoteEventsToScore(documents[0]!, options) : mapStemsToScore(documents, options);
+}
+
+/** The same checks on one already-parsed document. */
 export function checkNoteEvents(raw: unknown): NoteEventsCheck {
   let document: NoteEvents;
   try {
@@ -87,7 +152,7 @@ export function checkNoteEvents(raw: unknown): NoteEventsCheck {
       [`instrument is ${document.instrument}`],
     );
   }
-  return { ok: true, document };
+  return { ok: true, document, documents: [document], bytes: Buffer.alloc(0) };
 }
 
 function refuse(reason: NoteEventsRejection, message: string, problems: string[]): NoteEventsCheck {

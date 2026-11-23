@@ -1,7 +1,6 @@
 import { OperationError } from '../ops/errors.js';
 import type { ScoreImporter } from '../imports/runner.js';
-import { mapNoteEventsToScore } from '@sibei/model';
-import { checkNoteEvents } from '../imports/note-events.js';
+import { checkNoteEventsInput, mapNoteEventsDocuments } from '../imports/note-events.js';
 import type { AudioResultImporter } from './worker-service.js';
 
 /**
@@ -25,10 +24,10 @@ export const DURATION_TOLERANCE_FRACTION = 0.05;
 export function createAudioResultImporter(options: { applier: ScoreImporter }): AudioResultImporter {
   return {
     async importResult(job, noteEvents) {
-      const checked = checkNoteEvents(noteEvents);
+      const checked = checkNoteEventsInput(noteEvents);
       if (!checked.ok) return { ok: false, kind: 'invalid-result', message: checked.message };
 
-      const { score, diagnostics } = mapNoteEventsToScore(checked.document, { id: `audio-${job.id}` });
+      const { score, diagnostics } = mapNoteEventsDocuments(checked.documents, { id: `audio-${job.id}` });
       const warnings = [...diagnostics];
       const covered = checked.document.source.duration_s;
       for (const [label, other] of [

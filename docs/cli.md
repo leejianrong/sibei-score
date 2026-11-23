@@ -82,7 +82,7 @@ sbscore check <id> [--json] [--strict]       # list every flagged object: addres
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
-sbscore import --note-events FILE [--split-point 60|C4]   # a NoteEvents v1 file (audio engine) into a draft (ADR-0040)
+sbscore import --note-events FILE... [--split-point 60|C4]   # NoteEvents v1 (audio engine) into a draft (ADR-0040); several files = stems of one score
 sbscore import FILE.musicxml|.xml|.mxl       # a MusicXML file into an editable draft (SIB2-152; `--musicxml` forces it)
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
@@ -157,6 +157,17 @@ held chord is two voices, and a fifth simultaneous line on a staff is dropped wi
 `sbscore reparse <id> --split-point 62` re-splits a piano draft into a new one from the stored file. A file that
 is not valid v1, has a `schema_version` other than 1, or names another instrument (guitar, other) is refused with
 exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.
+
+**Several files are the stems of one recording** (`import --note-events voice.json piano.json bass.json drums.json`,
+one NoteEvents per separated stem; the same works as a JSON array body or a multipart upload to `POST /v1/imports`,
+and in the library's file picker). They land as **one multi-part score on one bar grid**: the beat grid comes from
+the stem with the best one, the key is inferred across all the pitched stems, and the parts are ordered voice, piano,
+bass, drums (`Voice`, `Piano`, `Bass`, `Drums`, set by width). Each stem's warnings are printed prefixed by its
+instrument (`bass: low_confidence: ...`); a stem with no notes becomes an empty part with a warning. Stems that are
+not from one recording (a different `source.sha256` or duration), or more than 12, are refused whole with exit 2
+naming the stem (`stems[2]: ...`); a guitar or other stem alongside others is kept as a plain melody staff with a
+warning, rather than refused. A hosted audio job whose worker returns several stems lands the same score, metered
+once (ADR-0034 amendment "several stems").
 
 `import FILE.musicxml` (also `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any file name)
 reads **MusicXML** through the codec into an editable draft with a fresh history, and needs **no worker**.

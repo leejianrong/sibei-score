@@ -1,4 +1,4 @@
-import { NoteEventsError, OmrMappingError, mapNoteEventsToScore, mapOmrToScore, parseNoteEvents } from '@sibei/model';
+import { NoteEventsError, OmrMappingError, mapOmrToScore } from '@sibei/model';
 import type { Id, OmrDocument, Score } from '@sibei/model';
 import { ImportError, musicXmlToScore } from '@sibei/codec';
 import { correctChord } from '@sibei/music';
@@ -9,7 +9,7 @@ import { OperationError } from '../ops/errors.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
 import type { Owner } from '../store/repository.js';
 import { MUSICXML_SOURCE, decode } from './musicxml.js';
-import { isNoteEventsEngine, splitPointOfEngine } from './note-events.js';
+import { checkNoteEventsInput, isNoteEventsEngine, mapNoteEventsDocuments, splitPointOfEngine } from './note-events.js';
 import { imageFormatOf } from './upload.js';
 import { WorkerError } from './worker-client.js';
 import type { WorkerClient } from './worker-client.js';
@@ -220,8 +220,9 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
   async function processNoteEvents(job: ImportJob): Promise<void> {
     const bytes = await blobs.get(job.imageKeys[0]!);
     if (bytes === null) throw new WorkerError('the NoteEvents document is missing from the blob store');
-    const events = parseNoteEvents(JSON.parse(bytes.toString('utf8')));
-    const { score, diagnostics } = mapNoteEventsToScore(events, { id: `import-${job.id}`, ...splitOption(job.engine) });
+    const checked = checkNoteEventsInput(JSON.parse(bytes.toString('utf8')));
+    if (!checked.ok) throw new NoteEventsError('malformed', checked.problems);
+    const { score, diagnostics } = mapNoteEventsDocuments(checked.documents, { id: `import-${job.id}`, ...splitOption(job.engine) });
     const scoreId = await land(job, score);
     const done = await jobs.complete(job.id, [], scoreId, diagnostics.length === 0 ? null : diagnostics.join('\n'));
     if (done !== null) publisher.publish(done.owner, { jobId: done.id, status: 'succeeded' });
