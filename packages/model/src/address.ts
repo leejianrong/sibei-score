@@ -34,7 +34,7 @@ export type Address =
   /** `bar12` — a whole bar. Structure attaches here: a section, a barline, an ending (V7). `s2.bar12` is staff 2's bar (a clef change). */
   | ({ form: 'bar'; bar: number } & Qualifier)
   /** `bar12.beat3` — a beat within a bar. 1-based, fractional between beats. */
-  | ({ form: 'beat'; bar: number; beat: number } & Qualifier)
+  | ({ form: 'beat'; bar: number; beat: number; tone?: string } & Qualifier)
   /**
    * `bar12.n3` — the third item in bar 12, ordered by onset then by insertion order. `bar12.n3.Eb5` names one pitch of
    * a stacked chord (ADR-0041 "As built: stacked chords"): by its written pitch, which a chord never holds twice, so it
@@ -180,7 +180,8 @@ export function formatAddressFailure(failure: AddressFailure): string {
 // ---------------------------------------------------------------------------
 
 /** `bar0` is the pickup, so bar 1 is the first full bar, matching how musicians count. */
-const BEAT_FORM = /^bar(\d+)\.beat(\d+(?:\.\d+)?)$/;
+const TONE_SUFFIX = '(?:\\.([A-Ga-g](?:#{1,2}|b{1,2})?-?\\d+))?';
+const BEAT_FORM = new RegExp(`^bar(\\d+)\\.beat(\\d+(?:\\.\\d+)?)${TONE_SUFFIX}$`);
 const ORDINAL_FORM = /^bar(\d+)\.n(\d+)(?:\.([A-Ga-g](?:#{1,2}|b{1,2})?-?\d+))?$/;
 const BAR_FORM = /^bar(\d+)$/;
 const ID_FORM = /^[a-z]+-\d+$/;
@@ -221,9 +222,10 @@ export function parseAddress(text: string): Address {
 
   const beat = BEAT_FORM.exec(body);
   if (beat !== null) {
-    const [, bar, b] = beat;
+    const [, bar, b, tone] = beat;
     if (Number(b) < 1) throw new AddressError({ kind: 'syntax', text });
-    return { form: 'beat', bar: Number(bar), beat: Number(b), ...qualifier };
+    const named = tone === undefined ? {} : { tone: `${tone[0]!.toUpperCase()}${tone.slice(1)}` };
+    return { form: 'beat', bar: Number(bar), beat: Number(b), ...named, ...qualifier };
   }
 
   const bar = BAR_FORM.exec(body);
@@ -245,7 +247,7 @@ export function formatAddress(address: Address): string {
     case 'bar':
       return `${formatQualifier(address)}bar${address.bar}`;
     case 'beat':
-      return `${formatQualifier(address)}bar${address.bar}.beat${formatBeat(address.beat)}`;
+      return `${formatQualifier(address)}bar${address.bar}.beat${formatBeat(address.beat)}${address.tone === undefined ? '' : `.${address.tone}`}`;
     case 'ordinal':
       return `${formatQualifier(address)}bar${address.bar}.n${address.ordinal}${address.tone === undefined ? '' : `.${address.tone}`}`;
     case 'id':
@@ -305,7 +307,7 @@ function unqualified(address: Address): string {
     case 'bar':
       return `bar${address.bar}`;
     case 'beat':
-      return `bar${address.bar}.beat${formatBeat(address.beat)}`;
+      return `bar${address.bar}.beat${formatBeat(address.beat)}${address.tone === undefined ? '' : `.${address.tone}`}`;
     case 'ordinal':
       return `bar${address.bar}.n${address.ordinal}${address.tone === undefined ? '' : `.${address.tone}`}`;
     default:
@@ -466,18 +468,28 @@ function resolveOrdinal(
       count: items.length,
     });
   }
-  const resolved = checkKind({ bar, target, onset: target.onset, select: pick }, looking, text);
-  if (address.tone === undefined) return resolved;
+  return withTone(
+    checkKind({ bar, target, onset: target.onset, select: pick }, looking, text),
+    address.tone,
+    text,
+    `${formatQualifier(address)}bar${address.bar}.n${address.ordinal}`,
+  );
+}
+
+/** Narrow a resolved note to one pitch of its chord when the address named one (`.Eb5`); otherwise as it was. */
+function withTone(resolved: Resolved, named: string | undefined, text: string, at: string): Resolved {
+  if (named === undefined) return resolved;
+  const target = resolved.target;
   // The chord's own pitch list is the candidate set: a rest or a lone note has one tone, so `.Eb5` names it or fails.
-  if (target.kind !== 'note') throw new AddressError({ kind: 'wrong-kind', found: 'rest', looking: 'note', at: text });
-  const wanted = parsePitch(address.tone);
+  if (!('kind' in target) || target.kind !== 'note') throw new AddressError({ kind: 'wrong-kind', found: 'rest', looking: 'note', at: text });
+  const wanted = parsePitch(named);
   const tones = chordTones(target);
   const tone = tones.find((candidate) => samePitch(candidate.pitch, wanted));
   if (tone === undefined) {
     throw new AddressError({
       kind: 'no-such-tone',
-      at: `${formatQualifier(address)}bar${address.bar}.n${address.ordinal}`,
-      pitch: address.tone,
+      at,
+      pitch: named,
       present: tones.map((candidate) => formatPitch(candidate.pitch)),
     });
   }
@@ -507,7 +519,12 @@ function resolveBeat(
       looking,
     });
   }
-  return checkKind({ bar, target, onset, select: pick }, looking, text);
+  return withTone(
+    checkKind({ bar, target, onset, select: pick }, looking, text),
+    address.tone,
+    text,
+    `${formatQualifier(address)}bar${address.bar}.beat${formatBeat(address.beat)}`,
+  );
 }
 
 function barOrThrow(score: Score, number: number, pick: VoiceSelect = {}): BarView {
