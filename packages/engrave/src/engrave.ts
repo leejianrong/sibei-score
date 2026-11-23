@@ -2,6 +2,7 @@ import type {
   EndingItem,
   LayoutBar,
   LayoutBarItemKind,
+  LayoutHairpin,
   LayoutStaff,
   LayoutStaffGroup,
   LayoutStaffSpan,
@@ -11,7 +12,7 @@ import type {
   RestItem,
 } from '@sibei/layout';
 import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, NAV_BAND, writtenPitch } from '@sibei/layout';
-import type { AccidentalDisplay, Alter, Clef, Id, TimeSignature } from '@sibei/model';
+import type { AccidentalDisplay, Alter, Clef, Dynamic, Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks, headOf } from '@sibei/model';
 import { furnitureText } from './furniture.js';
 import type { BarlineJoin } from './barlines.js';
@@ -75,6 +76,7 @@ import {
 } from './text.js';
 import { navMark } from './nav.js';
 import { ottavaLine } from './ottava.js';
+import { dynamicMark, dynamicWidth, hairpin } from './dynamics.js';
 import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
 
@@ -196,6 +198,54 @@ export function engravePage(
 /** What a tie needs to know about a note, gathered as the bars are engraved. */
 type NoteAnchors = Map<Id, TieEnd>;
 
+/** A note or rest that carries a dynamic (SIB2-274): where its glyph centres, drawn after the staff's bars are placed. */
+interface BelowMark {
+  x: number;
+  width: number;
+  dynamic: Dynamic;
+}
+type BelowMarks = Map<Id, BelowMark>;
+
+/**
+ * The dynamics row of one staff (SIB2-274): each dynamic centred under its note or rest, and each hairpin of this
+ * system as a wedge that starts after its first note's dynamic and stops before its last note's. `baseline` is the
+ * row's y; layout reserved the room.
+ */
+function dynamicsInk(
+  font: MusicFont,
+  below: BelowMarks,
+  anchors: NoteAnchors,
+  hairpins: readonly LayoutHairpin[],
+  baseline: number,
+  musicLeft: number,
+  systemRight: number,
+): SvgElement[] {
+  const out: SvgElement[] = [];
+  for (const [, mark] of below) out.push(dynamicMark(font, mark.dynamic, mark.x + mark.width / 2, baseline));
+  const gap = units(0.4);
+  for (const line of hairpins) {
+    const start = line.fromNoteId === null ? undefined : anchors.get(line.fromNoteId);
+    const end = line.toNoteId === null ? undefined : anchors.get(line.toNoteId);
+    const startMark = line.fromNoteId === null ? undefined : below.get(line.fromNoteId);
+    const endMark = line.toNoteId === null ? undefined : below.get(line.toNoteId);
+    const from =
+      start === undefined
+        ? musicLeft
+        : startMark === undefined
+          ? start.x + start.noteheadWidth / 2
+          : startMark.x + startMark.width / 2 + dynamicWidth(font, startMark.dynamic) / 2 + gap;
+    const to =
+      end === undefined
+        ? systemRight
+        : endMark === undefined
+          ? end.x + end.noteheadWidth
+          : endMark.x + endMark.width / 2 - dynamicWidth(font, endMark.dynamic) / 2 - gap;
+    const wedge = hairpin({ shape: line.shape, from, to, baseline });
+    if (wedge !== null) out.push(wedge);
+  }
+  return out;
+}
+
 interface Bands {
   /** Top of the system's above-staff band, where marks and brackets live. */
   top: number;
@@ -235,8 +285,9 @@ export function engraveSystem(
   const shading: SvgElement[] = [];
   const barInk: SvgElement[] = [];
   const anchors: NoteAnchors = new Map();
+  const below: BelowMarks = new Map();
   for (const bar of system.bars) {
-    barInk.push(...engraveBar(font, bar, system, time, options, bands, anchors, shading, skipped));
+    barInk.push(...engraveBar(font, bar, system, time, options, bands, anchors, shading, skipped, undefined, below));
   }
 
   const children: SvgElement[] = [...shading];
@@ -312,6 +363,13 @@ export function engraveSystem(
     );
   }
 
+  // Dynamics and hairpins (SIB2-274) share the row layout reserved under the staff.
+  if (system.dynamicsOffset !== undefined) {
+    children.push(
+      ...dynamicsInk(font, below, anchors, system.hairpins ?? [], system.staveY + units(4) + system.dynamicsOffset, musicLeft, system.x + system.width),
+    );
+  }
+
   return children;
 }
 
@@ -361,6 +419,7 @@ function engraveStavedSystem(
   const barInk: SvgElement[] = [];
   const barlineInk: SvgElement[] = [];
   const anchorsByStaff: NoteAnchors[] = staves.map(() => new Map());
+  const belowByStaff: BelowMarks[] = staves.map(() => new Map());
 
   // Barlines run through every staff in one piece, drawn once from the top staff's bar items.
   for (const bar of system.bars) {
@@ -378,6 +437,7 @@ function engraveStavedSystem(
       const staffBar = staff.bars[barIndex];
       if (staffBar === undefined) continue;
       const anchors = anchorsByStaff[staff.index];
+      const below = belowByStaff[staff.index];
       if (anchors === undefined) continue;
       const percussion = staff.type === 'percussion';
       // The clef in force over this bar: the staff's opening one unless a change has come (SIB2-241).
@@ -414,7 +474,7 @@ function engraveStavedSystem(
         // filler rests are not drawn, the way a drum chart leaves them out.
         const items = staff.drumKit === true && voice.index > 2 ? voice.items.filter((item) => item.kind !== 'rest') : voice.items;
         const layoutBar: LayoutBar = { ...bar, items };
-        barInk.push(...engraveBar(font, layoutBar, system, time, options, bands, anchors, shading, skipped, mode));
+        barInk.push(...engraveBar(font, layoutBar, system, time, options, bands, anchors, shading, skipped, mode, below));
       }
     }
   }
@@ -507,6 +567,23 @@ function engraveStavedSystem(
         hooked: line.toNoteId !== null,
         size: options.chordFontSize * 0.9,
       }),
+    );
+  }
+
+  // Each staff's dynamics row (SIB2-274): its dynamics and the hairpins that start on it.
+  for (const staff of staves) {
+    if (staff.dynamicsOffset === undefined) continue;
+    const mine = (system.hairpins ?? []).filter((line) => (line.staff ?? 0) === staff.index);
+    children.push(
+      ...dynamicsInk(
+        font,
+        belowByStaff[staff.index] ?? new Map(),
+        anchorsByStaff[staff.index] ?? new Map(),
+        mine,
+        staff.staveY + units(4) + staff.dynamicsOffset,
+        musicLeft,
+        systemRight,
+      ),
     );
   }
 
@@ -613,6 +690,7 @@ function engraveBar(
   shading: SvgElement[],
   skipped: Map<LayoutBarItemKind, number>,
   mode: BarMode = SINGLE_STAFF(system.staveY),
+  below?: BelowMarks,
 ): SvgElement[] {
   const staveY = mode.staveY;
   const before: SvgElement[] = [];
@@ -867,6 +945,13 @@ function engraveBar(
     const note = notes.get(entry);
     if (note === undefined) continue;
     byItemId.set(entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId, note);
+    if (below !== undefined && entry.item.dynamic !== undefined) {
+      below.set(entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId, {
+        x: note.x,
+        width: font.width(note.glyph),
+        dynamic: entry.item.dynamic,
+      });
+    }
     if (entry.item.kind === 'note') {
       // A stacked chord's every pitch is a place a tie or slur can name; a lone note is the one pitch.
       for (const head of note.chord?.heads ?? [{ id: entry.item.noteId, position: note.position, x: note.x }]) {

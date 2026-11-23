@@ -25,7 +25,7 @@ import type { Applied } from './apply.js';
 
 type Place = Required<VoiceSelect>;
 type Rewrite = (score: Score, barId: Id, change: (bar: BarView) => BarView, select: VoiceSelect) => Score;
-type Prefix = 'note' | 'rest' | 'tuplet' | 'grace' | 'slur' | 'ottava' | 'chord' | 'annotation';
+type Prefix = 'note' | 'rest' | 'tuplet' | 'grace' | 'slur' | 'ottava' | 'hairpin' | 'chord' | 'annotation';
 
 function fail(detail: string): never {
   throw new OperationError({ kind: 'validation', detail });
@@ -140,7 +140,7 @@ export function pasteRange(score: Score, target: string, payload: RangePastePayl
   }));
   const spanners: Spanner[] = clip.spanners.map((spanner) => ({
     ...spanner,
-    id: minting.mint(spanner.kind === 'ottava' ? 'ottava' : 'slur'),
+    id: minting.mint(spanner.kind),
     startId: remap(spanner.startId),
     endId: remap(spanner.endId),
   }));

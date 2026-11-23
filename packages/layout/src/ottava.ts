@@ -1,7 +1,7 @@
 import type { Id, OctaveShift, Pitch, Score } from '@sibei/model';
 import { allStaves, barView, barViews, orderedItems } from '@sibei/model';
 import { isMultiLane, voiceViewsOf } from './lanes.js';
-import type { LayoutOttava } from './items.js';
+import type { LayoutHairpin, LayoutOttava } from './items.js';
 
 /**
  * Ottava lines (SIB2-184). An 8va or 8vb is a `Spanner` of kind `ottava`; the notes it covers keep their
@@ -80,6 +80,38 @@ export function planOttavas(
         fromNoteId: system === from ? line.startId : null,
         toNoteId: system === to ? line.endId : null,
         labelled: system === from,
+        ...(staff > 0 ? { staff } : {}),
+      };
+      const list = bySystem.get(system);
+      if (list === undefined) bySystem.set(system, [entry]);
+      else list.push(entry);
+    }
+  }
+  return bySystem;
+}
+
+/**
+ * The hairpins on each system, by index (SIB2-274), as `planOttavas` does ottava lines: a wedge runs on every system
+ * from its first note's to its last note's, with a null end where it enters or leaves mid-way.
+ */
+export function planHairpins(
+  score: Score,
+  systemOfNote: Map<Id, number>,
+  staffOfNote?: ReadonlyMap<Id, number>,
+): Map<number, LayoutHairpin[]> {
+  const bySystem = new Map<number, LayoutHairpin[]>();
+  for (const line of score.spanners ?? []) {
+    if (line.kind !== 'hairpin' || line.hairpin === undefined) continue;
+    const from = systemOfNote.get(line.startId);
+    const to = systemOfNote.get(line.endId);
+    if (from === undefined || to === undefined || from > to) continue;
+    const staff = staffOfNote?.get(line.startId) ?? 0;
+    for (let system = from; system <= to; system += 1) {
+      const entry: LayoutHairpin = {
+        id: line.id,
+        shape: line.hairpin,
+        fromNoteId: system === from ? line.startId : null,
+        toNoteId: system === to ? line.endId : null,
         ...(staff > 0 ? { staff } : {}),
       };
       const list = bySystem.get(system);

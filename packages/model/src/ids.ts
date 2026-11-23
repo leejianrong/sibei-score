@@ -6,7 +6,7 @@ import { FIRST_VOICE, barViews, staffOf } from './staves.js';
  * A factory rather than a global counter, so a render or a test is deterministic.
  */
 
-export type IdPrefix = 'score' | 'bar' | 'note' | 'rest' | 'chord' | 'tuplet' | 'section' | 'annotation' | 'slur' | 'ottava' | 'grace' | 'part' | 'staff';
+export type IdPrefix = 'score' | 'bar' | 'note' | 'rest' | 'chord' | 'tuplet' | 'section' | 'annotation' | 'slur' | 'ottava' | 'hairpin' | 'grace' | 'part' | 'staff';
 
 export interface IdFactory {
   next(prefix: IdPrefix): Id;

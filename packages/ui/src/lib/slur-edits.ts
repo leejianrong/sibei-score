@@ -73,3 +73,29 @@ export function ottavasOnNote(score: Score, noteId: Id): Spanner[] {
 export function removeOttavaOp(ottavaId: Id): Operation {
   return { type: 'ottava.rm', target: ottavaId };
 }
+
+/** The op that puts a crescendo or diminuendo wedge over the run between two notes (SIB2-274), or null. */
+export function hairpinOp(score: Score, a: Id, b: Id, shape: 'crescendo' | 'diminuendo'): Operation | null {
+  const pair = ordered(score, a, b);
+  if (pair === null || pair.from === pair.to) return null;
+  const { from, to } = pair;
+  const [start, end] = from < to ? [a, b] : [b, a];
+  return { type: 'hairpin.set', target: start, payload: { to: end, shape } };
+}
+
+/** The hairpins that cover a note, for the inspector to list and remove. */
+export function hairpinsOnNote(score: Score, noteId: Id): Spanner[] {
+  const order = noteOrderByLane(score);
+  const mine = order.get(noteId);
+  if (mine === undefined) return [];
+  return (score.spanners ?? []).filter((spanner) => {
+    if (spanner.kind !== 'hairpin') return false;
+    const from = order.get(spanner.startId);
+    const to = order.get(spanner.endId);
+    return from !== undefined && to !== undefined && from.lane === mine.lane && from.at <= mine.at && mine.at <= to.at;
+  });
+}
+
+export function removeHairpinOp(hairpinId: Id): Operation {
+  return { type: 'hairpin.rm', target: hairpinId };
+}

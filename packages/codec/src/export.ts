@@ -494,6 +494,20 @@ function ottavaMarks(score: Score): OttavaMarks {
     return found;
   };
   for (const line of score.spanners ?? []) {
+    if (line.kind === 'hairpin' && line.hairpin !== undefined) {
+      // A wedge (SIB2-274): `<wedge type="crescendo|diminuendo">` before its first note, `stop` after its last. Numbered
+      // by staff as an octave shift is, so two staves' wedges never share a number.
+      const wedge =
+        (kind: string): OttavaMark =>
+        (staff) =>
+          elem('direction', { placement: 'below' }, [
+            elem('direction-type', {}, [elem('wedge', { type: kind, number: staff ?? 1 })]),
+            staff === null ? null : leaf('staff', staff),
+          ]);
+      at(line.startId).starts.push(wedge(line.hairpin));
+      at(line.endId).stops.push(wedge('stop'));
+      continue;
+    }
     if (line.kind !== 'ottava' || line.octaveShift === undefined) continue;
     // MusicXML's `down` is a notes-printed-lower line, which is our 8va.
     const type = line.octaveShift === 'up' ? 'down' : 'up';
@@ -520,11 +534,23 @@ interface ItemContext {
   partIndex: number;
 }
 
+/** A dynamic marking (SIB2-274): `<direction><direction-type><dynamics><mf/>` just before its note or rest. */
+function dynamicDirection(item: BarItem, at: ItemContext): XmlElement[] {
+  if (item.dynamic === undefined) return [];
+  return [
+    elem('direction', { placement: 'below' }, [
+      elem('direction-type', {}, [elem('dynamics', {}, [elem(item.dynamic, {})])]),
+      at.staff === null ? null : leaf('staff', at.staff),
+    ]),
+  ];
+}
+
 function itemElements(item: BarItem, bar: BarView, slurs: SlurMarks, ottavas: OttavaMarks, at: ItemContext): XmlElement[] {
-  if (item.kind !== 'note') return [restElement(item, bar, at)];
+  if (item.kind !== 'note') return [...dynamicDirection(item, at), restElement(item, bar, at)];
   const lines = ottavas.get(item.id);
   return [
     ...(lines?.starts ?? []).map((make) => make(at.staff)),
+    ...dynamicDirection(item, at),
     // Grace notes come first, each a `<note><grace/>` with no duration (SIB2-185).
     ...(item.graces ?? []).map((grace) => graceElement(grace, at)),
     noteElement(item, bar, slurs.get(item.id) ?? [], at),
@@ -584,7 +610,7 @@ function slurMarks(score: Score): SlurMarks {
  * carrying note's duration. Marks, fermata and graces belong to the first note of the chord, so they are left off.
  */
 function toneAsNote(host: Note, tone: StackedNote): Note {
-  const { articulations: _a, fermata: _f, graces: _g, stack: _s, ...bare } = host;
+  const { articulations: _a, fermata: _f, dynamic: _d, graces: _g, stack: _s, ...bare } = host;
   return { ...bare, id: tone.id, pitch: tone.pitch, accidental: tone.accidental, tie: tone.tie, spellingPinned: tone.spellingPinned };
 }
 

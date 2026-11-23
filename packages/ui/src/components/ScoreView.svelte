@@ -53,7 +53,7 @@
   import { FIRST_LANE, clampLane, laneLabel, needsQualifier, notePinnedIn, qualifierOf, staffClef, tupletOf } from '../lib/lanes.js';
   import type { Lane } from '../lib/lanes.js';
   import { renderScorePages } from '../lib/render.js';
-  import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
+  import { hairpinOp, hairpinsOnNote, removeHairpinOp, ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
   import type { SlurChoice } from '../lib/slur-edits.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
@@ -448,6 +448,7 @@
         // The pin is not a layout property (it changes no ink), so it is read from the model note.
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
+        ...(item.dynamic === undefined ? {} : { dynamic: item.dynamic }),
         articulations: item.articulations ?? [],
         ...(item.drum === undefined ? {} : { drum: item.drum }),
         ...(item.head === undefined ? {} : { head: item.head }),
@@ -471,7 +472,13 @@
         })),
       };
     }
-    return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
+    return {
+      kind: 'rest',
+      id: item.restId,
+      duration: item.duration,
+      fermata: item.fermata === true,
+      ...(item.dynamic === undefined ? {} : { dynamic: item.dynamic }),
+    };
   });
 
   /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
@@ -540,6 +547,14 @@
   async function handleOttava(shift: 'up' | 'down'): Promise<void> {
     if (score === null || selectedId === null || rangeId === null) return;
     const operation = ottavaOp(score, selectedId, rangeId, shift);
+    if (operation !== null) await runOps([operation]);
+  }
+
+  // Hairpins (SIB2-274) use the same two-note selection.
+  const hairpinsHere = $derived(score === null || selectedId === null ? [] : hairpinsOnNote(score, selectedId));
+  async function handleHairpin(shape: 'crescendo' | 'diminuendo'): Promise<void> {
+    if (score === null || selectedId === null || rangeId === null) return;
+    const operation = hairpinOp(score, selectedId, rangeId, shape);
     if (operation !== null) await runOps([operation]);
   }
 
@@ -1489,6 +1504,15 @@
               slurs={slursHere}
               onfermata={(on) =>
                 void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
+              ondynamic={(value) =>
+                void runOps([
+                  value === null
+                    ? ({ type: 'dynamic.rm', target: selection!.id } as Operation)
+                    : ({ type: 'dynamic.set', target: selection!.id, payload: { value } } as Operation),
+                ])}
+              hairpins={hairpinsHere}
+              onhairpin={(shape) => void handleHairpin(shape)}
+              onrmhairpin={(id) => void runOps([removeHairpinOp(id)])}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
               ottavas={ottavasHere}

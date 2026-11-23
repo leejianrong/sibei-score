@@ -16,8 +16,8 @@
    * one that owns the conflict recovery rule (ADR-0003): reload, never retry with the server's
    * number wearing a disguise.
    */
-  import { ARTICULATIONS, DRUMS, NOTEHEAD_KINDS, isDrumId, parsePitch } from '@sibei/model';
-  import type { AccidentalDisplay, Articulation, Dots, DrumId, Duration, Id, NoteValue, NoteheadKind, Spanner, TieRole } from '@sibei/model';
+  import { ARTICULATIONS, DRUMS, DYNAMICS, NOTEHEAD_KINDS, isDrumId, parsePitch } from '@sibei/model';
+  import type { AccidentalDisplay, Articulation, Dots, Dynamic, DrumId, Duration, Id, NoteValue, NoteheadKind, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import { thirdFrom } from '../lib/staff-edits.js';
@@ -33,6 +33,8 @@
     spellingPinned: boolean;
     /** Whether a fermata sits over this note (SIB2-183). */
     fermata: boolean;
+    /** The dynamic marking at this note (SIB2-274), when it has one. */
+    dynamic?: Dynamic;
     /** Staccato, accent and marcato marks on this note (SIB2-179). */
     articulations: readonly Articulation[];
     /** The drum this note strikes, on a percussion staff (slice 6): it is then picked, not typed as a pitch. */
@@ -50,6 +52,8 @@
     id: Id;
     duration: Duration;
     fermata: boolean;
+    /** The dynamic marking at this rest (SIB2-274), when it has one. */
+    dynamic?: Dynamic;
   }
 
   export type Selection = NoteSelection | RestSelection;
@@ -90,6 +94,12 @@
     /** The slurs that begin or end on this note, each removable. */
     slurs?: readonly Spanner[];
     onfermata?: (on: boolean) => void;
+    /** Set or clear the dynamic at the selected note or rest (SIB2-274); null clears it. Applies at once. */
+    ondynamic?: (value: Dynamic | null) => void;
+    /** Hairpins (SIB2-274) covering this note, and the controls that add one over the two selected notes. */
+    hairpins?: readonly Spanner[];
+    onhairpin?: (shape: 'crescendo' | 'diminuendo') => void;
+    onrmhairpin?: (id: Id) => void;
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
     /** Ottava lines (SIB2-184) covering this note, and the controls that add one over the two selected notes. */
@@ -128,6 +138,10 @@
     pendingSlur = null,
     slurs = [],
     onfermata,
+    ondynamic,
+    hairpins = [],
+    onhairpin,
+    onrmhairpin,
     onslur,
     onrmslur,
     ottavas = [],
@@ -385,6 +399,28 @@
       </label>
     {/if}
 
+    {#if ondynamic !== undefined}
+      <div class="field">
+        <span class="field-label">Dynamic</span>
+        <select
+          class="pitch-input"
+          aria-label="Dynamic"
+          value={selection.dynamic ?? ''}
+          disabled={saving}
+          onchange={(event) => {
+            const chosen = (event.currentTarget as HTMLSelectElement).value;
+            ondynamic?.(chosen === '' ? null : (chosen as Dynamic));
+          }}
+        >
+          <option value="">None</option>
+          {#each DYNAMICS as mark (mark)}
+            <option value={mark}>{mark}</option>
+          {/each}
+        </select>
+        <p class="inspector-note">Drawn under the staff at this {selection.kind}. Applies at once (<code>dynamic set</code>).</p>
+      </div>
+    {/if}
+
     <label class="pin">
       <input
         type="checkbox"
@@ -601,6 +637,29 @@
           </div>
         {/each}
       </div>
+
+      {#if onhairpin !== undefined}
+        <div class="field slur-field">
+          <span class="field-label">Hairpin</span>
+          {#if pendingSlur !== null}
+            <p class="inspector-note">Put a crescendo or diminuendo wedge under the notes from this one to {pendingSlur.with}.</p>
+            <div class="slur-row">
+              <button type="button" class="btn btn-save" disabled={saving} onclick={() => onhairpin?.('crescendo')}>Crescendo</button>
+              <button type="button" class="btn btn-save" disabled={saving} onclick={() => onhairpin?.('diminuendo')}>Diminuendo</button>
+            </div>
+          {:else}
+            <p class="inspector-note">Shift-click a second note to put a crescendo or diminuendo wedge under the run.</p>
+          {/if}
+          {#each hairpins as line (line.id)}
+            <div class="slur-row">
+              <span>{line.id} · {line.hairpin === 'diminuendo' ? 'dim.' : 'cresc.'}</span>
+              <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmhairpin?.(line.id)}>
+                Remove
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
 
     {#if onsettuplet !== undefined}

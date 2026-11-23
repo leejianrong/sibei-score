@@ -7,6 +7,7 @@ import type {
   Clef,
   Clip,
   Duration,
+  Dynamic,
   EndBarline,
   EndingRole,
   Id,
@@ -590,6 +591,10 @@ export type Operation =
   | { type: 'slur.rm'; target: string }
   | { type: 'ottava.set'; target: string; payload: { to: string; shift: 'up' | 'down' } }
   | { type: 'ottava.rm'; target: string }
+  | { type: 'dynamic.set'; target: string; payload: { value: Dynamic } }
+  | { type: 'dynamic.rm'; target: string }
+  | { type: 'hairpin.set'; target: string; payload: { to: string; shape: 'crescendo' | 'diminuendo' } }
+  | { type: 'hairpin.rm'; target: string }
   | { type: 'grace.add'; target: string; payload: { pitch: string; value: 8 | 16 | 32; slashed: boolean } }
   | { type: 'grace.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
