@@ -40,6 +40,7 @@
     redoScore,
     submitOps,
     undoScore,
+    groupScore,
   } from '../lib/api.js';
   import type { ExportFormat, ExportInstrument, MetaSetPayload, Operation } from '../lib/api.js';
   import { TARGET_KEYS, keyEquals } from '../lib/keys.js';
@@ -1097,9 +1098,67 @@
   }
 
   function stopNoteInput(): void {
+    void flushBurst();
     noteInput = null;
     inputMessage = null;
     inputQueue = [];
+  }
+
+  // Undoing a burst of note input as one unit (SIB2-282, the ADR-0003 amendment). Each key is its own batch; this counts the
+  // run of them that were this tab's own contiguous writes (the version advanced by exactly one per write), and when the
+  // burst ends (the mode is left, two seconds pass with no key, or something else is about to write or undo) it asks the
+  // server to fold them into one undoable unit. A version that jumped means someone else wrote in between: counting starts
+  // again from there, so the group never swallows their edit. A refused group (409, 422) just leaves the keys undoable one
+  // at a time, which is what they were.
+  const BURST_PAUSE_MS = 2000;
+  let burstCount = 0;
+  let burstVersion: number | null = null;
+  let burstTimer: ReturnType<typeof setTimeout> | null = null;
+  let flushing: Promise<void> | null = null;
+
+  function noteBurst(before: number, after: number): void {
+    if (burstTimer !== null) clearTimeout(burstTimer);
+    if (after !== before + 1 || (burstCount > 0 && burstVersion !== before)) {
+      burstCount = after === before + 1 ? 1 : 0;
+      burstVersion = after === before + 1 ? after : null;
+    } else {
+      burstCount += 1;
+      burstVersion = after;
+    }
+    burstTimer = burstCount >= 2 ? setTimeout(() => void flushBurst(), BURST_PAUSE_MS) : null;
+  }
+
+  /** Close the burst: wait for the keys in flight, then group what was written. Safe to call any time, and from many places. */
+  function flushBurst(): Promise<void> {
+    if (burstTimer !== null) {
+      clearTimeout(burstTimer);
+      burstTimer = null;
+    }
+    if (flushing !== null) return flushing;
+    if (burstCount < 2) {
+      burstCount = 0;
+      burstVersion = null;
+      return Promise.resolve();
+    }
+    flushing = (async () => {
+      try {
+        while (inputBusy || saving) await new Promise((resolve) => setTimeout(resolve, 20));
+        const count = burstCount;
+        const at = burstVersion;
+        burstCount = 0;
+        burstVersion = null;
+        if (score === null || at === null || count < 2 || at !== version) return;
+        try {
+          await groupScore(score.id, count, at);
+          await load();
+        } catch {
+          // Someone else wrote, or the server would not fold that many: the keys stay undoable one at a time.
+        }
+      } finally {
+        flushing = null;
+      }
+    })();
+    return flushing;
   }
 
   /**
@@ -1127,8 +1186,12 @@
         noteInput = result.state;
         inputMessage = result.message;
         if (result.ops.length === 0) continue;
-        const ok = await runOps(result.ops, true);
-        if (ok) continue;
+        const wrote = version;
+        const ok = await runOps(result.ops, true, true);
+        if (ok) {
+          noteBurst(wrote, version);
+          continue;
+        }
         inputQueue = [];
         if (conflict) {
           conflict = false;
@@ -1321,8 +1384,10 @@
    * trust the response (`changed[]` names ids, not values), and deselect. A 409 is the one path that
    * does not re-read — it raises the conflict panel, and reloading is the only way out (ADR-0003).
    */
-  async function runOps(operations: Operation[], keepSelection = false): Promise<boolean> {
+  async function runOps(operations: Operation[], keepSelection = false, burst = false): Promise<boolean> {
     if (score === null) return false;
+    // Any write that is not a note-input key closes the burst before it, so the group never reaches past it (SIB2-282).
+    if (!burst) await flushBurst();
     saving = true;
     saveError = null;
     try {
@@ -1369,7 +1434,12 @@
    * cheap no-op, so ctrl-Z past the first edit is quiet rather than an error.
    */
   async function runMove(direction: 'undo' | 'redo'): Promise<void> {
-    if (score === null || !editable || saving) return;
+    if (score === null || !editable) return;
+    // Keys typed ahead are still being written: wait for them, then close the burst, so this undo reverses all of it and
+    // is not swallowed by a write in flight (SIB2-282). Bounded, so a stuck request cannot hold the key forever.
+    for (let waited = 0; (inputBusy || saving) && waited < 10_000; waited += 20) await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushBurst();
+    if (score === null || saving) return;
     saving = true;
     saveError = null;
     try {
@@ -1451,7 +1521,7 @@
         return;
       }
       if (action === 'undo' || action === 'redo') {
-        if (!editable || saving) return;
+        if (!editable) return;
         event.preventDefault();
         void runMove(action);
         return;

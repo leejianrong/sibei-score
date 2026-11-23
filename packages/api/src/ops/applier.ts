@@ -35,6 +35,11 @@ export interface Applier {
   undo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): Promise<UndoResult>;
   redo(owner: Owner, scoreId: Id, expectedVersion: number | undefined): Promise<UndoResult>;
   /**
+   * Fold the last `count` batches in effect into one undoable unit (SIB2-282, the ADR-0003 amendment): one log marker, no
+   * document change. `expectedVersion` is the tail the caller wrote, so another writer's batch cannot be swallowed.
+   */
+  group(owner: Owner, scoreId: Id, count: number | undefined, expectedVersion: number | undefined): Promise<UndoResult>;
+  /**
    * Copy a score to a new one with a fresh, single-operation log (V8c). A library-lifecycle call
    * like delete — but where delete cannot be an op (it destroys a log), duplicate *creates* one, so
    * it goes through the applier, the only writer (ADR-0003). The copy's log is one `score.import`
@@ -155,6 +160,10 @@ export function createApplier(
 
     async redo(owner, scoreId, expectedVersion) {
       return await move(store, owner, scoreId, expectedVersion, 'redo', now);
+    },
+
+    async group(owner, scoreId, count, expectedVersion) {
+      return await groupBatches(store, owner, scoreId, count, expectedVersion, now);
     },
 
     async duplicate(owner, scoreId, newId) {
@@ -300,6 +309,47 @@ async function move(
   const nowCanUndo = nextApplied.length > 1;
   const nowCanRedo = direction === 'undo' ? true : redo.length > 1;
   return { scoreId, version: outcome.version, changed: [scoreId], moved: true, canUndo: nowCanUndo, canRedo: nowCanRedo };
+}
+
+/**
+ * `group` (SIB2-282): append one marker saying the last `count` applied batches are a single unit. The version is checked
+ * first like every write, and the count must leave the `score.create` floor alone (undo still stops at an empty score).
+ * The document is unchanged, so the commit carries the document as it is.
+ */
+async function groupBatches(
+  store: ScoreReader & ScoreWriter,
+  owner: Owner,
+  scoreId: Id,
+  count: number | undefined,
+  expectedVersion: number | undefined,
+  now: () => Date,
+): Promise<UndoResult> {
+  if (expectedVersion === undefined) throw new OperationError({ kind: 'missing-expected-version' });
+  if (count === undefined || !Number.isInteger(count) || count < 2) {
+    throw new OperationError({ kind: 'validation', detail: 'group needs a count of at least 2 batches to fold into one' });
+  }
+  const current = await store.get(owner, scoreId);
+  if (current === null) throw new OperationError({ kind: 'no-such-score', id: scoreId });
+  if (expectedVersion !== current.version) {
+    throw new OperationError({ kind: 'stale-version', expected: expectedVersion, current: current.version });
+  }
+  const { applied, redo } = resolveLog(await store.operations(owner, scoreId));
+  if (count > applied.length - 1) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `cannot group ${count} batches: only ${Math.max(applied.length - 1, 0)} can be folded (the first batch creates the score)`,
+    });
+  }
+  const marker: ControlOperation = { type: 'group', count };
+  const outcome = await store.commit(owner, scoreId, expectedVersion, current.score, stamp([marker], now));
+  if (!outcome.ok) {
+    if (outcome.reason === 'conflict') {
+      throw new OperationError({ kind: 'stale-version', expected: expectedVersion, current: outcome.version });
+    }
+    if (outcome.reason === 'not-found') throw new OperationError({ kind: 'no-such-score', id: scoreId });
+    throw new OperationError({ kind: 'conflict-exists', id: scoreId });
+  }
+  return { scoreId, version: outcome.version, changed: [scoreId], moved: true, canUndo: true, canRedo: redo.length > 0 };
 }
 
 function requireId(scoreId: Id | null): Id {

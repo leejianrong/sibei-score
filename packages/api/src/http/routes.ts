@@ -286,6 +286,21 @@ export async function route(
   // Duplicate (V8c). A library-lifecycle call that *creates* a score, so it goes through the applier
   // (the only writer) rather than beside it — unlike delete, which destroys and cannot be an op. The
   // new id is minted from the source when the body names none; a 201 with a Location like a create.
+  // Group (SIB2-282, the ADR-0003 amendment): fold the last `count` batches into one undoable unit, so a burst of
+  // keystrokes undoes in one step. Same shape as undo: it acts on the log, and carries `expectedVersion`.
+  const groupFor = match(path, /^\/v1\/scores\/([^/]+)\/group$/);
+  if (groupFor !== null) {
+    if (method !== 'POST') return methodNotAllowed(response, ['POST']);
+    const body = await readJsonBody(request, response);
+    if (body === MALFORMED) return 400;
+    const count = (body as { count?: unknown } | null)?.count;
+    return sendJson(
+      response,
+      200,
+      await context.applier.group(context.owner, groupFor, typeof count === 'number' ? count : undefined, expectedVersionFrom(body)),
+    );
+  }
+
   const duplicateFor = match(path, /^\/v1\/scores\/([^/]+)\/duplicate$/);
   if (duplicateFor !== null) {
     if (method !== 'POST') return methodNotAllowed(response, ['POST']);

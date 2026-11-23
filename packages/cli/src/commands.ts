@@ -173,6 +173,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
+  sbscore group <id> <count>               fold the last <count> edits into one undoable unit (ADR-0003)
   sbscore mcp                              serve the MCP tools over stdio (V22b): for an MCP client that
               launches a process (Claude Desktop, an editor). The same tools as a hosted server's /mcp,
               run through this CLI's credentials and --url; stdout carries only the protocol
@@ -384,6 +385,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return move('undo', flags, client, io, json);
     case 'redo':
       return move('redo', flags, client, io, json);
+    case 'group':
+      return group(flags, client, io, json);
     case 'health': {
       const health = await client.health();
       io.out(json ? JSON.stringify(health) : `${health.status} · api ${health.api}`);
@@ -1784,6 +1787,25 @@ async function move(
   const expected = pinned ?? (await client.read(id)).version;
   const result = which === 'undo' ? await client.undo(id, expected) : await client.redo(id, expected);
   io.out(json ? JSON.stringify(result) : moveLine(which, result));
+  return EXIT.ok;
+}
+
+/**
+ * `group <id> <count>` (SIB2-282, the ADR-0003 amendment): the last `count` edits become one undoable unit, so one `undo`
+ * reverses them all and one `redo` brings them back. The document does not change. Like `undo` it carries the version
+ * (`--if-version` or a read first), so it cannot swallow an edit that landed after the ones you mean.
+ */
+async function group(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const id = requiredPositional(flags, 1, 'a score id', 'group');
+  const countText = requiredPositional(flags, 2, 'how many edits to fold', 'group');
+  const count = Number(countText);
+  if (!Number.isInteger(count) || count < 2) {
+    throw new CliError(EXIT.usage, 'usage', `group takes a whole number of edits, 2 or more, not ${JSON.stringify(countText)}`);
+  }
+  const pinned = optionalNumber(flags, 'if-version');
+  const expected = pinned ?? (await client.read(id)).version;
+  const result = await client.group(id, count, expected);
+  io.out(json ? JSON.stringify(result) : `grouped ${count} edits  version ${result.version}`);
   return EXIT.ok;
 }
 

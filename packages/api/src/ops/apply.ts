@@ -2254,8 +2254,14 @@ export function resolveLog(log: readonly StoredOperation[]): UndoState {
   const applied: Operation[][] = [];
   const redo: Operation[][] = [];
   for (const batch of batchesOf(log)) {
-    const control = batch.length === 1 && isControlOperation(batch[0]!) ? batch[0].type : null;
-    if (control === 'undo') {
+    const marker = batch.length === 1 && isControlOperation(batch[0]!) ? batch[0] : null;
+    const control = marker === null ? null : marker.type;
+    if (marker !== null && marker.type === 'group') {
+      // The last `count` applied batches become one (SIB2-282). A count the log cannot honour is tolerated, like an
+      // undo with nothing to act on, so replay stays total over any log: it merges what is there above the floor.
+      const take = Math.min(Math.max(Math.trunc(marker.count), 0), applied.length - 1);
+      if (take >= 2) applied.push(applied.splice(applied.length - take, take).flat());
+    } else if (control === 'undo') {
       const popped = applied.pop();
       if (popped !== undefined) redo.push(popped);
     } else if (control === 'redo') {
