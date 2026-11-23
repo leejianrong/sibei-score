@@ -197,3 +197,51 @@ export function selectionOps(score: Score, ids: readonly Id[], edit: SelectionEd
       return ops;
   }
 }
+
+/** Where the arrow keys can send a selection (SIB2-268). */
+export type ArrowStep = 'next' | 'prev' | 'next-bar' | 'prev-bar' | 'up' | 'down';
+
+/**
+ * The item an arrow key moves the selection to, from the item `from` (a note's id, or any tone of a chord).
+ *
+ * `next`/`prev` walk the item's own lane (staff and voice) in reading order, across barlines; `next-bar`/`prev-bar` jump to
+ * the first item of the nearest bar that has one in that lane; `up`/`down` cross to the staff above or below (the same voice,
+ * else the lowest voice it has), landing on the item of the same bar nearest the same place in it. `null` is "nowhere to
+ * go", so the caller leaves the selection alone.
+ */
+export function neighbourItem(score: Score, from: Id, step: ArrowStep): Id | null {
+  const all = entries(score);
+  const at = all.findIndex((entry) => entry.id === from || entry.tones.some((tone) => tone.id === from));
+  if (at < 0) return null;
+  const here = all[at]!;
+  const lane = all.filter((entry) => sameLane(entry.lane, here.lane));
+  const index = lane.indexOf(here);
+  switch (step) {
+    case 'next':
+      return lane[index + 1]?.id ?? null;
+    case 'prev':
+      return lane[index - 1]?.id ?? null;
+    case 'next-bar':
+      return lane.find((entry) => entry.bar > here.bar)?.id ?? null;
+    case 'prev-bar': {
+      const before = lane.filter((entry) => entry.bar < here.bar);
+      const bar = before[before.length - 1]?.bar;
+      return bar === undefined ? null : before.find((entry) => entry.bar === bar)!.id;
+    }
+    case 'up':
+    case 'down': {
+      const staff = here.lane.staff + (step === 'up' ? -1 : 1);
+      const there = all.filter((entry) => entry.lane.staff === staff && entry.bar === here.bar);
+      if (there.length === 0) return null;
+      const voice = there.some((entry) => entry.lane.voice === here.lane.voice) ? here.lane.voice : Math.min(...there.map((entry) => entry.lane.voice));
+      const inVoice = there.filter((entry) => entry.lane.voice === voice);
+      return inVoice.reduce((best, entry) => (Math.abs(entry.onset - here.onset) < Math.abs(best.onset - here.onset) ? entry : best)).id;
+    }
+  }
+}
+
+/** The first or last item of a lane (of one bar of it, when given), for an arrow key pressed with nothing selected. */
+export function edgeItem(score: Score, lane: Lane, which: 'first' | 'last', bar?: number): Id | null {
+  const inLane = entries(score).filter((entry) => sameLane(entry.lane, lane) && (bar === undefined || entry.bar === bar));
+  return (which === 'first' ? inLane[0] : inLane[inLane.length - 1])?.id ?? null;
+}

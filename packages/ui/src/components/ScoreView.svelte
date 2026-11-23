@@ -18,6 +18,7 @@
    * no second write path — and a stale write recovers by reloading, never by retrying with the
    * server's version (ADR-0003).
    */
+  import { tick } from 'svelte';
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
@@ -45,7 +46,7 @@
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
-  import { boxFor, findItem, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
+  import { boxFor, findItem, hitMargin, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
   import type { Point } from '../lib/hit-test.js';
   import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
   import type { ChordBox } from '../lib/chord-hit.js';
@@ -77,12 +78,13 @@
   import { hashOf } from '../lib/routing.js';
   import NoteInputPanel from './NoteInputPanel.svelte';
   import SelectionPanel from './SelectionPanel.svelte';
-  import { countNotes, itemsBetween, itemsInBars, itemsInStaff, liveItems, selectionOps, selectionSpan } from '../lib/selection.js';
+  import { countNotes, edgeItem, itemsBetween, itemsInBars, itemsInStaff, liveItems, neighbourItem, selectionOps, selectionSpan } from '../lib/selection.js';
   import { clipboard, clipSummary, clipText, parseClipText, pasteOp } from '../lib/clipboard.js';
   import { copyRange } from '@sibei/model';
   import type { Clip } from '@sibei/model';
-  import type { SelectionEdit } from '../lib/selection.js';
+  import type { ArrowStep, SelectionEdit } from '../lib/selection.js';
   import ShortcutsOverlay from './ShortcutsOverlay.svelte';
+  import { chartActionFor } from '../lib/keymap.js';
   import { GHOST_ID, actionForKey, caretAtItem, caretLabel, ghostScore, inputContext, startInput, stepInput } from '../lib/note-input.js';
   import type { InputAction, InputState } from '../lib/note-input.js';
 
@@ -155,6 +157,8 @@
   // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
   // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
   let format = $state<ExportFormat>('pdf');
+  // Which page an SVG export is (SIB2-277): the CLI writes one file per page, so the rail names the page it will download.
+  let svgPage = $state(1);
 
   // The instrument part on view (V6e). `concert` is the stored score; a transposing instrument is a
   // render-time view (ADR-0016) — the sheet shows the written part and the same choice drives the
@@ -418,11 +422,13 @@
   // The beat under the pointer while it is over a chord band and nothing is being saved — the
   // "click above the staff to add a chord" affordance (the approved V5e interaction).
   let hoverSlot = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
+  // The note or rest a click would select (SIB2-275): lit faintly under the pointer so a reader sees what the click hits.
+  let hoverItem = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
 
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
   const pages = $derived(
-    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }),
+    renderScore === null ? [] : renderScorePages(renderScore, { paper, pageNumbers, blankStaves, barNumbers }, { font }, noteInput !== null && editable ? new Set([noteInput.caret.bar]) : undefined),
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
@@ -779,7 +785,7 @@
    * deselect — clicking white space is how the mockup's "Deselect" affordance behaves without a
    * second control for it.
    */
-  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false): void {
+  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false, pxPerUnit?: number): void {
     // A part view is read-only: its notes are written pitches, and an edit there would be submitted
     // against the concert score at the wrong pitch. So a click does nothing until you are on concert.
     if (saving || !editable) return;
@@ -789,27 +795,30 @@
     saveError = null;
 
     if (noteInput !== null && score !== null) {
-      handleInputClick(page, point);
+      handleInputClick(page, point, pxPerUnit);
       return;
     }
 
     // A chord first: its band sits above the staff, clear of the notes, so a click there is never
     // ambiguous with a note. Clicking an existing chord edits it; clicking an empty beat in the band
     // adds one there (Q32). Only then does a click fall through to the notes and rests below.
-    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point);
+    const slop = hitMargin(pxPerUnit);
+    const itemBoxes = pageItemBoxes(page.layout, musicFont);
+    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point, slop);
     if (chordHit !== null && !chordHit.plain) {
       selectChord(pageIndex, 'edit', chordHit.chordId, chordHit.addr, chordHit.barNumber, chordHit.beat, chordHit.text, chordHit);
       return;
     }
     if (score !== null) {
       const slot = beatSlotAt(page.layout, point, score.meta.time);
-      if (slot !== null && chordHit === null) {
+      // A click straight on a notehead is the note even when its head reaches up into the chord band (a high note).
+      if (slot !== null && chordHit === null && hitTest(itemBoxes, point, 0) === null) {
         selectChord(pageIndex, 'add', null, slot.addr, slot.barNumber, slot.beat, '', slot);
         return;
       }
     }
 
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    const hit = hitTest(itemBoxes, point, slop);
     // Shift-click a second note while one is selected: the other end of a slur (SIB2-168).
     if (extend && hit !== null && selectedId !== null && hit.id !== selectedId) {
       rangeId = hit.id;
@@ -941,6 +950,42 @@
     await runOps(operations, edit.type !== 'delete' && edit.type !== 'move');
   }
 
+  /** Select one note or rest by id, as a click on it would, wherever it is drawn; keeps it in view (SIB2-268). */
+  function selectItem(id: Id): void {
+    for (const [pageIndex, page] of pages.entries()) {
+      const found = findItem(page.layout, id);
+      if (found === null) continue;
+      extraIds = [];
+      rangeId = null;
+      rangePage = null;
+      chordSel = null;
+      barSel = null;
+      selectedId = id;
+      selectedTone = null;
+      selectedPage = pageIndex;
+      laneChoice = { staff: found.staffIndex + 1, voice: found.voice };
+      void tick().then(() => document.querySelector('.hit.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+      return;
+    }
+  }
+
+  /**
+   * The arrow keys. From a selected note or rest they walk the score (`neighbourItem`); with nothing selected they take
+   * the first or last item of the selected bar, else of the active voice, so the keyboard always has a way in.
+   */
+  function moveSelection(step: ArrowStep): void {
+    if (score === null) return;
+    if (selectedId !== null) {
+      const next = neighbourItem(score, selectedId, step);
+      if (next !== null) selectItem(next);
+      return;
+    }
+    const backwards = step === 'prev' || step === 'prev-bar';
+    const lane = barSel === null ? activeLane : { staff: barSel.staffIndex + 1, voice: activeLane.voice };
+    const first = edgeItem(score, lane, backwards ? 'last' : 'first', barSel?.barNumber);
+    if (first !== null) selectItem(first);
+  }
+
   function selectAllInStaff(): void {
     if (score === null || !editable) return;
     deselect();
@@ -948,10 +993,10 @@
   }
 
   /** In note input a click only moves the caret: onto a note (typing then overwrites it) or to the end of a bar's music. */
-  function handleInputClick(page: (typeof pages)[number], point: Point): void {
+  function handleInputClick(page: (typeof pages)[number], point: Point, pxPerUnit?: number): void {
     if (score === null || noteInput === null) return;
     const ctx = inputContext(score);
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point, hitMargin(pxPerUnit));
     if (hit !== null) {
       if (hit.id === GHOST_ID) return;
       const found = findItem(page.layout, hit.id);
@@ -1049,7 +1094,8 @@
   }
 
   /** The pointer moved over a sheet: light the add-a-chord marker if it is in an empty band beat. */
-  function handleSheetHover(pageIndex: number, point: Point | null): void {
+  function handleSheetHover(pageIndex: number, point: Point | null, pxPerUnit?: number): void {
+    hoverItem = null;
     if (point === null || saving || score === null || !editable) {
       hoverSlot = null;
       return;
@@ -1060,7 +1106,17 @@
       return;
     }
     // Don't offer "add" where a chord already sits — that is an edit target, not an empty beat.
-    if (chordAt(pageChordBoxes(page.layout, musicFont), point) !== null) {
+    if (chordAt(pageChordBoxes(page.layout, musicFont), point, hitMargin(pxPerUnit)) !== null) {
+      hoverSlot = null;
+      return;
+    }
+    const itemBoxes = pageItemBoxes(page.layout, musicFont);
+    const over = hitTest(itemBoxes, point, hitMargin(pxPerUnit));
+    if (over !== null && noteInput === null) {
+      const box = boxFor(itemBoxes, over.id);
+      if (box !== null) hoverItem = { pageIndex, box };
+    }
+    if (over !== null && hitTest(itemBoxes, point, 0) !== null) {
       hoverSlot = null;
       return;
     }
@@ -1271,47 +1327,6 @@
   }
 
   /**
-   * Ctrl-Z / ⌘-Z undo, and Ctrl-Shift-Z / ⌘-Shift-Z / Ctrl-Y redo — the global affordance PLAN.md
-   * names (P4), the browser half of `sbscore undo`. Registered on the window once (the effect reads
-   * nothing reactive synchronously, so it does not re-bind on every edit) and reads the live state
-   * at keypress. It stands down over a text field so the chord editor keeps its own undo, and over a
-   * part preview, where editing — and so undo — is off (the sheet is not the concert truth).
-   */
-  $effect(() => {
-    function onKeydown(event: KeyboardEvent): void {
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const key = event.key.toLowerCase();
-      const undo = key === 'z' && !event.shiftKey;
-      const redo = (key === 'z' && event.shiftKey) || key === 'y';
-      if (!undo && !redo) return;
-      if (isTextField(event.target) || score === null || !editable || saving) return;
-      event.preventDefault();
-      void runMove(undo ? 'undo' : 'redo');
-    }
-    window.addEventListener('keydown', onKeydown);
-    return () => window.removeEventListener('keydown', onKeydown);
-  });
-
-  /**
-   * Keys 1 to 4 pick that voice of the active staff (slice 5b), only on a chart that has more than one lane and only
-   * when nothing else wants the key: not in a text field, not with a modifier, not over a focused control (a button
-   * or a select owns its own keys). Nothing else in the score view binds a bare digit, so a lead sheet is unaffected.
-   */
-  $effect(() => {
-    function onVoiceKey(event: KeyboardEvent): void {
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (score === null || !editable || saving || !multiLane || noteInput !== null || isTextField(event.target)) return;
-      if (event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName)) return;
-      const voice = voiceForKey(score, activeLane, event.key);
-      if (voice === null) return;
-      event.preventDefault();
-      laneChoice = { staff: activeLane.staff, voice };
-    }
-    window.addEventListener('keydown', onVoiceKey);
-    return () => window.removeEventListener('keydown', onVoiceKey);
-  });
-
-  /**
    * The note-input keys (SIB2-155). `N` opens the mode; while it is open the keys of `actionForKey` are claimed and
    * everything else (ctrl-Z, the browser's own shortcuts) passes through. `?` shows the shortcut list anywhere.
    * Stands down over a text field, and Enter/Space over a focused button (they press it).
@@ -1347,46 +1362,82 @@
     };
   });
 
-  $effect(() => {
-    function onSelectionKey(event: KeyboardEvent): void {
-      if (noteInput !== null || showShortcuts || isTextField(event.target) || score === null || !editable || saving) return;
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
-        event.preventDefault();
-        selectAllInStaff();
-      } else if ((event.key === 'Delete' || event.key === 'Backspace') && pickedIds.length > 1) {
-        event.preventDefault();
-        void handleSelectionEdit({ type: 'delete' });
-      } else if (event.key === 'Escape' && (pickedIds.length > 0 || barSel !== null)) {
-        deselect();
-      }
-    }
-    window.addEventListener('keydown', onSelectionKey);
-    return () => window.removeEventListener('keydown', onSelectionKey);
-  });
-
+  /**
+   * Every key of the score view goes through the one table in `../lib/keymap.ts` (SIB2-268), which is also what the `?`
+   * overlay prints: undo/redo, the note-input switch, the voice digits, and the selection keys (arrows, Delete, Escape,
+   * select-all). While note input is open the table claims only undo, redo and `?`; every other key is the mode's
+   * (`actionForKey`). Stands down over a text field, and for the keys a focused control owns (a select's arrows, a
+   * button's Enter), so the rail's own controls keep working from the keyboard. Reads the live state at the keypress.
+   */
   $effect(() => {
     function onKey(event: KeyboardEvent): void {
       if (isTextField(event.target) || score === null) return;
-      const control = event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName);
-      if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const tag = event.target instanceof HTMLElement ? event.target.tagName : '';
+      const control = ['BUTTON', 'SELECT', 'A', 'SUMMARY'].includes(tag);
+      const action = chartActionFor(event, noteInput !== null);
+      if (action === 'help') {
         event.preventDefault();
         showShortcuts = !showShortcuts;
         return;
       }
-      if (showShortcuts) return;
-      if (noteInput === null) {
-        if ((event.key === 'n' || event.key === 'N') && !event.ctrlKey && !event.metaKey && !event.altKey && !control && editable && !saving) {
-          event.preventDefault();
-          startNoteInput();
-        }
+      if (action === 'undo' || action === 'redo') {
+        if (!editable || saving) return;
+        event.preventDefault();
+        void runMove(action);
         return;
       }
-      if (!editable) return;
-      const action = actionForKey(event);
-      if (action === null) return;
-      if (control && action.type === 'advance') return;
-      event.preventDefault();
-      dispatchInput(action);
+      if (showShortcuts) return;
+      if (noteInput !== null) {
+        if (!editable) return;
+        const input = actionForKey(event);
+        if (input === null) return;
+        if (control && input.type === 'advance') return;
+        event.preventDefault();
+        dispatchInput(input);
+        return;
+      }
+      if (action === null || !editable || saving) return;
+      // A focused control owns its own keys: a select's arrows, a button's Delete, a link's Enter.
+      if (control) return;
+      switch (action) {
+        case 'note-input':
+          event.preventDefault();
+          startNoteInput();
+          return;
+        case 'voice': {
+          if (!multiLane) return;
+          const voice = voiceForKey(score, activeLane, event.key);
+          if (voice === null) return;
+          event.preventDefault();
+          laneChoice = { staff: activeLane.staff, voice };
+          return;
+        }
+        case 'select-all':
+          event.preventDefault();
+          selectAllInStaff();
+          return;
+        case 'delete':
+          if (pickedIds.length > 0) {
+            event.preventDefault();
+            void handleSelectionEdit({ type: 'delete' });
+          } else if (chordSel !== null && chordSel.mode === 'edit') {
+            event.preventDefault();
+            void handleChordRemove();
+          }
+          return;
+        case 'deselect':
+          if (pickedIds.length > 0 || barSel !== null || chordSel !== null) deselect();
+          return;
+        case 'next':
+        case 'prev':
+        case 'next-bar':
+        case 'prev-bar':
+        case 'up':
+        case 'down':
+          event.preventDefault();
+          moveSelection(action);
+          return;
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1911,17 +1962,35 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers, page: Math.min(svgPage, pages.length) })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
         </a>
+        {#if format === 'svg' && pages.length > 1}
+          <!-- One SVG per page, like `export --svg`: say which page the link downloads rather than silently giving page 1. -->
+          <select
+            class="part-select"
+            aria-label="SVG page to export"
+            value={String(Math.min(svgPage, pages.length))}
+            onchange={(event) => (svgPage = Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each pages as _, at (at)}
+              <option value={String(at + 1)}>Page {at + 1} of {pages.length}</option>
+            {/each}
+          </select>
+        {/if}
         <!-- The route, not the instance: the id is already in the facts above, and a
              40-character id wraps this column into nonsense. -->
         <p class="url">
           <span class="u-path">{route.path}</span>
           <span class="u-q">{route.query}</span>
         </p>
+        {#if format === 'svg'}
+          <p class="control-note">
+            The browser's own drawing as SVG, one file per page (<code>export --svg</code>). Pick the page above.
+          </p>
+        {/if}
         {#if format === 'musicxml'}
           <p class="control-note">
             MusicXML is a codec at the edges (ADR-0004) — lossy in known ways, and it ignores the
@@ -2063,6 +2132,7 @@
             chordSelection={chordOverlay}
             barSelection={barOverlay}
             addHint={hoverSlot}
+            hoverItem={hoverItem}
             onselect={handleSheetClick}
             onhover={handleSheetHover}
           />
@@ -2295,6 +2365,10 @@
   .part-select {
     flex: 1;
     min-width: 0;
+    /* A select is as wide as its longest option; inside the rail it must not run past the rail's edge (SIB2-276). */
+    max-width: 100%;
+    box-sizing: border-box;
+    text-overflow: ellipsis;
     background: var(--panel-2);
     border: 1px solid var(--rule);
     color: var(--ink);

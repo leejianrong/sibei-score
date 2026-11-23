@@ -55,7 +55,7 @@ const CHAR = SIZE * 0.6;
 const HIT_MARGIN = units(1.2);
 
 /** The chord a point lands on — nearest within the margin wins, exactly as `hitTest` does. */
-export function chordAt(boxes: readonly ChordBox[], point: Point): ChordBox | null {
+export function chordAt(boxes: readonly ChordBox[], point: Point, margin: number = HIT_MARGIN): ChordBox | null {
   let best: ChordBox | null = null;
   let bestDistance = Infinity;
   for (const box of boxes) {
@@ -67,7 +67,7 @@ export function chordAt(boxes: readonly ChordBox[], point: Point): ChordBox | nu
       best = box;
     }
   }
-  return best !== null && bestDistance <= HIT_MARGIN ? best : null;
+  return best !== null && bestDistance <= margin ? best : null;
 }
 
 /** Every chord symbol on a page, boxed where the engraver placed and sized it. */
