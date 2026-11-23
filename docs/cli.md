@@ -151,8 +151,8 @@ success line and kept on the import record. Voice and bass make one melody staff
 percussion staff, and **piano a grand staff** (treble and bass in one part, set by width): the importer
 guesses which hand plays each note (a pitch rule around middle C that follows each hand's recent range
 and keeps a chord in one hand where it fits) and says so in a `hand-split:` line, so check both staves.
-A chord is written as the notes of its hand in separate voices, a third voice and a fourth when needed (the
-model now has stacked chords, and the importer moves to them in a later change). Moving a wrongly assigned note is `note rm` plus `note add` with an
+A chord is one stacked item in one voice (the notes a hand strikes and releases together); a melody over a
+held chord is two voices, and a fifth simultaneous line on a staff is dropped with a warning. Moving a wrongly assigned note is `note rm` plus `note add` with an
 address such as `s2.bar3.beat2`. A file that
 is not valid v1, has a `schema_version` other than 1, or names another instrument (guitar, other) is refused with
 exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.

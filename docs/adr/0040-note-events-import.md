@@ -124,10 +124,12 @@ draft with its warnings.
   hand does not stretch), by crossing the other hand's held notes, and by a mild pull toward the split point (middle
   C, `splitPoint` in the mapper options). Measured on the synthetic corpus (`docs/eval.md`): about 96% of the notes
   found land on the right staff.
-- **No chord notes in the model** (ADR-0041: a voice holds one item per onset), so the notes a hand plays together
-  are spread over that staff's voices, highest first (a triad is voices 1 to 3), and notes that overlap in time without
-  starting together take the next free voice. A fifth simultaneous note on one staff is dropped with a warning. This is
-  the named imperfection; stacked chord notes are a separate card.
+- **Stacked chords** (ADR-0041 "As built: stacked chords", SIB2-243; this replaces an earlier voice-per-tone reading).
+  Notes a hand strikes and releases together are one item in one voice carrying all their pitches (the highest carries
+  the item), tied per pitch across bar lines; notes that overlap in time without starting together still take the next
+  free voice, so a melody over a held chord is two voices. A fifth simultaneous *line* on one staff is dropped with a
+  warning, and a chord keeps at most ten pitches (the highest five and lowest five). Pieces are unchanged on the note
+  F1 (the same notes are found; they are just written as chords).
 - **Correcting the split** is `note rm` plus `note add` by qualified address, note by note, today; a move op for notes
   and bar ranges is a card.
 - `splitPoint` is not yet reachable from a surface (it would have to be kept on the job), so the default is what every

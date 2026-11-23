@@ -3,7 +3,7 @@
  *
  * The piano importer's two jobs are reading the notes and guessing the hands, so its evaluation scores both: note F1
  * (pitch at an absolute tick) and **hand accuracy** (of the notes found, the share on the staff the truth put them
- * on). The ground truth is a grand-staff `Score` (the staff is the hand, the voices are chord tones and inner lines),
+ * on). The ground truth is a grand-staff `Score` (the staff is the hand, a chord is one stacked item and the voices are inner lines, SIB2-243),
  * so it can come from a fixture or from {@link generatePianoScore}; both are rendered by {@link pianoScoreToNoteEvents}
  * with the same jitter the melody rows use. Seeded and deterministic; Node-free; synthetic only.
  */
@@ -12,6 +12,7 @@ import type { NoteEvents, Score } from '@sibei/model';
 import {
   TICKS_PER_QUARTER,
   allStaves,
+  chordTones,
   barCapacity,
   durationTicks,
   makeBar,
@@ -21,7 +22,7 @@ import {
   pitchToMidi,
   spellPitchAt,
 } from '@sibei/model';
-import type { BarItem, KeySignature, Note } from '@sibei/model';
+import type { BarItem, KeySignature, Note, StackedNote } from '@sibei/model';
 import { JITTER_PROFILES, clamp01, gauss, note, round3 } from './note-events.js';
 import type { RenderOptions } from './note-events.js';
 import { makeRng } from './rng.js';
@@ -82,7 +83,7 @@ export function generatePianoScore(options: PianoOptions): Score {
       for (const [beat, ticks] of [[0, 960], [2, 480], [3, 480]] as const) {
         triadOn(rh, i)
           .reverse()
-          .forEach((midi, v) => out.push({ hand: 1, voice: v + 1, at: beat * 480, ticks, midi }));
+          .forEach((midi) => out.push({ hand: 1, voice: 1, at: beat * 480, ticks, midi }));
         i = Math.max(0, Math.min(rh.length - 6, i + rng.int(-2, 2)));
       }
     } else {
@@ -102,7 +103,7 @@ export function generatePianoScore(options: PianoOptions): Score {
         else
           triadOn(lh, j + 3)
             .reverse()
-            .forEach((midi, v) => out.push({ hand: 2, voice: v + 1, at: beat * 480, ticks: 480, midi }));
+            .forEach((midi) => out.push({ hand: 2, voice: 1, at: beat * 480, ticks: 480, midi }));
       }
     } else if (lhStyle === 'walking') {
       for (let beat = 0; beat < 4; beat += 1) {
@@ -118,7 +119,7 @@ export function generatePianoScore(options: PianoOptions): Score {
     } else {
       triadOn(lh, j)
         .reverse()
-        .forEach((midi, v) => out.push({ hand: 2, voice: v + 1, at: 0, ticks: 1920, midi }));
+        .forEach((midi) => out.push({ hand: 2, voice: 1, at: 0, ticks: 1920, midi }));
     }
     sounds.push(out);
   }
@@ -132,13 +133,19 @@ function buildScore(seed: number, key: KeySignature, sounds: Sound[][]): Score {
       const mine = bar.filter((s) => s.hand === hand);
       const voices = [...new Set(mine.map((s) => s.voice))].sort((a, b) => a - b);
       return (voices.length === 0 ? [1] : voices).map((voice, vi) => ({
-        items: mine
-          .filter((s) => s.voice === voice)
-          .sort((a, b) => a.at - b.at)
-          .map(
-            (s, n): BarItem =>
-              makeNote({ id: `n-${index + 1}-${hand}-${vi + 1}-${n}`, onset: s.at, duration: durationOf(s.ticks), pitch: spellPitchAt(s.midi, key) }),
-          ),
+        items: chordsOf(mine.filter((s) => s.voice === voice)).map(
+          (tones, n): BarItem => {
+            const id = `n-${index + 1}-${hand}-${vi + 1}-${n}`;
+            const carried = makeNote({ id, onset: tones[0]!.at, duration: durationOf(tones[0]!.ticks), pitch: spellPitchAt(tones[0]!.midi, key) });
+            // Sounds struck together in one voice are one stacked chord, the highest pitch carrying it (SIB2-243).
+            if (tones.length > 1) {
+              carried.stack = tones.slice(1).map(
+                (t, k): StackedNote => ({ id: `${id}-${k + 1}`, pitch: spellPitchAt(t.midi, key), accidental: 'auto', tie: 'none', spellingPinned: false }),
+              );
+            }
+            return carried;
+          },
+        ),
       }));
     });
   return makeStaffedScore({
@@ -147,6 +154,16 @@ function buildScore(seed: number, key: KeySignature, sounds: Sound[][]): Score {
     bars: views,
     parts: [{ name: 'Piano', instrument: 0, staves: [{ clef: 'treble', bars: staff(1) }, { clef: 'bass', bars: staff(2) }] }],
   });
+}
+
+/** The sounds of one voice grouped by where and how long they sound, highest pitch first, in time order. */
+function chordsOf(sounds: Sound[]): Sound[][] {
+  const groups = new Map<string, Sound[]>();
+  for (const sound of [...sounds].sort((a, b) => a.at - b.at || b.midi - a.midi)) {
+    const key = `${sound.at}:${sound.ticks}`;
+    groups.set(key, [...(groups.get(key) ?? []), sound]);
+  }
+  return [...groups.values()];
 }
 
 function durationOf(ticks: number): { value: 1 | 2 | 4 | 8 | 16; dots: 0 } {
@@ -208,8 +225,12 @@ function truthNotes(score: Score): TruthNote[] {
       const number = score.bars.find((b) => b.id === bar.barId)!.number;
       for (const voice of bar.voices) {
         for (const item of voice.items) {
-          if (item.kind !== 'note' || item.tie === 'stop' || item.tie === 'both') continue;
-          out.push({ note: item, tick: (number - 1) * capacity + item.onset, hand: staffIndex === 0 ? 1 : 2 });
+          if (item.kind !== 'note') continue;
+          // Each pitch of a stacked chord is a struck note of its own, tied or not by its own tie.
+          for (const tone of chordTones(item)) {
+            if (tone.tie === 'stop' || tone.tie === 'both') continue;
+            out.push({ note: { ...item, pitch: tone.pitch }, tick: (number - 1) * capacity + item.onset, hand: staffIndex === 0 ? 1 : 2 });
+          }
         }
       }
     }

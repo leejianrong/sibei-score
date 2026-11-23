@@ -450,3 +450,14 @@ moves every pitch (`writtenView`). Import joins a `<chord/>` pitched note to the
 note keeps its own pitch, so a round trip reproduces the stored order), and **replaces** the old "a chord note was dropped:
 one pitch per voice" case. Still named, never silent: a chord note with no note to join, a rest or unpitched one, a repeat of a
 pitch already in the chord, and a chord past ten pitches. Drums struck together keep the voice-per-drum reading (slice 6c).
+
+**PR 4 as built (SIB2-248): the NoteEvents piano importer.** `mapPianoEventsToScore` now groups each hand's notes that are
+struck at one grid point and released at one (after the chord-end alignment it already did) into a unit, gives the unit one
+voice (`assignVoices` works on units, so the "fifth simultaneous line is dropped, an overlap cuts the soonest-ending voice
+short" rules are the same rules, one level up), and writes it as one item carrying the highest pitch with the others as its
+`stack`, every pitch with the same tie. Confidence is the chord's lowest and it is flagged when any member is. A chord keeps at
+most ten pitches (highest five and lowest five). The synthetic ground truth (`packages/synth`) writes its chords the same
+way, and `truthNotes` expands a chord into its struck pitches, so note F1 is still F1 on (tick, pitch). On the same events the
+importer returns the same struck notes as the voice-per-tone version on every heavy seed; the table in `docs/eval.md` moved
+only because the ground truth's note order, and so each note's jitter draw, changed. The drum importer (ADR-0041 slice 6c) is
+untouched: two limbs on one beat stay two voices, which is the convention for a drum chart.

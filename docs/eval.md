@@ -67,6 +67,12 @@ notes found, the share on the staff the truth has them on. Before numbers, as th
 | heavy | 0.730 | 0.961 |
 | unmarked | 0.947 | 0.961 |
 
+Since SIB2-243 a chord is one stacked item in one voice (importer and ground truth both), where it was a voice per tone.
+Measured on the same events, the importer returns the same struck notes as before on every heavy-jitter seed; the table
+above is a different random draw of the jitter (the truth's notes are now visited in a different order, so each note's
+noise differs), which is why the rows moved a little: 0.997 / 0.997 / 0.951 / 0.716 / 0.951 clean to unmarked, hand
+accuracy 0.958 / 0.958 / 0.958 / 0.962 / 0.958. Heavy's 0.716 against 0.730 is that draw, not the importer.
+
 The hand split is a pitch-and-continuity rule; hand accuracy does not move with jitter because the split reads
 pitch, not timing. The corpus is synthetic and its hands are tidier than real playing (no real crossings, no
 pedalled sustain), so treat 0.96 as an upper bound on real piano.
