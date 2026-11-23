@@ -130,4 +130,18 @@ describe('building a two-staff, two-voice score from the CLI', () => {
     expect((await sbscore('part', 'rm', 'tune', 'p2')).code).toBe(EXIT.ok);
     expect((await sbscore('part', 'rm', 'tune', 'p1')).code).toBe(EXIT.validation);
   });
+
+  it('writes drums with --drum and --head and prints them by name (SIB2-230)', async () => {
+    await sbscore('new', '--id', 'tune', '--bars', '2');
+    expect((await sbscore('part', 'add', 'tune', '--name', 'Drums', '--staff-type', 'percussion')).code).toBe(EXIT.ok);
+    expect((await sbscore('note', 'add', 'tune', 's2.bar1.beat1', '--drum', 'banjo', '--dur', '4')).code).toBe(EXIT.validation);
+    expect((await sbscore('note', 'add', 'tune', 's2.bar1.beat1', '--drum', 'open hi-hat', '--dur', '4')).code).toBe(EXIT.ok);
+    expect((await sbscore('note', 'add', 'tune', 's2.bar1.beat2', '--drum', 'kick', '--head', 'diamond', '--dur', '4')).code).toBe(EXIT.ok);
+    expect((await sbscore('note', 'add', 'tune', 's1.bar1.beat1', '--pitch', 'C5', '--dur', '4', '--head', 'x')).code).toBe(EXIT.validation);
+    const shown = await sbscore('show', 'tune');
+    expect(shown.out).toContain('hihat-open/4');
+    expect(shown.out).toContain('kick/4:diamond');
+    expect((await sbscore('note', 'set', 'tune', 's2.bar1.n2', '--head', 'default')).code).toBe(EXIT.ok);
+    expect((await sbscore('show', 'tune')).out).not.toContain(':diamond');
+  });
 });

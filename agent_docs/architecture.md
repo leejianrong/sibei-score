@@ -83,8 +83,15 @@ rides two half-spaces up or down (`restShiftOf`), and the later voice's head mov
 are a second or less apart, a pair that crossed, or a unison of different heads (`noteShifts`); a unison of the same head
 is shared. Its accidental stays at the unmoved x. A single voice keeps the position-based stem rule exactly. Layout
 measures the ink of forced stems too (`voiceStems` in `lanes.ts`, fed to `staffInk`), so the chord row clears an up stem.
-Ties and slurs are drawn per staff from that staff's own anchors; ottava lines are the top staff's. A percussion note is
-an x head (`percussionNoteheadFor`) on the one line, stems up. Seen with `pnpm proof <fixture>`: `grand-staff`,
+Ties and slurs are drawn per staff from that staff's own anchors; ottava lines are the top staff's. A percussion note with
+no named drum is an x head (`percussionNoteheadFor`) on the one line, stems up. **A drum kit (slice 6, SIB2-230)** is a
+percussion staff on which some note names a drum (`isDrumKitStaff`, derived; layout sets `LayoutStaff.drumKit`): five
+lines, each note at its drum's place (`model/src/drums.ts`: the note's `pitch` is the display pitch, counted as treble, so
+ledger lines, ink and positions all come from the pitched code), its head from `Note.head` or the drum
+(`drumNoteheadFor`: x, circled x, diamond, plain), stems fixed by voice (1 and 3 up, 2 and 4 down, `kitStems`), the feet
+voice's rests four half-spaces down (`KIT_FEET_REST_SHIFT`), and the rests of voices 3 and 4 not drawn. Voice 3 exists to
+hold a hit that shares a moment with voice 1 (hat and snare), since a voice holds one item per onset; its stem lands on
+voice 1's. `drum-kit` is the fixture. Seen with `pnpm proof <fixture>`: `grand-staff`,
 `two-voice`, `lead-bass`, `full-band`, `voice-collisions`, `clefs-and-keys`, `staff-furniture`, each with a committed snapshot.
 
 **See alignment without an engraver:** `pnpm layout:overlay [fixture] [--page N]` draws staff lines, groups, the barline

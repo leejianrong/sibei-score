@@ -305,3 +305,37 @@ Second half (SIB2-240): the controls that change the shape.
 - **Not drawn:** a clef change at a bar is stored and set from the panel, but the engraver draws a staff's opening clef only.
 - **Library and export rail:** the library lists title, composer and key, none of which depend on the staff count, so it is
   unchanged; the export rail renders and exports the whole system, MusicXML per slice 5a.
+
+## As built: slice 6 (SIB2-230, percussion and the drum map)
+
+A drum kit on a five-line percussion staff. No schema change: the two new `Note` fields are optional-and-absent
+(ADR-0028 needs no migration for those), so `SCHEMA_VERSION` stays 4 and every committed snapshot and the byte-identity
+test pass unmodified.
+
+- **The drum map** (`packages/model/src/drums.ts`, plain TypeScript): `DrumId` (`kick`, `snare`, `side-stick`, `clap`,
+  `hihat`, `hihat-open`, `hihat-pedal`, `ride`, `ride-bell`, `crash`, `crash-2`, `splash`, `china`, four toms, two floor
+  toms, `cowbell`, `tambourine`, and a generic `percussion`) to a `DrumDef`: label, the General MIDI key it writes
+  (`gm`, MusicXML's `<midi-unpitched>`), the **display pitch**, a default head and a default voice. The places follow common
+  kit notation: kick F4 (bottom space, stems down, voice 2), snare C5 (third space), closed hi-hat G5 x above the top line,
+  open hi-hat the same place with a circled x, pedal hi-hat D4 x below the staff (voice 2), ride F5 x on the top line, ride
+  bell a diamond, crash A5 x on a ledger line, toms E5, D5, B4, A4 from the top space down, floor toms G4 and E4.
+  `drumForGm` reads GM 35-81 (several keys per drum: 35 and 36 kick, 38 and 40 snare); `parseDrum` reads names and
+  aliases; `drumOfNoteEvent` takes a NoteEvents `drum_class` when it is recognised, else the key.
+- **The model.** `Note.drum?: DrumId` and `Note.head?: NoteheadKind` (`normal | x | diamond | circle-x`). A drum note's
+  `pitch` is its **display pitch**, the place on the lines counted as treble (MusicXML's `<display-step>`), so the layout's
+  ink, ledger lines and the engraver's positions need no drum code of their own. Drums are never transposed (`transpose`,
+  `writtenPart`).
+- **One line or five.** The slice-4 one-line percussion staff stays for a staff whose notes name no drum (the `full-band`
+  snapshot is that case). A percussion staff is a **kit** (five lines) as soon as one note names a drum: derived
+  (`isDrumKitStaff`), not stored, so there is nothing to keep in step and no migration.
+- **Voices.** A voice holds one item per onset (no chords), so a hat and a snare struck together are two voices. Hands
+  are voice 1 (stems up), feet voice 2 (stems down), and a hand hit that shares a moment with voice 1 goes to voice 3 (up,
+  so its stem lands on voice 1's); a second feet hit goes to voice 4. Voices 3 and 4 hold filler rests that are not
+  drawn. The feet voice's rests sit lower so they clear the snare and toms.
+- **Ops, CLI, UI.** `note.add` takes `drum` (a name or id; no `pitch`) and `head`; `note.set` takes `drum` and `head`,
+  `null` clearing; both refuse a drum or head off a percussion staff. `sbscore note add --drum snare --head x`,
+  `note set --drum --head`; the text projection prints `snare/8` and `kick/4:diamond`. The Inspector gains a Drum picker
+  and a Notehead control for a note that has a drum (adding a note is not in the browser yet, so there is no new add
+  control; the staff chooser is slice 5b's).
+- **Known imperfect:** a crash struck with the hi-hat (a second apart) uses the engraver's head-shift, not a stacked
+  chord; no legend; the open hi-hat has the circled x but no "o" above; `tab` is still five plain lines.

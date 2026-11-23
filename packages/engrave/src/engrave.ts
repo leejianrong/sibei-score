@@ -12,7 +12,7 @@ import type {
 } from '@sibei/layout';
 import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, writtenPitch } from '@sibei/layout';
 import type { Clef, Id, TimeSignature } from '@sibei/model';
-import { TICKS_PER_WHOLE, beatTicks, durationTicks } from '@sibei/model';
+import { TICKS_PER_WHOLE, beatTicks, durationTicks, headOf } from '@sibei/model';
 import { furnitureText } from './furniture.js';
 import type { BarlineJoin } from './barlines.js';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
@@ -47,6 +47,7 @@ import {
   hasStem,
   noteheadFor,
   percussionNoteheadFor,
+  drumNoteheadFor,
   stem,
   stemDirection,
   stemElement,
@@ -338,8 +339,8 @@ function engraveStavedSystem(
   // percussion staff, where it runs a space either side of the line instead of the five-line staff's whole height.
   const firstStaff = staves[span.firstStaff];
   const lastStaff = staves[span.lastStaff];
-  const joinTop = firstStaff?.type === 'percussion' ? firstStaff.staveY + units(1) : span.y;
-  const joinBottom = lastStaff?.type === 'percussion' ? lastStaff.staveY + units(3) : span.y + span.height;
+  const joinTop = firstStaff?.type === 'percussion' && firstStaff.drumKit !== true ? firstStaff.staveY + units(1) : span.y;
+  const joinBottom = lastStaff?.type === 'percussion' && lastStaff.drumKit !== true ? lastStaff.staveY + units(3) : span.y + span.height;
   const join: BarlineJoin = {
     y: joinTop,
     height: joinBottom - joinTop,
@@ -376,17 +377,27 @@ function engraveStavedSystem(
           staveY: staff.staveY,
           clef: staff.clef,
           percussion,
+          drumKit: staff.drumKit === true,
           chrome: staff.index === 0 && first,
           prefix: first,
           barlines: false,
           aligned: true,
-          stems: stemsOf(voice, staffBar.voices),
-          restShift: restShiftOf(voice, staffBar.voices),
+          stems: staff.drumKit === true ? (voice.stems === 'auto' ? 'up' : voice.stems) : stemsOf(voice, staffBar.voices),
+          // A kit's feet voice keeps its rests below the staff's snare and tom places, out of the hands' way.
+          restShift:
+            staff.drumKit === true && staffBar.voices.length > 1
+              ? voice.stems === 'down'
+                ? KIT_FEET_REST_SHIFT
+                : restShiftOf(voice, staffBar.voices)
+              : restShiftOf(voice, staffBar.voices),
           shifts: noteShifts(font, { voice, voices: staffBar.voices, clef: staff.clef }),
           centreWholeRest: voicesWithMusic(staffBar.voices) < 2,
         };
         // The staff's bar as the single-staff engraver knows it: this voice's items in the bar's box.
-        const layoutBar: LayoutBar = { ...bar, items: voice.items };
+        // A drum kit's second pair of voices (3, 4) hold only the hits that share a moment with voices 1 and 2; their
+        // filler rests are not drawn, the way a drum chart leaves them out.
+        const items = staff.drumKit === true && voice.index > 2 ? voice.items.filter((item) => item.kind !== 'rest') : voice.items;
+        const layoutBar: LayoutBar = { ...bar, items };
         barInk.push(...engraveBar(font, layoutBar, system, time, options, bands, anchors, shading, skipped, mode));
       }
     }
@@ -397,7 +408,7 @@ function engraveStavedSystem(
     for (const staff of staves) {
       // A tab staff is drawn as five lines for now (the six-line staff and its fret numbers are a later slice).
       children.push(
-        ...staffLines(font, { x: system.x, width: system.width, staveY: staff.staveY }, staff.type === 'percussion'),
+        ...staffLines(font, { x: system.x, width: system.width, staveY: staff.staveY }, staff.type === 'percussion' && staff.drumKit !== true),
       );
     }
     if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY, join));
@@ -510,6 +521,8 @@ interface BarMode {
   clef: Clef;
   /** A percussion staff: x noteheads, every note on its one line, stems up unless a voice says otherwise. */
   percussion: boolean;
+  /** A drum kit (slice 6): five lines, each note at its drum's place with its drum's head. */
+  drumKit: boolean;
   /** Bar number, tempo, rehearsal mark, endings, chord symbols, text and the invalid-bar wash: the top staff's. */
   chrome: boolean;
   /** The clef, key signature and time signature at the head of the bar. */
@@ -528,10 +541,14 @@ interface BarMode {
   centreWholeRest: boolean;
 }
 
+/** Half spaces a drum kit's down-stem voice moves its rests: past the two a pitched lower voice moves them. */
+const KIT_FEET_REST_SHIFT = 4;
+
 const SINGLE_STAFF = (staveY: number): BarMode => ({
   staveY,
   clef: 'treble',
   percussion: false,
+  drumKit: false,
   chrome: true,
   prefix: true,
   barlines: true,
@@ -744,7 +761,7 @@ function engraveBar(
 
   // The direction every stem on this staff-bar is forced to: a numbered voice's, or up on a percussion staff.
   const forced: StemDirection | null = mode.stems === 'auto' ? (mode.percussion ? 'up' : null) : mode.stems;
-  const where: ItemContext = { clef: mode.clef, percussion: mode.percussion, restShift: mode.restShift };
+  const where: ItemContext = { clef: mode.clef, percussion: mode.percussion, drumKit: mode.drumKit, restShift: mode.restShift };
 
   const notes = new Map<PlacedItem, EngravedNote>();
   for (const entry of placed) notes.set(entry, engraveItem(font, entry, staveY, forced, where));
@@ -1000,10 +1017,11 @@ function chordPositions(
 interface ItemContext {
   clef: Clef;
   percussion: boolean;
+  drumKit: boolean;
   restShift: number;
 }
 
-const TREBLE_ITEMS: ItemContext = { clef: 'treble', percussion: false, restShift: 0 };
+const TREBLE_ITEMS: ItemContext = { clef: 'treble', percussion: false, drumKit: false, restShift: 0 };
 
 function engraveItem(
   font: MusicFont,
@@ -1025,9 +1043,14 @@ function engraveItem(
     };
   }
 
-  const glyph = context.percussion ? percussionNoteheadFor(item.duration) : noteheadFor(item.duration);
+  const glyph = context.drumKit
+    ? drumNoteheadFor(item.duration, headOf(item))
+    : context.percussion
+      ? percussionNoteheadFor(item.duration)
+      : noteheadFor(item.duration);
+  // A drum kit's pitches are display pitches, counted as treble (`drums.ts`): the staff's clef is the percussion clef.
   const position =
-    context.clef === 'treble'
+    context.clef === 'treble' || context.drumKit
       ? staffPosition(writtenPitch(item.pitch, item.ottava))
       : staffPositionIn(writtenPitch(item.pitch, item.ottava), context.clef);
   return {

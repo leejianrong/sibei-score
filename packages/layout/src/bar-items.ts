@@ -31,11 +31,14 @@ export function noteAndRestItems(score: Score, bar: BarView, shifts: Map<Id, 'up
         pitch: item.pitch,
         ...ottavaField(shifts.get(item.id)),
         accidental: item.accidental,
-        accidentalGlyph: accidentals.get(item.id) ?? null,
+        // A drum has no accidental: its pitch is only where it is written.
+        accidentalGlyph: item.drum === undefined ? (accidentals.get(item.id) ?? null) : null,
         tie: item.tie,
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,
         ...(item.fermata === true ? { fermata: true } : {}),
+        ...(item.drum === undefined ? {} : { drum: item.drum }),
+        ...(item.head === undefined ? {} : { head: item.head }),
         ...(item.articulations === undefined ? {} : { articulations: item.articulations }),
         ...(item.graces === undefined || item.graces.length === 0
           ? {}

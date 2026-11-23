@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -121,6 +121,11 @@ describe('rendered SVG', () => {
 
   it('matches the committed snapshots for the full band (a bracket, a brace, a one-line percussion staff, three pages)', () => {
     snapshotScore(fullBandChart(), 'full-band');
+  });
+
+  // SIB2-230 (ADR-0041, slice 6): a drum kit on five lines, looked at with `pnpm proof drum-kit` before its snapshot.
+  it('matches the committed snapshot for a drum kit (x, circled x and diamond heads, a ledger line, hands up and feet down)', () => {
+    snapshotScore(drumChart(), 'drum-kit');
   });
 
   it('matches the committed snapshot for voices meeting (shared unison, seconds, a crossing, a third voice, a triplet and a tie)', () => {

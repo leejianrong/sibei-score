@@ -44,6 +44,13 @@ import {
   barViews,
   mapBarView,
   voiceSelects,
+  staffOf,
+  drumDisplayPitch,
+  isDrumId,
+  parseDrum,
+  isNoteheadKind,
+  NOTEHEAD_KINDS,
+  DRUMS,
   migrateDocument,
   withBarViews,
 } from '@sibei/model';
@@ -59,6 +66,8 @@ import type {
   BarItem,
   Chord,
   Duration,
+  DrumId,
+  NoteheadKind,
   EndBarline,
   Ending,
   EndingRole,
@@ -532,11 +541,31 @@ function addNote(score: Score, target: string, payload: NoteAddPayload): Applied
   refuseOccupiedOnset(position.bar, position.onset, target);
 
   const id = payload.id ?? nextId(score, 'note');
+  const drum = payload.drum === undefined ? undefined : validDrum(payload.drum);
+  const head = payload.head === undefined ? undefined : validHead(payload.head);
+  const onPercussion = staffOf(score, position.select)?.type === 'percussion';
+  if ((drum !== undefined || head !== undefined) && !onPercussion) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} is not on a percussion staff, so it takes no drum or notehead (staff add --type percussion)`,
+    });
+  }
+  if (drum !== undefined && payload.pitch !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: 'a drum is written where the drum map puts it, so a drum note takes no pitch',
+    });
+  }
+  if (drum === undefined && payload.pitch === undefined) {
+    throw new OperationError({ kind: 'validation', detail: 'a pitch is required (or a drum, on a percussion staff)' });
+  }
   const note = makeNote({
     id,
     onset: position.onset,
     duration: validDuration(payload.duration),
-    pitch: validPitch(payload.pitch),
+    pitch: drum === undefined ? validPitch(payload.pitch!) : drumDisplayPitch(drum),
+    ...(drum === undefined ? {} : { drum, accidental: 'hide' as const }),
+    ...(head === undefined ? {} : { head }),
     ...(payload.accidental === undefined ? {} : { accidental: validAccidental(payload.accidental) }),
     ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
     ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
@@ -602,15 +631,27 @@ function setNote(score: Score, target: string, payload: NoteSetPayload): Applied
   const resolved = resolveAddress(score, target, 'note');
   const note = resolved.target as Note;
 
+  const drum = payload.drum === undefined || payload.drum === null ? undefined : validDrum(payload.drum);
+  const head = payload.head === undefined || payload.head === null ? undefined : validHead(payload.head);
+  if ((drum !== undefined || head !== undefined) && staffOf(score, resolved.select)?.type !== 'percussion') {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${target} is not on a percussion staff, so it takes no drum or notehead (staff add --type percussion)`,
+    });
+  }
   const updated: Note = {
     ...note,
     ...(payload.pitch === undefined ? {} : { pitch: validPitch(payload.pitch) }),
+    ...(drum === undefined ? {} : { drum, pitch: drumDisplayPitch(drum), accidental: 'hide' as const }),
+    ...(head === undefined ? {} : { head }),
     ...(payload.duration === undefined ? {} : { duration: validDuration(payload.duration) }),
     ...(payload.accidental === undefined ? {} : { accidental: validAccidental(payload.accidental) }),
     ...(payload.tie === undefined ? {} : { tie: validTie(payload.tie) }),
     ...(payload.spellingPinned === undefined ? {} : { spellingPinned: validPinned(payload.spellingPinned) }),
   };
 
+  if (payload.drum === null) delete updated.drum;
+  if (payload.head === null) delete updated.head;
   if (payload.articulations !== undefined) {
     const marks = validArticulations(payload.articulations);
     if (marks.length > 0) updated.articulations = marks;
@@ -937,7 +978,8 @@ function transpose(score: Score, payload: TransposePayload): Applied {
   (selects.length === 0 ? [{}] : selects).forEach((select, pass) => {
     const views = barViews(next, select).map((bar) => {
       const items = bar.items.map((item) => {
-        if (item.kind !== 'note') return item;
+        // A drum's pitch is only where it is written on the staff (`model/src/drums.ts`), never a sounding pitch.
+        if (item.kind !== 'note' || item.drum !== undefined) return item;
         changed.push(item.id);
         const graces =
           item.graces === undefined
@@ -1663,6 +1705,25 @@ const TIE_ROLES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 // These three used to be spread through raw, so `accidental: "cautionary"` was stored and answered
 // 200 (KAN-606). The lists are the model's own union members, quoted so a refusal says what works.
 /** The marks, checked, deduplicated and put in stacking order so one set of marks is one document (SIB2-179). */
+function validDrum(value: unknown): DrumId {
+  if (isDrumId(value)) return value;
+  // A name a person types (`hh`, `open hi-hat`, `Kick`) resolves to the drum; the note stores the canonical id.
+  const named = typeof value === 'string' ? parseDrum(value) : null;
+  if (named !== null) return named;
+  throw new OperationError({
+    kind: 'validation',
+    detail: `${JSON.stringify(value)} is not a drum; use one of ${DRUMS.map((d) => d.id).join(', ')}`,
+  });
+}
+
+function validHead(value: unknown): NoteheadKind {
+  if (isNoteheadKind(value)) return value;
+  throw new OperationError({
+    kind: 'validation',
+    detail: `${JSON.stringify(value)} is not a notehead; use one of ${NOTEHEAD_KINDS.join(', ')}`,
+  });
+}
+
 function validArticulations(value: unknown): Articulation[] {
   if (!Array.isArray(value)) {
     throw new OperationError({

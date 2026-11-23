@@ -360,6 +360,8 @@
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
         articulations: item.articulations ?? [],
+        ...(item.drum === undefined ? {} : { drum: item.drum }),
+        ...(item.head === undefined ? {} : { head: item.head }),
         graces: (item.graces ?? []).map((grace) => ({
           id: grace.graceId,
           pitch: formatPitch(grace.pitch),

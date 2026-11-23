@@ -1,5 +1,5 @@
 import type { BarItem, BarView, Id, Part, Score, Staff, StaffType, TimeSignature } from '@sibei/model';
-import { TICKS_PER_QUARTER, allStaves, barCapacity, barView, itemTicks, keyFifths } from '@sibei/model';
+import { TICKS_PER_QUARTER, allStaves, barCapacity, barView, isDrumKitStaff, itemTicks, keyFifths } from '@sibei/model';
 import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
 import type { Clef, LayoutBarItem, LayoutTie } from './items.js';
 import type { LayoutBar } from './layout.js';
@@ -75,6 +75,11 @@ export interface LayoutStaff {
   partId: Id;
   type: StaffType;
   clef: Clef;
+  /**
+   * Set on a percussion staff that is a drum kit (`isDrumKitStaff`): five lines, each drum at its own place, with the
+   * ink measured as a pitched staff's. Absent on every other staff, so only a kit's layout differs (slice 6).
+   */
+  drumKit?: true;
   /** Units from the top staff line of the system's top staff to this staff's top line. 0 for the top staff. */
   staveOffset: number;
   /** The y of this staff's top line (the system's `staveY` for the top staff). */
@@ -182,6 +187,22 @@ export function voiceStems(perBar: readonly (readonly VoiceView[])[]): Map<Id, '
     for (const voice of voices) {
       for (const item of voice.view.items) {
         if (item.kind === 'note') stems.set(item.id, voice.index % 2 === 1 ? 'up' : 'down');
+      }
+    }
+  }
+  return stems;
+}
+
+/**
+ * A drum kit's stems (slice 6): hands up, feet down, by voice, whether or not the other voice has music in this bar;
+ * a lone voice's stems are up. Fixed by the voice rather than the pitch, since a kit's pitches are only places.
+ */
+export function kitStems(perBar: readonly (readonly VoiceView[])[]): Map<Id, 'up' | 'down'> {
+  const stems = new Map<Id, 'up' | 'down'>();
+  for (const voices of perBar) {
+    for (const voice of voices) {
+      for (const item of voice.view.items) {
+        if (item.kind === 'note') stems.set(item.id, voices.length > 1 && voice.index % 2 === 0 ? 'down' : 'up');
       }
     }
   }
@@ -366,11 +387,12 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
 
   const staves = lanes.map((lane, laneIndex): LayoutStaff => {
     const perBar = viewsByLane[laneIndex] ?? [];
+    const kit = isDrumKitStaff(lane.staff);
     const ink = staffInk(
       perBar.flatMap((voices) => voices.map((voice) => voice.view)),
       input.shifts,
-      lane.staff.clef,
-      voiceStems(perBar),
+      kit ? 'treble' : lane.staff.clef,
+      kit ? kitStems(perBar) : voiceStems(perBar),
     );
     const bars = allocated.map((entry, barIndex): LayoutStaffBar => {
       const voices = perBar[barIndex] ?? [];
@@ -379,7 +401,7 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
         barId: entry.bar.id,
         prefix: staffPrefix(lane.staff.type, entry.prefix),
         voices: voices.map((voice, voiceIndex): LayoutVoice => {
-          const stems: StemDirection = twoOrMore ? (voice.index % 2 === 1 ? 'up' : 'down') : 'auto';
+          const stems: StemDirection = twoOrMore ? (voice.index % 2 === 1 ? 'up' : 'down') : kit ? 'up' : 'auto';
           // The top staff's first voice is the lead-sheet bar's own item list.
           const shared = laneIndex === 0 && voiceIndex === 0 ? topBars[barIndex]?.items : undefined;
           const items = shared ?? laneItems(score, lane.staff, entry, voice, voiceIndex === 0, input.shifts);
@@ -393,6 +415,7 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       partId: lane.part.id,
       type: lane.staff.type,
       clef: lane.staff.clef,
+      ...(kit ? { drumKit: true as const } : {}),
       staveOffset: 0,
       staveY: 0,
       height: spec.staffHeight,

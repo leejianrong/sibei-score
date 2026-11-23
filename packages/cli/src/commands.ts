@@ -107,8 +107,10 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
               [--layout lead-sheet|score]   how systems break: the four-bar grid, or by width (a score of several staves)
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell] [--artic staccato,accent,marcato]
+  sbscore note add <id> <address> --drum snare --dur 8 [--head x|diamond|circle-x|normal]   a drum, on a percussion staff
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
               [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
+              [--drum NAME|none] [--head x|diamond|circle-x|normal|default]   a drum, on a percussion staff
   sbscore note rm  <id> <address>
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
@@ -942,6 +944,13 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
 }
 
+/** `--head x` or `--head default` (back to the drum's own head). The server judges the names (slice 6). */
+function headOf(flags: Flags): { head?: string | null } {
+  const raw = flags.options.get('head');
+  if (raw === undefined) return {};
+  return { head: raw === 'default' || raw === '' ? null : raw };
+}
+
 /** `--artic staccato,accent` or `--artic none` (SIB2-179). The server judges the names. */
 function articOf(flags: Flags): { articulations?: string[] } {
   const raw = flags.options.get('artic');
@@ -955,8 +964,11 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const target = qualified(flags, requiredPositional(flags, 3, 'an address', `note ${sub}`));
 
   if (sub === 'add') {
+    const drum = flags.options.get('drum');
     const payload = {
-      pitch: required(flags, 'pitch', 'note add'),
+      // A drum is written where the drum map puts it, so it takes no pitch (the server says which drums exist).
+      ...(drum === undefined ? { pitch: required(flags, 'pitch', 'note add') } : { drum }),
+      ...headOf(flags),
       duration: parseDuration(required(flags, 'dur', 'note add')),
       ...tieOf(flags),
       ...accidentalOf(flags),
@@ -966,13 +978,15 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
     return submit(flags, client, io, json, id, [{ type: 'note.add', target, payload } as Operation]);
   }
   if (sub === 'set') {
-    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags), ...articOf(flags) };
+    const payload: Record<string, unknown> = { ...tieOf(flags), ...accidentalOf(flags), ...spellOf(flags), ...articOf(flags), ...headOf(flags) };
+    const drum = flags.options.get('drum');
+    if (drum !== undefined) payload.drum = drum === 'none' || drum === '' ? null : drum;
     const pitch = flags.options.get('pitch');
     if (pitch !== undefined) payload.pitch = pitch;
     const dur = flags.options.get('dur');
     if (dur !== undefined) payload.duration = parseDuration(dur);
     if (Object.keys(payload).length === 0) {
-      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell --artic');
+      throw new CliError(EXIT.usage, 'usage', 'note set needs at least one of --pitch --dur --tie --accidental --spell --artic --drum --head');
     }
     return submit(flags, client, io, json, id, [{ type: 'note.set', target, payload } as Operation]);
   }

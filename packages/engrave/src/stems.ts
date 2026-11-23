@@ -1,4 +1,4 @@
-import type { Duration } from '@sibei/model';
+import type { Duration, NoteheadKind } from '@sibei/model';
 import type { MusicFont, MusicGlyphName } from './font.js';
 import { units } from './font.js';
 import { MIDDLE_LINE, positionY } from './staff.js';
@@ -40,6 +40,23 @@ export function percussionNoteheadFor(duration: Duration): MusicGlyphName {
   if (duration.value === 1) return 'noteheadXWhole';
   if (duration.value === 2) return 'noteheadXHalf';
   return 'noteheadXBlack';
+}
+
+/**
+ * A drum's notehead (slice 6): the kind the note carries or its drum's own (`headOf`), in the weight of the duration.
+ * A circled x has one weight in SMuFL, so it serves every duration.
+ */
+export function drumNoteheadFor(duration: Duration, kind: NoteheadKind): MusicGlyphName {
+  switch (kind) {
+    case 'normal':
+      return noteheadFor(duration);
+    case 'x':
+      return percussionNoteheadFor(duration);
+    case 'circle-x':
+      return 'noteheadCircleX';
+    case 'diamond':
+      return duration.value === 1 ? 'noteheadDiamondWhole' : duration.value === 2 ? 'noteheadDiamondHalf' : 'noteheadDiamondBlack';
+  }
 }
 
 /** A whole note has no stem; everything shorter does. */
