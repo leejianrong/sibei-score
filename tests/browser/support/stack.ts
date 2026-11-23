@@ -153,6 +153,10 @@ export interface Stack {
   cli(args: string[]): unknown;
   /** The `#/score/:id` URL for a chart in this stack. */
   scoreUrl(id: string): string;
+  /** Kill the API process, leaving the dev server and browser up: a stopped server, as a person sees it (SIB2-266). */
+  stopApi(): Promise<void>;
+  /** Start the API again on the same port and data file. */
+  startApi(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -177,7 +181,7 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
   const serveArgs = ['sbscore', 'serve', '--port', '0', '--data', dataFile, '--json'];
   if (worker !== undefined) serveArgs.push('--worker', worker.url);
 
-  const api = spawn('pnpm', serveArgs, { ...spawnOptions, env: { ...process.env } });
+  let api = spawn('pnpm', serveArgs, { ...spawnOptions, env: { ...process.env } });
   let vite: ChildProcess | undefined;
   let browser: Browser | undefined;
 
@@ -225,6 +229,18 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
       browser,
       cli,
       scoreUrl: (id) => `${uiUrl}/#/score/${encodeURIComponent(id)}`,
+      stopApi: async () => {
+        const gone = new Promise<void>((resolveWith) => api.once('exit', () => resolveWith()));
+        killGroup(api);
+        await gone;
+      },
+      startApi: async () => {
+        const port = new URL(apiUrl).port;
+        const again = ['sbscore', 'serve', '--port', port, '--data', dataFile, '--json'];
+        if (worker !== undefined) again.push('--worker', worker.url);
+        api = spawn('pnpm', again, { ...spawnOptions, env: { ...process.env } });
+        await waitForAnnouncement(api, 'sbscore serve (restart)', 20_000);
+      },
       stop: teardown,
     };
   } catch (error) {

@@ -194,6 +194,15 @@ sbscore hands move <id> <bars> --from s1 --to s2 [--below C4 | --above C4]   # b
 # length, which the pitches join as a chord) over that time; anything else, a note in a tuplet, a drum or a slurred note is refused
 # naming the bar, never overwritten. One undo takes a whole `hands move` back. In the browser: select a note, "Move to other
 # staff" in the inspector; the Staves panel has the range form.
+sbscore range copy <id> <span> [--staff s1] [--no-harmony] [--structure] [--out FILE]   # a span (3-6, or bar3.beat2-bar4.beat1) of a staff as a clip, JSON
+sbscore range paste <id> <address> --clip FILE|-   # lay a clip at bar9.beat1 (s2.v1.bar9.beat1 on a chart with several staves or voices)
+sbscore range clear <id> <bars> [--staff s1] [--harmony]   # empty whole bars of a staff (3-6); --harmony takes their chords and text too
+# A clip holds every voice of the span (notes, stacked chords, grace notes, ties, rests), the tuplets and slurs wholly inside it, and
+# the chord symbols and text; `--structure` adds barlines and endings for whole bars. Paste **replaces the span** it covers and gives
+# every pasted object a fresh id; a one-voice clip lands in the addressed voice, a several-voice clip in the same-numbered voices. It
+# never transposes (the clip records its key), refuses a clip from another meter, a tuplet that would straddle a barline and a span
+# past the last bar (it says how many bars to `bar add` first). `range.paste` and `range.clear` are ops, so a `batch` and MCP's
+# edit_score carry them; one undo takes either back. In the browser: Ctrl/Cmd C, X, V and Duplicate on a selection.
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
 # Stacked chord: `note add` onto a beat a note of the same duration already holds adds a pitch to its chord (one

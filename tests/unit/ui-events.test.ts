@@ -41,6 +41,17 @@ function fakeSources(): { made: FakeSource[]; make: (url: string) => FakeSource 
 }
 
 describe('watchScore', () => {
+  it('reports the connection going down and coming back (SIB2-266)', () => {
+    const { made, make } = fakeSources();
+    const onConnection = vi.fn();
+    watchScore('s1', { onChanged: () => {}, onDeleted: () => {}, onConnection }, make);
+
+    made[0]?.emit('error', '');
+    made[0]?.emit('open', '');
+
+    expect(onConnection.mock.calls).toEqual([[false], [true]]);
+  });
+
   it('opens the stream at the score events path, with the id encoded', () => {
     const { made, make } = fakeSources();
     watchScore('score/1', { onChanged: () => {}, onDeleted: () => {} }, make);
