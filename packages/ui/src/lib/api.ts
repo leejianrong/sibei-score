@@ -5,6 +5,7 @@ import type { PageNumberSettings, Paper } from '@sibei/layout';
 import type {
   AccidentalDisplay,
   Clef,
+  Clip,
   Duration,
   EndBarline,
   EndingRole,
@@ -564,6 +565,9 @@ export type Operation =
   | { type: 'note.move'; target: string; payload: { to: string } }
   | { type: 'hand.move'; payload: { from: string; to: string; first: number; last: number; below?: string; above?: string } }
   | { type: 'rest.rm'; target: string }
+  // Copy and paste of ranges (SIB2-279): the clip is what `sbscore range copy` prints.
+  | { type: 'range.paste'; target: string; payload: { clip: Clip } }
+  | { type: 'range.clear'; payload: { staff: string; first: number; last: number; harmony?: boolean } }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
   | { type: 'text.set'; target: string; payload: { text: string; until?: string | null } }

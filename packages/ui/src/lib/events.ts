@@ -36,6 +36,12 @@ export interface ScoreWatchHandlers {
   onChanged: (version: number) => void;
   /** The chart left the library. There is no version — there is no document left to be at one. */
   onDeleted: () => void;
+  /**
+   * The connection went down (`false`: the browser's `error` event) or came up (`true`: `open`, which also
+   * fires on each automatic reconnect). A reconnect's catch-up frame arrives through `onChanged` as ever, so
+   * this only drives the "connection lost" state and the top bar's dot (SIB2-266).
+   */
+  onConnection?: (up: boolean) => void;
 }
 
 /**
@@ -79,6 +85,8 @@ export function watchScore(
   });
 
   source.addEventListener(DELETED, () => handlers.onDeleted());
+  source.addEventListener('open', () => handlers.onConnection?.(true));
+  source.addEventListener('error', () => handlers.onConnection?.(false));
 
   return () => source.close();
 }

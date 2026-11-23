@@ -1,7 +1,7 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
-import { NAV_KINDS, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
+import { NAV_KINDS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
 import type { KeySignature, NavKind, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -157,6 +157,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore nav set <id> <bar> --segno|--coda|--to-coda|--fine|--dc|--ds|--dc-al-fine|--dc-al-coda|--ds-al-fine|--ds-al-coda
               a navigation mark: signs at the bar's start, jump texts at its end (a second jump replaces the first)
   sbscore nav rm  <id> <bar> [--segno|--coda|...]   remove one mark, or every mark of the bar
+  sbscore range copy <id> <span> [--staff s1] [--no-harmony] [--structure] [--out FILE]   a span (3-6, bar3.beat2-bar4.beat1) of a staff as a clip (JSON)
+  sbscore range paste <id> <address> --clip FILE|-   lay a clip at bar9.beat1 (s2.v1.bar9.beat1 with several staves or voices), replacing the span it covers
+  sbscore range clear <id> <bars> [--staff s1] [--harmony]   empty whole bars of a staff (3-6), their chords and text too with --harmony
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
@@ -359,6 +362,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return ending(flags, client, io, json);
     case 'batch':
       return batch(flags, client, io, json, options.readStdin ?? readAllStdin);
+    case 'range':
+      return range(flags, client, io, json, options.readStdin ?? readAllStdin);
     case 'undo':
       return move('undo', flags, client, io, json);
     case 'redo':
@@ -1050,6 +1055,86 @@ async function hands(flags: Flags, client: Client, io: Io, json: boolean): Promi
   if (below !== undefined) payload.below = below;
   if (above !== undefined) payload.above = above;
   return submit(flags, client, io, json, id, [{ type: 'hand.move', payload } as Operation]);
+}
+
+/** `bar3`, `bar3.beat2` or `3` as a bar and, for the first form with a beat, an onset in ticks. */
+function spanEnd(text: string, time: TimeSignature): { bar: number; onset?: number } {
+  const match = /^(?:bar)?(\d+)(?:\.beat(\d+(?:\.\d+)?))?$/.exec(text);
+  if (match === null) throw new CliError(EXIT.usage, 'usage', `${JSON.stringify(text)} is not a bar or a beat: try bar3 or bar3.beat2`);
+  const out: { bar: number; onset?: number } = { bar: Number(match[1]) };
+  if (match[2] !== undefined) out.onset = Math.round((Number(match[2]) - 1) * (1920 / time.beatValue));
+  return out;
+}
+
+/**
+ * `range copy|paste|clear` (SIB2-279). Copy is a read: it prints a clip (`@sibei/model`'s `Clip`, JSON) for a span of one
+ * staff. Paste submits it as the `range.paste` op at an address, replacing the span it covers; clear is `range.clear`.
+ */
+async function range(flags: Flags, client: Client, io: Io, json: boolean, readStdin: () => Promise<string>): Promise<ExitCode> {
+  const sub = flags.positional[1];
+  const id = requiredPositional(flags, 2, 'a score id', `range ${sub ?? ''}`.trim());
+  if (sub === 'copy') {
+    const record = await client.read(id);
+    const span = requiredPositional(flags, 3, 'a span like 3-6 or bar3.beat2-bar4.beat1', 'range copy');
+    const [from, to = from] = span.split('-');
+    const end = spanEnd(to!, record.score.meta.time);
+    // `3-6` is bars 3 to 6 whole; a beat on the end is exclusive, a bare bar runs to its end.
+    const staff = /^s(\d+)$/.exec(flags.options.get('staff') ?? 's1');
+    if (staff === null) throw new CliError(EXIT.usage, 'usage', '--staff is a staff like s1');
+    let clip;
+    try {
+      clip = copyRange(record.score, {
+        staff: Number(staff[1]),
+        from: spanEnd(from!, record.score.meta.time),
+        to: end,
+        harmony: !flags.switches.has('no-harmony'),
+        structure: flags.switches.has('structure'),
+      });
+    } catch (error) {
+      throw new CliError(EXIT.usage, 'usage', error instanceof Error ? error.message : String(error));
+    }
+    const text = JSON.stringify(clip, null, json ? 0 : 2);
+    const out = flags.options.get('out');
+    if (out !== undefined) {
+      writeFileSync(out, `${text}\n`);
+      io.out(`copied ${clip.ticks} ticks of ${clip.voices.length} voice${clip.voices.length === 1 ? '' : 's'} to ${out}`);
+    } else {
+      io.out(text);
+    }
+    return EXIT.ok;
+  }
+  if (sub === 'paste') {
+    const target = requiredPositional(flags, 3, 'an address like bar9.beat1', 'range paste');
+    const given = required(flags, 'clip', 'range paste');
+    let raw: string;
+    try {
+      raw = given === '-' ? await readStdin() : readFileSync(given, 'utf8');
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', `--clip: cannot read ${given}`);
+    }
+    let clip: unknown;
+    try {
+      clip = JSON.parse(raw);
+    } catch {
+      throw new CliError(EXIT.usage, 'usage', '--clip is not JSON; make one with `sbscore range copy`');
+    }
+    const problem = clipProblem(clip);
+    if (problem !== null) throw new CliError(EXIT.usage, 'usage', problem);
+    return submit(flags, client, io, json, id, [{ type: 'range.paste', target, payload: { clip } } as Operation]);
+  }
+  if (sub === 'clear') {
+    const bars = /^(?:bar)?(\d+)(?:-(?:bar)?(\d+))?$/.exec(requiredPositional(flags, 3, 'a bar range like 3-6', 'range clear'));
+    if (bars === null) throw new CliError(EXIT.usage, 'usage', 'a bar range is 5, 3-6 or bar3-bar6');
+    const first = Number(bars[1]);
+    const payload: { staff: string; first: number; last: number; harmony?: boolean } = {
+      staff: flags.options.get('staff') ?? 's1',
+      first,
+      last: bars[2] === undefined ? first : Number(bars[2]),
+    };
+    if (flags.switches.has('harmony')) payload.harmony = true;
+    return submit(flags, client, io, json, id, [{ type: 'range.clear', payload } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'range takes copy, paste or clear');
 }
 
 async function rest(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
