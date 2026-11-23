@@ -67,9 +67,10 @@ describe('sbscore lyric', () => {
     await fourNotes();
     expect((await sbscore('lyric', 'set', 'tune', 'bar1.n1')).code).toBe(EXIT.usage);
     expect((await sbscore('lyric', 'set', 'tune', 'bar1.n1', 'la', '--verse', 'two')).code).toBe(EXIT.usage);
-    expect((await sbscore('lyric', 'set', 'tune', 'bar1.n1', 'la', '--begin', '--end')).code).toBe(EXIT.usage);
+    expect((await sbscore('lyric', 'set', 'tune', 'bar1.n1', 'la', '--syllabic', 'sideways')).code).toBe(EXIT.usage);
     expect((await sbscore('lyric', 'set', 'tune', 'bar1.n1', 'la', '--verse', '7')).code).not.toBe(EXIT.ok);
     expect((await sbscore('lyric', 'rm', 'tune', 'bar1.n1')).code).not.toBe(EXIT.ok);
+    expect((await sbscore('lyric', 'set', 'tune', 'bar1.n1', 'la', '--syllabic', 'middle')).code).toBe(EXIT.ok);
   });
 });
 

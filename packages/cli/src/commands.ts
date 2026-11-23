@@ -1,8 +1,8 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
-import { DYNAMICS, NAV_KINDS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
-import type { KeySignature, NavKind, NoteValue, TimeSignature } from '@sibei/model';
+import { DYNAMICS, NAV_KINDS, SYLLABICS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
+import type { KeySignature, NavKind, Syllabic, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
   EndingSetPayload,
@@ -159,7 +159,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore ottava set <id> <from> <to> --up|--down   an 8va (--up) or 8vb (--down) line over a run of notes
   sbscore ottava rm  <id> <ottava-id|from>
   sbscore lyric set <id> <address> <syllable> [--verse 1-4] [--extend]   one syllable under a note: "hel-" begins a word, "-lo" ends it
-              (or --begin|--middle|--end; --text "-lo" when it starts with a hyphen)
+              (or --syllabic single|begin|middle|end; --text "-lo" when it starts with a hyphen)
   sbscore lyric rm  <id> <address> [--verse N]   one verse's syllable, or all of the note's
   sbscore lyrics set <id> <bars> "text" [--verse 1-4] [--staff s1] [--voice N]   a verse over a bar range: words by spaces,
               syl-la-bles by hyphens, _ for a note the last syllable is held over; replaces that verse in the range
@@ -1599,12 +1599,14 @@ async function lyric(flags: Flags, client: Client, io: Io, json: boolean): Promi
   const target = qualified(flags, requiredPositional(flags, 3, 'a note address', `lyric ${sub}`));
   if (sub === 'set') {
     const text = flags.options.get('text') ?? requiredPositional(flags, 4, 'the syllable', 'lyric set');
-    const kinds = (['begin', 'middle', 'end'] as const).filter((kind) => flags.switches.has(kind));
-    if (kinds.length > 1) throw new CliError(EXIT.usage, 'usage', 'lyric set takes at most one of --begin --middle --end');
+    const kind = flags.options.get('syllabic');
+    if (kind !== undefined && !SYLLABICS.includes(kind as Syllabic)) {
+      throw new CliError(EXIT.usage, 'usage', `--syllabic is one of ${SYLLABICS.join(', ')}, not ${JSON.stringify(kind)}`);
+    }
     const payload = {
       text,
       ...verseOption(flags),
-      ...(kinds[0] === undefined ? {} : { syllabic: kinds[0] }),
+      ...(kind === undefined ? {} : { syllabic: kind as Syllabic }),
       ...(flags.switches.has('extend') ? { extend: true } : {}),
     };
     return submit(flags, client, io, json, id, [{ type: 'lyric.set', target, payload } as Operation]);

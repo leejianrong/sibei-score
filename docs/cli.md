@@ -354,7 +354,7 @@ bars 1 to 8 (`--staff s2`, `--voice 2` pick another), replaces that verse in the
 separated by spaces, syllables of a word by hyphens (`hel-lo` or `hel - lo`), and `_` is a note the previous syllable is
 held over (it draws an extender line). Rests and notes tied from the one before take no syllable; more syllables than
 notes is refused with both counts, fewer leaves the rest bare. For one note, `sbscore lyric set <id> bar1.n2 hel-
---verse 2` (a trailing hyphen continues the word, a leading one `-lo` ends it; `--begin|--middle|--end` and
+--verse 2` (a trailing hyphen continues the word, a leading one `-lo` ends it; `--syllabic begin|middle|end` and
 `--text "-lo"` say it outright), and `lyric rm` clears a verse or all of them. `show` prints `c5/4"hel-"2"la"_` (verse 1
 bare, verse 2 numbered, `_` an extender). A hyphen is drawn centred between a word's syllables and trails after the text
 at a system break; an extender runs to the verse's next syllable; rows are reserved only under a system that has lyrics.
