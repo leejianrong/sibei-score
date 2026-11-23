@@ -101,7 +101,7 @@ import type {
 } from '@sibei/model';
 import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
-import { addPart, addStaff, addVoice, removePart, removeStaff, removeVoice, setClef, setInstrument } from './structure-ops.js';
+import { addPart, addStaff, addVoice, plannedSetup, removePart, removeStaff, removeVoice, setClef, setInstrument, withSetup } from './structure-ops.js';
 import { moveHand, moveNote } from './move-ops.js';
 import { clearRange, pasteRange } from './range-ops.js';
 import { isControlOperation } from './operations.js';
@@ -343,7 +343,8 @@ function createScore(payload: ScoreCreatePayload): Applied {
   const key = validKey(payload.key);
   const time = validTime(payload.time);
 
-  const score = makeScore({
+  const setup = plannedSetup(payload);
+  const plain = makeScore({
     id: payload.id,
     ...(payload.title === undefined ? {} : { title: payload.title }),
     ...(payload.composer === undefined ? {} : { composer: payload.composer }),
@@ -352,6 +353,8 @@ function createScore(payload: ScoreCreatePayload): Applied {
     time,
     bars: bars.map((bar) => makeBar({ id: bar.id, number: bar.number })),
   });
+  // Instruments (SIB2-288): the parts the presets stand for, recorded below so replay never re-reads the catalogue.
+  const score = setup === undefined ? plain : withSetup(plain, setup);
 
   // A blank chart now comes out with no flags on it, because an empty bar is not a review case
   // (KAN-597): this used to leave every one of 32 bars flagged, which is a review signal firing on
@@ -362,7 +365,7 @@ function createScore(payload: ScoreCreatePayload): Applied {
   return {
     score: flagged,
     // `bars` recorded: replay creates exactly these, with exactly these ids.
-    operation: { type: 'score.create', payload: { ...payload, bars } },
+    operation: { type: 'score.create', payload: { ...payload, bars, ...(setup === undefined ? {} : { parts: setup }) } },
     changed: [payload.id],
   };
 }
@@ -399,6 +402,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const perSystem = nextBarsPerSystem(score, payload);
   const tempo = nextTempo(score, payload);
   const layout = nextLayout(score, payload);
+  const showNames = nextShowNames(score, payload);
   const {
     footer: _footer,
     subtitle: _subtitle,
@@ -408,6 +412,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     barsPerSystem: _bars,
     tempo: _tempo,
     layout: _layout,
+    showInstrumentNames: _names,
     ...rest
   } = score.meta;
   const next: Score = {
@@ -427,6 +432,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       ...(perSystem === undefined ? {} : { barsPerSystem: perSystem }),
       ...(tempo === undefined ? {} : { tempo }),
       ...(layout === undefined ? {} : { layout }),
+      ...(showNames === undefined ? {} : { showInstrumentNames: showNames }),
     },
   };
 
@@ -467,6 +473,17 @@ function nextLayout(score: Score, payload: MetaSetPayload): ScoreLayoutKind | un
     });
   }
   return asked;
+}
+
+/** Whether instrument names print (SIB2-286): untouched unless named; false or null is stored as absent. */
+function nextShowNames(score: Score, payload: MetaSetPayload): true | undefined {
+  const asked = payload.showInstrumentNames;
+  if (asked === undefined) return score.meta.showInstrumentNames === true ? true : undefined;
+  if (asked === null || asked === false) return undefined;
+  if (asked !== true) {
+    throw new OperationError({ kind: 'validation', detail: `showInstrumentNames is true or false, not ${JSON.stringify(asked)}` });
+  }
+  return true;
 }
 
 /** The tempo mark after a `meta.set` (SIB2-177): untouched unless named; null removes it. */

@@ -38,6 +38,7 @@ export interface PartRow {
   number: number;
   id: string;
   name: string;
+  shortName: string;
   instrument: number | null;
   transposition: number;
   staves: StaffRow[];
@@ -63,6 +64,7 @@ export function partRows(score: Score): PartRow[] {
       number: at + 1,
       id: part.id,
       name: part.name,
+      shortName: part.shortName ?? '',
       instrument: part.instrument,
       transposition: part.transposition,
       staves,
@@ -159,6 +161,8 @@ export function setClefOp(staff: StaffRow, clef: Clef | null, barNumber?: number
 /** What a part's name, General MIDI program and transposition become; only the fields that changed are sent. */
 export interface InstrumentEdits {
   name: string;
+  /** The abbreviation on later systems (SIB2-286); blank removes it. */
+  shortName: string;
   /** Blank is no program (`null`). */
   program: string;
   /** Whole semitones, blank is 0. */
@@ -173,9 +177,11 @@ export interface InstrumentParse {
 
 /** The `instrument.set` for a part's edited fields, or the first reason the fields cannot be sent. */
 export function instrumentOp(part: PartRow, edits: InstrumentEdits): InstrumentParse {
-  const payload: { name?: string; instrument?: number | null; transposition?: number } = {};
+  const payload: { name?: string; shortName?: string | null; instrument?: number | null; transposition?: number } = {};
   const name = edits.name.trim();
   if (name !== part.name) payload.name = name;
+  const shortName = edits.shortName.trim();
+  if (shortName !== part.shortName) payload.shortName = shortName === '' ? null : shortName;
 
   const programText = edits.program.trim();
   let program: number | null = null;

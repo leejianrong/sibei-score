@@ -1,3 +1,4 @@
+import { INSTRUMENT_PRESETS, MAX_SETUP_INSTRUMENTS } from '@sibei/model';
 import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
 import type { Operation } from './api.js';
 
@@ -15,7 +16,30 @@ export interface NewChartForm {
   time: string;
   bars: number;
   pickup: boolean;
+  /** Instrument presets, top to bottom (SIB2-288); empty is the plain lead sheet (`sbscore new --instrument`, repeated). */
+  instruments?: readonly string[];
 }
+
+/** What the picker offers: the model's catalogue, the one `sbscore new --instrument` resolves against. */
+export const INSTRUMENT_CHOICES: readonly { id: string; label: string }[] = INSTRUMENT_PRESETS.map((preset) => ({
+  id: preset.id,
+  label: preset.name === '' ? 'Lead sheet' : preset.name,
+}));
+
+/** The picker's operations on its list, as pure functions so a test can pin them without a DOM. */
+export const instrumentList = {
+  add: (list: readonly string[]): string[] => (list.length >= MAX_SETUP_INSTRUMENTS ? [...list] : [...list, list.length === 0 ? 'piano' : 'bass']),
+  remove: (list: readonly string[], at: number): string[] => list.filter((_, index) => index !== at),
+  change: (list: readonly string[], at: number, id: string): string[] => list.map((entry, index) => (index === at ? id : entry)),
+  /** One row earlier (`-1`) or later (`1`); a move off either end is no move. */
+  move: (list: readonly string[], at: number, by: -1 | 1): string[] => {
+    const to = at + by;
+    if (to < 0 || to >= list.length) return [...list];
+    const next = [...list];
+    [next[at], next[to]] = [next[to]!, next[at]!];
+    return next;
+  },
+};
 
 export const KEY_CHOICES: readonly string[] = [
   'C', 'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'G', 'D', 'A', 'E', 'B', 'F#',
@@ -65,6 +89,7 @@ export function problemWith(form: NewChartForm): string | null {
   }
   if (keyFrom(form.key) === null) return 'Pick a key.';
   if (timeFrom(form.time) === null) return 'Pick a time signature.';
+  if ((form.instruments?.length ?? 0) > MAX_SETUP_INSTRUMENTS) return `Start with at most ${MAX_SETUP_INSTRUMENTS} instruments.`;
   return null;
 }
 
@@ -77,6 +102,7 @@ export function newChartOps(form: NewChartForm, id: string): Operation[] {
   const time = timeFrom(form.time);
   if (time !== null) payload.time = time;
   if (form.pickup) payload.pickup = true;
+  if (form.instruments !== undefined && form.instruments.length > 0) payload.instruments = [...form.instruments];
   return [{ type: 'score.create', payload }];
 }
 

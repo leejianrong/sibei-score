@@ -541,6 +541,8 @@ export interface MetaSetPayload {
   /** The chord symbology (SIB2-163); `standard` clears it. */
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book';
   layout?: 'lead-sheet' | 'score' | null;
+  /** Print each part's name at the left of its staves (SIB2-286). */
+  showInstrumentNames?: boolean | null;
   /** The tempo mark (SIB2-177); null removes it. */
   tempo?: { unit: { value: number; dots: number }; bpm: number } | null;
 }
@@ -556,6 +558,8 @@ export type Operation =
         time?: { beats: number; beatValue: NoteValue };
         barCount?: number;
         pickup?: boolean;
+        /** Start from instrument presets, top to bottom (SIB2-288): `piano`, `bass`, `drums`... */
+        instruments?: string[];
       };
     }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }

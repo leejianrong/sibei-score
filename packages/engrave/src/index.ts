@@ -18,3 +18,4 @@ export * from './graces.js';
 export * from './engrave.js';
 export * from './groups.js';
 export * from './voices.js';
+export * from './names.js';
