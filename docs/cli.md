@@ -448,6 +448,7 @@ the printed words, and reads them back. In the browser, click a bar and use Navi
 ```sh
 sbscore undo <id>                            # revert the last edit — or the last batch, as one unit
 sbscore redo <id>                            # reapply the last undone edit
+sbscore group <id> <count>                   # fold the last <count> edits into one undoable unit
 sbscore batch <id> --ops '[{"type":"note.add", ...}]'           # many operations as one atomic unit
 sbscore batch <id> --ops @ops.json                              # the same, read from a file
 cat ops.json | sbscore batch <id> --ops -                       # or from stdin
@@ -455,6 +456,12 @@ cat ops.json | sbscore batch <id> --ops -                       # or from stdin
 
 Undo and redo replay the append-only op log rather than mutating it (ADR-0003), so a `batch` — and
 the browser's multi-edit actions — undoes as a single step. In the browser, ctrl-Z / ctrl-shift-Z.
+
+`group` is how a run of separate edits becomes one step: it appends a marker (no document change) and one `undo` then
+reverses all `<count>` of them, one `redo` restoring them. The browser does it for you after a burst of note-input
+keystrokes (when you leave the mode, pause, or undo), so entering a phrase undoes in one ctrl-Z. `<count>` is 2 or more and
+cannot reach back past the edit that created the chart; it carries the version like `undo`, so it never folds an edit that
+landed after yours.
 
 ## Export
 

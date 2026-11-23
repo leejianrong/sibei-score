@@ -39,6 +39,9 @@ const NO_MOVES = {
   redo: (): never => {
     throw new Error('redo not used in this test');
   },
+  group: (): never => {
+    throw new Error('group not used in this test');
+  },
   duplicate: (): never => {
     throw new Error('duplicate not used in this test');
   },
