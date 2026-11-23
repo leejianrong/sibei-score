@@ -1,23 +1,45 @@
 /**
  * MusicXML → Score (V8b, ADR-0004).
  *
- * The reverse of `export.ts`, for a single-voice lead sheet. It reads `score-partwise`: the first
- * part's measures become bars; `<note>`s become notes and rests with their ties and tuplets;
+ * The reverse of `export.ts`. It reads `score-partwise`: the first part's measures become the bar grid, and every
+ * part, staff and voice (ADR-0041 slice 5a) becomes a real part, staff and voice of the draft; `<note>`s become
+ * notes and rests with their ties and tuplets;
  * `<harmony>` becomes chord symbols; `<barline>`, `<ending>` and `<rehearsal>` become the structure
  * V7 added. What MusicXML never carried is minted fresh or defaulted — new ids, `accidental: 'auto'`,
  * `spellingPinned: false`, no confidence or review, no style line — which is the round-trip's lossy
  * half, named case by case in `tests`.
  *
- * **Read leniently** (the codec's half of ADR-0012's rule): a second voice, an unsupported note
+ * **Read leniently** (the codec's half of ADR-0012's rule): a fifth voice, an unsupported note
  * type, or a key change mid-piece is dropped with a warning rather than refused, because an imported
- * document is not the place to be strict — the model stores and flags, it does not reject.
+ * document is not the place to be strict — the model stores and flags, it does not reject. The size of what is
+ * read is bounded (parts, staves, voices) because the file is untrusted (SIB2-152).
  */
 
-import { ARTICULATIONS, MAX_TEMPO, MIN_TEMPO, makeAnnotation, makeBar, makeChord, makeNote, makeRest, makeScore, makeSection } from '@sibei/model';
+import {
+  ARTICULATIONS,
+  MAX_TEMPO,
+  MAX_VOICES,
+  MIN_TEMPO,
+  makeAnnotation,
+  makeBar,
+  makeChord,
+  makeNote,
+  makeRest,
+  makeScore,
+  makeSection,
+  transposePitch,
+  transposeSpelling,
+} from '@sibei/model';
 import type {
   Alter,
   BarItem,
+  Clef,
   Ending,
+  Interval,
+  Part,
+  Staff,
+  StaffBar,
+  Voice,
   GraceNote,
   EndingRole,
   KeySignature,
@@ -42,8 +64,22 @@ import {
   XmlError,
 } from './xml.js';
 import type { XmlElement } from './xml.js';
+import { exportedPartName } from './export.js';
+import { fromTransposeElement, inverse } from './transposition.js';
 
 const TICKS_PER_QUARTER = 480;
+
+/**
+ * The size of what a file may add (SIB2-152, ADR-0041 slice 5a). A file is untrusted: each is far above anything a
+ * real score has, and a file past one is read up to it with a warning, never refused.
+ */
+export const MAX_PARTS = 32;
+export const MAX_STAVES_PER_PART = 8;
+export const MAX_TOTAL_STAVES = 32;
+/** Distinct voice numbers read on one staff before they are mapped onto our four. */
+const MAX_VOICE_LABELS = 16;
+/** A `<forward>`, `<backup>` or note longer than this many ticks (a hundred bars of 4/4) is read as zero. */
+const MAX_TICKS = TICKS_PER_QUARTER * 400;
 
 export interface ImportResult {
   score: Score;
@@ -87,19 +123,48 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   const title = childText(firstChild(root, 'work') ?? root, 'work-title') ?? '';
   const composer = composerOf(root);
 
-  const part = firstChild(root, 'part');
-  if (part === null) throw new ImportError('the document has no <part>');
+  const partElements = childElements(root, 'part');
+  if (partElements.length === 0) throw new ImportError('the document has no <part>');
+  if (childElements(partElements[0] as XmlElement, 'measure').length === 0) throw new ImportError('the part has no <measure>');
 
-  const measures = childElements(part, 'measure');
-  if (measures.length === 0) throw new ImportError('the part has no <measure>');
+  const counter = { n: 0 };
+  const read: ReadPart[] = [];
+  let staves = 0;
+  for (const [index, element] of partElements.entries()) {
+    const measures = childElements(element, 'measure');
+    warnLossyContent(measures, warnings);
+    const reader = new PartReader(warnings, counter, index === 0);
+    const result = reader.read(measures);
+    if (index > 0 && (index >= MAX_PARTS || staves + result.content.staffCount > MAX_TOTAL_STAVES)) {
+      const dropped = partElements.length - index;
+      warnings.push(
+        `${dropped} further part${dropped === 1 ? '' : 's'} dropped: a score reads at most ${MAX_PARTS} parts and ${MAX_TOTAL_STAVES} staves`,
+      );
+      break;
+    }
+    staves += result.content.staffCount;
+    read.push({ element, measures, result });
+  }
 
-  const extraParts = childElements(root, 'part').length - 1;
-  if (extraParts > 0) warnings.push(`${extraParts} further part${extraParts === 1 ? '' : 's'} dropped: only the first part is read`);
-  warnLossyContent(measures, warnings);
+  const primary = (read[0] as ReadPart).result;
+  // The first part's measures are the bar grid; a later part with more measures is cut to it, one with fewer leaves
+  // the rest of its staves empty.
+  for (const [index, part] of read.entries()) {
+    if (index > 0 && part.measures.length > primary.bars.length) {
+      warnings.push(`measures after bar ${primary.bars.length} of a later part were dropped: the first part sets the length`);
+      break;
+    }
+  }
 
-  const reader = new PartReader(warnings);
-  const { bars, sections, spanners, key, time, tempo } = reader.read(measures);
+  // A transposing first part is written in its own key: the score's key is the concert one.
+  let key = primary.key;
+  const primaryShift = primary.content.transpose;
+  if (primaryShift !== null) {
+    const concert = transposeSpelling({ step: key.tonic, alter: key.alter }, inverse(primaryShift.written), key, true);
+    key = { tonic: concert.step, alter: concert.alter, mode: key.mode };
+  }
 
+  const { bars, sections, spanners, time, tempo } = primary;
   const score = makeScore({
     id: options.id ?? 'imported',
     title,
@@ -109,6 +174,22 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
     bars,
     sections,
   });
+  const names = partNames(root);
+  let staffNumber = 0;
+  score.parts = read.map((part, index) => {
+    const built = buildPart(
+      part.result.content,
+      index,
+      staffNumber,
+      score,
+      names.get(attr(part.element, 'id') ?? '') ?? null,
+      warnings,
+    );
+    staffNumber += built.staves.length;
+    return built;
+  });
+  // A draft of several staves is set the way a score is, by width; a single staff keeps the four-bar grid (ADR-0041 section 5).
+  if (staffNumber > 1) score.meta.layout = 'score';
   // `<rights>` is the one MusicXML home for the footer text; the pages it prints on are ours, so it comes
   // back on every page.
   if (spanners.length > 0) score.spanners = spanners;
@@ -122,20 +203,40 @@ export function musicXmlToScore(xml: string, options: ImportOptions = {}): Impor
   return { score, warnings };
 }
 
+interface ReadPart {
+  element: XmlElement;
+  measures: XmlElement[];
+  result: ReadResult;
+}
+
+/** A `<score-part>`'s name and General MIDI program (1-based in MusicXML, 0-based here), by its id. */
+function partNames(root: XmlElement): Map<string, { name: string; program: number | null }> {
+  const out = new Map<string, { name: string; program: number | null }>();
+  const list = firstChild(root, 'part-list');
+  if (list === null) return out;
+  for (const scorePart of childElements(list, 'score-part')) {
+    const id = attr(scorePart, 'id');
+    if (id === null) continue;
+    const midi = firstChild(scorePart, 'midi-instrument');
+    const program = midi === null ? NaN : Number(childText(midi, 'midi-program'));
+    out.set(id, {
+      name: (childText(scorePart, 'part-name') ?? '').trim(),
+      program: Number.isInteger(program) && program >= 1 && program <= 128 ? program - 1 : null,
+    });
+  }
+  return out;
+}
+
 /**
- * What a single-voice lead sheet has no home for, named once each so the import is never silently thinner than
- * the file (SIB2-152): extra staves, lyrics and dynamics. (Second voices, chord tones, slurs and the
- * rest are named by the part reader as it meets them.)
+ * What the model still has no home for, named once each so the import is never silently thinner than the file
+ * (SIB2-152): lyrics and dynamics. (Chord tones, slurs, unsupported clefs and the rest are named by the part reader
+ * as it meets them. Extra parts, staves and voices are no longer lost: ADR-0041 slice 5a.)
  */
 function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
   const found = new Set<string>();
   for (const measure of measures) {
     for (const child of childElements(measure)) {
-      if (child.name === 'attributes') {
-        const staves = Number(childText(child, 'staves') ?? '1');
-        if (staves > 1) found.add(`a ${staves}-staff part was read as its first staff only`);
-      } else if (child.name === 'note') {
-        if (Number(childText(child, 'staff') ?? '1') > 1) found.add('notes on a second staff were dropped: single-staff only');
+      if (child.name === 'note') {
         if (firstChild(child, 'lyric') !== null) found.add('lyrics were dropped');
       } else if (child.name === 'direction') {
         for (const type of childElements(child, 'direction-type')) {
@@ -177,6 +278,34 @@ interface ReadResult {
   key: KeySignature;
   time: { beats: number; beatValue: NoteValue };
   tempo: Tempo | undefined;
+  content: PartContent;
+}
+
+/** One voice's notes in one measure while it is being read, keyed by staff and MusicXML voice label. */
+interface VoiceAcc {
+  items: BarItem[];
+  tuplets: Tuplet[];
+  open: OpenTuplet | null;
+  /** Where the last item ends, so a note that starts before it is known to overlap. */
+  end: number;
+}
+
+interface MeasureContent {
+  /** Key `${staff}|${label}`. */
+  voices: Map<string, VoiceAcc>;
+  /** The clef each staff is given in this measure's attributes. */
+  clefs: Map<number, Clef>;
+}
+
+/** What a part holds beyond the grid the first part sets: staves, voices, clefs and its transposition. */
+interface PartContent {
+  measures: MeasureContent[];
+  staffCount: number;
+  percussionStaves: Set<number>;
+  /** The voice labels met on each staff, in the order first met. */
+  labels: Map<number, string[]>;
+  /** `<transpose>`: the semitones from sounding to written and the interval that written pitch is above concert. */
+  transpose: { semitones: number; written: Interval } | null;
 }
 
 /** A tuplet being accumulated across consecutive time-modified notes. */
@@ -187,7 +316,11 @@ interface OpenTuplet {
 }
 
 class PartReader {
-  private ids = 0;
+  private percussionStaves = new Set<number>();
+  private labels = new Map<number, string[]>();
+  private staffCount = 1;
+  private transpose: PartContent['transpose'] = null;
+  private contents: MeasureContent[] = [];
   private divisions = TICKS_PER_QUARTER;
   private key: KeySignature = { tonic: 'C', alter: 0, mode: 'major' };
   private time: { beats: number; beatValue: NoteValue } = { beats: 4, beatValue: 4 };
@@ -209,11 +342,21 @@ class PartReader {
   /** An ending open on an earlier bar, so a bar between its start and stop reads as `continue`. */
   private openEnding: number[] | null = null;
 
-  constructor(private readonly warnings: string[]) {}
+  /**
+   * `primary` is the first part, which sets everything that belongs to the whole score: the key, meter, tempo,
+   * chords, text, rehearsal letters, barlines and line breaks. A later part contributes only its notes, clefs and
+   * transposition (the chord lane is above the top staff, ADR-0041 section 3). `counter` is shared so every id in the
+   * draft is unique.
+   */
+  constructor(
+    private readonly warnings: string[],
+    private readonly counter: { n: number },
+    private readonly primary: boolean,
+  ) {}
 
   private id(prefix: string): string {
-    this.ids += 1;
-    return `${prefix}-${this.ids}`;
+    this.counter.n += 1;
+    return `${prefix}-${this.counter.n}`;
   }
 
   read(measures: XmlElement[]): ReadResult {
@@ -229,7 +372,7 @@ class PartReader {
     // on the bar just above (SIB2-174). A file that breaks every line therefore keeps its own breaks.
     measures.forEach((measure, index) => {
       const previous = bars[index - 1];
-      if (index > 0 && previous !== undefined && this.startsNewSystem(measure)) {
+      if (this.primary && index > 0 && previous !== undefined && this.startsNewSystem(measure)) {
         bars[index - 1] = { ...previous, lineBreak: 'after' };
       }
     });
@@ -248,40 +391,63 @@ class PartReader {
         };
       }
     }
-    return { bars, sections, spanners: this.spanners, key: this.key, time: this.time, tempo: this.tempo };
+    return {
+      bars,
+      sections,
+      spanners: this.spanners,
+      key: this.key,
+      time: this.time,
+      tempo: this.tempo,
+      content: {
+        measures: this.contents,
+        staffCount: this.staffCount,
+        percussionStaves: this.percussionStaves,
+        labels: this.labels,
+        transpose: this.transpose,
+      },
+    };
   }
 
   private readMeasure(measure: XmlElement, index: number, sections: Section[]): ReturnType<typeof makeBar> {
     const number = this.barNumber(measure, index);
-    const items: BarItem[] = [];
-    const tuplets: Tuplet[] = [];
+    const content: MeasureContent = { voices: new Map(), clefs: new Map() };
+    this.contents.push(content);
     const chords: { id: string; onset: number; text: string }[] = [];
     const annotations: { id: string; onset: number; text: string }[] = [];
 
     let cursor = 0;
-    let openTuplet: OpenTuplet | null = null;
     let startBarline: 'none' | 'repeat-start' = 'none';
     let endBarline: 'single' | 'double' | 'final' | 'repeat-end' = 'single';
     let hasStart = false;
     let hasStop = false;
     let endingNumbers: number[] | null = null;
-    let voiceEnded = false;
-
-    const closeTuplet = (): void => {
-      if (openTuplet !== null) {
-        tuplets.push({ id: this.id('tuplet'), ...openTuplet });
-        openTuplet = null;
-      }
-    };
+    let noteSeen = false;
 
     for (const child of childElements(measure)) {
       switch (child.name) {
         case 'attributes':
-          this.readAttributes(child);
+          this.readAttributes(child, content, noteSeen);
           break;
 
         case 'note': {
-          if (voiceEnded) break;
+          const staff = this.staffOf(child);
+          const label = (childText(child, 'voice') ?? '1').trim() || '1';
+          let acc = staff === null ? null : this.voiceAcc(content, staff, label);
+          // Two notes over the same stretch of one voice (a file that rewinds with a backup but never numbers its
+          // voices) are two voices, so each goes to the first voice of the staff that is free there.
+          if (acc !== null && cursor < acc.end && firstChild(child, 'grace') === null && firstChild(child, 'chord') === null) {
+            this.note('overlapping notes with one voice number were read as separate voices');
+            for (let n = 1; acc !== null && cursor < acc.end; n += 1) {
+              acc = this.voiceAcc(content, staff as number, `${label}+${n}`);
+            }
+          }
+          if (acc === null) {
+            // A staff or voice past the bounds: the note still takes its time, so the rest of the measure stays in step.
+            this.pendingGraces = [];
+            if (firstChild(child, 'grace') === null && firstChild(child, 'chord') === null) cursor += this.ticksOf(child);
+            break;
+          }
+          noteSeen = true;
           if (firstChild(child, 'grace') !== null) {
             // Held until the note it precedes is read; it takes no time (SIB2-185).
             const grace = this.readGrace(child);
@@ -289,12 +455,12 @@ class PartReader {
             break;
           }
           if (firstChild(child, 'chord') !== null) {
-            // A second note at the same onset: single-voice keeps the first (ADR-0021, the layout
-            // engine's single-voice assumption), and this is dropped rather than refused.
-            this.note('a chord note (a second simultaneous pitch) was dropped: single-voice only');
+            // A second note at the same onset: one pitch to a voice (ADR-0021), so this is dropped rather than refused.
+            this.note('a chord note (a second simultaneous pitch) was dropped: one pitch per voice');
             break;
           }
           const parsed = this.readNote(child, cursor);
+          if (parsed.unpitched) this.percussionStaves.add(staff as number);
           const notations = firstChild(child, 'notations');
           if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
           if (notations !== null && parsed.item.kind === 'note') {
@@ -306,7 +472,7 @@ class PartReader {
             else this.note('grace notes before a rest were dropped: a grace note belongs to a note');
             this.pendingGraces = [];
           }
-          items.push(parsed.item);
+          acc.items.push(parsed.item);
           this.readSlurs(child, parsed.item);
           if (parsed.item.kind === 'note') {
             this.lastNoteId = parsed.item.id;
@@ -315,28 +481,34 @@ class PartReader {
               this.pendingOttava = null;
             }
           }
-          openTuplet = this.trackTuplet(openTuplet, tuplets, parsed);
+          acc.open = this.trackTuplet(acc.open, acc.tuplets, parsed);
           cursor += parsed.ticks;
+          acc.end = cursor;
           break;
         }
 
         case 'forward':
-          if (!voiceEnded) cursor += this.ticksOf(child);
+          cursor += this.ticksOf(child);
           break;
 
         case 'backup':
-          // A rewind means a second voice starts here. Keep the first, drop the rest of this bar.
-          voiceEnded = true;
-          this.note('a second voice was dropped: single-voice only');
+          // A rewind: the next notes start another voice (or staff) over the same stretch of the measure.
+          cursor = Math.max(0, cursor - this.ticksOf(child));
           break;
 
         case 'harmony': {
+          if (!this.primary) break;
           const chord = this.readHarmony(child, cursor);
           if (chord !== null) chords.push(chord);
           break;
         }
 
         case 'direction': {
+          // Only an octave shift is a note's, so a later part reads it; the rest belongs to the whole score.
+          if (!this.primary) {
+            this.readOctaveShift(child);
+            break;
+          }
           const words = this.wordsOf(child);
           if (words !== null) {
             const offset = childText(child, 'offset');
@@ -357,6 +529,7 @@ class PartReader {
         }
 
         case 'barline': {
+          if (!this.primary) break;
           const read = this.readBarline(child);
           if (read.start !== null) startBarline = read.start;
           if (read.end !== null) endBarline = read.end;
@@ -375,15 +548,16 @@ class PartReader {
           break;
       }
     }
-    closeTuplet();
+    for (const acc of content.voices.values()) {
+      if (acc.open !== null) acc.tuplets.push({ id: this.id('tuplet'), ...acc.open });
+      acc.open = null;
+    }
 
     const ending = this.resolveEnding(hasStart, hasStop, endingNumbers);
 
     return makeBar({
       id: this.id('bar'),
       number,
-      items,
-      tuplets,
       chords: chords.map((c) => makeChord(c)),
       annotations: annotations.map((a) => makeAnnotation(a)),
       startBarline,
@@ -397,11 +571,13 @@ class PartReader {
    * `slash="yes"` for an acciaccatura. A grace with no pitch (unpitched) is dropped with a note.
    */
   private readGrace(el: XmlElement): GraceNote | null {
-    const pitch = firstChild(el, 'pitch');
+    const unpitched = firstChild(el, 'unpitched');
+    const pitch = firstChild(el, 'pitch') ?? unpitched;
     if (pitch === null) {
       this.note('a grace note with no pitch was dropped');
       return null;
     }
+    const display = pitch === unpitched;
     const type = childText(el, 'type');
     const value = type === '16th' ? 16 : type === '32nd' ? 32 : 8;
     const written = firstChild(el, 'accidental');
@@ -409,9 +585,9 @@ class PartReader {
     return {
       id: this.id('grace'),
       pitch: {
-        step: (childText(pitch, 'step') ?? 'C') as Step,
-        alter: clampAlter(Number(childText(pitch, 'alter') ?? 0)),
-        octave: Number(childText(pitch, 'octave') ?? 4),
+        step: stepOf(childText(pitch, display ? 'display-step' : 'step')),
+        alter: display ? 0 : clampAlter(Number(childText(pitch, 'alter') ?? 0)),
+        octave: octaveOf(childText(pitch, display ? 'display-octave' : 'octave')),
       },
       value,
       slashed: grace !== null && attr(grace, 'slash') === 'yes',
@@ -499,10 +675,26 @@ class PartReader {
     return index;
   }
 
-  private readAttributes(el: XmlElement): void {
-    const divisions = childText(el, 'divisions');
-    if (divisions !== null && Number(divisions) > 0) this.divisions = Number(divisions);
+  private readAttributes(el: XmlElement, content: MeasureContent, noteSeen: boolean): void {
+    const divisions = Number(childText(el, 'divisions'));
+    if (Number.isFinite(divisions) && divisions > 0 && divisions <= 1_000_000) this.divisions = divisions;
 
+    const staves = Number(childText(el, 'staves'));
+    if (Number.isInteger(staves) && staves > 1) this.growStaves(staves);
+
+    for (const clef of childElements(el, 'clef')) {
+      const number = Number(attr(clef, 'number') ?? 1);
+      if (!Number.isInteger(number) || number < 1 || !this.growStaves(number)) continue;
+      const read = this.clefOf(clef);
+      if (read === null) continue;
+      if (noteSeen) this.note('a clef change inside a bar was moved to the start of the bar');
+      content.clefs.set(number, read);
+    }
+
+    const transpose = firstChild(el, 'transpose');
+    if (transpose !== null && this.transpose === null) this.readTranspose(transpose);
+
+    if (!this.primary) return;
     const key = firstChild(el, 'key');
     const time = firstChild(el, 'time');
 
@@ -514,6 +706,87 @@ class PartReader {
       // One time signature per chart in both milestones (ADR-0021/Q34); a later change is dropped.
       this.note('a mid-piece key or time change was dropped: one key and meter per chart');
     }
+  }
+
+  /** Make room for staff `count`; false (and a warning) past the per-part bound. */
+  private growStaves(count: number): boolean {
+    if (count > MAX_STAVES_PER_PART) {
+      this.note(`staves past the ${MAX_STAVES_PER_PART}th of a part were dropped`);
+      return false;
+    }
+    this.staffCount = Math.max(this.staffCount, count);
+    return true;
+  }
+
+  /** The staff a note is on: its `<staff>` (default 1), or null past the bound. */
+  private staffOf(note: XmlElement): number | null {
+    const raw = childText(note, 'staff');
+    const number = raw === null ? 1 : Number(raw);
+    if (!Number.isInteger(number) || number < 1) return 1;
+    return this.growStaves(number) ? number : null;
+  }
+
+  /** The accumulator for a staff's voice, or null when the staff already has all the voice numbers it may. */
+  private voiceAcc(content: MeasureContent, staff: number, label: string): VoiceAcc | null {
+    const known = this.labels.get(staff) ?? [];
+    if (!known.includes(label)) {
+      if (known.length >= MAX_VOICE_LABELS) {
+        this.note(`voices past the ${MAX_VOICE_LABELS}th number met on one staff were dropped`);
+        return null;
+      }
+      known.push(label);
+      this.labels.set(staff, known);
+    }
+    const key = `${staff}|${label}`;
+    let acc = content.voices.get(key);
+    if (acc === undefined) {
+      acc = { items: [], tuplets: [], open: null, end: 0 };
+      content.voices.set(key, acc);
+    }
+    return acc;
+  }
+
+  /** `<clef>`: the sign and line mapped onto the five clefs the model has; others are read as the nearest, with a note. */
+  private clefOf(clef: XmlElement): Clef | null {
+    const sign = childText(clef, 'sign');
+    const line = Number(childText(clef, 'line') ?? NaN);
+    const octave = Number(childText(clef, 'clef-octave-change') ?? 0);
+    if (octave !== 0 && Number.isFinite(octave)) this.note('an octave mark on a clef was dropped');
+    switch (sign) {
+      case 'G':
+        if (line !== 2 && Number.isFinite(line)) this.note('a clef on a line other than the usual one was read as the standard clef');
+        return 'treble';
+      case 'F':
+        if (line !== 4 && Number.isFinite(line)) this.note('a clef on a line other than the usual one was read as the standard clef');
+        return 'bass';
+      case 'C':
+        if (line === 4) return 'tenor';
+        if (line !== 3 && Number.isFinite(line)) this.note('a clef on a line other than the usual one was read as the standard clef');
+        return 'alto';
+      case 'percussion':
+        return 'percussion';
+      case 'TAB':
+        this.note('a tablature staff was read as a standard staff');
+        return 'treble';
+      default:
+        return null;
+    }
+  }
+
+  /** `<transpose>` (written to sounding) as the part's semitones from sounding to written, and its spelled interval. */
+  private readTranspose(el: XmlElement): void {
+    const chromatic = Number(childText(el, 'chromatic') ?? 0);
+    const octaveChange = Number(childText(el, 'octave-change') ?? 0);
+    const diatonicText = childText(el, 'diatonic');
+    const diatonic = diatonicText === null ? null : Number(diatonicText);
+    if (![chromatic, octaveChange].every(Number.isInteger) || (diatonic !== null && !Number.isInteger(diatonic))) return;
+    if (Math.abs(chromatic) > 36 || Math.abs(octaveChange) > 3 || (diatonic !== null && Math.abs(diatonic) > 21)) {
+      this.note('a transposition of more than three octaves was dropped');
+      return;
+    }
+    const values = fromTransposeElement({ diatonic, chromatic, octaveChange });
+    if (values.semitones === 0) return;
+    this.transpose = values;
   }
 
   private divisionsChanged(key: XmlElement | null, time: XmlElement | null): boolean {
@@ -532,6 +805,8 @@ class PartReader {
     item: BarItem;
     ticks: number;
     tuplet: { actual: number; normal: number } | null;
+    /** A percussion note (`<unpitched>`): its pitch is only where it sits on the staff. */
+    unpitched: boolean;
   } {
     const ticks = this.ticksOf(el);
     const { value, dots } = this.durationOf(el, ticks);
@@ -545,19 +820,21 @@ class PartReader {
           };
 
     if (firstChild(el, 'rest') !== null) {
-      return { item: makeRest({ id: this.id('rest'), onset, duration: { value, dots } }), ticks, tuplet };
+      return { item: makeRest({ id: this.id('rest'), onset, duration: { value, dots } }), ticks, tuplet, unpitched: false };
     }
 
-    const pitch = firstChild(el, 'pitch');
+    const unpitched = firstChild(el, 'unpitched');
+    const pitch = firstChild(el, 'pitch') ?? unpitched;
     if (pitch === null) {
       // Neither a rest nor a pitch: treat as a rest so the bar's timing survives.
       this.note('a note with no pitch was read as a rest');
-      return { item: makeRest({ id: this.id('rest'), onset, duration: { value, dots } }), ticks, tuplet };
+      return { item: makeRest({ id: this.id('rest'), onset, duration: { value, dots } }), ticks, tuplet, unpitched: false };
     }
 
-    const step = (childText(pitch, 'step') ?? 'C') as Step;
-    const alter = clampAlter(Number(childText(pitch, 'alter') ?? 0));
-    const octave = Number(childText(pitch, 'octave') ?? 4);
+    const display = unpitched !== null && pitch === unpitched;
+    const step = stepOf(childText(pitch, display ? 'display-step' : 'step'));
+    const alter = display ? 0 : clampAlter(Number(childText(pitch, 'alter') ?? 0));
+    const octave = octaveOf(childText(pitch, display ? 'display-octave' : 'octave'));
     // `<accidental parentheses="yes">` is a cautionary accidental (SIB2-182).
     const written = firstChild(el, 'accidental');
     const cautionary = written !== null && attr(written, 'parentheses') === 'yes';
@@ -573,6 +850,7 @@ class PartReader {
       }),
       ticks,
       tuplet,
+      unpitched: display,
     };
   }
 
@@ -737,8 +1015,11 @@ class PartReader {
   }
 
   private ticksOf(el: XmlElement): number {
-    const duration = childText(el, 'duration');
-    return duration === null ? 0 : this.scale(Number(duration));
+    const duration = Number(childText(el, 'duration'));
+    if (!Number.isFinite(duration) || duration < 0) return 0;
+    const ticks = this.scale(duration);
+    // Past a hundred bars is a hostile or corrupt number, not music.
+    return ticks > MAX_TICKS ? 0 : ticks;
   }
 
   private scale(divisions: number): number {
@@ -759,6 +1040,129 @@ class PartReader {
   private note(warning: string): void {
     if (!this.warnings.includes(warning)) this.warnings.push(warning);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Parts, staves and voices
+// ---------------------------------------------------------------------------
+
+/**
+ * One part of the draft from what its reader gathered (ADR-0041 slice 5a). Staves and parts are numbered across
+ * the score in order (`staff-1`...), a staff's voices are renumbered onto 1 to 4, a clef change becomes a
+ * `StaffBar.clef`, and a transposing part's pitches (written in the file) are brought back to concert.
+ */
+function buildPart(
+  content: PartContent,
+  partIndex: number,
+  staffOffset: number,
+  score: Score,
+  info: { name: string; program: number | null } | null,
+  warnings: string[],
+): Part {
+  const shift = content.transpose;
+  const staves: Staff[] = [];
+  for (let number = 1; number <= content.staffCount; number += 1) {
+    const labelMap = voiceIndexMap(content.labels.get(number) ?? [], number - 1, warnings);
+    const percussionNotes = content.percussionStaves.has(number);
+    const fallback: Clef = percussionNotes ? 'percussion' : 'treble';
+
+    let opening: Clef | null = null;
+    let current: Clef = fallback;
+    const changes = new Map<number, Clef>();
+    content.measures.forEach((measure, index) => {
+      const clef = measure.clefs.get(number);
+      if (clef === undefined) return;
+      if (opening === null) {
+        opening = index === 0 ? clef : fallback;
+        current = opening;
+      }
+      if (clef !== current) {
+        changes.set(index, clef);
+        current = clef;
+      }
+    });
+    const clef: Clef = opening ?? fallback;
+    const percussion = percussionNotes || clef === 'percussion';
+
+    const indexes = [...new Set([1, ...labelMap.values()])].sort((a, b) => a - b);
+    // A percussion note's pitch is a place on the staff, so it never moves.
+    const toConcert = shift === null || percussion ? null : inverse(shift.written);
+    const bars = score.bars.map((bar, barIndex): StaffBar => {
+      const measure = content.measures[barIndex];
+      const voices = indexes.map((index): Voice => {
+        const label = [...labelMap].find(([, mapped]) => mapped === index)?.[0];
+        const acc = label === undefined ? undefined : measure?.voices.get(`${number}|${label}`);
+        const items = acc?.items ?? [];
+        return {
+          index,
+          items: toConcert === null ? items : items.map((item) => concertItem(item, toConcert, score.meta.key)),
+          tuplets: acc?.tuplets ?? [],
+        };
+      });
+      const change = changes.get(barIndex);
+      return change === undefined ? { barId: bar.id, voices } : { barId: bar.id, voices, clef: change };
+    });
+    staves.push({ id: `staff-${staffOffset + number}`, type: percussion ? 'percussion' : 'standard', clef, bars });
+  }
+
+  // The names this codec itself writes for an unnamed part are not names.
+  const written = info?.name ?? '';
+  const name = written === exportedPartName(score, { name: '' }, partIndex) ? '' : written;
+  return {
+    id: `part-${partIndex + 1}`,
+    name,
+    instrument: info?.program ?? null,
+    transposition: shift?.semitones ?? 0,
+    staves,
+  };
+}
+
+/** A note brought from written to concert pitch by the part's interval (graces too); a rest is as it was. */
+function concertItem(item: BarItem, interval: Interval, key: KeySignature): BarItem {
+  if (item.kind !== 'note') return item;
+  const move = (pitch: typeof item.pitch): typeof item.pitch => transposePitch(pitch, interval, key, true);
+  return {
+    ...item,
+    pitch: clampPitch(move(item.pitch)),
+    ...(item.graces === undefined ? {} : { graces: item.graces.map((grace) => ({ ...grace, pitch: clampPitch(move(grace.pitch)) })) }),
+  };
+}
+
+function clampPitch(pitch: { step: Step; alter: Alter; octave: number }): { step: Step; alter: Alter; octave: number } {
+  return { ...pitch, alter: clampAlter(pitch.alter) };
+}
+
+/**
+ * MusicXML numbers voices per part, our model per staff from 1 to 4. A file that numbers the way this codec does
+ * (`4 * staffIndex + voice`, which is how MuseScore numbers them too) keeps its numbers; otherwise a staff's voices
+ * are ranked in numeric order. A fifth voice on a staff is dropped, named in a warning.
+ */
+function voiceIndexMap(labels: readonly string[], staffIndex: number, warnings: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const numeric = (label: string): number => (/^\d{1,6}$/.test(label) ? Number(label) : Number.NaN);
+  const own = labels.every((label) => {
+    const index = numeric(label) - 4 * staffIndex;
+    return index >= 1 && index <= MAX_VOICES;
+  });
+  if (own) {
+    for (const label of labels) out.set(label, numeric(label) - 4 * staffIndex);
+    return out;
+  }
+  const ranked = [...labels].sort((a, b) => {
+    const [x, y] = [numeric(a), numeric(b)];
+    if (Number.isNaN(x) && Number.isNaN(y)) return a < b ? -1 : a > b ? 1 : 0;
+    if (Number.isNaN(x)) return 1;
+    if (Number.isNaN(y)) return -1;
+    return x - y;
+  });
+  ranked.forEach((label, rank) => {
+    if (rank < MAX_VOICES) out.set(label, rank + 1);
+    else {
+      const warning = `voices past the ${MAX_VOICES}th on a staff were dropped`;
+      if (!warnings.includes(warning)) warnings.push(warning);
+    }
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +1212,18 @@ function timeFrom(time: XmlElement): { beats: number; beatValue: NoteValue } {
   const beats = Number(childText(time, 'beats') ?? 4);
   const beatValue = (VALUE_OF_TYPE[childText(time, 'beat-type') ?? '4'] ?? Number(childText(time, 'beat-type') ?? 4)) as NoteValue;
   return { beats, beatValue };
+}
+
+const STEPS: readonly Step[] = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+
+function stepOf(text: string | null): Step {
+  const step = (text ?? '').trim() as Step;
+  return STEPS.includes(step) ? step : 'C';
+}
+
+function octaveOf(text: string | null): number {
+  const octave = Math.round(Number(text ?? 4));
+  return Number.isFinite(octave) ? Math.min(10, Math.max(-1, octave)) : 4;
 }
 
 function clampAlter(value: number): Alter {

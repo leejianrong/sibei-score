@@ -224,6 +224,52 @@ The engraver draws every staff and voice that layout emits. No schema change. De
   merged into chords; a fermata sits over the staff, not over a low note inside it; instrument names, per-part
   transposition and cross-staff beams are later items; an ottava line is the top staff's only.
 
+## As built: slice 5a (SIB2-229, MusicXML and `writtenPart`)
+
+- **Export** (`packages/codec/src/export.ts`): a `<part>` per part, a `<score-part>` with its name and, when it has
+  one, a `<midi-instrument>` (GM program is 1-based in MusicXML); several parts share a `<part-group>` bracket and a
+  part of two or more staves has `<staves>`, `<part-symbol>brace` and a `<clef number>` per staff, as the layout draws
+  them. Each staff's voices follow one another, a `<backup>` of the measure so far starting every voice after the
+  first, a `<forward>` for a gap, and `<voice>` is `4 * staffIndex + voice` (a single staff's voice 1 is still `1`) with
+  `<staff>` only when the part has several. Chords, text, rehearsal letters and the tempo are written once, in the first
+  part; barlines and line breaks in every part. A clef change is a `<clef>` in that measure's attributes. A percussion
+  staff's notes are `<unpitched>` with their display pitch only (no drum noteheads or instrument map exists yet), and a
+  part of only percussion staves is on MIDI channel 10. A single-staff, single-voice score's output is unchanged
+  byte for byte.
+- **A transposing part** (`Part.transposition` is semitones from sounding to written): the file holds written pitch and
+  a `<transpose>` (the opposite direction in MusicXML: Bb trumpet is diatonic -1, chromatic -2), the part's own key
+  signature moved by the same spelled interval, and import brings the notes and the score key back to concert. Both
+  directions use the spelled interval, never re-spell by key, so the move is exactly reversible.
+- **Import** reads every part, staff and voice. The first part sets the bar grid and everything that belongs to the
+  whole score (key, meter, tempo, chords, text, rehearsal letters, barlines, line breaks); later parts contribute notes,
+  clefs and a transposition. A staff's voices keep this codec's numbering when the file uses it, else rank in numeric
+  order onto 1 to 4. Notes that overlap in one voice number (a backup with no `<voice>`) become separate voices. A
+  draft of more than one staff gets `meta.layout: 'score'`. Bounds (untrusted input): 32 parts, 8 staves a part, 32
+  staves in all, 16 distinct voice numbers a staff then 4 voices, durations past 400 quarters read as zero, a
+  nonsense step/octave/staff number clamped; a file past a bound is read up to it with a named warning.
+- **Still lossy, named:** a part's missing name (an unnamed part is written as the title, then `Part N`, and read back as
+  unnamed), `meta.layout` (not written), a part's bracket/brace grouping (derived, not read), a note's accidental on a
+  percussion staff, keys needing more than seven accidentals once written for a transposing part, a clef change
+  inside a bar (moved to the bar's start), clefs other than G2/F4/C3/C4/percussion (read as the nearest, tab as
+  standard), chord tones, lyrics, dynamics.
+- **`writtenPart`** (`packages/music/src/part.ts`) now moves every staff and voice (percussion excepted), the chord lane
+  once; a part with its own `transposition` moves by that interval instead of the instrument's and comes back with
+  `transposition: 0` (applied). `concert` is still the identity, leaving a part's own transposition to the codec.
+  A view has one key signature, so an own-transposition part's key signature is the requested instrument's until the
+  engraver draws per-part keys.
+- **`meta.layout` has its op, verb and control** (SIB2-232): `meta.set` takes `layout: 'lead-sheet' | 'score' | null`
+  (`lead-sheet` and null clear it, so absence is the one way to say the default), `sbscore meta set --layout`, a Layout
+  select in the score view's rail (the same `meta.set`, one ctrl-Z undoes it), a `layout: score` line in `show` when set,
+  MCP through its batch. Slice 3's "no op or verb sets it yet" is closed.
+- **`Part.group` is not added.** Brackets stay derived from the part count and braces from a part's staves. A field
+  nobody reads is a trap (the engraver, slice 4, draws what slice 3's layout derives), and the one thing it would buy,
+  grouping some parts but not others (a horn section bracketed apart from the rhythm section), has no op, verb or control
+  to set it and no file that needs it yet. It would be additive and optional (ADR-0028, no migration) when it does; MusicXML
+  `<part-group>` is written as one bracket round all parts and not read.
+- **The text projection** (`show`) prints the structure block only for more than the lead-sheet shape, so a
+  single-staff single-voice chart is byte for byte as before (tests pin it); the address hint now names an address that
+  exists (`s1.v2.bar3.n2` for a one-staff two-voice chart) and a percussion staff no longer says `percussion` twice.
+
 ## As built: slice 6 (SIB2-230, percussion and the drum map)
 
 A drum kit on a five-line percussion staff. No schema change: the two new `Note` fields are optional-and-absent
