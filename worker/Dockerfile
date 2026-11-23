@@ -12,7 +12,7 @@
 # pyproject.toml. Pinning the checkpoints without pinning the runtime that reads them would not be
 # reproducible.
 
-FROM python:3.11-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # The system libraries the Python runtime needs. oemer wants glib (libglib2.0-0), and
 # scipy/scikit-learn want libgomp (OpenMP). PaddleOCR (V13, ADR-0027) pulls in a `cv2` that links
