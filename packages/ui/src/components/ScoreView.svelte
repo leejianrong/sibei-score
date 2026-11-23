@@ -306,6 +306,15 @@
   // only an id and a page, its box and the slurs it would join looked up fresh from the render and model.
   let rangeId = $state<Id | null>(null);
   let rangePage = $state<number | null>(null);
+  // The Selected region at the top of the rail (SIB2-263), kept so a selection can be scrolled into its own pane.
+  let selectedPane = $state<HTMLElement | null>(null);
+  // A new selection starts the inspector at its top, so the first control is the one in view (SIB2-263).
+  $effect(() => {
+    void selection;
+    void chordSelection;
+    void barStructure;
+    if (selectedPane !== null) selectedPane.scrollTop = 0;
+  });
   let conflict = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
@@ -1196,7 +1205,7 @@
 {:else if score !== null}
   <section class="score">
     <aside class="rail">
-      <div>
+      <div class="rail-head">
         <h2 class="rail-title" class:untitled={score.meta.title === ''}>
           {displayTitle(score.meta.title)}
         </h2>
@@ -1205,6 +1214,108 @@
         {/if}
       </div>
 
+      <div class="group rail-selected" bind:this={selectedPane} data-testid="selected-pane">
+        <h3>Selected</h3>
+        {#if chordSelection !== null}
+          {#key `${chordSelection.mode}:${chordSelection.addr}`}
+            <ChordInspector
+              chord={chordSelection}
+              {conflict}
+              {saving}
+              error={saveError}
+              onsave={handleChordSave}
+              onremove={handleChordRemove}
+              ondeselect={deselect}
+              onreload={handleReload}
+            />
+          {/key}
+        {:else if selection !== null}
+          {#key selection.id}
+            <Inspector
+              {selection}
+              lane={multiLane && located !== null
+                ? laneLabel(score, { staff: located.staffIndex + 1, voice: located.voice })
+                : null}
+              {conflict}
+              {saving}
+              error={saveError}
+              pendingSlur={pendingSlur}
+              slurs={slursHere}
+              onfermata={(on) =>
+                void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
+              onslur={(placement) => void handleSlur(placement)}
+              onrmslur={(id) => void runOps([removeSlurOp(id)])}
+              ottavas={ottavasHere}
+              onottava={(shift) => void handleOttava(shift)}
+              onrmottava={(id) => void runOps([removeOttavaOp(id)])}
+              ongraceadd={(grace) =>
+                void runOps([{ type: 'grace.add', target: selection!.id, payload: grace } as Operation])}
+              ongracerm={(id) => void runOps([{ type: 'grace.rm', target: id } as Operation])}
+              {selectedTone}
+              ontoneadd={(pitch) => void handleToneAdd(pitch)}
+              ontonerm={(pitch) => void handleToneRemove(pitch)}
+              ontoneset={(pitch, change) => void handleToneSet(pitch, change)}
+              {moveTargets}
+              onmove={(to) => void handleMove(to)}
+              onsave={handleSave}
+              tuplet={tupletOfItem(selection.id)}
+              onsettuplet={handleSetTuplet}
+              onremovetuplet={handleRemoveTuplet}
+              ondeselect={deselect}
+              onreload={handleReload}
+            />
+          {/key}
+        {:else if barStructure !== null}
+          {#key barStructure.barNumber}
+            <StructureInspector
+              bar={barStructure}
+              {conflict}
+              {saving}
+              error={saveError}
+              onsave={handleStructureSave}
+              onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
+              onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
+              onsettext={(beat, text, until) =>
+                void runOps([
+                  {
+                    type: 'text.set',
+                    target: `${barStructure!.addr}.beat${beat}`,
+                    payload: { text, until: until === null ? null : `bar${until}` },
+                  },
+                ])}
+              onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
+              ondeselect={deselect}
+              onreload={handleReload}
+            />
+          {/key}
+          {#key `${barStructure.barNumber}:${barSel!.staffIndex}`}
+            <NewItem
+              barNumber={barStructure.barNumber}
+              laneText={laneLabel(score, { staff: barSel!.staffIndex + 1, voice: activeLane.voice })}
+              seedPitch={seedPitchFor(staffClef(score, barSel!.staffIndex + 1) ?? 'treble')}
+              {saving}
+              onnew={(item) => void handleNewItem(item)}
+            />
+          {/key}
+        {:else}
+          <p class="inspector-empty">
+            Nothing selected. Click a note or a rest to edit it, a bar or its barline to set its
+            structure, or the band above a bar to add a chord.
+          </p>
+          {#if editable}
+            <button
+              type="button"
+              class="add-bar"
+              disabled={saving}
+              onclick={() => void runOps([{ type: 'bar.add' }])}
+            >
+              Add a bar at the end
+            </button>
+          {/if}
+        {/if}
+      </div>
+
+      <div class="rail-scroll">
       <!-- Deliberately not repeating `style` here — it is printed on the page, two centimetres
            away. The rail carries what the page cannot say. -->
       <dl class="facts">
@@ -1569,107 +1680,7 @@
           </p>
         {/if}
       </div>
-
-      <div class="group">
-        <h3>Selected</h3>
-        {#if chordSelection !== null}
-          {#key `${chordSelection.mode}:${chordSelection.addr}`}
-            <ChordInspector
-              chord={chordSelection}
-              {conflict}
-              {saving}
-              error={saveError}
-              onsave={handleChordSave}
-              onremove={handleChordRemove}
-              ondeselect={deselect}
-              onreload={handleReload}
-            />
-          {/key}
-        {:else if selection !== null}
-          {#key selection.id}
-            <Inspector
-              {selection}
-              lane={multiLane && located !== null
-                ? laneLabel(score, { staff: located.staffIndex + 1, voice: located.voice })
-                : null}
-              {conflict}
-              {saving}
-              error={saveError}
-              pendingSlur={pendingSlur}
-              slurs={slursHere}
-              onfermata={(on) =>
-                void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
-              onslur={(placement) => void handleSlur(placement)}
-              onrmslur={(id) => void runOps([removeSlurOp(id)])}
-              ottavas={ottavasHere}
-              onottava={(shift) => void handleOttava(shift)}
-              onrmottava={(id) => void runOps([removeOttavaOp(id)])}
-              ongraceadd={(grace) =>
-                void runOps([{ type: 'grace.add', target: selection!.id, payload: grace } as Operation])}
-              ongracerm={(id) => void runOps([{ type: 'grace.rm', target: id } as Operation])}
-              {selectedTone}
-              ontoneadd={(pitch) => void handleToneAdd(pitch)}
-              ontonerm={(pitch) => void handleToneRemove(pitch)}
-              ontoneset={(pitch, change) => void handleToneSet(pitch, change)}
-              {moveTargets}
-              onmove={(to) => void handleMove(to)}
-              onsave={handleSave}
-              tuplet={tupletOfItem(selection.id)}
-              onsettuplet={handleSetTuplet}
-              onremovetuplet={handleRemoveTuplet}
-              ondeselect={deselect}
-              onreload={handleReload}
-            />
-          {/key}
-        {:else if barStructure !== null}
-          {#key barStructure.barNumber}
-            <StructureInspector
-              bar={barStructure}
-              {conflict}
-              {saving}
-              error={saveError}
-              onsave={handleStructureSave}
-              onaddbar={() => void runOps([{ type: 'bar.add', target: barStructure!.addr }])}
-              onrmbar={() => void runOps([{ type: 'bar.rm', target: barStructure!.addr }])}
-              onsettext={(beat, text, until) =>
-                void runOps([
-                  {
-                    type: 'text.set',
-                    target: `${barStructure!.addr}.beat${beat}`,
-                    payload: { text, until: until === null ? null : `bar${until}` },
-                  },
-                ])}
-              onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
-              ondeselect={deselect}
-              onreload={handleReload}
-            />
-          {/key}
-          {#key `${barStructure.barNumber}:${barSel!.staffIndex}`}
-            <NewItem
-              barNumber={barStructure.barNumber}
-              laneText={laneLabel(score, { staff: barSel!.staffIndex + 1, voice: activeLane.voice })}
-              seedPitch={seedPitchFor(staffClef(score, barSel!.staffIndex + 1) ?? 'treble')}
-              {saving}
-              onnew={(item) => void handleNewItem(item)}
-            />
-          {/key}
-        {:else}
-          <p class="inspector-empty">
-            Nothing selected. Click a note or a rest to edit it, a bar or its barline to set its
-            structure, or the band above a bar to add a chord.
-          </p>
-          {#if editable}
-            <button
-              type="button"
-              class="add-bar"
-              disabled={saving}
-              onclick={() => void runOps([{ type: 'bar.add' }])}
-            >
-              Add a bar at the end
-            </button>
-          {/if}
-        {/if}
-      </div>
+    </div>
     </aside>
 
     <!-- The workspace: just the sheet stage for most charts, and the retained scan beside it for one
@@ -1814,15 +1825,38 @@
     min-height: calc(100vh - var(--top-h));
   }
 
+  /* SIB2-263: the rail is three stacked regions rather than one long scroll. The title stays put, the
+     Selected inspector sits directly under it where a click's result is seen, and only the document-level
+     panels beneath scroll. Before this the inspector was the last of fifteen panels, ~4,000 px down. */
   .rail {
     position: sticky;
     top: var(--top-h);
     align-self: start;
     height: calc(100vh - var(--top-h));
-    overflow-y: auto;
+    overflow: hidden;
     background: var(--panel);
     border-right: 1px solid var(--rule);
-    padding: 26px 22px 40px;
+    display: flex;
+    flex-direction: column;
+  }
+  .rail-head {
+    flex: none;
+    padding: 22px 22px 12px;
+  }
+  .rail > .rail-selected {
+    border-top: 0;
+    flex: none;
+    max-height: 60%;
+    overflow-y: auto;
+    padding: 12px 22px 16px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--rule);
+  }
+  .rail-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 22px 40px;
     display: flex;
     flex-direction: column;
     gap: 24px;
