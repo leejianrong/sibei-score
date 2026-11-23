@@ -25,7 +25,7 @@ import type { LayoutSystemName } from './names.js';
 import { nameIndent, namesFor } from './names.js';
 import { ottavaShifts, planOttavas } from './ottava.js';
 import type { PageSpec, PageSpecInput } from './page.js';
-import { resolvePageSpec } from './page.js';
+import { pageInputFromMeta, resolvePageSpec } from './page.js';
 import type { AllocatedBar, BarPrefix } from './widths.js';
 import { allocateWidths } from './widths.js';
 import { systemVertical } from './vertical.js';
@@ -124,7 +124,9 @@ export interface LayoutResult {
 }
 
 export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
-  const spec = resolvePageSpec(input);
+  // The score's own page setup (SIB2-287) underneath whatever the caller names: an explicit input wins, per margin side too.
+  const fromScore = pageInputFromMeta(score.meta.page, input.pointsPerUnit);
+  const spec = resolvePageSpec({ ...fromScore, ...input, margin: { ...fromScore.margin, ...input.margin } });
   // More than one staff, or two voices with music: the staves path (lanes.ts, SIB2-227). Everything it adds is
   // optional on the output, and a single-staff single-voice chart never enters it.
   const multi = isMultiLane(score);

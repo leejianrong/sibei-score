@@ -482,7 +482,38 @@ export interface ScoreMeta {
    * chart made before it renders byte-identically (ADR-0028, no migration).
    */
   showInstrumentNames?: boolean;
+  /**
+   * Page setup (SIB2-287): margins, staff size and the gap between systems, in millimetres. Every field is optional and an
+   * absent field keeps the layout's own default, so a chart with no `page` renders exactly as it always has (ADR-0028,
+   * no migration). Set by `page.set`.
+   */
+  page?: PagePrefs;
 }
+
+/** Page margins in millimetres. */
+export interface PageMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * A score's page setup (`meta.page`). `staffSize` is the height of the five-line staff (a rastral size: 7 mm is a common
+ * lead-sheet size, 5 mm a small cue-size part), and the whole page scales with it, text included, the way Sibelius's staff
+ * size does. `systemGap` is the clear space between two systems.
+ */
+export interface PagePrefs {
+  margin?: Partial<PageMargins>;
+  staffSize?: number;
+  systemGap?: number;
+}
+
+/** The layout's own values in millimetres, rounded: what a control shows as the default (the layout does not read these). */
+export const PAGE_DEFAULTS_MM = { staffSize: 8.5, margin: { top: 11.9, right: 13.5, bottom: 11.9, left: 13.5 }, systemGap: 4.2 } as const;
+
+/** The ranges `page.set` accepts, in millimetres. */
+export const PAGE_LIMITS_MM = { staffSize: [4, 14], margin: [3, 60], systemGap: [0, 40] } as const;
 
 /** How a score's systems are broken. See `ScoreMeta.layout`. */
 export type ScoreLayoutKind = 'lead-sheet' | 'score';

@@ -7,6 +7,7 @@ import type {
   BarlineSetPayload,
   EndingSetPayload,
   MetaSetPayload,
+  PageSetPayload,
   Operation,
   ScoreCreatePayload,
   SectionSetPayload,
@@ -113,6 +114,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
               [--layout lead-sheet|score]   how systems break: the four-bar grid, or by width (a score of several staves)
               [--instrument-names on|off]   print each part's name at the left of its staves (short names after the first system)
+  sbscore page set <id> [--margins MM] [--margin-top|--margin-right|--margin-bottom|--margin-left MM]
+              [--staff-size MM] [--system-gap MM]   page setup in millimetres; an empty value restores the default
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell] [--artic staccato,accent,marcato]
   sbscore note add <id> <address> --drum snare --dur 8 [--head x|diamond|circle-x|normal]   a drum, on a percussion staff
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
@@ -341,6 +344,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
     case 'clef':
     case 'instrument':
       return structure(verb as 'part' | 'staff' | 'voice' | 'clef' | 'instrument', flags, client, io, json);
+    case 'page':
+      return page(flags, client, io, json);
     case 'section':
       return section(flags, client, io, json);
     case 'barline':
@@ -936,6 +941,41 @@ function isAbsolute(path: string): boolean {
 // ---------------------------------------------------------------------------
 // Editing
 // ---------------------------------------------------------------------------
+
+/**
+ * `sbscore page set <id> [--margins N] [--margin-top N] [--margin-right N] [--margin-bottom N] [--margin-left N]
+ * [--staff-size N] [--system-gap N]` (SIB2-287): the page setup in millimetres. `--margins` is all four sides; a later,
+ * more specific side wins. An empty value clears the field back to the layout's default. The server judges the numbers.
+ */
+async function page(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  expectSub(flags, 'set', 'page');
+  const id = requiredPositional(flags, 2, 'a score id', 'page set');
+  const payload: PageSetPayload = {};
+  const mm = (name: string): number | null | undefined => {
+    const raw = flags.options.get(name);
+    if (raw === undefined) return undefined;
+    if (raw === '') return null;
+    if (!/^\d+(\.\d+)?$/.test(raw)) throw new CliError(EXIT.usage, 'usage', `--${name} takes millimetres such as 7 or 12.5, or nothing to clear it, not ${JSON.stringify(raw)}`);
+    return Number(raw);
+  };
+  const all = mm('margins');
+  if (all !== undefined) Object.assign(payload, { marginTop: all, marginRight: all, marginBottom: all, marginLeft: all });
+  for (const [flag, field] of [
+    ['margin-top', 'marginTop'],
+    ['margin-right', 'marginRight'],
+    ['margin-bottom', 'marginBottom'],
+    ['margin-left', 'marginLeft'],
+    ['staff-size', 'staffSize'],
+    ['system-gap', 'systemGap'],
+  ] as const) {
+    const value = mm(flag);
+    if (value !== undefined) payload[field] = value;
+  }
+  if (Object.keys(payload).length === 0) {
+    throw new CliError(EXIT.usage, 'usage', 'page set needs at least one of --margins --margin-top --margin-right --margin-bottom --margin-left --staff-size --system-gap');
+  }
+  return submit(flags, client, io, json, id, [{ type: 'page.set', payload }]);
+}
 
 async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   expectSub(flags, 'set', 'meta');
