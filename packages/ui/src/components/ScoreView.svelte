@@ -75,6 +75,9 @@
   import { getScoreSource, getImport, reparseScore, resplitScore, REPARSE_ENGINES } from '../lib/api.js';
   import { hashOf } from '../lib/routing.js';
   import NoteInputPanel from './NoteInputPanel.svelte';
+  import SelectionPanel from './SelectionPanel.svelte';
+  import { countNotes, itemsBetween, itemsInBars, itemsInStaff, liveItems, selectionOps } from '../lib/selection.js';
+  import type { SelectionEdit } from '../lib/selection.js';
   import ShortcutsOverlay from './ShortcutsOverlay.svelte';
   import { GHOST_ID, actionForKey, caretAtItem, caretLabel, ghostScore, inputContext, startInput, stepInput } from '../lib/note-input.js';
   import type { InputAction, InputState } from '../lib/note-input.js';
@@ -317,6 +320,9 @@
     void barStructure;
     if (selectedPane !== null) selectedPane.scrollTop = 0;
   });
+  // Multi-selection (SIB2-278): ids added with ctrl/cmd-click, or by a bar range or select-all. Together with the
+  // shift-click range above they make `pickedIds`; like everything else here it is ids, looked up fresh from the score.
+  let extraIds = $state<Id[]>([]);
   let conflict = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
@@ -483,6 +489,30 @@
     const box = boxFor(pageItemBoxes(page.layout, musicFont), rangeId);
     return box === null ? null : { pageIndex: rangePage, box };
   });
+
+  /** Everything selected, in reading order: the click, the shift-click range, and what was added. */
+  const pickedIds = $derived.by((): Id[] => {
+    if (score === null || !editable) return [];
+    const base = selectedId === null ? [] : rangeId === null ? [selectedId] : itemsBetween(score, selectedId, rangeId);
+    return liveItems(score, [...base, ...extraIds]);
+  });
+  const pickedNotes = $derived(score === null ? 0 : countNotes(score, pickedIds));
+  const pickedOverlays = $derived.by(() => {
+    if (pickedIds.length < 2) return [];
+    const out: { pageIndex: number; box: { x: number; y: number; width: number; height: number } }[] = [];
+    for (const [pageIndex, page] of pages.entries()) {
+      const boxes = pageItemBoxes(page.layout, musicFont);
+      for (const id of pickedIds) {
+        if (id === selectedId || id === rangeId) continue;
+        const box = boxFor(boxes, id);
+        if (box !== null) out.push({ pageIndex, box });
+      }
+    }
+    return out;
+  });
+  const moveTargets2 = $derived(
+    score === null ? [] : allStaves(score).map((staff, at) => ({ value: `s${at + 1}`, label: `Staff ${at + 1} · ${staff.clef}` })),
+  );
 
   /** The slur the two selected notes would make, or null when the pair is not two notes. */
   const pendingSlur = $derived.by(() => {
@@ -715,6 +745,7 @@
     selectedPage = null;
     rangeId = null;
     rangePage = null;
+    extraIds = [];
     chordSel = null;
     barSel = null;
     conflict = false;
@@ -727,7 +758,7 @@
    * deselect — clicking white space is how the mockup's "Deselect" affordance behaves without a
    * second control for it.
    */
-  function handleSheetClick(pageIndex: number, point: Point, extend = false): void {
+  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false): void {
     // A part view is read-only: its notes are written pitches, and an edit there would be submitted
     // against the concert score at the wrong pitch. So a click does nothing until you are on concert.
     if (saving || !editable) return;
@@ -764,7 +795,20 @@
       rangePage = pageIndex;
       return;
     }
+    // Ctrl/cmd-click adds a note to the selection, or takes it out again (SIB2-278).
+    if (additive && hit !== null) {
+      if (selectedId === null) {
+        selectedId = hit.id;
+        selectedPage = pageIndex;
+        chordSel = null;
+        barSel = null;
+      } else if (hit.id !== selectedId) {
+        extraIds = extraIds.includes(hit.id) ? extraIds.filter((id) => id !== hit.id) : [...extraIds, hit.id];
+      }
+      return;
+    }
     if (hit !== null) {
+      extraIds = [];
       rangeId = null;
       rangePage = null;
       chordSel = null;
@@ -785,11 +829,33 @@
       deselect();
       return;
     }
+    // Shift-click another bar of the same staff: select every note of the bars between (SIB2-278).
+    if (extend && barSel !== null && barSel.staffIndex === barHit.staffIndex && score !== null) {
+      extraIds = itemsInBars(score, barHit.staffIndex + 1, barSel.barNumber, barHit.barNumber);
+      selectedId = null;
+      rangeId = null;
+      return;
+    }
+    extraIds = [];
     selectedId = null;
     chordSel = null;
     barSel = { pageIndex, barNumber: barHit.barNumber, staffIndex: barHit.staffIndex };
     // A click on an empty staff makes it active; the voice stays as chosen (clamped to what the staff has).
     laneChoice = { staff: barHit.staffIndex + 1, voice: laneChoice.voice };
+  }
+
+  /** One edit over the whole selection, as one batch and so one undo (SIB2-278). */
+  async function handleSelectionEdit(edit: SelectionEdit): Promise<void> {
+    if (score === null) return;
+    const operations = selectionOps(score, pickedIds, edit);
+    if (operations.length === 0) return;
+    await runOps(operations, edit.type !== 'delete' && edit.type !== 'move');
+  }
+
+  function selectAllInStaff(): void {
+    if (score === null || !editable) return;
+    deselect();
+    extraIds = itemsInStaff(score, activeLane.staff);
   }
 
   /** In note input a click only moves the caret: onto a note (typing then overwrites it) or to the end of a bar's music. */
@@ -1160,6 +1226,23 @@
    * everything else (ctrl-Z, the browser's own shortcuts) passes through. `?` shows the shortcut list anywhere.
    * Stands down over a text field, and Enter/Space over a focused button (they press it).
    */
+  $effect(() => {
+    function onSelectionKey(event: KeyboardEvent): void {
+      if (noteInput !== null || showShortcuts || isTextField(event.target) || score === null || !editable || saving) return;
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        selectAllInStaff();
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && pickedIds.length > 1) {
+        event.preventDefault();
+        void handleSelectionEdit({ type: 'delete' });
+      } else if (event.key === 'Escape' && (pickedIds.length > 0 || barSel !== null)) {
+        deselect();
+      }
+    }
+    window.addEventListener('keydown', onSelectionKey);
+    return () => window.removeEventListener('keydown', onSelectionKey);
+  });
+
   $effect(() => {
     function onKey(event: KeyboardEvent): void {
       if (isTextField(event.target) || score === null) return;
@@ -1815,11 +1898,25 @@
               onaction={dispatchInput}
             />
           {/if}
+          {#if pickedIds.length > 1}
+            <div class="stage-tool">
+              <SelectionPanel
+                count={pickedIds.length}
+                notes={pickedNotes}
+                staves={moveTargets2}
+                {saving}
+                error={saveError}
+                onedit={(edit) => void handleSelectionEdit(edit)}
+                onclear={deselect}
+              />
+            </div>
+          {/if}
           <SheetStack
             {pages}
             caret={caretOverlay}
             selection={selectionOverlay}
             rangeSelection={rangeOverlay}
+            multiSelection={pickedOverlays}
             chordSelection={chordOverlay}
             barSelection={barOverlay}
             addHint={hoverSlot}
@@ -2236,6 +2333,21 @@
     margin-inline: auto;
   }
 
+  /* A toolbar that rides above the sheet while something is selected, so its buttons are never scrolled away. */
+  .stage-tool {
+    position: sticky;
+    top: var(--top-h);
+    z-index: 5;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 18px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    box-shadow: var(--sheet-shadow);
+    letter-spacing: normal;
+  }
   .stage-bar {
     width: 100%;
     display: flex;

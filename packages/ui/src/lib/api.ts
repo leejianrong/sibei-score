@@ -485,6 +485,7 @@ export interface NoteSetPayload {
   /** Pin the spelling so it survives a transpose (ADR-0017). V6e. */
   spellingPinned?: boolean;
   tie?: 'none' | 'start' | 'stop' | 'both';
+  articulations?: ('staccato' | 'accent' | 'marcato')[];
 }
 
 export interface RestAddPayload {
