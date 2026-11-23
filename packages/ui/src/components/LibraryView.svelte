@@ -9,7 +9,7 @@
    * request to make.
    *
    * **New chart (SIB2-270)** is the browser's `sbscore new`: a small form (title, key, time, bars,
-   * pickup) that sends the same `score.create`, and an Open a sample chart link that sends one
+   * pickup, and an instrument picker, SIB2-288) that sends the same `score.create`, and an Open a sample chart link that sends one
    * `score.create` plus twelve `chord.set`s in one batch. With it every capability has both surfaces.
    */
   import {
@@ -28,6 +28,7 @@
     isMusicXmlFile,
   } from '../lib/api.js';
   import { UNTITLED } from '@sibei/model';
+  import InstrumentPicker from './InstrumentPicker.svelte';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
   import { splitPointOf } from '../lib/staff-edits.js';
   import { getMe } from '../lib/api.js';
@@ -260,6 +261,7 @@
   let draftTime = $state('4/4');
   let draftBars = $state(32);
   let draftPickup = $state(false);
+  let draftInstruments = $state<string[]>([]);
   let createError = $state<string | null>(null);
 
   async function makeChart(operations: Parameters<typeof createScore>[0]): Promise<void> {
@@ -276,7 +278,7 @@
 
   function submitNewChart(event: SubmitEvent): void {
     event.preventDefault();
-    const form = { title: draftTitle, key: draftKey, time: draftTime, bars: Number(draftBars), pickup: draftPickup };
+    const form = { title: draftTitle, key: draftKey, time: draftTime, bars: Number(draftBars), pickup: draftPickup, instruments: draftInstruments };
     const problem = problemWith(form);
     if (problem !== null) {
       createError = problem;
@@ -310,6 +312,7 @@
     </label>
     <label class="nc-field"><span>Bars</span><input type="number" min={MIN_BARS} max={MAX_BARS} bind:value={draftBars} /></label>
     <label class="nc-check"><input type="checkbox" bind:checked={draftPickup} /><span>Pickup bar</span></label>
+    <InstrumentPicker value={draftInstruments} onchange={(next) => (draftInstruments = next)} disabled={creatingBusy} />
     <button class="import-btn primary" type="submit" disabled={creatingBusy}>{creatingBusy ? 'Creating…' : 'Create chart'}</button>
     {#if createError !== null}<div class="action-error nc-error" role="alert">{createError}</div>{/if}
   </form>

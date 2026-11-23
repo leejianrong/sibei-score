@@ -524,3 +524,18 @@ lower, above is at or higher). Decisions:
   `showInstrumentNames`; `sbscore instrument set --short-name`, `meta set --instrument-names on|off`; the Staves panel's
   short-name field and a Layout-panel checkbox. MusicXML writes and reads `<part-abbreviation>`; an import does not turn the
   names on. Fixture `instrument-names`.
+
+## As built: score setup from instrument presets (SIB2-272, SIB2-288)
+
+- **Catalogue** (`packages/model/src/instruments.ts`, plain data): lead-sheet, piano (treble + bass), voice, guitar, bass,
+  drums (a percussion staff), trumpet-bb (+2), alto-sax-eb (+9), tenor-sax-bb (+14), flute, violin, cello. Each carries a
+  name, short name, General MIDI program, transposition (sounding to written) and its staves and clefs. The applier, the CLI's
+  error text and the browser's picker all read this one list.
+- **`score.create` gains `instruments` (preset ids, top to bottom) and a recorded `parts`.** The applier resolves the ids to
+  parts with fresh `part-N`/`staff-N` ids and **records the resolved parts in the payload**, authoritative on replay, so
+  a later change to the catalogue never alters what an old log builds. A setup turns `showInstrumentNames` on when any part
+  has a name and sets `layout: 'score'` when there is more than one staff. No `instruments` (or an empty list) is the old
+  create, unchanged. An unknown preset is a validation error listing the known ones.
+- **Surfaces.** `sbscore new --instrument piano --instrument bass --instrument drums` (a repeated option: `Flags.repeated`);
+  the New chart form's `InstrumentPicker` (choose, change, move up/down, remove rows; empty is the lead sheet).
+  `tests/unit/instrument-setup.test.ts` pins that both build the same score.
