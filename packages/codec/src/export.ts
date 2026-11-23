@@ -15,10 +15,13 @@
  */
 
 import {
+  DRUMS,
   TICKS_PER_QUARTER,
   annotationsOfBar,
   barViews,
   clefAt,
+  drumById,
+  headOf,
   itemTicks,
   keyFifths,
   transposePitch,
@@ -33,6 +36,7 @@ import type {
   BarView,
   Chord,
   Clef,
+  DrumId,
   Ending,
   GraceNote,
   Interval,
@@ -154,6 +158,18 @@ function partList(score: Score): XmlElement {
     const hasInstrument = part.instrument !== null || percussion;
     const id = `${partId(index)}-I1`;
     const name = exportedPartName(score, part, index);
+    // A drum kit names each drum it uses as an instrument of its own, with the General MIDI key it plays, so a note
+    // can say which (`<instrument id>`) and a reader can map it (`<midi-unpitched>`, 1-based).
+    const drums = drumsOfPart(part);
+    if (drums.length > 0) {
+      return elem('score-part', { id: partId(index) }, [
+        leaf('part-name', name),
+        ...drums.map((drum) => elem('score-instrument', { id: drumInstrumentId(index, drum) }, [leaf('instrument-name', drumById(drum).label)])),
+        ...drums.map((drum) =>
+          elem('midi-instrument', { id: drumInstrumentId(index, drum) }, [leaf('midi-channel', 10), leaf('midi-unpitched', drumById(drum).gm + 1)]),
+        ),
+      ]);
+    }
     let midi: XmlElement | null = null;
     if (hasInstrument) {
       channel += 1;
@@ -175,6 +191,24 @@ function partList(score: Score): XmlElement {
     ...scoreParts,
     elem('part-group', { type: 'stop', number: 1 }),
   ]);
+}
+
+/** The drums a part's percussion staves use, in the order of the drum map (so the output is deterministic). */
+function drumsOfPart(part: Part): DrumId[] {
+  const used = new Set<DrumId>();
+  for (const staff of part.staves) {
+    if (staff.type !== 'percussion') continue;
+    for (const bar of staff.bars) {
+      for (const voice of bar.voices) {
+        for (const item of voice.items) if (item.kind === 'note' && item.drum !== undefined) used.add(item.drum);
+      }
+    }
+  }
+  return DRUMS.filter((drum) => used.has(drum.id)).map((drum) => drum.id);
+}
+
+function drumInstrumentId(partIndex: number, drum: DrumId): string {
+  return `${partId(partIndex)}-I${drumById(drum).gm}`;
 }
 
 function work(score: Score): XmlElement | null {
@@ -281,6 +315,7 @@ function measure(
           voice: voice.label,
           staff: staffNo,
           percussion: staffCtx.percussion,
+          partIndex: ctx.index,
         })) {
           children.push(el);
         }
@@ -448,6 +483,8 @@ interface ItemContext {
   voice: number;
   staff: number | null;
   percussion: boolean;
+  /** The part's index, to name a drum's instrument id. */
+  partIndex: number;
 }
 
 function itemElements(item: BarItem, bar: BarView, slurs: SlurMarks, ottavas: OttavaMarks, at: ItemContext): XmlElement[] {
@@ -513,12 +550,15 @@ function noteElement(note: Note, bar: BarView, slurs: SlurMark[], at: ItemContex
     at.percussion ? unpitchedElement(note) : pitchElement(note),
     leaf('duration', itemTicks(note, bar)),
     ...tieElements(note),
+    // Which drum it strikes, as a score-instrument of the part (slice 6).
+    at.percussion && note.drum !== undefined ? elem('instrument', { id: drumInstrumentId(at.partIndex, note.drum) }) : null,
     leaf('voice', at.voice),
     leaf('type', NOTE_TYPE[note.duration.value]),
     ...dots(note.duration.dots),
     // A drum note has no accidental to draw: its pitch is only where it sits on the staff.
     at.percussion ? null : accidentalElement(note),
     timeModification(tuplet),
+    at.percussion ? noteheadElement(note) : null,
     at.staff === null ? null : leaf('staff', at.staff),
     notations(note, bar, tuplet, undefined, slurs, note.fermata === true),
   ];
@@ -559,6 +599,17 @@ function restElement(rest: Rest, bar: BarView, at: ItemContext): XmlElement {
  * A percussion note: `<unpitched>` carries only where the note sits on the staff (its display pitch), since the model
  * has no drum noteheads or instrument map yet. The accidental, if any, is not written (a named lossy case).
  */
+/**
+ * `<notehead>` for a drum: the note's own head, or its drum's. Written when it is not an ordinary oval or when the note
+ * overrides its drum's own, so a plain tom or snare stays as terse as it was.
+ */
+function noteheadElement(note: Note): XmlElement | null {
+  if (note.drum === undefined && note.head === undefined) return null;
+  const head = headOf(note);
+  if (head === 'normal' && note.head === undefined) return null;
+  return leaf('notehead', head);
+}
+
 function unpitchedElement(note: Pick<Note, 'pitch'>): XmlElement {
   return elem('unpitched', {}, [leaf('display-step', note.pitch.step), leaf('display-octave', note.pitch.octave)]);
 }

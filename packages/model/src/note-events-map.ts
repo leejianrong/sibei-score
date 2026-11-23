@@ -26,6 +26,7 @@
 import { TICKS_PER_WHOLE, durationTicks } from './duration.js';
 import { makeBar, makeNote, makeRest, makeScore } from './build.js';
 import type { NoteEvents } from './note-events.js';
+import { mapDrumEventsToScore } from './note-events-drums.js';
 import { GRID_TICKS, quantizeNoteEvents } from './note-events-quantize.js';
 import type { QuantizedItem } from './note-events-quantize.js';
 import { SEMITONE_OF_STEP } from './pitch.js';
@@ -49,6 +50,8 @@ export interface NoteEventsDraft {
 }
 
 export function mapNoteEventsToScore(events: NoteEvents, options: NoteEventsMapOptions): NoteEventsDraft {
+  // A drum track is polyphonic, many instruments at one moment: its own mapper, onto a percussion staff (ADR-0041 slice 6).
+  if (events.instrument === 'drums') return mapDrumEventsToScore(events, options);
   const quantized = quantizeNoteEvents(events);
   const key = inferKey(quantized.bars.flatMap((b) => b.items));
   const flaggedIds = flaggedSourceIds(events, quantized.warnings);

@@ -102,7 +102,7 @@ const DEFS: readonly DrumDef[] = [
   { id: 'floor-tom-low', label: 'Low floor tom', gm: 41, pitch: p('E', 4), head: 'normal', voice: 1, aliases: ['lowfloortom', 'floortom2'] },
   { id: 'cowbell', label: 'Cowbell', gm: 56, pitch: p('D', 5), head: 'diamond', voice: 1, aliases: [] },
   { id: 'tambourine', label: 'Tambourine', gm: 54, pitch: p('E', 5), head: 'x', voice: 1, aliases: ['tamb'] },
-  { id: 'percussion', label: 'Percussion', gm: 39, pitch: p('B', 4), head: 'x', voice: 1, aliases: ['perc', 'other', 'unknown'] },
+  { id: 'percussion', label: 'Percussion', gm: 81, pitch: p('B', 4), head: 'x', voice: 1, aliases: ['perc', 'other', 'unknown'] },
 ];
 
 export const DRUMS: readonly DrumDef[] = DEFS;

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, silentLogger } from '@sibei/api';
 import type { Api, JobStore, ScoreStore } from '@sibei/api';
 import { openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
-import { projectScore, barViews } from '@sibei/model';
+import { projectScore, barViews, allStaves } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -62,6 +62,17 @@ describe('POST /v1/imports with a NoteEvents document (ADR-0040)', () => {
     expect(projectScore(score)).toContain('!41');
   });
 
+  it('imports a drum document to a percussion-staff draft (ADR-0041 slice 6)', async () => {
+    const created = await upload(fixture('drums-rock-groove.json'));
+    expect(created.status).toBe(202);
+    const job = await settle(created.body.job.id);
+    expect(job.status).toBe('succeeded');
+    expect(job.diagnostic).toContain('unknown-drum');
+    const score = await scoreOf(job.scoreId);
+    expect(allStaves(score)[0]!.type).toBe('percussion');
+    expect(projectScore(score)).toContain('snare/4');
+  });
+
   it('imports a silent document to an empty draft, not an error', async () => {
     const job = await settle((await upload(fixture('valid_silent_voice.json'))).body.job.id);
     expect(job.status).toBe('succeeded');
@@ -80,7 +91,7 @@ describe('POST /v1/imports with a NoteEvents document (ADR-0040)', () => {
       ['not json {', 'invalid-note-events'],
       [fixture('invalid_offset_not_after_onset.json'), 'invalid-note-events'],
       [fixture('invalid_unknown_major.json'), 'unsupported-note-events-version'],
-      [fixture('drums-valid-unsupported.json'), 'unsupported-note-events-instrument'],
+      [fixture('drums-single-bar.json').replace('"instrument": "drums"', '"instrument": "guitar"'), 'unsupported-note-events-instrument'],
     ];
     for (const [body, kind] of cases) {
       const reply = await upload(body);
