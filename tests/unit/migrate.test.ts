@@ -8,8 +8,7 @@ import {
   makeScore,
   dur,
   migrateDocument,
-  migrateDocumentWith,
-} from '@sibei/model';
+  migrateDocumentWith, barViews } from '@sibei/model';
 import type { DocumentMigration, RawDocument } from '@sibei/model';
 
 /**
@@ -84,7 +83,7 @@ describe('the real chain', () => {
     const result = migrateDocument(v1);
     expect(result.migrated).toBe(true);
     expect(result.score.schemaVersion).toBe(SCHEMA_VERSION);
-    const chord = result.score.bars[0]?.chords[0];
+    const chord = barViews(result.score)[0]?.chords[0];
     expect(chord).toMatchObject({ id: 'chord-1', text: 'Cmaj7', spellingPinned: false });
   });
 
@@ -200,7 +199,7 @@ describe('a synthetic chain, to prove the machinery', () => {
     expect(swingOf(result.score)).toEqual([false]);
     // The migration is pure: what it did not touch came through untouched.
     expect(result.score.meta.title).toBe('Body and Soul');
-    expect(result.score.bars[0]?.items[0]?.id).toBe('note-1');
+    expect(barViews(result.score)[0]?.items[0]?.id).toBe('note-1');
   });
 
   it('runs every step in order when more than one applies', () => {

@@ -3,7 +3,7 @@ import { applyOperation, replay, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { layout } from '@sibei/layout';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { renderScorePages } from '@sibei/ui';
@@ -28,13 +28,13 @@ const set = (target: string, text: string): Operation => ({ type: 'text.set', ta
 describe('text.set', () => {
   it('puts a direction at a beat, and setting it again edits it in place', () => {
     const first = run([create, set('bar4.beat1', '(unis.)')]);
-    const note = first.score.bars[3]!.annotations[0]!;
+    const note = barViews(first.score)[3]!.annotations[0]!;
     expect(note).toMatchObject({ text: '(unis.)', onset: 0, id: 'annotation-1' });
     expect(note.review.flagged).toBe(false);
 
     const again = run([...first.log, set('bar4.beat1', 'solo on form')]);
-    expect(again.score.bars[3]!.annotations).toHaveLength(1);
-    expect(again.score.bars[3]!.annotations[0]).toMatchObject({ id: 'annotation-1', text: 'solo on form' });
+    expect(barViews(again.score)[3]!.annotations).toHaveLength(1);
+    expect(barViews(again.score)[3]!.annotations[0]).toMatchObject({ id: 'annotation-1', text: 'solo on form' });
     expect(replay(again.log)).toEqual(again.score);
   });
 
@@ -49,10 +49,10 @@ describe('text.rm', () => {
   it('removes by beat or by the id the projection prints', () => {
     const two = run([create, set('bar1.beat1', 'a'), set('bar2.beat3', 'b')]);
     const byBeat = run([...two.log, { type: 'text.rm', target: 'bar1.beat1' }]);
-    expect(byBeat.score.bars[0]!.annotations).toEqual([]);
-    expect(byBeat.score.bars[1]!.annotations).toHaveLength(1);
+    expect(barViews(byBeat.score)[0]!.annotations).toEqual([]);
+    expect(barViews(byBeat.score)[1]!.annotations).toHaveLength(1);
     const byId = run([...two.log, { type: 'text.rm', target: 'annotation-2' }]);
-    expect(byId.score.bars[1]!.annotations).toEqual([]);
+    expect(barViews(byId.score)[1]!.annotations).toEqual([]);
   });
 
   it('says so when there is nothing there', () => {
@@ -87,8 +87,8 @@ describe('a text direction elsewhere', () => {
     const xml = scoreToMusicXml(chart());
     expect(xml).toContain('<words>(unis.)</words>');
     const back = musicXmlToScore(xml).score;
-    expect(back.bars[1]!.annotations.map((a) => [a.text, a.onset])).toEqual([
-      ['(unis.)', chart().bars[1]!.annotations[0]!.onset],
+    expect(barViews(back)[1]!.annotations.map((a) => [a.text, a.onset])).toEqual([
+      ['(unis.)', barViews(chart())[1]!.annotations[0]!.onset],
     ]);
   });
 });

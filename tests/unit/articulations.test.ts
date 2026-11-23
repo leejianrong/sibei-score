@@ -3,7 +3,7 @@ import { applyOperation, replay, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { articulationsChart } from '@sibei/fixtures';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 
@@ -30,19 +30,19 @@ const add = (articulations?: string[]): Operation =>
   }) as Operation;
 const set = (articulations: string[]): Operation =>
   ({ type: 'note.set', target: 'bar1.n1', payload: { articulations } }) as Operation;
-const marks = (score: Score): unknown => (score.bars[0]!.items[0] as { articulations?: string[] }).articulations;
+const marks = (score: Score): unknown => (barViews(score)[0]!.items[0] as { articulations?: string[] }).articulations;
 
 describe('articulations on note.add and note.set', () => {
   it('stores marks in stacking order without repeats, and absent when none', () => {
     expect(marks(run([create, add(['marcato', 'staccato', 'staccato'])]).score)).toEqual(['staccato', 'marcato']);
-    expect('articulations' in run([create, add()]).score.bars[0]!.items[0]!).toBe(false);
-    expect('articulations' in run([create, add([])]).score.bars[0]!.items[0]!).toBe(false);
+    expect('articulations' in barViews(run([create, add()]).score)[0]!.items[0]!).toBe(false);
+    expect('articulations' in barViews(run([create, add([])]).score)[0]!.items[0]!).toBe(false);
   });
 
   it('note.set replaces them, an empty list clears them, and omitting leaves them be', () => {
     const marked = run([create, add(['accent'])]);
     expect(marks(run([...marked.log, set(['staccato'])]).score)).toEqual(['staccato']);
-    expect('articulations' in run([...marked.log, set([])]).score.bars[0]!.items[0]!).toBe(false);
+    expect('articulations' in barViews(run([...marked.log, set([])]).score)[0]!.items[0]!).toBe(false);
     const pitched = run([
       ...marked.log,
       { type: 'note.set', target: 'bar1.n1', payload: { pitch: 'D5' } } as Operation,

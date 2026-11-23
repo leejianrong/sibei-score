@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyOperation, replay } from '@sibei/api';
 import type { Operation } from '@sibei/api';
-import { TICKS_PER_QUARTER, formatKeySignature, formatPitch } from '@sibei/model';
+import { TICKS_PER_QUARTER, formatKeySignature, formatPitch, barViews } from '@sibei/model';
 import type { Chord, KeySignature, Note, Score } from '@sibei/model';
 
 /**
@@ -48,13 +48,13 @@ function chartInC(notes: NoteSpec[], chords: { target: string; text: string }[])
 }
 
 const noteAt = (score: Score, barNumber: number, onset: number): Note => {
-  const item = score.bars.find((bar) => bar.number === barNumber)?.items.find((i) => i.onset === onset);
+  const item = barViews(score).find((bar) => bar.number === barNumber)?.items.find((i) => i.onset === onset);
   if (item === undefined || item.kind !== 'note') throw new Error(`no note at bar${barNumber} onset ${onset}`);
   return item;
 };
 
 const chordTextsOf = (score: Score, barNumber: number): string[] =>
-  (score.bars.find((bar) => bar.number === barNumber)?.chords ?? []).map((c: Chord) => c.text);
+  (barViews(score).find((bar) => bar.number === barNumber)?.chords ?? []).map((c: Chord) => c.text);
 
 const transpose = (to: KeySignature): Operation => ({ type: 'transpose', payload: { to } });
 
@@ -122,11 +122,11 @@ describe('transposing the chords with the melody (ADR-0016)', () => {
         { target: 'bar1.beat3', text: 'solo break' },
       ],
     );
-    const bar = score.bars.find((b) => b.number === 1)!;
+    const bar = barViews(score).find((b) => b.number === 1)!;
     const flaggedBefore = bar.chords.map((c) => c.review.flagged);
     const moved = applyOperation(score, transpose(EB)).score;
     expect(chordTextsOf(moved, 1)).toEqual(['N.C.', 'solo break']);
-    expect(moved.bars.find((b) => b.number === 1)!.chords.map((c) => c.review.flagged)).toEqual(flaggedBefore);
+    expect(barViews(moved).find((b) => b.number === 1)!.chords.map((c) => c.review.flagged)).toEqual(flaggedBefore);
   });
 });
 

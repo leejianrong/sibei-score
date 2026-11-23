@@ -8,8 +8,7 @@ import {
   makeChord,
   makeNote,
   makeScore,
-  makeSection,
-} from '@sibei/model';
+  makeSection, barViews } from '@sibei/model';
 import type { KeySignature, Score } from '@sibei/model';
 
 /**
@@ -37,7 +36,7 @@ function signature(score: Score): unknown {
     sections: [...score.sections]
       .sort((a, b) => a.startBar - b.startBar)
       .map((s) => ({ startBar: s.startBar, letter: s.letter })),
-    bars: score.bars.map((bar) => ({
+    bars: barViews(score).map((bar) => ({
       number: bar.number,
       startBarline: bar.startBarline,
       endBarline: bar.endBarline,
@@ -93,7 +92,7 @@ describe('the round-trip preserves everything MusicXML can express', () => {
       ],
     });
     const { score: back } = roundTrip(score);
-    expect(back.bars[0]!.chords.map((c) => c.text)).toEqual(spellings);
+    expect(barViews(back)[0]!.chords.map((c) => c.text)).toEqual(spellings);
   });
 
   it('is stable a second time: importing the re-export reproduces the first import exactly', () => {
@@ -136,13 +135,13 @@ describe('the documented lossy cases', () => {
     const score = withOneNote({ id: 'note-original', onset: 0, duration: dur(1), pitch: 'C5' });
     const back = roundTrip(score).score;
     // The note is still there, at the same place — but under a new id.
-    expect(back.bars[0]!.items[0]!.id).not.toBe('note-original');
-    expect(back.bars[0]!.items[0]!.onset).toBe(0);
+    expect(barViews(back)[0]!.items[0]!.id).not.toBe('note-original');
+    expect(barViews(back)[0]!.items[0]!.onset).toBe(0);
   });
 
   it("normalises a note's accidental display mode: 'show'/'hide' become 'auto'", () => {
     const shown = withOneNote({ id: 'note-1', onset: 0, duration: dur(1), pitch: 'F#5', accidental: 'show' });
-    const note = roundTrip(shown).score.bars[0]!.items[0]!;
+    const note = barViews(roundTrip(shown).score)[0]!.items[0]!;
     expect(note.kind).toBe('note');
     if (note.kind === 'note') expect(note.accidental).toBe('auto');
   });
@@ -160,9 +159,9 @@ describe('the documented lossy cases', () => {
       ],
     });
     const back = roundTrip(score).score;
-    const note = back.bars[0]!.items[0]!;
+    const note = barViews(back)[0]!.items[0]!;
     expect(note.kind === 'note' && note.spellingPinned).toBe(false);
-    expect(back.bars[0]!.chords[0]!.spellingPinned).toBe(false);
+    expect(barViews(back)[0]!.chords[0]!.spellingPinned).toBe(false);
   });
 
   it('drops confidence and review flags: recognition metadata has no MusicXML home', () => {
@@ -174,7 +173,7 @@ describe('the documented lossy cases', () => {
       confidence: 0.4,
       review: { flagged: true, reasons: ['low-confidence'] },
     });
-    const note = roundTrip(score).score.bars[0]!.items[0]!;
+    const note = barViews(roundTrip(score).score)[0]!.items[0]!;
     expect(note.confidence).toBeNull();
     expect(note.review).toEqual({ flagged: false, reasons: [] });
   });
@@ -219,7 +218,7 @@ describe('the documented lossy cases', () => {
     // Recovered verbatim by *this* codec via the kind text, but named as the lossy case it is for a
     // third party: MusicXML has no faithful harmony for unparseable text.
     const back = roundTrip(score).score;
-    expect(back.bars[0]!.chords.map((c) => c.text)).toEqual(['solo break']);
+    expect(barViews(back)[0]!.chords.map((c) => c.text)).toEqual(['solo break']);
   });
 });
 
@@ -240,7 +239,7 @@ describe('parsed alterations ride as MusicXML degrees', () => {
     const flat = xml.replace(/>\s+</g, '><');
     expect(flat).toContain('<degree-value>9</degree-value><degree-alter>-1</degree-alter>');
     expect(flat).toContain('<degree-value>11</degree-value><degree-alter>1</degree-alter>');
-    expect(roundTrip(score).score.bars[0]!.chords.map((c) => c.text)).toEqual(['C7(b9,#11)']);
+    expect(barViews(roundTrip(score).score)[0]!.chords.map((c) => c.text)).toEqual(['C7(b9,#11)']);
   });
 });
 
@@ -260,7 +259,7 @@ describe('the importer reads leniently (ADR-0012 the codec half)', () => {
       '</measure></part></score-partwise>',
     ].join('');
     const { score, warnings } = musicXmlToScore(twoVoices);
-    expect(score.bars[0]!.items).toHaveLength(1);
+    expect(barViews(score)[0]!.items).toHaveLength(1);
     expect(warnings.some((w) => /single-voice/.test(w))).toBe(true);
   });
 });

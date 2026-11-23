@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOperation, replay, replayLog, OPERATION_VERSION, OperationError } from '@sibei/api';
 import type { ControlOperation, Operation, StoredOperation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /** `slur.set` / `slur.rm` (SIB2-167): a slur is a `Spanner`, two note ids and a kind. */
@@ -134,7 +134,7 @@ describe('MusicXML', () => {
     const back = musicXmlToScore(xml, { id: 'chart' });
     expect(back.warnings).toEqual([]);
     const where = (s: Score, id: string): string => {
-      for (const bar of s.bars) {
+      for (const bar of barViews(s)) {
         const at = bar.items.findIndex((item) => item.id === id);
         if (at >= 0) return `bar${bar.number}.n${at + 1}`;
       }

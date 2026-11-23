@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 import { slurChart } from '@sibei/fixtures';
 import { removeSlurOp, slurOp, slursOnNote } from '../../packages/ui/src/lib/slur-edits.js';
@@ -6,8 +7,8 @@ import { removeSlurOp, slurOp, slursOnNote } from '../../packages/ui/src/lib/slu
 
 describe('the slur control', () => {
   const score = slurChart();
-  const first = score.bars[0]!.items[0]!.id;
-  const third = score.bars[0]!.items[2]!.id;
+  const first = barViews(score)[0]!.items[0]!.id;
+  const third = barViews(score)[0]!.items[2]!.id;
   const rest = 'rest-nope';
 
   it('puts the two notes in reading order, whichever was clicked first', () => {

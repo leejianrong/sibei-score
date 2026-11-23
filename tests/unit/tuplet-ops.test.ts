@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyOperation, replay, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
-import { isMetricallyValid, tupletOf } from '@sibei/model';
-import type { Bar, Score } from '@sibei/model';
+import { isMetricallyValid, tupletOf, barViews } from '@sibei/model';
+import type { BarView, Score } from '@sibei/model';
 
 /**
  * `tuplet.set` / `tuplet.rm` through the applier (SIB2-166): bracket a run, re-lay it, take it off,
@@ -25,7 +25,7 @@ function run(operations: Operation[]): { score: Score; log: Operation[] } {
 const create: Operation = { type: 'score.create', payload: { id: 'chart', barCount: 4 } };
 const eighth = { value: 8, dots: 0 } as const;
 const quarter = { value: 4, dots: 0 } as const;
-const bar3 = (score: Score): Bar => score.bars.find((b) => b.number === 3)!;
+const bar3 = (score: Score): BarView => barViews(score).find((b) => b.number === 3)!;
 
 /** A quarter, three written eighths (a triplet to be), a quarter and a last quarter that overshoots until the triplet closes. */
 const triplet = (): Operation[] => [
@@ -85,7 +85,7 @@ describe('tuplet.set', () => {
   it('survives a MusicXML round trip as a tuplet of the same ratio and members', () => {
     const { score } = run([...triplet(), setTriplet]);
     const back = musicXmlToScore(scoreToMusicXml(score)).score;
-    const bar = back.bars.find((b) => b.items.length === 6)!;
+    const bar = barViews(back).find((b) => b.items.length === 6)!;
     expect(bar.tuplets).toHaveLength(1);
     expect(bar.tuplets[0]).toMatchObject({ actual: 3, normal: 2 });
     expect(bar.tuplets[0]!.memberIds).toHaveLength(3);

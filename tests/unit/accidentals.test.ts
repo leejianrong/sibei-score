@@ -1,5 +1,5 @@
 import { resolveBarAccidentals } from '@sibei/layout';
-import type { Bar, KeySignature, Note } from '@sibei/model';
+import type { BarView, KeySignature, Note } from '@sibei/model';
 import { createIdFactory, dur, keySignatureAccidentals, makeBar, makeNote } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 
@@ -17,7 +17,7 @@ interface NoteSpec {
   tie?: Note['tie'];
 }
 
-function bar(specs: (string | NoteSpec)[]): Bar {
+function bar(specs: (string | NoteSpec)[]): BarView {
   const ids = createIdFactory();
   const items = specs.map((entry, index) => {
     const spec: NoteSpec = typeof entry === 'string' ? { pitch: entry } : entry;
@@ -33,7 +33,7 @@ function bar(specs: (string | NoteSpec)[]): Bar {
   return makeBar({ id: 'bar-1', number: 1, items });
 }
 
-function glyphs(b: Bar, key: KeySignature): (number | null)[] {
+function glyphs(b: BarView, key: KeySignature): (number | null)[] {
   return [...resolveBarAccidentals(b, key).values()];
 }
 

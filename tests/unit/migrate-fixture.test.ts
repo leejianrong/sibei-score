@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SCHEMA_VERSION, migrateDocument } from '@sibei/model';
+import { SCHEMA_VERSION, migrateDocument, barViews } from '@sibei/model';
 import type { RawDocument } from '@sibei/model';
 
 /**
@@ -47,8 +47,8 @@ describe('a real fixture climbs from the earliest schema version to the current 
 
   it('backfills spellingPinned onto every note AND every chord (the gap V8f closed)', () => {
     const { score } = migrateDocument(v1());
-    const notes = score.bars.flatMap((bar) => bar.items.filter((i) => i.kind === 'note'));
-    const chords = score.bars.flatMap((bar) => bar.chords);
+    const notes = barViews(score).flatMap((bar) => bar.items.filter((i) => i.kind === 'note'));
+    const chords = barViews(score).flatMap((bar) => bar.chords);
 
     expect(notes.length).toBe(4);
     expect(chords.length).toBe(3);
@@ -58,7 +58,7 @@ describe('a real fixture climbs from the earliest schema version to the current 
 
   it('leaves a rest untouched: rests carry no spelling pin', () => {
     const { score } = migrateDocument(v1());
-    const rest = score.bars[0]!.items.find((i) => i.kind === 'rest');
+    const rest = barViews(score)[0]!.items.find((i) => i.kind === 'rest');
     expect(rest).toBeDefined();
     expect('spellingPinned' in (rest as object)).toBe(false);
   });
@@ -106,7 +106,7 @@ describe('a real v2 fixture climbs the last step, KAN-610', () => {
     // A note's own low-confidence flag is a different question from its bar's, and this migration
     // has no business touching it.
     expect(score.bars[1]!.review).toEqual({ flagged: false, reasons: [] });
-    expect(score.bars[1]!.items[0]).toMatchObject({ review: { flagged: true, reasons: ['low-confidence'] } });
+    expect(barViews(score)[1]!.items[0]).toMatchObject({ review: { flagged: true, reasons: ['low-confidence'] } });
   });
 
   it('changes nothing else — only the dropped reason and the version', () => {
@@ -121,7 +121,7 @@ describe('a real v2 fixture climbs the last step, KAN-610', () => {
     const { score } = migrateDocument(v2InvalidBar());
     expect(score.meta).toMatchObject({ title: 'On Green Dolphin Street', composer: 'Bronislau Kaper' });
     expect(score.bars).toHaveLength(2);
-    expect(score.bars[0]!.chords[0]).toMatchObject({ text: 'Cmaj7' });
+    expect(barViews(score)[0]!.chords[0]).toMatchObject({ text: 'Cmaj7' });
     expect(score.sections).toEqual([{ id: 'section-1', startBar: 1, letter: 'A', name: 'Head' }]);
   });
 });

@@ -14,8 +14,7 @@ import {
   parseAddress,
   resolveAddress,
   resolveBar,
-  resolvePosition,
-} from '@sibei/model';
+  resolvePosition, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -294,7 +293,7 @@ describe('ordinals in a metrically invalid bar (ADR-0013)', () => {
   }
 
   it('orders by onset even when the stored array is not in onset order', () => {
-    expect(orderedItems(aMessyBar().bars[0]!).map((item) => item.id)).toEqual([
+    expect(orderedItems(barViews(aMessyBar())[0]!).map((item) => item.id)).toEqual([
       'note-early',
       'note-tied-a',
       'note-tied-b',
@@ -345,7 +344,7 @@ describe('the id form', () => {
   it('is unambiguous, which is the whole reason the model carries ids', () => {
     // Every id in the fixture resolves to exactly the object that owns it.
     const score = aScore();
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       for (const item of [...bar.items, ...bar.chords]) {
         const kind = 'kind' in item ? item.kind : 'chord';
         expect(resolveAddress(score, item.id, kind).target).toBe(item);

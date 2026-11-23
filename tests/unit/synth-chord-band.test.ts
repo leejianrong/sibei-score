@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import { createHash } from 'node:crypto';
 import { CANONICAL_CHORD_STYLE, chordGlyphText } from '@sibei/engrave';
 import { formatChord } from '@sibei/music';
@@ -140,8 +141,8 @@ describe('opt-in corpus widening (SIB2-203)', () => {
     const wide = sweep({ alternates: 0.5 });
     let alternates = 0;
     wide.forEach(({ score }, i) => {
-      score.bars.forEach((bar, b) => {
-        expect(bar.items).toEqual(base[i]?.score.bars[b]?.items);
+      barViews(score).forEach((bar, b) => {
+        expect(bar.items).toEqual(barViews(base[i]!.score)[b]?.items);
         for (const chord of bar.chords) if (chord.text.startsWith('(')) alternates += 1;
       });
     });

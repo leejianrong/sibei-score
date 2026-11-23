@@ -3,7 +3,7 @@ import { applyOperation, replay, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { layout, writtenPitch } from '@sibei/layout';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { renderScorePages } from '@sibei/ui';
@@ -49,7 +49,7 @@ describe('ottava.set / ottava.rm', () => {
     expect(score.spanners).toEqual([
       { id: 'ottava-1', kind: 'ottava', startId: 'note-2', endId: 'note-4', octaveShift: 'up' },
     ]);
-    expect(score.bars[0]!.items.map((i) => (i.kind === 'note' ? i.pitch.octave : 0))).toEqual([5, 5, 5]);
+    expect(barViews(score)[0]!.items.map((i) => (i.kind === 'note' ? i.pitch.octave : 0))).toEqual([5, 5, 5]);
     expect(replay(log)).toEqual(score);
     expect(projectScore(score)).toContain('ottava  bar1.n2 -> bar2.n1 8va ottava-1');
   });
@@ -145,8 +145,8 @@ describe('ottava in the browser edits and MusicXML', () => {
     const back = musicXmlToScore(xml).score;
     const line = back.spanners!.find((s) => s.kind === 'ottava')!;
     expect(line.octaveShift).toBe('up');
-    const first = back.bars[0]!.items.filter((i) => i.kind === 'note');
+    const first = barViews(back)[0]!.items.filter((i) => i.kind === 'note');
     expect(line.startId).toBe(first[1]!.id);
-    expect(back.bars[0]!.items.map((i) => (i.kind === 'note' ? i.pitch.octave : 0))).toEqual([5, 5, 5]);
+    expect(barViews(back)[0]!.items.map((i) => (i.kind === 'note' ? i.pitch.octave : 0))).toEqual([5, 5, 5]);
   });
 });

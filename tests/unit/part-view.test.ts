@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PART_INSTRUMENTS, applyOperation, writtenPart } from '@sibei/api';
 import type { Operation, PartInstrument } from '@sibei/api';
-import { formatKeySignature, formatPitch, pitchToMidi } from '@sibei/model';
+import { formatKeySignature, formatPitch, pitchToMidi, barViews } from '@sibei/model';
 import type { Note, Score } from '@sibei/model';
 
 /**
@@ -26,7 +26,7 @@ function chart(notes: { target: string; pitch: string; pinned?: boolean }[], cho
 }
 
 const firstNote = (score: Score): Note => {
-  const item = score.bars[0]?.items[0];
+  const item = barViews(score)[0]?.items[0];
   if (item === undefined || item.kind !== 'note') throw new Error('no note');
   return item;
 };
@@ -52,7 +52,7 @@ describe('each instrument writes at the right interval, octave and key (ADR-0016
       // The interval is exactly what the label claims, octave included.
       expect(pitchToMidi(note.pitch) - pitchToMidi({ step: 'C', alter: 0, octave: 4 })).toBe(c.semitonesUp);
       // The chord root moves by the same interval, respelled in the written key.
-      expect(part.bars[0]?.chords[0]?.text).toBe(`${c.key}7`);
+      expect(barViews(part)[0]?.chords[0]?.text).toBe(`${c.key}7`);
     });
   }
 });
@@ -104,6 +104,6 @@ describe('parts respect the same spelling rules as transposition (ADR-0017)', ()
     apply({ type: 'chord.set', target: 'bar1.beat1', payload: { text: 'G#7', spellingPinned: true } });
     apply({ type: 'chord.set', target: 'bar1.beat3', payload: { text: 'G#7' } });
     const part = writtenPart(score!, 'f-horn');
-    expect(part.bars[0]?.chords.map((c) => c.text)).toEqual(['D#7', 'Eb7']);
+    expect(barViews(part)[0]?.chords.map((c) => c.text)).toEqual(['D#7', 'Eb7']);
   });
 });

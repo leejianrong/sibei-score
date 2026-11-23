@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, silentLogger } from '@sibei/api';
 import type { Api, JobStore, ScoreStore } from '@sibei/api';
 import { openSqliteJobStore, openSqliteStore } from '@sibei/api/sqlite';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -66,7 +66,7 @@ describe('POST /v1/imports with a NoteEvents document (ADR-0040)', () => {
     const job = await settle((await upload(fixture('valid_silent_voice.json'))).body.job.id);
     expect(job.status).toBe('succeeded');
     expect(job.diagnostic).toContain('silent_input');
-    expect((await scoreOf(job.scoreId)).bars[0]!.items).toEqual([]);
+    expect(barViews(await scoreOf(job.scoreId))[0]!.items).toEqual([]);
   });
 
   it('has no scan to show', async () => {
