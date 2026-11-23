@@ -19,3 +19,4 @@ export * from './simple-charts.js';
 export * from './marks-chart.js';
 export * from './slur-chart.js';
 export * from './title-block-chart.js';
+export * from './instrument-names-chart.js';

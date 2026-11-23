@@ -121,6 +121,7 @@ export function addPart(score: Score, payload: PartAddPayload = {}): Applied {
   const part: Part = {
     id,
     name: payload.name === undefined ? '' : validName(payload.name),
+    ...(payload.shortName === undefined || payload.shortName === '' ? {} : { shortName: validName(payload.shortName) }),
     instrument: payload.instrument === undefined ? null : validProgram(payload.instrument),
     transposition: payload.transposition === undefined ? 0 : validTransposition(payload.transposition),
     staves: [newStaff(score, staffId, type, clef)],
@@ -315,9 +316,20 @@ export function setInstrument(score: Score, target: string | undefined, payload:
   if (payload.name !== undefined) changes.name = validName(payload.name);
   if (payload.instrument !== undefined) changes.instrument = validProgram(payload.instrument);
   if (payload.transposition !== undefined) changes.transposition = validTransposition(payload.transposition);
-  if (Object.keys(changes).length === 0) fail('instrument set needs at least one of name, instrument, transposition');
+  const shortName = payload.shortName === undefined ? undefined : payload.shortName === null || payload.shortName === '' ? null : validName(payload.shortName);
+  if (Object.keys(changes).length === 0 && shortName === undefined) {
+    fail('instrument set needs at least one of name, shortName, instrument, transposition');
+  }
   return {
-    score: { ...score, parts: score.parts.map((p) => (p.id === part.id ? { ...p, ...changes } : p)) },
+    score: {
+      ...score,
+      parts: score.parts.map((p) => {
+        if (p.id !== part.id) return p;
+        const { shortName: _old, ...rest } = p;
+        const kept = shortName === undefined ? (p.shortName === undefined ? {} : { shortName: p.shortName }) : shortName === null ? {} : { shortName };
+        return { ...rest, ...kept, ...changes };
+      }),
+    },
     operation: { type: 'instrument.set', ...(target === undefined ? {} : { target }), payload },
     changed: [part.id],
   };

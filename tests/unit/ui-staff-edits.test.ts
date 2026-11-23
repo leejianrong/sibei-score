@@ -71,7 +71,7 @@ describe('the ops', () => {
 
 describe('instrumentOp', () => {
   const part = partRows(grandStaffChart())[0]!;
-  const seed = { name: part.name, program: part.instrument === null ? '' : String(part.instrument), transposition: String(part.transposition) };
+  const seed = { name: part.name, shortName: '', program: part.instrument === null ? '' : String(part.instrument), transposition: String(part.transposition) };
 
   it('sends nothing when nothing changed', () => {
     expect(instrumentOp(part, seed)).toEqual({ ok: true, error: null, op: null });
@@ -91,7 +91,7 @@ describe('instrumentOp', () => {
 
   it('blank program is none', () => {
     const withProgram = { ...part, instrument: 5 };
-    expect(instrumentOp(withProgram, { name: withProgram.name, program: '', transposition: String(withProgram.transposition) }).op).toEqual({
+    expect(instrumentOp(withProgram, { name: withProgram.name, shortName: '', program: '', transposition: String(withProgram.transposition) }).op).toEqual({
       type: 'instrument.set',
       target: 'p1',
       payload: { instrument: null },
