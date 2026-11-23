@@ -33,3 +33,12 @@ We do not own or edit the schema (ADR-0040); `packages/model/src/note-events.ts`
 | `piano-two-hands.json` | `instrument: piano`, 4 bars, light jitter: made by `generatePianoScore({ seed: 2, bars: 4 })` rendered with `pianoScoreToNoteEvents(..., { seed: 2, level: 'light' })` (`packages/synth/src/note-events-piano.ts`), so synthetic: a right hand of melody, chords and inner lines over a left hand of bass, stride or arpeggios, valid against the same v1 schema. No recording or real score is involved. |
 | `audio-piano-truth.json` | `instrument: piano`, ground truth for the audio project's seeded two-handed clip (right-hand melody over left-hand triads, left hand below MIDI 55, 20 notes). Copied unchanged from `music-audio-transcriber` `tests/fixtures/note_events/valid_piano_truth.json` at commit `869c95d` (their PR #8). |
 | `audio-piano-baseline.json` | `instrument: piano`, the audio project's classical CQT baseline run on the audio of the same clip (37 estimated notes: extra and merged notes, no velocities, no beats). NOT their model's output. Same source sha256 as the truth file. Copied unchanged from `valid_piano_baseline.json` at `869c95d`. |
+
+## The audio project's four-stem mix (SIB2-147)
+
+`audio-mix4-{vocals,drums,bass,other}.json` are **copied unchanged** from `music-audio-transcriber`
+`tests/fixtures/note_events/valid_mix4_{vocals,drums,bass,other}.json` at commit `96e56cd` (the version after their fix to
+the stem hashes). Ground truth for the four stems of one seeded synthetic mix (tone renderer, 4 bars at 100 bpm): one
+`source.sha256` and `duration_s` (10.1 s) shared; `vocals` is `voice`, `bass` is `bass`, `other` is polyphonic chords
+(instrument `other`), `drums` has GM pitches with `drum_class`. Every fourth beat is a downbeat here (real output has
+`null`). The main multi-stem fixture: `tests/unit/note-events-stems.test.ts`.

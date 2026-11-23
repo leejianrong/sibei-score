@@ -159,9 +159,10 @@ transport (the worker's `complete`, the upload) is in ADR-0034's amendment; a se
   Piano keeps its two staves and the hand-split warning; bass is on a bass clef; `meta.layout` is `score`. Item and staff
   ids are made unique across parts.
 - **Refused whole:** stems that are not from one recording (a differing `source.sha256` or `duration_s`), more than 12,
-  or none. **Unsupported instruments** (`guitar`, `other`) in a set of two or more are kept as a plain melody staff
-  (chords collapse to one line) with an `unsupported-instrument` warning, because refusing the stem would discard the
-  band; the same document alone is still refused (decision 3).
+  or none. **`guitar` and `other`** in a set of two or more are kept, not refused, because refusing the stem would discard
+  the band and the audio engine's `other` stem is polyphonic chords: they are read like a piano (stacked chords, a
+  guessed hand split over two staves, the `hand-split:` warning) in a part named Guitar (GM 24) or Other, with an
+  `unsupported-instrument` warning; the same document alone is still refused (decision 3).
 - **Diagnostics** are every stem's warnings, prefixed by the stem (`bass: low_confidence: ...`), the grid's own
   warnings once, and one `inferred:` line; review flags (low confidence) survive on the notes.
 - Built and scored against **synthetic** stems only (`packages/synth/src/note-events-stems.ts`: the `fullBandChart`

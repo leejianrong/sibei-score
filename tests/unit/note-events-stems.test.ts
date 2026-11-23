@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MAX_STEMS, NoteEventsError, allStaves, barViews, invalidBars, mapNoteEventsToScore, mapStemsToScore, pickGridStem, scoreMetrics } from '@sibei/model';
+import { MAX_STEMS, NoteEventsError, parseNoteEvents, allStaves, barViews, invalidBars, mapNoteEventsToScore, mapStemsToScore, pickGridStem, scoreMetrics } from '@sibei/model';
 import type { Note, NoteEvents, Score } from '@sibei/model';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { fullBandChart } from '@sibei/fixtures';
@@ -158,9 +159,11 @@ describe('an instrument this build cannot notate', () => {
   const all = stems();
   const withGuitar = [...all, { ...byInstrument(all, 'voice'), instrument: 'guitar' as const }];
   const { score, diagnostics } = mapStemsToScore(withGuitar, { id: 'g' });
-  it('becomes a plain melody staff with a warning, after the voice', () => {
+  it('becomes a two-staff polyphonic part with a warning, after the voice', () => {
     expect(score.parts.map((p) => p.name)).toEqual(['Voice', 'Guitar', 'Piano', 'Bass', 'Drums']);
     expect(diagnostics.some((d) => d.startsWith('guitar: unsupported-instrument:'))).toBe(true);
+    expect(score.parts[1]!.staves).toHaveLength(2);
+    expect(score.parts[1]!.instrument).toBe(24);
   });
   it('names a second stem of one instrument with its number', () => {
     const two = mapStemsToScore([...all, { ...byInstrument(all, 'voice') }], { id: 'v' }).score;
@@ -205,4 +208,27 @@ describe('part-level accuracy on the synthetic full band', () => {
       for (const part of metrics.parts) expect(part.noteF1, `${part.name} at ${level}`).toBeGreaterThanOrEqual(floor);
     });
   }
+});
+
+describe('the audio project\'s four-stem mix (audio-mix4-*)', () => {
+  const load = (name: string): NoteEvents =>
+    parseNoteEvents(JSON.parse(readFileSync(new URL(`../fixtures/note-events/audio-mix4-${name}.json`, import.meta.url), 'utf8')));
+  const mix = ['vocals', 'drums', 'bass', 'other'].map(load);
+  const { score, diagnostics } = mapStemsToScore(mix, { id: 'audio-mix4' });
+
+  it('lands one four-part score on one grid: voice, other (polyphonic), bass, drums', () => {
+    expect(score.parts.map((p) => p.name)).toEqual(['Voice', 'Other', 'Bass', 'Drums']);
+    expect(score.parts.map((p) => p.staves.length)).toEqual([1, 2, 1, 1]);
+    expect(score.bars).toHaveLength(4);
+    expect(score.meta.time).toEqual({ beats: 4, beatValue: 4 });
+    expect(scoreMetrics(score).every((m) => m.valid)).toBe(true);
+    expect(diagnostics.some((d) => d.startsWith('other: unsupported-instrument:'))).toBe(true);
+  });
+
+  it('keeps the chords of the other stem as stacked notes and renders', () => {
+    const chords = score.parts[1]!.staves.flatMap((s) => s.bars.flatMap((b) => b.voices.flatMap((v) => v.items))).filter((i): i is Note => i.kind === 'note' && (i.stack?.length ?? 0) > 0);
+    expect(chords.length).toBeGreaterThan(0);
+    expect(renderScoreToSvg(score, {}).length).toBeGreaterThan(0);
+    expect(musicXmlToScore(scoreToMusicXml(score), { id: 'rt' }).score.parts).toHaveLength(4);
+  });
 });

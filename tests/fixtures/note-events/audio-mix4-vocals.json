@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "source": {
+    "sha256": "eab0d68430446b00807416289a9756a8b42c1f28cbe66b346f70e5eec537c9a2",
+    "duration_s": 10.1
+  },
+  "instrument": "voice",
+  "producer": {
+    "model_id": "ground-truth",
+    "model_version": "mix-recipe-v1",
+    "stage": "transcribe"
+  },
+  "beats": [
+    {
+      "t_s": 0.0,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 0.6,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.2,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.7999999999999998,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 2.4,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 3.0,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 3.5999999999999996,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 4.2,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 4.8,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 5.3999999999999995,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 6.0,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 6.6,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 7.199999999999999,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 7.8,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 8.4,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 9.0,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 9.6,
+      "is_downbeat": true
+    }
+  ],
+  "notes": [
+    {
+      "id": "n0",
+      "onset_s": 0.0,
+      "offset_s": 0.27,
+      "pitch": 66,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n1",
+      "onset_s": 0.3,
+      "offset_s": 0.84,
+      "pitch": 66,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n2",
+      "onset_s": 0.8999999999999999,
+      "offset_s": 1.17,
+      "pitch": 66,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n3",
+      "onset_s": 1.2,
+      "offset_s": 1.74,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n4",
+      "onset_s": 1.7999999999999998,
+      "offset_s": 2.07,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n5",
+      "onset_s": 2.1,
+      "offset_s": 2.64,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n6",
+      "onset_s": 2.6999999999999997,
+      "offset_s": 3.51,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n7",
+      "onset_s": 3.5999999999999996,
+      "offset_s": 4.14,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n8",
+      "onset_s": 4.2,
+      "offset_s": 4.47,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n9",
+      "onset_s": 4.5,
+      "offset_s": 5.04,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n10",
+      "onset_s": 5.1,
+      "offset_s": 5.909999999999999,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n11",
+      "onset_s": 6.0,
+      "offset_s": 7.08,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n12",
+      "onset_s": 7.199999999999999,
+      "offset_s": 7.74,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n13",
+      "onset_s": 7.8,
+      "offset_s": 8.88,
+      "pitch": 70,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n14",
+      "onset_s": 9.0,
+      "offset_s": 9.54,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    }
+  ],
+  "warnings": []
+}

@@ -18,9 +18,11 @@
  * Stems must come from one recording: the same `source.sha256` and (within {@link DURATION_EPSILON_S}) the same
  * `source.duration_s`. A set that does not is refused as a whole ({@link checkStems}), never half-imported.
  *
- * A stem whose instrument this build cannot notate (`guitar`, `other`) is **kept as a plain melody staff with a
- * warning** rather than refused: refusing it would throw away the band over one stem. Its chords collapse to one
- * line, which the warning says. (A lone document with such an instrument is still refused at the boundary, as in v1.)
+ * A stem whose instrument this build has no notation for (`guitar`, `other`) is **kept, not refused**: refusing it
+ * would throw away the band over one stem, and `other` is typically polyphonic chords. It is read like a piano
+ * (stacked chords, a guessed hand split over two staves, with the same `hand-split:` warning) in a part named Guitar or
+ * Other, plus an `unsupported-instrument` warning. (A lone document with such an instrument is still refused at the
+ * boundary, as in v1.)
  */
 
 import { makeRest } from './build.js';
@@ -105,13 +107,15 @@ export function mapStemsToScore(stems: readonly NoteEvents[], options: NoteEvent
   const { capacity } = grid;
 
   const key = options.key ?? inferStemsKey(stems);
+  /** What a stem is notated as: `guitar` and `other` are polyphonic, so they take the piano's chord-and-hand-split reading. */
+  const asRead = (stem: NoteEvents): NoteEvents => (NOTE_EVENTS_NOTATED.includes(stem.instrument) ? stem : { ...stem, instrument: 'piano' });
   const common: NoteEventsMapOptions = { id: options.id, key, ...(options.splitPoint === undefined ? {} : { splitPoint: options.splitPoint }) };
 
   // Pass 1: where each stem's notes fall. Pass 2 cuts every stem to the union of those spans.
   const spans = new Map<number, BarSpan>();
   for (const i of order) {
     if (stems[i]!.notes.length === 0) continue;
-    const span = mapNoteEventsToScore(stems[i]!, { ...common, shared: { grid } }).span;
+    const span = mapNoteEventsToScore(asRead(stems[i]!), { ...common, shared: { grid } }).span;
     if (span !== undefined) spans.set(i, span);
   }
   const nonEmpty = order.filter((i) => spans.has(i));
@@ -122,7 +126,7 @@ export function mapStemsToScore(stems: readonly NoteEvents[], options: NoteEvent
 
   const shared: SharedGrid | undefined = union === null ? undefined : { grid, span: union };
   const mapped = new Map<number, NoteEventsDraft>();
-  for (const i of nonEmpty) mapped.set(i, mapNoteEventsToScore(stems[i]!, { ...common, shared: shared! }));
+  for (const i of nonEmpty) mapped.set(i, mapNoteEventsToScore(asRead(stems[i]!), { ...common, shared: shared! }));
 
   // The bar grid: the first mapped stem's (identical for every stem by construction), or one empty bar.
   const base = nonEmpty.length === 0 ? emptyBase(options) : mapped.get(nonEmpty[0]!)!.score;
@@ -137,7 +141,7 @@ export function mapStemsToScore(stems: readonly NoteEvents[], options: NoteEvent
     const draft = mapped.get(i);
     const notes = (line: string): void => void diagnostics.push(`${label}: ${line}`);
     if (!NOTE_EVENTS_NOTATED.includes(stem.instrument)) {
-      notes(`unsupported-instrument: ${stem.instrument} cannot be notated yet; imported as a single melody line (chords collapse to one note at a time), review it`);
+      notes(`unsupported-instrument: ${stem.instrument} cannot be notated yet; imported as a two-staff polyphonic part with a guessed hand split, review it`);
     }
     let part: Part;
     if (draft === undefined) {
@@ -267,7 +271,7 @@ function emptyPart(instrument: NoteEventsInstrument, bars: readonly Bar[], lengt
   const staves =
     instrument === 'drums'
       ? [staffOf('percussion', 'percussion')]
-      : instrument === 'piano'
+      : instrument === 'piano' || instrument === 'guitar' || instrument === 'other'
         ? [staffOf('standard', 'treble'), staffOf('standard', 'bass')]
         : [staffOf('standard', instrument === 'bass' ? 'bass' : 'treble')];
   return { id: 'part', name: '', instrument: null, transposition: 0, staves };
