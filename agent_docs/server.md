@@ -124,6 +124,12 @@ move at the undo floor (a score with only its `score.create` batch) or past the 
 left open: the log's read surface is `ScoreReader.operations`, consumed *inside* the applier, and
 undo/redo are their own routes rather than an entry in the op vocabulary.
 
+**`group` is the third control marker (SIB2-282, the ADR-0003 amendment):** `{type:'group', count}`, from
+`Applier.group` / `POST /v1/scores/:id/group` / `sbscore group`, folds the last `count` applied batches into one
+entry in `resolveLog` (never the `score.create` floor), so one undo reverses a burst and one redo restores it. It
+changes no document and needs no schema change; a log with no marker resolves as before. The browser sends it after a
+burst of note-input keys (mode left, a two-second pause, or just before an undo or any other write).
+
 ## Export, the blob port, and the cache that has no invalidation logic
 
 `packages/api/src/blob/` and `packages/api/src/export/` (V3a). This is where the product first

@@ -662,6 +662,15 @@ export async function redoScore(id: Id, expectedVersion: number): Promise<MoveRe
 }
 
 /**
+ * `POST /v1/scores/:id/group` (SIB2-282, the ADR-0003 amendment): fold the last `count` batches into one undoable unit,
+ * so a burst of note-input keystrokes undoes in one ctrl-Z. `expectedVersion` is the version after the last of them: the
+ * server refuses (409) if anything else landed since, which is what keeps another writer's edit out of the group.
+ */
+export async function groupScore(id: Id, count: number, expectedVersion: number): Promise<MoveResult> {
+  return await postJson<MoveResult>(`${V1}/scores/${encodeURIComponent(id)}/group`, { count, expectedVersion });
+}
+
+/**
  * The instrument a part is written for (V6e, ADR-0016). Declared here as the **wire** value the
  * export route accepts, for the same reason `ScoreListing` is: `@sibei/api` owns the real
  * `PART_INSTRUMENTS`, and a browser bundle may not resolve that package (`tests/arch`). A name this

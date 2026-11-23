@@ -72,6 +72,8 @@ export interface Client {
    */
   undo(id: string, expectedVersion: number): Promise<UndoWire>;
   redo(id: string, expectedVersion: number): Promise<UndoWire>;
+  /** Fold the last `count` batches into one undoable unit (SIB2-282, the ADR-0003 amendment). */
+  group(id: string, count: number, expectedVersion: number): Promise<UndoWire>;
   /**
    * Copy a chart to a new one with a fresh history (V8c). A library-lifecycle call, so it carries no
    * `expectedVersion` — it creates rather than mutates. `newId` is optional; the server mints one
@@ -435,6 +437,8 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
       call('POST', `/v1/scores/${encodeURIComponent(id)}/undo`, { expectedVersion }),
     redo: (id, expectedVersion) =>
       call('POST', `/v1/scores/${encodeURIComponent(id)}/redo`, { expectedVersion }),
+    group: (id, count, expectedVersion) =>
+      call('POST', `/v1/scores/${encodeURIComponent(id)}/group`, { count, expectedVersion }),
     duplicate: (id, newId) =>
       call('POST', `/v1/scores/${encodeURIComponent(id)}/duplicate`, newId === undefined ? {} : { id: newId }),
     async importImages(images: ImportImage[]): Promise<ImportJobWire> {

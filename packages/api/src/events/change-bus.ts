@@ -160,6 +160,10 @@ export function publishingApplier(applier: Applier, publisher: ChangePublisher):
     async redo(owner, scoreId, expectedVersion) {
       return publishMove(await applier.redo(owner, scoreId, expectedVersion), owner, publisher);
     },
+    // A group changes no content but does bump the version, so an open view is told, or its next write would be stale.
+    async group(owner, scoreId, count, expectedVersion) {
+      return publishMove(await applier.group(owner, scoreId, count, expectedVersion), owner, publisher);
+    },
 
     // Duplicate creates a *new* score, and the change bus is per-score (subscribers key on an id
     // they already hold open), so a brand-new id has no one to tell — the library that asked
