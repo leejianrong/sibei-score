@@ -263,6 +263,10 @@ below, the staff of its first note. **Clef change drawn (SIB2-241).** `clef set 
   `transposition: 0` (applied). `concert` is still the identity, leaving a part's own transposition to the codec.
   A view has one key signature, so an own-transposition part's key signature is the requested instrument's until the
   engraver draws per-part keys.
+- **Printing a part's own transposition (SIB2-239):** a PDF/SVG export is concert by default (ADR-0016; single-staff,
+  no-transposition output is byte-identical). `export --written` / `written=yes` / the rail's Transposing parts tick
+  runs `writtenPart(score, 'concert', { ownParts: true })`: only staves of a part with its own `transposition` move,
+  the chord lane and the one score key stay concert. A per-part key signature is not drawn (the engraver has one).
 - **`meta.layout` has its op, verb and control** (SIB2-232): `meta.set` takes `layout: 'lead-sheet' | 'score' | null`
   (`lead-sheet` and null clear it, so absence is the one way to say the default), `sbscore meta set --layout`, a Layout
   select in the score view's rail (the same `meta.set`, one ctrl-Z undoes it), a `layout: score` line in `show` when set,

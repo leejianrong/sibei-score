@@ -665,6 +665,8 @@ export interface ExportChoice {
   barNumbers?: boolean;
   /** Fill the last page with empty staves (SIB2-181); absent or false puts nothing on the query. */
   blankStaves?: boolean;
+  /** Each transposing part at its own written pitch (SIB2-239); absent or false puts nothing on the query. */
+  written?: boolean;
 }
 
 /** The page-number choices as the query the server reads — empty when there are none, like the CLI sends it. */
@@ -676,6 +678,10 @@ function pageNumberQuery(numbers: PageNumberSettings | null | undefined): string
 
 function barNumbersQuery(on: boolean | undefined): string {
   return on === false ? '&barnumbers=no' : '';
+}
+
+function writtenQuery(on: boolean | undefined): string {
+  return on === true ? '&written=yes' : '';
 }
 
 function blankStavesQuery(on: boolean | undefined): string {
@@ -698,14 +704,14 @@ function instrumentQuery(instrument: ExportInstrument): string {
  */
 export function exportUrl(id: Id, choice: ExportChoice): string {
   const base = new URLSearchParams({ format: choice.format, paper: choice.paper, font: choice.font });
-  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${barNumbersQuery(choice.barNumbers)}`;
+  return `${V1}/scores/${encodeURIComponent(id)}/export?${base.toString()}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${writtenQuery(choice.written)}${barNumbersQuery(choice.barNumbers)}`;
 }
 
 /** The route without an id, which is what the rail prints. A concrete id wraps the column. */
 export function exportRoute(choice: ExportChoice): { path: string; query: string } {
   return {
     path: `GET ${V1}/scores/:id/export`,
-    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${barNumbersQuery(choice.barNumbers)}`,
+    query: `?format=${choice.format}&paper=${choice.paper}&font=${choice.font}${instrumentQuery(choice.instrument)}${pageNumberQuery(choice.pageNumbers)}${blankStavesQuery(choice.blankStaves)}${writtenQuery(choice.written)}${barNumbersQuery(choice.barNumbers)}`,
   };
 }
 

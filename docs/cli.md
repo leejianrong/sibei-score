@@ -375,7 +375,7 @@ the browser's multi-edit actions — undoes as a single step. In the browser, ct
 sbscore export <id> [--pdf | --musicxml | --svg] [-o PATH]
                     [--paper a4|letter] [--font normal|jazz]
                     [--page-numbers[=top-right]] [--page-number-format n|page|of]
-                    [--page-number-first yes|no] [--blank-staves] [--no-bar-numbers]
+                    [--page-number-first yes|no] [--blank-staves] [--no-bar-numbers] [--written]
                     [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
 ```
 
@@ -391,6 +391,13 @@ unchanged. Bare, it is top-right; name a place with `--page-numbers=bottom-cente
 with `left`, `center` or `right`). `--page-number-format` is `n` (`2`), `page` (`Page 2`) or `of`
 (`Page 2 of 3`), and `--page-number-first no` leaves page 1 bare. These are page choices, so MusicXML
 ignores them. The browser's Export rail has the same controls.
+
+`--written` writes a part that has its own transposition (a Bb trumpet beside a concert piano, from a
+MusicXML import or `part.set`) at its own written pitch on the PDF or SVG. The print is concert by default
+(ADR-0016: the stored score is concert, and this keeps every existing export byte for byte); MusicXML
+always writes the transposed part. The score keeps one key signature (the concert one), so the transposing
+staff's accidentals are spelled for its own key and drawn against that signature. The rail's Transposing
+parts tick does the same, and appears only when the chart has such a part.
 
 `--blank-staves` fills the rest of the PDF's last page with empty ruled staves (a clef, five lines and a
 closing line each) for writing in by hand. It is off by default. Only the room the last page really has is

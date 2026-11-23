@@ -73,3 +73,33 @@ describe('a part with its own transposition', () => {
     expect(asTrumpet.parts.map((part) => part.transposition)).toEqual([0, 0]);
   });
 });
+
+describe('printing a part at its own written pitch (SIB2-239)', () => {
+  const trumpetAndBass = (): Score => {
+    const concert = build('lead-bass');
+    return { ...concert, parts: [{ ...concert.parts[0]!, transposition: 2 }, ...concert.parts.slice(1)] };
+  };
+
+  it('is the concert score, untouched, unless asked', () => {
+    const score = trumpetAndBass();
+    expect(writtenPart(score, 'concert')).toBe(score);
+    expect(writtenPart(score, 'concert', { ownParts: false })).toBe(score);
+  });
+
+  it('moves only the transposing part, and leaves chords, key and the other staff at concert', () => {
+    const score = trumpetAndBass();
+    const written = writtenPart(score, 'concert', { ownParts: true });
+    const lead = score.parts[0]!.staves[0]!.id;
+    const bass = score.parts[1]!.staves[0]!.id;
+    expect(pitches(written, lead)).not.toEqual(pitches(score, lead));
+    expect(pitches(written, bass)).toEqual(pitches(score, bass));
+    expect(written.meta.key).toEqual(score.meta.key);
+    expect(written.harmony).toEqual(score.harmony);
+    expect(written.parts.map((part) => part.transposition)).toEqual([0, 0]);
+  });
+
+  it('is the identity when no part transposes, so ordinary output is byte-identical', () => {
+    const concert = build('lead-bass');
+    expect(writtenPart(concert, 'concert', { ownParts: true })).toBe(concert);
+  });
+});
