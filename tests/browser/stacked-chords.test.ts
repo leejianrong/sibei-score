@@ -56,10 +56,10 @@ describe('editing a stacked chord in the browser', () => {
     try {
       const score = (stack.cli(['open', id]) as Doc).score;
       await click(page, firstNoteTarget(score));
-      const group = page.getByRole('group', { name: 'Chord pitches' });
+      const group = page.getByRole('group', { name: 'Chord notes' });
       await group.waitFor({ timeout: 5_000 });
 
-      await group.getByLabel('Pitch to add to the chord').fill('G4');
+      await group.getByLabel('Note to add to the chord').fill('G4');
       await group.getByRole('button', { name: 'Add pitch', exact: true }).click();
       await expect.poll(() => chordPitches(id), { timeout: 20_000 }).toEqual(['C4', 'G4']);
 

@@ -410,7 +410,7 @@
       </div>
 
       {#if ontoneadd !== undefined && !isDrum && selection.kind === 'note'}
-        <div class="field slur-field" role="group" aria-label="Chord pitches">
+        <div class="field slur-field" role="group" aria-label="Chord notes">
           <span class="field-label">Chord pitches</span>
           <p class="inspector-note">
             Pitches struck together share one stem and one duration. Duration and marks above are the whole chord's.
@@ -434,7 +434,7 @@
           <div class="slur-row">
             <input
               class="grace-pitch"
-              aria-label="Pitch to add to the chord"
+              aria-label="Note to add to the chord"
               placeholder="G4"
               value={tonePitch}
               oninput={(event) => (tonePitch = (event.currentTarget as HTMLInputElement).value)}
