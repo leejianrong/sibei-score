@@ -48,10 +48,10 @@ export function checkNoteEvents(raw: unknown): NoteEventsCheck {
     throw error;
   }
   if (!NOTE_EVENTS_SUPPORTED_INSTRUMENTS.includes(document.instrument)) {
-    const supported = NOTE_EVENTS_SUPPORTED_INSTRUMENTS.join(' and ');
+    const supported = NOTE_EVENTS_SUPPORTED_INSTRUMENTS.join(', ');
     return refuse(
       'unsupported-instrument',
-      `instrument ${JSON.stringify(document.instrument)} cannot be notated yet; only ${supported} import to a single melody staff`,
+      `instrument ${JSON.stringify(document.instrument)} cannot be notated yet; only ${supported} can be imported`,
       [`instrument is ${document.instrument}`],
     );
   }

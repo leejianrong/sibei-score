@@ -19,3 +19,4 @@ export * from './note-events-map.js';
 export * from './staves.js';
 export * from './build-staves.js';
 export * from './drums.js';
+export * from './note-events-drums.js';

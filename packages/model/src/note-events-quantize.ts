@@ -126,10 +126,23 @@ interface Placed {
   t: number; // onset seconds, for warnings
 }
 
-export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
-  const warnings: QuantizeWarning[] = [];
-  let notes = [...events.notes].sort((a, b) => a.onset_s - b.onset_s || a.pitch - b.pitch || cmp(a.id, b.id));
+/** What the beat grid gives any quantizer: the meter, the bar length and a seconds-to-ticks conversion. */
+export interface BeatGrid {
+  warnings: QuantizeWarning[];
+  time: TimeSignature;
+  capacity: number;
+  tempoBpm: number;
+  /** Seconds to ticks on the global axis, where 0 is the origin downbeat (negative before it). Not snapped. */
+  toTicks: (t: number) => number;
+}
 
+/**
+ * The beat grid of a document (shared by the melody quantizer and the drum mapper): the tracker's beats when two or
+ * more are given, else a constant tempo inferred from the onsets; the bar length and origin from the downbeat flags.
+ * `notes` are the document's notes sorted by onset.
+ */
+export function beatGrid(events: NoteEvents, notes: readonly NoteEvents['notes'][number][]): BeatGrid {
+  const warnings: QuantizeWarning[] = [];
   const given = events.beats
     .map((b): Beat => ({ t: b.t_s, down: b.is_downbeat ?? null }))
     .sort((a, b) => a.t - b.t);
@@ -172,13 +185,21 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
   const time: TimeSignature = { beats: beatsPerBar, beatValue: 4 };
   const capacity = barCapacity(time);
 
+  const toTicks = (t: number): number => fractionalBeat(beats, t, originIdx) * TICKS_PER_QUARTER;
+  return { warnings, time, capacity, tempoBpm: tempoOf(beats), toTicks };
+}
+
+export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
+  let notes = [...events.notes].sort((a, b) => a.onset_s - b.onset_s || a.pitch - b.pitch || cmp(a.id, b.id));
+  const grid = beatGrid(events, notes);
+  const { warnings, time, capacity, tempoBpm, toTicks } = grid;
+
   if (notes.length === 0) {
     warnings.push({ code: 'no-notes', message: 'the document has no notes' });
-    return { time, tempoBpm: tempoOf(beats), bars: [], warnings };
+    return { time, tempoBpm, bars: [], warnings };
   }
 
   // Place every note on the global tick axis (0 = the origin downbeat), snapped.
-  const toTicks = (t: number): number => fractionalBeat(beats, t, originIdx) * TICKS_PER_QUARTER;
   const placed: Placed[] = [];
   let { bias, spread } = onsetBias(notes.map((n) => toTicks(n.onset_s)));
   if (spread >= NOISY_SPREAD) {
@@ -278,7 +299,7 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
     for (const item of bars[0]!.items) item.onset -= shift;
   }
 
-  return { time, tempoBpm: tempoOf(beats), bars, warnings };
+  return { time, tempoBpm, bars, warnings };
 }
 
 /**
@@ -312,7 +333,7 @@ function mergeSplitNotes(notes: readonly NoteEvents['notes'][number][]): NoteEve
  * which step it landed on) and removing it centres the noise on the grid. Needs a handful of notes, and
  * never moves more than half a step, so a clean performance (phase ~0) is untouched.
  */
-function onsetBias(positions: readonly number[]): { bias: number; spread: number } {
+export function onsetBias(positions: readonly number[]): { bias: number; spread: number } {
   if (positions.length < MIN_NOTES_FOR_BIAS) return { bias: 0, spread: 0 };
   let sin = 0;
   let cos = 0;
@@ -407,7 +428,7 @@ function snapOnsets(positions: readonly number[], heards: readonly number[], sig
 }
 
 /** Round to the grid; exactly halfway goes down (deterministic). */
-function snap(ticks: number): number {
+export function snap(ticks: number): number {
   return Math.ceil(ticks / GRID_TICKS - 0.5) * GRID_TICKS;
 }
 

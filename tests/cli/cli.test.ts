@@ -737,7 +737,7 @@ describe('the import verb (V11)', () => {
   });
 
   it('refuses a NoteEvents file that is unknown-major or malformed with the validation code', async () => {
-    for (const name of ['invalid_unknown_major.json', 'invalid_offset_not_after_onset.json', 'drums-valid-unsupported.json']) {
+    for (const name of ['invalid_unknown_major.json', 'invalid_offset_not_after_onset.json']) {
       const result = await runImport('import', '--note-events', noteEventsFixture(name));
       expect(result.code).toBe(EXIT.validation);
     }

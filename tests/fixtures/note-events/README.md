@@ -28,4 +28,5 @@ We do not own or edit the schema (ADR-0040); `packages/model/src/note-events.ts`
 | `voice-ode-beats.json` | voice, 120 bpm 4/4, beat grid with downbeats, 4 bars, a dotted rhythm |
 | `bass-walking-beats.json` | bass, 100 bpm, walking quarters, one low-confidence note (0.41) and a warning |
 | `voice-twinkle-no-beats.json` | voice, empty `beats` with a `no_beats` warning: tempo must be inferred |
-| `drums-valid-unsupported.json` | valid v1 but `instrument: drums`: valid to read, refused at import |
+| `drums-single-bar.json` | `instrument: drums`, one bar of kick, snare and hi-hat (it was the refused-instrument fixture until drums became supported) |
+| `drums-rock-groove.json` | `instrument: drums`, 120 bpm 4/4, four bars, jittered (onsets ±15 ms): hi-hat eighths with an open hat (`drum_class`), kick on 1 and 3, snare on 2 and 4, a crash, one low-confidence hit and one key (70) the drum map does not know. Generated once by a small deterministic script; no recording is involved. |
