@@ -1418,8 +1418,10 @@
    * cheap no-op, so ctrl-Z past the first edit is quiet rather than an error.
    */
   async function runMove(direction: 'undo' | 'redo'): Promise<void> {
-    if (score === null || !editable || saving) return;
-    // A burst of note-input keys still pending is one unit: close it first, so this undo reverses all of it (SIB2-282).
+    if (score === null || !editable) return;
+    // Keys typed ahead are still being written: wait for them, then close the burst, so this undo reverses all of it and
+    // is not swallowed by a write in flight (SIB2-282). Bounded, so a stuck request cannot hold the key forever.
+    for (let waited = 0; (inputBusy || saving) && waited < 10_000; waited += 20) await new Promise((resolve) => setTimeout(resolve, 20));
     await flushBurst();
     if (score === null || saving) return;
     saving = true;
@@ -1503,7 +1505,7 @@
         return;
       }
       if (action === 'undo' || action === 'redo') {
-        if (!editable || saving) return;
+        if (!editable) return;
         event.preventDefault();
         void runMove(action);
         return;
