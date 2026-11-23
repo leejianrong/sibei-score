@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { openRailPanels } from './support/rail.js';
 import { startStack, type Stack } from './support/stack.js';
 
 /**
@@ -25,6 +26,7 @@ async function openScore(id: string): Promise<Page> {
   const page = await stack.browser.newPage();
   await page.goto(stack.scoreUrl(id), { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.sheet');
+  await openRailPanels(page);
   return page;
 }
 

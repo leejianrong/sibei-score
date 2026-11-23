@@ -67,6 +67,7 @@
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
   import { allStaves, barByNumber, barViews, beatOfOnset, onsetOfBeat, sectionStartingAt } from '@sibei/model';
+  import RailPanel from './RailPanel.svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
@@ -312,6 +313,15 @@
   // only an id and a page, its box and the slurs it would join looked up fresh from the render and model.
   let rangeId = $state<Id | null>(null);
   let rangePage = $state<number | null>(null);
+  // The Selected region at the top of the rail (SIB2-263), kept so a selection can be scrolled into its own pane.
+  let selectedPane = $state<HTMLElement | null>(null);
+  // A new selection starts the inspector at its top, so the first control is the one in view (SIB2-263).
+  $effect(() => {
+    void selection;
+    void chordSelection;
+    void barStructure;
+    if (selectedPane !== null) selectedPane.scrollTop = 0;
+  });
   // Multi-selection (SIB2-278): ids added with ctrl/cmd-click, or by a bar range or select-all. Together with the
   // shift-click range above they make `pickedIds`; like everything else here it is ids, looked up fresh from the score.
   let extraIds = $state<Id[]>([]);
@@ -1384,7 +1394,7 @@
 {:else if score !== null}
   <section class="score">
     <aside class="rail">
-      <div>
+      <div class="rail-head">
         <h2 class="rail-title" class:untitled={score.meta.title === ''}>
           {displayTitle(score.meta.title)}
         </h2>
@@ -1393,372 +1403,7 @@
         {/if}
       </div>
 
-      <!-- Deliberately not repeating `style` here — it is printed on the page, two centimetres
-           away. The rail carries what the page cannot say. -->
-      <dl class="facts">
-        <dt>key</dt>
-        <dd>{displayKey(formatKeySignature(score.meta.key))}</dd>
-        <dt>time</dt>
-        <dd>{score.meta.time.beats}/{score.meta.time.beatValue}</dd>
-        <dt>bars</dt>
-        <dd>{bars}</dd>
-        <dt>pages</dt>
-        <dd>{pages.length} · {paperLabel(paper)}</dd>
-        <dt>version</dt>
-        <dd>v{version}</dd>
-        <dt>updated</dt>
-        <dd>{absoluteTime(updatedAt)}</dd>
-        <dt>id</dt>
-        <dd class="id">{score.id}</dd>
-      </dl>
-
-      <div class="group">
-        <h3>Review</h3>
-        <!-- `anythingFlagged` is the model's single answer, and until KAN-597 it was not: it read
-             the *stored* `bar.review.flagged` while the two lines below derived the same fact from
-             the bar's contents, so this branch printed "Nothing flagged." over a chart with two
-             invalid bars. Every chart authored through the API was right — the applier stamps the
-             flag on write — so it was correct exactly where anyone looked. Nothing about the branch
-             changes; the answer it asks for does. -->
-        {#if review === null || !review.anythingFlagged}
-          <p class="review-ok">Nothing flagged.</p>
-        {:else}
-          <!-- The wording is the model's, not this component's: `reviewSummary` is what the text
-               projection prints too, so the two surfaces cannot describe the same chart in two
-               vocabularies. A blank chart now reports nothing, which is why the first thing a new
-               user sees is no longer a chart entirely in review. -->
-          <div class="review-flag">
-            <span class="bang">!</span>{review.meterNote ?? NEEDS_REVIEW}
-            {#if review.invalidBars.length > 0}
-              <span class="bars">{formatBarRanges(review.invalidBars)}</span>
-            {/if}
-          </div>
-        {/if}
-        <!-- A layout advisory, not a review flag (V14, ADR-0015): sections drive line-breaking, so
-             a section-less chart — every fresh import (ADR-0021) — lays out on a plain four-bar grid
-             until one is added. Non-blocking by decision (ADR-0013/0019 never refuse a draft), so it
-             is a prompt beside the flags, never a `!`. `showNoSectionsAdvisory` is the model's single answer (false on a `score` layout, SIB2-238), the
-             same one the text projection prints, so the two surfaces cannot word it differently. -->
-        {#if review !== null && review.showNoSectionsAdvisory}
-          <p class="review-advisory">{NO_SECTIONS_ADVISORY}</p>
-        {/if}
-      </div>
-
-      <div class="group control-row">
-        <h3>Transpose</h3>
-        <div class="transpose-row">
-          <select
-            class="key-select"
-            aria-label="Transpose to key"
-            value={transposeIndex}
-            onchange={(event) => (transposeIndex = Number((event.currentTarget as HTMLSelectElement).value))}
-          >
-            {#each TARGET_KEYS as option, index (option.label)}
-              <option value={index}>{option.label}</option>
-            {/each}
-          </select>
-          <button
-            type="button"
-            class="transpose-btn"
-            disabled={saving || transposeIndex === currentKeyIndex}
-            onclick={handleTranspose}
-          >
-            {saving ? 'Working…' : 'Transpose'}
-          </button>
-        </div>
-        <p class="control-note">
-          Changes the chart's concert key — the melody and chords move together. A logged, undoable
-          edit, not a view: the version bumps.
-        </p>
-      </div>
-
-      {#if editable}
-        <div class="group control-row">
-          <h3>Staves and voices</h3>
-          <StaffPanel
-            {score}
-            lane={activeLane}
-            barNumber={barSel?.barNumber ?? null}
-            {saving}
-            error={chordSelection === null && selection === null && barStructure === null ? saveError : null}
-            onops={runOps}
-            onlane={(next) => (laneChoice = next)}
-          />
-        </div>
-      {/if}
-
-      <div class="group control-row">
-        <h3>Title block</h3>
-        <input class="meta-input" aria-label="Title" placeholder="Title" bind:value={titleDraft} />
-        <input class="meta-input" aria-label="Subtitle" placeholder="Subtitle" bind:value={subtitleDraft} />
-        <textarea class="meta-input" aria-label="Composer" placeholder="Composer (one per line)" rows="2" bind:value={composerDraft}></textarea>
-        <input class="meta-input" aria-label="Arranger" placeholder="Arranger" bind:value={arrangerDraft} />
-        <input class="meta-input" aria-label="Style or tempo" placeholder="Style or tempo, e.g. Medium swing" bind:value={styleDraft} />
-        <button type="button" class="transpose-btn" disabled={saving || !titleBlockDirty} onclick={handleTitleBlockSave}>
-          {saving ? 'Working…' : 'Set title block'}
-        </button>
-        <p class="control-note">
-          Printed above the first system. A logged, undoable edit (<code>meta set --title --subtitle --composer --arranger --style</code>).
-        </p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Bars per line</h3>
-        <select
-          class="part-select"
-          aria-label="Bars per line"
-          value={score.meta.barsPerSystem ?? 4}
-          disabled={saving}
-          onchange={(event) => void handleBarsPerSystem(Number((event.currentTarget as HTMLSelectElement).value))}
-        >
-          {#each [1, 2, 3, 4, 5, 6, 7, 8] as count (count)}
-            <option value={count}>{count}{count === 4 ? ' (the grid)' : ''}</option>
-          {/each}
-        </select>
-        <p class="control-note">Where one line should end instead, click a bar and set its line break. A logged, undoable edit (<code>meta set --bars-per-system</code>, <code>break set</code>).</p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Layout</h3>
-        <select
-          class="part-select"
-          aria-label="How systems are broken"
-          value={score.meta.layout ?? 'lead-sheet'}
-          disabled={saving}
-          onchange={(event) => void handleLayout((event.currentTarget as HTMLSelectElement).value as 'lead-sheet' | 'score')}
-        >
-          <option value="lead-sheet">Lead sheet (four bars to a line)</option>
-          <option value="score">Score (lines break by width)</option>
-        </select>
-        <p class="control-note">For a chart of several staves. A logged, undoable edit (<code>meta set --layout</code>).</p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Clef and key</h3>
-        <select
-          class="part-select"
-          aria-label="Where clef and key signature are drawn"
-          value={score.meta.signaturePolicy ?? 'every'}
-          disabled={saving}
-          onchange={(event) => void handleSignaturePolicy((event.currentTarget as HTMLSelectElement).value as 'every' | 'first' | 'page')}
-        >
-          <option value="every">Every system</option>
-          <option value="first">First system only</option>
-          <option value="page">First system of each page</option>
-        </select>
-        <p class="control-note">Later systems without them get the room back. A logged, undoable edit (<code>meta set --signature-policy</code>).</p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Footer</h3>
-        <textarea
-          class="footer-text"
-          aria-label="Page footer text"
-          rows="3"
-          maxlength="500"
-          placeholder="© 2026 … · lead sheet by …"
-          bind:value={footerDraft}
-        ></textarea>
-        <div class="transpose-row">
-          <select class="key-select" aria-label="Pages carrying the footer" bind:value={footerPagesDraft}>
-            <option value="all">Every page</option>
-            <option value="first">First page</option>
-            <option value="last">Last page</option>
-          </select>
-          <button type="button" class="transpose-btn" disabled={saving || !footerDirty} onclick={handleFooterSave}>
-            {saving ? 'Working…' : 'Set footer'}
-          </button>
-        </div>
-        <p class="control-note">
-          A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
-          (<code>meta set --footer</code>).
-        </p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Tempo</h3>
-        <div class="transpose-row">
-          <select class="key-select" aria-label="Tempo beat unit" bind:value={tempoUnit}>
-            <option value="4">quarter =</option>
-            <option value="4.">dotted quarter =</option>
-            <option value="2">half =</option>
-            <option value="8">eighth =</option>
-            <option value="1">whole =</option>
-          </select>
-          <input
-            class="key-select"
-            type="number"
-            min="20"
-            max="400"
-            aria-label="Beats per minute"
-            bind:value={tempoBpm}
-          />
-        </div>
-        <div class="transpose-row">
-          <button type="button" class="transpose-btn" disabled={saving || tempoBpm === ''} onclick={handleTempoSave}>
-            {saving ? 'Working…' : 'Set tempo'}
-          </button>
-          <button type="button" class="transpose-btn" disabled={saving || score.meta.tempo === undefined} onclick={handleTempoRemove}>
-            Remove
-          </button>
-        </div>
-        <p class="control-note">
-          A metronome mark above the first bar; notation only, nothing plays. A logged, undoable edit
-          (<code>meta set --tempo</code>).
-        </p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Chord symbols</h3>
-        <select
-          class="key-select"
-          aria-label="Print chords as"
-          disabled={saving}
-          value={score?.meta.chordStyle ?? 'standard'}
-          onchange={handleChordStyle}
-        >
-          <option value="standard">Δ · m7 · ø (standard)</option>
-          <option value="dash">Δ · -7 · -7♭5</option>
-          <option value="words">maj7 · min7 · m7♭5</option>
-          <option value="real-book">MA7 · MI7 · MI7♭5</option>
-        </select>
-        <p class="control-note">
-          How this chart prints its chords; the chord text is unchanged. A logged, undoable edit
-          (<code>meta set --chord-style</code>).
-        </p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Face</h3>
-        <SegmentedControl
-          label="Music face"
-          options={FONTS}
-          value={font}
-          onselect={(chosen) => (font = chosen)}
-        />
-        <p class="control-note">
-          Bravura, engraved · Petaluma, the handwritten Real Book face. The face is chosen per
-          render, not per chart.
-        </p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Paper</h3>
-        <SegmentedControl
-          label="Paper size"
-          options={PAPERS}
-          value={paper}
-          display={paperLabel}
-          onselect={(chosen) => (paper = chosen)}
-        />
-        <p class="control-note">Paper changes the line breaks, so the page above changes with it.</p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Page numbers</h3>
-        <select
-          class="part-select"
-          aria-label="Page number position"
-          value={numberPosition}
-          onchange={(event) => (numberPosition = (event.currentTarget as HTMLSelectElement).value as PageNumberPosition | 'none')}
-        >
-          <option value="none">None</option>
-          {#each NUMBER_POSITIONS as position (position)}
-            <option value={position}>{position.replace('-', ' ')}</option>
-          {/each}
-        </select>
-        {#if numberPosition !== 'none'}
-          <select
-            class="part-select"
-            aria-label="Page number format"
-            value={numberFormat}
-            onchange={(event) => (numberFormat = (event.currentTarget as HTMLSelectElement).value as PageNumberFormat)}
-          >
-            {#each NUMBER_FORMATS as option (option)}
-              <option value={option}>{option === 'n' ? '2' : option === 'page' ? 'Page 2' : 'Page 2 of 3'}</option>
-            {/each}
-          </select>
-          <label class="control-note"><input type="checkbox" bind:checked={numberFirst} /> Number the first page</label>
-        {/if}
-        <p class="control-note">Printed in the margin of every page of the PDF. Off by default; a render choice, not stored in the chart.</p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Blank staves</h3>
-        <label class="control-note"><input type="checkbox" bind:checked={blankStaves} /> Fill the rest of the last page with empty staves</label>
-        <p class="control-note">For writing in by hand. Off by default; a render choice, not stored in the chart (<code>export --blank-staves</code>).</p>
-      </div>
-
-      <div class="group control-row">
-        <h3>Bar numbers</h3>
-        <label class="control-note"><input type="checkbox" bind:checked={barNumbers} /> Number the bar at the head of each line</label>
-        <p class="control-note">Drawn by default. A render choice, not stored in the chart (<code>export --no-bar-numbers</code>).</p>
-      </div>
-
-      {#if hasTransposingPart}
-        <div class="group control-row">
-          <h3>Transposing parts</h3>
-          <label class="control-note"><input type="checkbox" bind:checked={written} /> Write each at its own written pitch</label>
-          <p class="control-note">The print is concert by default. A view, nothing stored (<code>export --written</code>); editing is off while it is on.</p>
-        </div>
-      {/if}
-
-      <div class="group">
-        <h3>Part</h3>
-        <select
-          class="part-select"
-          aria-label="Instrument part"
-          value={instrument}
-          onchange={(event) => (instrument = (event.currentTarget as HTMLSelectElement).value as ExportInstrument)}
-        >
-          {#each INSTRUMENTS as option (option.value)}
-            <option value={option.value}>{option.label} — {option.hint}</option>
-          {/each}
-        </select>
-        {#if !editable}
-          <!-- The part is drawn from the concert score by the same transform the export runs, so it
-               is a true preview — but a preview, so the sheet says so and editing is off. -->
-          <p class="control-note preview-note">
-            Previewing the {INSTRUMENTS.find((o) => o.value === instrument)?.label} part — a view,
-            nothing stored. Switch to <b>Concert score</b> to edit.
-          </p>
-        {:else}
-          <p class="control-note">
-            A written part for a transposing instrument — a render-time view (ADR-0016). The concert
-            chart is unchanged.
-          </p>
-        {/if}
-      </div>
-
-      <div class="group">
-        <h3>Export</h3>
-        <SegmentedControl
-          label="Export format"
-          options={FORMATS.map((f) => f.value)}
-          value={format}
-          display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
-          onselect={(chosen) => (format = chosen)}
-        />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers })} download>
-          Export {editable
-            ? formatLabel
-            : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
-        </a>
-        <!-- The route, not the instance: the id is already in the facts above, and a
-             40-character id wraps this column into nonsense. -->
-        <p class="url">
-          <span class="u-path">{route.path}</span>
-          <span class="u-q">{route.query}</span>
-        </p>
-        {#if format === 'musicxml'}
-          <p class="control-note">
-            MusicXML is a codec at the edges (ADR-0004) — lossy in known ways, and it ignores the
-            paper and face, which are page choices. A transposing part exports transposed.
-          </p>
-        {/if}
-      </div>
-
-      <div class="group">
+      <div class="group rail-selected" bind:this={selectedPane} data-testid="selected-pane">
         <h3>Selected</h3>
         {#if chordSelection !== null}
           {#key `${chordSelection.mode}:${chordSelection.addr}`}
@@ -1858,6 +1503,356 @@
           {/if}
         {/if}
       </div>
+
+      <div class="rail-scroll">
+      <!-- Deliberately not repeating `style` here — it is printed on the page, two centimetres
+           away. The rail carries what the page cannot say. -->
+      <dl class="facts">
+        <dt>key</dt>
+        <dd>{displayKey(formatKeySignature(score.meta.key))}</dd>
+        <dt>time</dt>
+        <dd>{score.meta.time.beats}/{score.meta.time.beatValue}</dd>
+        <dt>bars</dt>
+        <dd>{bars}</dd>
+        <dt>pages</dt>
+        <dd>{pages.length} · {paperLabel(paper)}</dd>
+        <dt>version</dt>
+        <dd>v{version}</dd>
+        <dt>updated</dt>
+        <dd>{absoluteTime(updatedAt)}</dd>
+        <dt>id</dt>
+        <dd class="id">{score.id}</dd>
+      </dl>
+
+      <div class="group">
+        <h3>Review</h3>
+        <!-- `anythingFlagged` is the model's single answer, and until KAN-597 it was not: it read
+             the *stored* `bar.review.flagged` while the two lines below derived the same fact from
+             the bar's contents, so this branch printed "Nothing flagged." over a chart with two
+             invalid bars. Every chart authored through the API was right — the applier stamps the
+             flag on write — so it was correct exactly where anyone looked. Nothing about the branch
+             changes; the answer it asks for does. -->
+        {#if review === null || !review.anythingFlagged}
+          <p class="review-ok">Nothing flagged.</p>
+        {:else}
+          <!-- The wording is the model's, not this component's: `reviewSummary` is what the text
+               projection prints too, so the two surfaces cannot describe the same chart in two
+               vocabularies. A blank chart now reports nothing, which is why the first thing a new
+               user sees is no longer a chart entirely in review. -->
+          <div class="review-flag">
+            <span class="bang">!</span>{review.meterNote ?? NEEDS_REVIEW}
+            {#if review.invalidBars.length > 0}
+              <span class="bars">{formatBarRanges(review.invalidBars)}</span>
+            {/if}
+          </div>
+        {/if}
+        <!-- A layout advisory, not a review flag (V14, ADR-0015): sections drive line-breaking, so
+             a section-less chart — every fresh import (ADR-0021) — lays out on a plain four-bar grid
+             until one is added. Non-blocking by decision (ADR-0013/0019 never refuse a draft), so it
+             is a prompt beside the flags, never a `!`. `showNoSectionsAdvisory` is the model's single answer (false on a `score` layout, SIB2-238), the
+             same one the text projection prints, so the two surfaces cannot word it differently. -->
+        {#if review !== null && review.showNoSectionsAdvisory}
+          <p class="review-advisory">{NO_SECTIONS_ADVISORY}</p>
+        {/if}
+      </div>
+
+      <RailPanel title="Transpose">
+        <div class="transpose-row">
+          <select
+            class="key-select"
+            aria-label="Transpose to key"
+            value={transposeIndex}
+            onchange={(event) => (transposeIndex = Number((event.currentTarget as HTMLSelectElement).value))}
+          >
+            {#each TARGET_KEYS as option, index (option.label)}
+              <option value={index}>{option.label}</option>
+            {/each}
+          </select>
+          <button
+            type="button"
+            class="transpose-btn"
+            disabled={saving || transposeIndex === currentKeyIndex}
+            onclick={handleTranspose}
+          >
+            {saving ? 'Working…' : 'Transpose'}
+          </button>
+        </div>
+        <p class="control-note">
+          Changes the chart's concert key — the melody and chords move together. A logged, undoable
+          edit, not a view: the version bumps.
+        </p>
+      </RailPanel>
+
+      {#if editable}
+        <RailPanel title="Staves and voices" open>
+          <StaffPanel
+            {score}
+            lane={activeLane}
+            barNumber={barSel?.barNumber ?? null}
+            {saving}
+            error={chordSelection === null && selection === null && barStructure === null ? saveError : null}
+            onops={runOps}
+            onlane={(next) => (laneChoice = next)}
+          />
+        </RailPanel>
+      {/if}
+
+      <RailPanel title="Title block">
+        <input class="meta-input" aria-label="Title" placeholder="Title" bind:value={titleDraft} />
+        <input class="meta-input" aria-label="Subtitle" placeholder="Subtitle" bind:value={subtitleDraft} />
+        <textarea class="meta-input" aria-label="Composer" placeholder="Composer (one per line)" rows="2" bind:value={composerDraft}></textarea>
+        <input class="meta-input" aria-label="Arranger" placeholder="Arranger" bind:value={arrangerDraft} />
+        <input class="meta-input" aria-label="Style or tempo" placeholder="Style or tempo, e.g. Medium swing" bind:value={styleDraft} />
+        <button type="button" class="transpose-btn" disabled={saving || !titleBlockDirty} onclick={handleTitleBlockSave}>
+          {saving ? 'Working…' : 'Set title block'}
+        </button>
+        <p class="control-note">
+          Printed above the first system. A logged, undoable edit (<code>meta set --title --subtitle --composer --arranger --style</code>).
+        </p>
+      </RailPanel>
+
+      <RailPanel title="Bars per line">
+        <select
+          class="part-select"
+          aria-label="Bars per line"
+          value={score.meta.barsPerSystem ?? 4}
+          disabled={saving}
+          onchange={(event) => void handleBarsPerSystem(Number((event.currentTarget as HTMLSelectElement).value))}
+        >
+          {#each [1, 2, 3, 4, 5, 6, 7, 8] as count (count)}
+            <option value={count}>{count}{count === 4 ? ' (the grid)' : ''}</option>
+          {/each}
+        </select>
+        <p class="control-note">Where one line should end instead, click a bar and set its line break. A logged, undoable edit (<code>meta set --bars-per-system</code>, <code>break set</code>).</p>
+      </RailPanel>
+
+      <RailPanel title="Layout">
+        <select
+          class="part-select"
+          aria-label="How systems are broken"
+          value={score.meta.layout ?? 'lead-sheet'}
+          disabled={saving}
+          onchange={(event) => void handleLayout((event.currentTarget as HTMLSelectElement).value as 'lead-sheet' | 'score')}
+        >
+          <option value="lead-sheet">Lead sheet (four bars to a line)</option>
+          <option value="score">Score (lines break by width)</option>
+        </select>
+        <p class="control-note">For a chart of several staves. A logged, undoable edit (<code>meta set --layout</code>).</p>
+      </RailPanel>
+
+      <RailPanel title="Clef and key">
+        <select
+          class="part-select"
+          aria-label="Where clef and key signature are drawn"
+          value={score.meta.signaturePolicy ?? 'every'}
+          disabled={saving}
+          onchange={(event) => void handleSignaturePolicy((event.currentTarget as HTMLSelectElement).value as 'every' | 'first' | 'page')}
+        >
+          <option value="every">Every system</option>
+          <option value="first">First system only</option>
+          <option value="page">First system of each page</option>
+        </select>
+        <p class="control-note">Later systems without them get the room back. A logged, undoable edit (<code>meta set --signature-policy</code>).</p>
+      </RailPanel>
+
+      <RailPanel title="Footer">
+        <textarea
+          class="footer-text"
+          aria-label="Page footer text"
+          rows="3"
+          maxlength="500"
+          placeholder="© 2026 … · lead sheet by …"
+          bind:value={footerDraft}
+        ></textarea>
+        <div class="transpose-row">
+          <select class="key-select" aria-label="Pages carrying the footer" bind:value={footerPagesDraft}>
+            <option value="all">Every page</option>
+            <option value="first">First page</option>
+            <option value="last">Last page</option>
+          </select>
+          <button type="button" class="transpose-btn" disabled={saving || !footerDirty} onclick={handleFooterSave}>
+            {saving ? 'Working…' : 'Set footer'}
+          </button>
+        </div>
+        <p class="control-note">
+          A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
+          (<code>meta set --footer</code>).
+        </p>
+      </RailPanel>
+
+      <RailPanel title="Tempo">
+        <div class="transpose-row">
+          <select class="key-select" aria-label="Tempo beat unit" bind:value={tempoUnit}>
+            <option value="4">quarter =</option>
+            <option value="4.">dotted quarter =</option>
+            <option value="2">half =</option>
+            <option value="8">eighth =</option>
+            <option value="1">whole =</option>
+          </select>
+          <input
+            class="key-select"
+            type="number"
+            min="20"
+            max="400"
+            aria-label="Beats per minute"
+            bind:value={tempoBpm}
+          />
+        </div>
+        <div class="transpose-row">
+          <button type="button" class="transpose-btn" disabled={saving || tempoBpm === ''} onclick={handleTempoSave}>
+            {saving ? 'Working…' : 'Set tempo'}
+          </button>
+          <button type="button" class="transpose-btn" disabled={saving || score.meta.tempo === undefined} onclick={handleTempoRemove}>
+            Remove
+          </button>
+        </div>
+        <p class="control-note">
+          A metronome mark above the first bar; notation only, nothing plays. A logged, undoable edit
+          (<code>meta set --tempo</code>).
+        </p>
+      </RailPanel>
+
+      <RailPanel title="Chord symbols">
+        <select
+          class="key-select"
+          aria-label="Print chords as"
+          disabled={saving}
+          value={score?.meta.chordStyle ?? 'standard'}
+          onchange={handleChordStyle}
+        >
+          <option value="standard">Δ · m7 · ø (standard)</option>
+          <option value="dash">Δ · -7 · -7♭5</option>
+          <option value="words">maj7 · min7 · m7♭5</option>
+          <option value="real-book">MA7 · MI7 · MI7♭5</option>
+        </select>
+        <p class="control-note">
+          How this chart prints its chords; the chord text is unchanged. A logged, undoable edit
+          (<code>meta set --chord-style</code>).
+        </p>
+      </RailPanel>
+
+      <RailPanel title="Face">
+        <SegmentedControl
+          label="Music face"
+          options={FONTS}
+          value={font}
+          onselect={(chosen) => (font = chosen)}
+        />
+        <p class="control-note">
+          Bravura, engraved · Petaluma, the handwritten Real Book face. The face is chosen per
+          render, not per chart.
+        </p>
+      </RailPanel>
+
+      <RailPanel title="Paper">
+        <SegmentedControl
+          label="Paper size"
+          options={PAPERS}
+          value={paper}
+          display={paperLabel}
+          onselect={(chosen) => (paper = chosen)}
+        />
+        <p class="control-note">Paper changes the line breaks, so the page above changes with it.</p>
+      </RailPanel>
+
+      <RailPanel title="Page numbers">
+        <select
+          class="part-select"
+          aria-label="Page number position"
+          value={numberPosition}
+          onchange={(event) => (numberPosition = (event.currentTarget as HTMLSelectElement).value as PageNumberPosition | 'none')}
+        >
+          <option value="none">None</option>
+          {#each NUMBER_POSITIONS as position (position)}
+            <option value={position}>{position.replace('-', ' ')}</option>
+          {/each}
+        </select>
+        {#if numberPosition !== 'none'}
+          <select
+            class="part-select"
+            aria-label="Page number format"
+            value={numberFormat}
+            onchange={(event) => (numberFormat = (event.currentTarget as HTMLSelectElement).value as PageNumberFormat)}
+          >
+            {#each NUMBER_FORMATS as option (option)}
+              <option value={option}>{option === 'n' ? '2' : option === 'page' ? 'Page 2' : 'Page 2 of 3'}</option>
+            {/each}
+          </select>
+          <label class="control-note"><input type="checkbox" bind:checked={numberFirst} /> Number the first page</label>
+        {/if}
+        <p class="control-note">Printed in the margin of every page of the PDF. Off by default; a render choice, not stored in the chart.</p>
+      </RailPanel>
+
+      <RailPanel title="Blank staves">
+        <label class="control-note"><input type="checkbox" bind:checked={blankStaves} /> Fill the rest of the last page with empty staves</label>
+        <p class="control-note">For writing in by hand. Off by default; a render choice, not stored in the chart (<code>export --blank-staves</code>).</p>
+      </RailPanel>
+
+      <RailPanel title="Bar numbers">
+        <label class="control-note"><input type="checkbox" bind:checked={barNumbers} /> Number the bar at the head of each line</label>
+        <p class="control-note">Drawn by default. A render choice, not stored in the chart (<code>export --no-bar-numbers</code>).</p>
+      </RailPanel>
+
+      {#if hasTransposingPart}
+        <RailPanel title="Transposing parts">
+          <label class="control-note"><input type="checkbox" bind:checked={written} /> Write each at its own written pitch</label>
+          <p class="control-note">The print is concert by default. A view, nothing stored (<code>export --written</code>); editing is off while it is on.</p>
+        </RailPanel>
+      {/if}
+
+      <RailPanel title="Part" open plain>
+        <select
+          class="part-select"
+          aria-label="Instrument part"
+          value={instrument}
+          onchange={(event) => (instrument = (event.currentTarget as HTMLSelectElement).value as ExportInstrument)}
+        >
+          {#each INSTRUMENTS as option (option.value)}
+            <option value={option.value}>{option.label} — {option.hint}</option>
+          {/each}
+        </select>
+        {#if !editable}
+          <!-- The part is drawn from the concert score by the same transform the export runs, so it
+               is a true preview — but a preview, so the sheet says so and editing is off. -->
+          <p class="control-note preview-note">
+            Previewing the {INSTRUMENTS.find((o) => o.value === instrument)?.label} part — a view,
+            nothing stored. Switch to <b>Concert score</b> to edit.
+          </p>
+        {:else}
+          <p class="control-note">
+            A written part for a transposing instrument — a render-time view (ADR-0016). The concert
+            chart is unchanged.
+          </p>
+        {/if}
+      </RailPanel>
+
+      <RailPanel title="Export" open plain>
+        <SegmentedControl
+          label="Export format"
+          options={FORMATS.map((f) => f.value)}
+          value={format}
+          display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
+          onselect={(chosen) => (format = chosen)}
+        />
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers })} download>
+          Export {editable
+            ? formatLabel
+            : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}
+        </a>
+        <!-- The route, not the instance: the id is already in the facts above, and a
+             40-character id wraps this column into nonsense. -->
+        <p class="url">
+          <span class="u-path">{route.path}</span>
+          <span class="u-q">{route.query}</span>
+        </p>
+        {#if format === 'musicxml'}
+          <p class="control-note">
+            MusicXML is a codec at the edges (ADR-0004) — lossy in known ways, and it ignores the
+            paper and face, which are page choices. A transposing part exports transposed.
+          </p>
+        {/if}
+      </RailPanel>
+    </div>
     </aside>
 
     <!-- The workspace: just the sheet stage for most charts, and the retained scan beside it for one
@@ -2022,18 +2017,41 @@
     min-height: calc(100vh - var(--top-h));
   }
 
+  /* SIB2-263: the rail is three stacked regions rather than one long scroll. The title stays put, the
+     Selected inspector sits directly under it where a click's result is seen, and only the document-level
+     panels beneath scroll. Before this the inspector was the last of fifteen panels, ~4,000 px down. */
   .rail {
     position: sticky;
     top: var(--top-h);
     align-self: start;
     height: calc(100vh - var(--top-h));
-    overflow-y: auto;
+    overflow: hidden;
     background: var(--panel);
     border-right: 1px solid var(--rule);
-    padding: 26px 22px 40px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+  }
+  .rail-head {
+    flex: none;
+    padding: 22px 22px 12px;
+  }
+  .rail > .rail-selected {
+    border-top: 0;
+    flex: none;
+    max-height: 60%;
+    overflow-y: auto;
+    padding: 12px 22px 16px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--rule);
+  }
+  .rail-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 22px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .rail-title {
@@ -2149,11 +2167,6 @@
     border-color: var(--ink-faint);
   }
 
-  .control-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
   .control-note {
     font-size: 11px;
     color: var(--ink-faint);
