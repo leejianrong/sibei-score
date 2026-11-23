@@ -54,8 +54,10 @@ export const GRACE_SCALE = 0.65;
 export const GRACE_STEM_UNITS = 23;
 
 /** An ottava line sits this far past the highest or lowest note ink, and takes this much room itself (SIB2-184). */
-const OTTAVA_GAP = 15;
-const OTTAVA_BAND = 6;
+/** The row above the rehearsal row that holds a system's navigation marks (SIB2-175): a segno, coda or "D.S. al Coda". */
+export const NAV_BAND = 42;
+export const OTTAVA_GAP = 15;
+export const OTTAVA_BAND = 6;
 
 /**
  * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and
@@ -84,9 +86,15 @@ export interface SystemVertical {
 }
 
 export interface SystemVerticalInput {
+  /** The clef in force over a bar, where the staff changes clef (`staffInk`, SIB2-241). */
+  clefOf?: (bar: BarView) => Clef;
+  /** A staved system's fermata rule (`staffInk`), SIB2-233. */
+  lowFermatas?: boolean;
   bars: BarView[];
   hasChords: boolean;
   hasRehearsalMark: boolean;
+  /** A bar of this system carries a navigation mark (SIB2-175): its row sits above everything else. */
+  hasNavMark?: boolean;
   /** Notes drawn under an ottava line, so the ink is measured where it is drawn (SIB2-184). */
   shifts?: Map<Id, OctaveShift>;
   ottavaAbove?: boolean;
@@ -113,15 +121,21 @@ export function staffInk(
   shifts: Map<Id, OctaveShift> | undefined,
   clef: Clef = 'treble',
   stems?: ReadonlyMap<Id, 'up' | 'down'>,
+  /** A staved system puts a fermata under a stem-down voice's note and under a note below the staff (SIB2-233). */
+  lowFermatas = false,
+  /** The clef in force over a bar, where the staff changes clef (SIB2-241); `clef` is the opening one. */
+  clefOf?: (bar: BarView) => Clef,
 ): StaffInk {
   if (clef === 'percussion') return { inkAbove: 0, inkBelow: 0 };
-  const TOP_LINE = CLEF_TOP_LINE[clef];
-  const MIDDLE_LINE = TOP_LINE - 4;
-  const BOTTOM_LINE = TOP_LINE - 8;
   let inkAbove = 0;
   let inkBelow = 0;
 
   for (const bar of bars) {
+    const barClef = clefOf?.(bar) ?? clef;
+    if (barClef === 'percussion') continue;
+    const TOP_LINE = CLEF_TOP_LINE[barClef];
+    const MIDDLE_LINE = TOP_LINE - 4;
+    const BOTTOM_LINE = TOP_LINE - 8;
     for (const item of bar.items) {
       // A fermata rides above the staff and above the note's own ink, so the chord band must clear it
       // (SIB2-183). A rest has no ink above the staff, so it sits at the fixed height.
@@ -146,7 +160,12 @@ export function staffInk(
         if (stemUp) inkBelow = Math.max(inkBelow, below + room);
         else inkAbove = Math.max(inkAbove, above + room);
       }
-      if (item.fermata === true) {
+      if (item.fermata === true && lowFermatas && (forced === 'down' || lowest < BOTTOM_LINE)) {
+        // Hung under the note: its head, a down stem and an up stem's marks below the head all lie above it.
+        const marks = (item.articulations?.length ?? 0) * ARTICULATION_BAND;
+        const reach = below + (stemUp ? marks : STEM_UNITS);
+        inkBelow = Math.max(inkBelow, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
+      } else if (item.fermata === true) {
         const marks = (item.articulations?.length ?? 0) * ARTICULATION_BAND;
         const reach = above + (stemUp ? STEM_UNITS : marks);
         inkAbove = Math.max(inkAbove, Math.max(FERMATA_BASE, reach + FERMATA_GAP) + FERMATA_HEIGHT);
@@ -167,7 +186,7 @@ export function staffInk(
 }
 
 export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
-  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems);
+  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems, input.lowFermatas === true, input.clefOf);
 
   // An ottava line goes between the notes and everything above (or below) them, so the chord row rises with it.
   let ottavaAboveOffset: number | undefined;
@@ -185,7 +204,7 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
   const chordBand = input.hasChords ? chordBaselineOffset + spec.chordAscent : inkAbove;
   const markBand = input.hasRehearsalMark ? chordBand + spec.rehearsalBand : chordBand;
 
-  const aboveStaff = Math.max(spec.aboveStaff, markBand);
+  const aboveStaff = Math.max(spec.aboveStaff, markBand + (input.hasNavMark === true ? NAV_BAND : 0));
   const belowStaff = Math.max(spec.belowStaff, inkBelow);
 
   return {

@@ -84,7 +84,7 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
           if (bar === undefined) continue;
           for (const voice of staffBar.voices) {
             const layoutBar: LayoutBar = { ...bar, items: voice.items };
-            const shifts = noteShifts(font, { voice, voices: staffBar.voices, clef: staff.clef });
+            const shifts = noteShifts(font, { voice, voices: staffBar.voices, clef: staffBar.clef ?? staff.clef });
             const restShift = restShiftOf(voice, staffBar.voices);
             const percussion = staff.type === 'percussion';
             for (const placed of placeAligned(font, layoutBar, voicesWithMusic(staffBar.voices) < 2)) {
@@ -95,7 +95,7 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
                 item.kind === 'note'
                   ? percussion
                     ? PERCUSSION_LINE
-                    : staffPositionIn(writtenPitch(item.pitch, item.ottava), staff.clef)
+                    : staffPositionIn(writtenPitch(item.pitch, item.ottava), staffBar.clef ?? staff.clef)
                   : restPosition(item.duration) + restShift;
               const y = positionY(position, staff.staveY);
               const box = font.box(glyph);

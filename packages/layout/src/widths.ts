@@ -1,5 +1,6 @@
 import type { Alter, BarView, Note, Score, Step } from '@sibei/model';
 import { STEPS, keySignatureAccidentals } from '@sibei/model';
+import { clefChangesAt } from './clefs.js';
 import type { PageSpec } from './page.js';
 import type { PlannedSystem } from './grid.js';
 
@@ -9,6 +10,8 @@ import type { PlannedSystem } from './grid.js';
  */
 
 export interface BarPrefix {
+  /** A small clef change in this bar's lead-in, on some staff (SIB2-241). Never set where the opening clef is drawn. */
+  clefChange?: boolean;
   clef: boolean;
   keySignature: boolean;
   timeSignature: boolean;
@@ -29,6 +32,8 @@ export interface AllocatedBar {
 /** Rough widths in units, only ever used as allocation weights. */
 const PADDING = 24;
 const CLEF_WIDTH = 34;
+/** A clef change is drawn at three quarters of the size, with a little air after it (SIB2-241). */
+const CLEF_CHANGE_WIDTH = 26;
 const KEY_ACCIDENTAL_WIDTH = 13;
 const TIME_SIGNATURE_WIDTH = 28;
 const NOTE_WIDTH = 26;
@@ -76,6 +81,7 @@ function chordExtra(
 function prefixWidth(score: Score, prefix: BarPrefix): number {
   let width = 0;
   if (prefix.clef) width += CLEF_WIDTH;
+  if (prefix.clefChange === true) width += CLEF_CHANGE_WIDTH;
   if (prefix.keySignature) {
     width += KEY_ACCIDENTAL_WIDTH * keySignatureAccidentals(score.meta.key).size;
   }
@@ -219,7 +225,12 @@ export function allocateWidths(
     keySignature: index === 0 && system.pickup === null && options.showSignatures,
     // One time signature per chart (ADR-0021), so it appears once, at the very start.
     timeSignature: index === 0 && options.isFirstSystem && system.pickup === null,
-  }));
+  })).map((prefix, index) => {
+    // A change of clef at a bar that does not head its system (or heads one that drops the clef) is drawn small in the
+    // bar's lead-in; one at a system head is that system's opening clef (SIB2-241).
+    const bar = system.bars[index];
+    return bar !== undefined && !prefix.clef && clefChangesAt(score, bar.id) ? { ...prefix, clefChange: true } : prefix;
+  });
 
   // A system head with no clef (the signature policy dropped it, SIB2-173) still starts a line that
   // carries a bar number, and the first notehead would sit on it. Give the head a small lead-in so the

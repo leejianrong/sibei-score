@@ -10,6 +10,7 @@ import type {
   EndingRole,
   Id,
   KeySignature,
+  NavKind,
   Pitch,
   StartBarline,
   TieRole,
@@ -33,6 +34,8 @@ export type Clef = ModelClef;
 export interface ClefItem {
   kind: 'clef';
   clef: Clef;
+  /** A clef change in the middle of a system (SIB2-241): drawn small, in the bar's lead-in, not the system's opening clef. */
+  change?: true;
 }
 
 export interface KeySignatureItem {
@@ -66,6 +69,15 @@ export interface TempoItem {
   kind: 'tempo';
   unit: { value: number; dots: number };
   bpm: number;
+}
+
+/**
+ * A navigation mark (SIB2-175): a segno or coda sign at the bar's start, or a jump text ("D.S. al Coda") at its end.
+ * Drawn above the staff in a row of its own, above the rehearsal row; which end is the kind's (`NAV_SIGNS`).
+ */
+export interface NavItem {
+  kind: 'nav';
+  nav: NavKind;
 }
 
 /** One grace note on a note (SIB2-185), drawn small before it. Takes no onset and no bar time. */
@@ -234,7 +246,8 @@ export type LayoutBarItem =
   | TupletBracketItem
   | BarlineItem
   | EndBarlineItem
-  | EndingItem;
+  | EndingItem
+  | NavItem;
 
 export type LayoutBarItemKind = LayoutBarItem['kind'];
 
@@ -258,6 +271,7 @@ export const LAYOUT_BAR_ITEM_KINDS: readonly LayoutBarItemKind[] = [
   'barline',
   'endBarline',
   'ending',
+  'nav',
 ];
 
 export type LayoutTextRole = 'title' | 'subtitle' | 'composer' | 'arranger' | 'style';
@@ -293,6 +307,8 @@ export interface LayoutOttava {
   fromNoteId: Id | null;
   toNoteId: Id | null;
   labelled: boolean;
+  /** The staff of a multi-staff system the line belongs to, when it is not the top one (ADR-0041, SIB2-233). */
+  staff?: number;
 }
 
 /**
