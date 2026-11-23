@@ -10,6 +10,7 @@ import type {
   EndingRole,
   Id,
   KeySignature,
+  NoteValue,
   NavKind,
   Score,
   StartBarline,
@@ -547,7 +548,7 @@ export type Operation =
         title?: string;
         composer?: string;
         key?: KeySignature;
-        time?: { beats: number; beatValue: number };
+        time?: { beats: number; beatValue: NoteValue };
         barCount?: number;
         pickup?: boolean;
       };
