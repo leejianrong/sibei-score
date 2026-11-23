@@ -995,9 +995,9 @@
         <!-- A layout advisory, not a review flag (V14, ADR-0015): sections drive line-breaking, so
              a section-less chart — every fresh import (ADR-0021) — lays out on a plain four-bar grid
              until one is added. Non-blocking by decision (ADR-0013/0019 never refuse a draft), so it
-             is a prompt beside the flags, never a `!`. `hasSections` is the model's single answer, the
+             is a prompt beside the flags, never a `!`. `showNoSectionsAdvisory` is the model's single answer (false on a `score` layout, SIB2-238), the
              same one the text projection prints, so the two surfaces cannot word it differently. -->
-        {#if review !== null && !review.hasSections}
+        {#if review !== null && review.showNoSectionsAdvisory}
           <p class="review-advisory">{NO_SECTIONS_ADVISORY}</p>
         {/if}
       </div>

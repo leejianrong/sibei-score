@@ -80,8 +80,8 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   // A non-blocking layout advisory, not a review flag: a section-less chart lays out on a plain
   // four-bar grid because sections drive line-breaking (ADR-0015), and a fresh import has none
   // (ADR-0021). The wording is the model's, shared with the score rail (V14) — never refused,
-  // never a `!` (ADR-0013/0019). It rides `hasSections`, so it is not per-surface reasoning.
-  if (!review.hasSections) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
+  // never a `!` (ADR-0013/0019). It rides `showNoSectionsAdvisory` (not shown on a `score` layout, SIB2-238), so it is not per-surface reasoning.
+  if (review.showNoSectionsAdvisory) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
   lines.push('');
 
   const structured = isStructured(score);
