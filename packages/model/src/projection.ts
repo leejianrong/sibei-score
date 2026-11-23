@@ -44,7 +44,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   const lines: string[] = [header(score)];
   // Line-breaking overrides (SIB2-174). The rows below are four-bar groups whatever the printed lines are,
   // so a chart that breaks elsewhere says so once, with the bars an agent would pass to `break`.
-  const breaks = barViews(score).filter((bar) => bar.lineBreak !== undefined);
+  const breaks = score.bars.filter((bar) => bar.lineBreak !== undefined);
   if (score.meta.barsPerSystem !== undefined || breaks.length > 0) {
     const parts: string[] = [];
     if (score.meta.barsPerSystem !== undefined) parts.push(`${score.meta.barsPerSystem} bars per line`);
@@ -212,7 +212,7 @@ function textLine(bar: BarView, time: TimeSignature, score: Score): string | nul
     .sort((a, b) => a.onset - b.onset)
     .map((note) => {
       const flag = flagSuffix(note.review, note.confidence);
-      const until = note.lineEndBarId === undefined ? null : barViews(score).find((b) => b.id === note.lineEndBarId);
+      const until = note.lineEndBarId === undefined ? null : score.bars.find((b) => b.id === note.lineEndBarId);
       const line = until == null ? '' : ` ---> bar${until.number}`;
       return `beat${formatBeat(beatOfOnset(note.onset, time))} ${JSON.stringify(note.text)}${line}${flag === '' ? '' : ` ${flag}`} ${note.id}`;
     });

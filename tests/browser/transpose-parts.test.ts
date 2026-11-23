@@ -13,8 +13,24 @@ import { startStack, type Stack } from './support/stack.js';
 interface Doc {
   score: {
     meta: { key: { tonic: string; alter: number; mode: string } };
-    bars: { number: number; items: { kind: string; pitch?: { step: string; alter: number; octave: number }; spellingPinned?: boolean }[] }[];
+    bars: { id: string; number: number }[];
+    // ADR-0041: the notes live in parts > staves > per-bar voices, keyed by the bar's id.
+    parts: {
+      staves: {
+        bars: {
+          barId: string;
+          voices: { items: { kind: string; pitch?: { step: string; alter: number; octave: number }; spellingPinned?: boolean }[] }[];
+        }[];
+      }[];
+    }[];
   };
+}
+
+/** The first note of bar 1 (the first staff, first voice), read off the stored document. */
+function firstNoteOfBar1(doc: Doc): { kind: string; pitch?: { step: string; alter: number; octave: number }; spellingPinned?: boolean } {
+  const id = doc.score.bars.find((b) => b.number === 1)!.id;
+  const staffBar = doc.score.parts[0]!.staves[0]!.bars.find((b) => b.barId === id)!;
+  return staffBar.voices[0]!.items.find((i) => i.kind === 'note')!;
 }
 
 let stack: Stack;
@@ -73,7 +89,7 @@ describe('the V6 browser controls, over a live stack (V6e)', () => {
       // The store agrees: the key is Eb and G4 became Bb4 — a flat, never A#.
       const doc = stack.cli(['open', id]) as Doc;
       expect(doc.score.meta.key).toEqual({ tonic: 'E', alter: -1, mode: 'major' });
-      const note = doc.score.bars.find((b) => b.number === 1)!.items.find((i) => i.kind === 'note')!;
+      const note = firstNoteOfBar1(doc);
       expect(note.pitch).toEqual({ step: 'B', alter: -1, octave: 4 });
     } finally {
       await page.close();
@@ -98,7 +114,7 @@ describe('the V6 browser controls, over a live stack (V6e)', () => {
       await expect.poll(() => railVersion(page)).toBe('v4');
 
       const doc = stack.cli(['open', id]) as Doc;
-      const note = doc.score.bars.find((b) => b.number === 1)!.items.find((i) => i.kind === 'note')!;
+      const note = firstNoteOfBar1(doc);
       expect(note.spellingPinned).toBe(true);
     } finally {
       await page.close();

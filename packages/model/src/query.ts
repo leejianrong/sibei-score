@@ -1,11 +1,12 @@
-import { barViews } from './staves.js';
+import { barView, barViews } from './staves.js';
 import type { BarView, Note, Score, Section } from './score.js';
 
 /** Read-only helpers over a score. No mutation lives here (ADR-0003). */
 
 /** A pickup is bar 0 and is always the first bar when present (ADR-0007). */
 export function pickupBar(score: Score): BarView | null {
-  const first = barViews(score)[0];
+  const gridFirst = score.bars[0];
+  const first = gridFirst === undefined ? undefined : barView(score, gridFirst);
   return first !== undefined && first.number === 0 ? first : null;
 }
 
@@ -19,7 +20,8 @@ export function gridBars(score: Score): BarView[] {
 }
 
 export function barByNumber(score: Score, number: number): BarView | null {
-  return barViews(score).find((bar) => bar.number === number) ?? null;
+  const bar = score.bars.find((candidate) => candidate.number === number);
+  return bar === undefined ? null : barView(score, bar);
 }
 
 /** The section beginning on this bar, when one does. */

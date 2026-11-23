@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,6 +17,7 @@ import {
 } from '@sibei/model';
 import type { DocumentMigration, Score } from '@sibei/model';
 import { insert, update } from './helpers.js';
+import { toLegacyDocument } from '../fixtures/legacy-document.js';
 
 /**
  * Migration on read, end to end through the store (ADR-0028).
@@ -217,5 +218,32 @@ describe('a document from a newer schema version', () => {
     await closeAll();
 
     expect((await openHere(filename).list(LOCAL_OWNER)).map((row) => row.id)).toEqual(['score-1']);
+  });
+});
+
+describe('a real v3 document, the shape before ADR-0041 (SIB2-225)', () => {
+  /** A whole chart as the pre-ADR-0041 build stored it: bars carrying their own items and chords. */
+  const v3 = (): Score => JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/model-v3/score.json'), 'utf8')) as Score;
+
+  it('is migrated on read to parts > staves > voices, written back, and the version does not move', async () => {
+    const filename = onDisk();
+    const first = openHere(filename);
+    await insert(first, LOCAL_OWNER, v3());
+    await closeAll();
+
+    const reopened = openHere(filename);
+    const found = await reopened.get(LOCAL_OWNER, 'v3-chart');
+    expect(found?.score.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(found?.score.parts).toHaveLength(1);
+    expect(found?.version).toBe(1);
+    // The migration lost nothing: the old shape rebuilt from the new one is the document that was stored.
+    expect(JSON.stringify(toLegacyDocument(found!.score))).toBe(JSON.stringify(v3()));
+
+    // Written back: a second read finds a current document and is stable, still at version 1.
+    const again = await reopened.get(LOCAL_OWNER, 'v3-chart');
+    expect(again?.score).toEqual(found?.score);
+    expect(again?.version).toBe(1);
+    // And a client holding version 1 can still write: the read was not an edit.
+    expect(await update(reopened, LOCAL_OWNER, 'v3-chart', 1, found!.score)).toMatchObject({ ok: true, version: 2 });
   });
 });

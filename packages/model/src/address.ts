@@ -1,4 +1,4 @@
-import { barViews } from './staves.js';
+import { barView, barViews } from './staves.js';
 import { beatOfOnset, onsetOfBeat } from './duration.js';
 import type { BarView, BarItem, Chord, Id, Note, Rest, Score } from './score.js';
 
@@ -305,12 +305,13 @@ function resolveBeat(
 }
 
 function barOrThrow(score: Score, number: number): BarView {
-  const bar = barViews(score).find((candidate) => candidate.number === number);
+  const gridBar = score.bars.find((candidate) => candidate.number === number);
+  const bar = gridBar === undefined ? undefined : barView(score, gridBar);
   if (bar === undefined) {
     throw new AddressError({
       kind: 'no-such-bar',
       bar: number,
-      present: barViews(score).map((candidate) => candidate.number),
+      present: score.bars.map((candidate) => candidate.number),
     });
   }
   return bar;
