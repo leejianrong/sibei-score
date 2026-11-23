@@ -4,7 +4,7 @@ import { startStack, type Stack } from './support/stack.js';
 
 /**
  * Keyboard note input in the browser (SIB2-155, Q79): open the mode, type a four-bar melody with the keyboard alone, and
- * read the stored document back through the CLI. Every note is an ordinary op, so ctrl-Z undoes one note at a time and the
+ * read the stored document back through the CLI. Every note is an ordinary op, and a burst of them undoes as one unit (SIB2-282) and the
  * op log holds `note.add`s a CLI user could have typed.
  */
 
@@ -45,7 +45,7 @@ async function openScore(id: string): Promise<Page> {
 }
 
 describe('keyboard note input', () => {
-  it('enters a four-bar melody without the mouse, shows the caret and ghost, and undoes one note per ctrl-Z', async () => {
+  it('enters a four-bar melody without the mouse, shows the caret and ghost', async () => {
     const id = 'e2e-note-input';
     stack.cli(['new', '--id', id, '--title', 'Typed', '--key', 'C', '--bars', '4']);
     const page = await openScore(id);
@@ -72,11 +72,6 @@ describe('keyboard note input', () => {
       // Space skips, Backspace deletes the previous note and steps back, then the note is re-entered.
       await page.keyboard.press('Backspace');
       await expect.poll(() => melody(id).flat().length, { timeout: 15_000 }).toBe(12);
-
-      // The log is ordinary ops: ctrl-Z undoes just the last one.
-      const before = melody(id).flat().length;
-      await page.keyboard.press('Control+z');
-      await expect.poll(() => melody(id).flat().length, { timeout: 15_000 }).toBe(before + 1);
 
       // Esc leaves the mode; a digit is a voice key again (a no-op on a one-lane chart) and enters nothing.
       await page.keyboard.press('Escape');
@@ -136,4 +131,46 @@ describe('keyboard note input', () => {
       await page.close();
     }
   }, 120_000);
+
+  it('undoes eight notes with one ctrl-Z, a pause ends the burst, and redo restores it (SIB2-282)', async () => {
+    const id = 'e2e-note-input-burst';
+    stack.cli(['new', '--id', id, '--title', 'Burst', '--key', 'C', '--bars', '4']);
+    const page = await openScore(id);
+    // Read the chart over HTTP, not through a CLI subprocess: a slow read must not eat into the two-second pause that ends a burst.
+    const count = async (): Promise<number> => {
+      const body = (await (await page.request.get(`${stack.uiUrl}/v1/scores/${id}`)).json()) as { score: Doc['score'] };
+      return body.score.parts[0]!.staves[0]!.bars.reduce((n, bar) => n + bar.voices[0]!.items.length, 0);
+    };
+    try {
+      await page.getByRole('button', { name: 'Note input', exact: true }).click();
+      await page.getByTestId('note-input-panel').waitFor({ timeout: 10_000 });
+      await page.keyboard.type('4cdefgab');
+      await expect.poll(count, { timeout: 30_000 }).toBe(7);
+      await page.keyboard.type('c');
+      await expect.poll(count, { timeout: 30_000 }).toBe(8);
+
+      // One ctrl-Z, from inside the mode: all eight go. One ctrl-shift-Z: all eight are back.
+      await page.keyboard.press('Control+z');
+      await expect.poll(count, { timeout: 20_000 }).toBe(0);
+      await page.keyboard.press('Control+Shift+z');
+      await expect.poll(count, { timeout: 20_000 }).toBe(8);
+      await page.keyboard.press('Escape');
+
+      // Leaving the mode ends a burst too: a second run is its own unit.
+      await page.getByRole('button', { name: 'Note input', exact: true }).click();
+      await page.getByTestId('note-input-panel').waitFor({ timeout: 10_000 });
+      await page.keyboard.type('ee');
+      await expect.poll(count, { timeout: 30_000 }).toBe(10);
+      await new Promise((resolve) => setTimeout(resolve, 2_600));
+      await page.keyboard.type('ff');
+      await expect.poll(count, { timeout: 30_000 }).toBe(12);
+      // A pause of two seconds closed the first of these runs: undo takes the last two only, then the run before it.
+      await page.keyboard.press('Control+z');
+      await expect.poll(count, { timeout: 20_000 }).toBe(10);
+      await page.keyboard.press('Control+z');
+      await expect.poll(count, { timeout: 20_000 }).toBe(8);
+    } finally {
+      await page.close();
+    }
+  }, 180_000);
 });

@@ -587,12 +587,16 @@ export const OPERATION_TYPES: readonly OperationType[] = [
  * existing `type`/`payload`/`batch` columns already carry it, and a control op is its own batch of
  * one, so it is itself a unit the way an edit is (undo of undo is `redo`, not a second marker on the
  * same batch).
+ *
+ * `group` (SIB2-282, the ADR-0003 amendment) is the third: "the last `count` batches in effect are now one unit".
+ * It changes no document; `resolveLog` folds those batches into one applied entry so a single undo reverses a burst
+ * (a run of note-input keystrokes) and a single redo restores it.
  */
-export type ControlOperation = { type: 'undo' } | { type: 'redo' };
+export type ControlOperation = { type: 'undo' } | { type: 'redo' } | { type: 'group'; count: number };
 
 export type ControlOperationType = ControlOperation['type'];
 
-export const CONTROL_OPERATION_TYPES: readonly ControlOperationType[] = ['undo', 'redo'];
+export const CONTROL_OPERATION_TYPES: readonly ControlOperationType[] = ['undo', 'redo', 'group'];
 
 /**
  * Anything that can sit in the log: a content `Operation` or a `ControlOperation`. The store reads
@@ -602,7 +606,7 @@ export const CONTROL_OPERATION_TYPES: readonly ControlOperationType[] = ['undo',
 export type LoggedOperation = Operation | ControlOperation;
 
 export function isControlOperation(operation: LoggedOperation): operation is ControlOperation {
-  return operation.type === 'undo' || operation.type === 'redo';
+  return operation.type === 'undo' || operation.type === 'redo' || operation.type === 'group';
 }
 
 /** An operation as it sits in the log: normalised, sequenced, and grouped into its batch. */
