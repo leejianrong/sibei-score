@@ -105,12 +105,37 @@ export interface QuantizeWarning {
   noteId?: string;
 }
 
+/**
+ * Where a stem's notes fall on the bar grid, in global bar indices (0 = the bar that starts at the origin downbeat,
+ * -1 the one before it). A stem reports its own span; a multi-stem import (`note-events-stems.ts`) takes the union
+ * and hands it back, so every stem's staves cover the same bars.
+ */
+export interface BarSpan {
+  firstBar: number;
+  lastBar: number;
+  /** Tick of the first note on the global axis: where a pickup bar (firstBar -1) begins. */
+  pickupStart: number;
+}
+
+/** A beat grid chosen for a whole multi-stem score, and optionally the bar span every stem is cut to. */
+export interface SharedGrid {
+  grid: BeatGrid;
+  span?: BarSpan;
+}
+
+/** A fresh copy of a shared grid's warnings, so a stem's own pushes never reach another stem. */
+export function gridOf(events: NoteEvents, notes: readonly NoteEvents['notes'][number][], shared: SharedGrid | undefined): BeatGrid {
+  return shared === undefined ? beatGrid(events, notes) : { ...shared.grid, warnings: [...shared.grid.warnings] };
+}
+
 export interface QuantizeResult {
   time: TimeSignature;
   /** Beats per minute implied by the grid (inferred or the median of the tracker's). */
   tempoBpm: number;
   bars: QuantizedBar[];
   warnings: QuantizeWarning[];
+  /** This stem's own span; absent when it has no notes. */
+  span?: BarSpan;
 }
 
 interface Beat {
@@ -190,9 +215,9 @@ export function beatGrid(events: NoteEvents, notes: readonly NoteEvents['notes']
   return { warnings, time, capacity, tempoBpm: tempoOf(beats), toTicks };
 }
 
-export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
+export function quantizeNoteEvents(events: NoteEvents, shared?: SharedGrid): QuantizeResult {
   let notes = [...events.notes].sort((a, b) => a.onset_s - b.onset_s || a.pitch - b.pitch || cmp(a.id, b.id));
-  const grid = beatGrid(events, notes);
+  const grid = gridOf(events, notes, shared);
   const { warnings, time, capacity, tempoBpm, toTicks } = grid;
 
   if (notes.length === 0) {
@@ -255,8 +280,12 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
   }
 
   // Bars from the first note's bar to the last note's; leading silence is trimmed.
-  const firstBar = Math.floor(placed[0]!.start / capacity);
-  const lastBar = Math.floor((placed[placed.length - 1]!.end - 1) / capacity);
+  const own: BarSpan = {
+    firstBar: Math.floor(placed[0]!.start / capacity),
+    lastBar: Math.floor((placed[placed.length - 1]!.end - 1) / capacity),
+    pickupStart: placed[0]!.start,
+  };
+  const { firstBar, lastBar, pickupStart } = shared?.span ?? own;
   const pickup = firstBar === -1;
   const numberOf = (index: number): number => (pickup ? index + 1 : index - firstBar + 1);
   const bars: QuantizedBar[] = [];
@@ -264,7 +293,7 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
 
   // Walk the line, cutting at bar lines and filling gaps with rests.
   // A pickup begins at its first note; any other first bar is filled with rests from its bar line.
-  let cursor = pickup ? placed[0]!.start : firstBar * capacity;
+  let cursor = pickup ? pickupStart : firstBar * capacity;
   const push = (from: number, to: number, note: Placed | null): void => {
     let at = from;
     while (at < to) {
@@ -296,11 +325,11 @@ export function quantizeNoteEvents(events: NoteEvents): QuantizeResult {
 
   if (pickup) {
     // Rebase the short pickup bar so its first note sits at onset 0.
-    const shift = placed[0]!.start + capacity;
+    const shift = pickupStart + capacity;
     for (const item of bars[0]!.items) item.onset -= shift;
   }
 
-  return { time, tempoBpm, bars, warnings };
+  return { time, tempoBpm, bars, warnings, span: own };
 }
 
 /**

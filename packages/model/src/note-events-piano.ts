@@ -38,8 +38,8 @@ import type { NoteEvents } from './note-events.js';
 import { NOTE_CONFIDENCE_FLOOR, inferKey, splitTicks } from './note-events-map.js';
 import type { NoteEventsDraft, NoteEventsMapOptions } from './note-events-map.js';
 import { restPieces } from './note-events-drums.js';
-import { GRID_TICKS, beatGrid, onsetBias, snap } from './note-events-quantize.js';
-import type { QuantizedItem, QuantizeWarning } from './note-events-quantize.js';
+import { GRID_TICKS, gridOf, onsetBias, snap } from './note-events-quantize.js';
+import type { BarSpan, QuantizedItem, QuantizeWarning } from './note-events-quantize.js';
 import { spellPitchAt } from './spelling.js';
 import type { BarItem, KeySignature, Review, Score, StackedNote } from './score.js';
 
@@ -91,7 +91,7 @@ export const PIANO_HAND_SPLIT_WARNING =
 export function mapPianoEventsToScore(events: NoteEvents, options: NoteEventsMapOptions): NoteEventsDraft {
   const split = options.splitPoint ?? DEFAULT_SPLIT_POINT;
   const sorted = [...events.notes].sort((a, b) => a.onset_s - b.onset_s || a.pitch - b.pitch || cmp(a.id, b.id));
-  const grid = beatGrid(events, sorted);
+  const grid = gridOf(events, sorted, options.shared);
   const warnings = [...grid.warnings];
   const { time, capacity, toTicks } = grid;
 
@@ -152,13 +152,17 @@ export function mapPianoEventsToScore(events: NoteEvents, options: NoteEventsMap
   const kept = placed.filter((p) => p.voice > 0);
   for (const p of kept) if (shortened.has(p.id)) p.unsure = true;
 
-  const key = inferKey(kept.map(asQuantized));
+  const key = options.key ?? inferKey(kept.map(asQuantized));
 
   // Bars from the first note's bar to the last note's; leading silence is trimmed.
-  const firstBar = Math.floor(Math.min(...kept.map((p) => p.start)) / capacity);
-  const lastBar = Math.floor((Math.max(...kept.map((p) => p.end)) - 1) / capacity);
+  const ownFirst = Math.min(...kept.map((p) => p.start));
+  const own: BarSpan = {
+    firstBar: Math.floor(ownFirst / capacity),
+    lastBar: Math.floor((Math.max(...kept.map((p) => p.end)) - 1) / capacity),
+    pickupStart: ownFirst,
+  };
+  const { firstBar, lastBar, pickupStart: firstStart } = options.shared?.span ?? own;
   const pickup = firstBar === -1;
-  const firstStart = Math.min(...kept.map((p) => p.start));
   const spans: Array<{ number: number; start: number; length: number }> = [];
   for (let index = firstBar; index <= lastBar; index += 1) {
     const number = pickup ? index + 1 : index - firstBar + 1;
@@ -206,7 +210,7 @@ export function mapPianoEventsToScore(events: NoteEvents, options: NoteEventsMap
       },
     ],
   });
-  return finish(withScoreLayout(base), warnings, events, grid.tempoBpm, key);
+  return { ...finish(withScoreLayout(base), warnings, events, grid.tempoBpm, key), span: own };
 }
 
 /** An id prefix per (bar, hand, voice): unique across the score without a counter shared between staves. */

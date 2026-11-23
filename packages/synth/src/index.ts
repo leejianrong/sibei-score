@@ -23,3 +23,4 @@ export * from './systems.js';
 export * from './page-boxes.js';
 export * from './note-events.js';
 export * from './note-events-piano.js';
+export * from './note-events-stems.js';
