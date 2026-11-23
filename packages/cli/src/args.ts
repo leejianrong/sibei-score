@@ -13,6 +13,8 @@ export interface Flags {
   positional: string[];
   options: Map<string, string>;
   switches: Set<string>;
+  /** Every value of an option named more than once, in order (`--instrument piano --instrument bass`); `options` keeps the last. */
+  repeated?: Map<string, string[]>;
 }
 
 const SWITCHES = new Set(['json', 'help', 'pickup', 'pdf', 'musicxml', 'spell', 'unspell', 'allow-rls-bypass', 'token-stdin', 'note-events', 'strict', 'page-numbers', 'blank-staves', 'written', 'no-bar-numbers', 'svg', 'png', 'join', 'segno', 'coda', 'to-coda', 'fine', 'dc', 'ds', 'dc-al-fine', 'dc-al-coda', 'ds-al-fine', 'ds-al-coda', 'up', 'down', 'slash', 'force', 'no-harmony', 'structure', 'harmony']);
@@ -28,6 +30,11 @@ export function parseFlags(argv: readonly string[]): Flags {
   const positional: string[] = [];
   const options = new Map<string, string>();
   const switches = new Set<string>();
+  const repeated = new Map<string, string[]>();
+  const setOption = (name: string, value: string): void => {
+    options.set(name, value);
+    repeated.set(name, [...(repeated.get(name) ?? []), value]);
+  };
 
   for (let at = 0; at < argv.length; at += 1) {
     const token = argv[at] ?? '';
@@ -41,14 +48,14 @@ export function parseFlags(argv: readonly string[]): Flags {
       if (value === undefined || value.startsWith('--')) {
         throw new CliError(EXIT.usage, 'usage', `${token} needs a value`);
       }
-      options.set(short, value);
+      setOption(short, value);
       at += 1;
       continue;
     }
     const body = token.slice(2);
     const equals = body.indexOf('=');
     if (equals !== -1) {
-      options.set(body.slice(0, equals), body.slice(equals + 1));
+      setOption(body.slice(0, equals), body.slice(equals + 1));
       continue;
     }
     if (SWITCHES.has(body)) {
@@ -59,10 +66,15 @@ export function parseFlags(argv: readonly string[]): Flags {
     if (value === undefined || value.startsWith('--')) {
       throw new CliError(EXIT.usage, 'usage', `--${body} needs a value`);
     }
-    options.set(body, value);
+    setOption(body, value);
     at += 1;
   }
-  return { positional, options, switches };
+  return { positional, options, switches, repeated };
+}
+
+/** Every value given for a repeatable option, in order. */
+export function allOf(flags: Flags, name: string): string[] {
+  return flags.repeated?.get(name) ?? [];
 }
 
 export function required(flags: Flags, name: string, verb: string): string {

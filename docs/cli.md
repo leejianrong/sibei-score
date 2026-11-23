@@ -76,6 +76,7 @@ bar like `12` or `bar12`.
 
 ```sh
 sbscore new [--title T] [--composer C] [--key K] [--time 4/4] [--bars N] [--pickup] [--id ID]
+            [--instrument PRESET]...
 sbscore list                                 # every chart: id, title, composer, key, version
 sbscore open <id>                            # the full document, as JSON
 sbscore check <id> [--json] [--strict]       # list every flagged object: address, kind, reasons (--strict exits 2 if any)
@@ -94,6 +95,15 @@ sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [
                       [--instrument-names on|off]
                       [--tempo 4=120]
 ```
+
+`new --instrument` starts a chart from instrument presets, top to bottom, the way Sibelius's new-score list does:
+`sbscore new --instrument trumpet-bb --instrument piano --instrument bass --instrument drums`. A preset sets the
+part's name and abbreviation, staves and clefs (a piano is a treble and a bass staff under a brace), General MIDI
+program, transposition (`trumpet-bb` +2, `alto-sax-eb` +9, `tenor-sax-bb` +14, semitones from sounding to written) and
+a percussion staff for `drums`; instrument names are turned on, and `layout: score` when there is more than one staff.
+The presets are `lead-sheet` (the plain one-staff chart), `piano`, `voice`, `guitar`, `bass`, `drums`, `trumpet-bb`,
+`alto-sax-eb`, `tenor-sax-bb`, `flute`, `violin` and `cello`; an unknown name is refused with the list. The browser's
+New chart form has the same picker (add, remove and reorder rows). Without `--instrument` nothing changes.
 
 `show` is the projection an agent reads to learn a chart cheaply; `open` is the raw document.
 `new` and `meta set` have no browser control yet for the key and meter (Q79's

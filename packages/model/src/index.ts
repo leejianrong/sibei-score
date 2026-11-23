@@ -24,3 +24,4 @@ export * from './note-events-drums.js';
 export * from './note-events-piano.js';
 export * from './note-events-stems.js';
 export * from './clip.js';
+export * from './instruments.js';
