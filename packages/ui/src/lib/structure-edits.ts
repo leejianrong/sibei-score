@@ -1,4 +1,5 @@
-import type { EndBarline, EndingRole, StartBarline } from '@sibei/model';
+import { NAV_SIGNS } from '@sibei/model';
+import type { EndBarline, EndingRole, NavKind, StartBarline } from '@sibei/model';
 import type { Operation } from './api.js';
 
 /**
@@ -30,6 +31,8 @@ export interface BarStructure {
   texts: { id: string; beat: number; text: string; /** The bar its dashed line ends on (SIB2-170), or null. */ until: number | null }[];
   /** The line-break override on this bar (SIB2-174); `none` is the four-bar grid's own call. */
   lineBreak: LineBreakChoice;
+  /** The navigation marks on this bar (SIB2-175, ADR-0021 amendment). */
+  nav: NavKind[];
 }
 
 export type LineBreakChoice = 'none' | 'after' | 'join';
@@ -42,6 +45,7 @@ export interface StructureEdits {
   endBarline: EndBarline;
   ending: { numbers: number[]; role: EndingRole } | null;
   lineBreak: LineBreakChoice;
+  nav: NavKind[];
 }
 
 function endingsEqual(a: StructureEdits['ending'], b: StructureEdits['ending']): boolean {
@@ -83,6 +87,22 @@ export function structureOps(cur: BarStructure, edits: StructureEdits): Operatio
   if (edits.lineBreak !== cur.lineBreak) {
     if (edits.lineBreak === 'none') operations.push({ type: 'break.rm', target });
     else operations.push({ type: 'break.set', target, payload: { kind: edits.lineBreak } });
+  }
+
+  // Navigation (SIB2-175): the signs are independent; the jump text is one slot, so a new jump replaces the old
+  // one in a single `nav.set` and clearing it removes the old kind.
+  for (const kind of NAV_SIGNS) {
+    const had = cur.nav.includes(kind);
+    const wants = edits.nav.includes(kind);
+    if (had && !wants) operations.push({ type: 'nav.rm', target, payload: { kind } });
+    else if (!had && wants) operations.push({ type: 'nav.set', target, payload: { kind } });
+  }
+  const jump = (marks: NavKind[]): NavKind | undefined => marks.find((kind) => !NAV_SIGNS.includes(kind));
+  const wasJump = jump(cur.nav);
+  const wantsJump = jump(edits.nav);
+  if (wasJump !== wantsJump) {
+    if (wantsJump === undefined) operations.push({ type: 'nav.rm', target, payload: { kind: wasJump! } });
+    else operations.push({ type: 'nav.set', target, payload: { kind: wantsJump } });
   }
 
   return operations;

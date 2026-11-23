@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { keyFromFifths, musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
-import { aabaChart, nastyChart } from '@sibei/fixtures';
+import { aabaChart, nastyChart, navigationChart } from '@sibei/fixtures';
 import {
   dur,
   keyFifths,
@@ -41,6 +41,7 @@ function signature(score: Score): unknown {
       startBarline: bar.startBarline,
       endBarline: bar.endBarline,
       ending: bar.ending,
+      nav: bar.nav ?? [],
       items: bar.items.map((item) =>
         item.kind === 'note'
           ? { kind: 'note', onset: item.onset, duration: item.duration, pitch: item.pitch, tie: item.tie }
@@ -76,6 +77,14 @@ describe('the round-trip preserves everything MusicXML can express', () => {
     const { score, warnings } = roundTrip(original);
     expect(warnings).toEqual([]);
     expect(signature(score)).toEqual(signature(original));
+  });
+
+  it('holds for the navigation chart: segno, coda, To Coda, Fine, D.S. and D.C. (SIB2-175)', () => {
+    const original = navigationChart();
+    const { score, warnings } = roundTrip(original);
+    expect(warnings).toEqual([]);
+    expect(signature(score)).toEqual(signature(original));
+    expect(barViews(score).flatMap((bar) => bar.nav ?? [])).toEqual(['segno', 'fine', 'to-coda', 'ds-al-coda', 'coda', 'dc-al-fine']);
   });
 
   it('carries every chord spelling from the V5 grammar list through with its structure intact', () => {

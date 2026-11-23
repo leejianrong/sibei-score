@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -59,6 +59,12 @@ describe('rendered SVG', () => {
     // first A with 1st/2nd endings, a double bar and a final bar. This is where the barline and
     // ending glyphs are recorded under real user-set structure, so a change to any of them shows.
     snapshotScore(aabaChart(), 'aaba-chart');
+  });
+
+  it('matches the committed snapshot for the navigation chart', () => {
+    // SIB2-175: a segno, Fine, To Coda, D.S. al Coda, a coda sign and D.C. al Fine, each in the row above the
+    // rehearsal boxes, so a regression in either row's placement shows here.
+    snapshotScore(navigationChart(), 'navigation');
   });
 
   it('matches the committed snapshot for the slur chart', () => {
@@ -136,6 +142,18 @@ describe('rendered SVG', () => {
 
   it('matches the committed snapshot for voices meeting (shared unison, seconds, a crossing, a third voice, a triplet and a tie)', () => {
     snapshotScore(voiceCollisionsChart(), 'voice-collisions');
+  });
+
+  it('matches the committed snapshot for an ottava line on each staff of a grand staff', () => {
+    snapshotScore(ottavaStavesChart(), 'ottava-staves');
+  });
+
+  it('matches the committed snapshot for fermatas under a note below the staff and a stem-down voice', () => {
+    snapshotScore(fermatasStavesChart(), 'fermatas-staves');
+  });
+
+  it('matches the committed snapshot for a clef change at a bar (small clef mid-system, full clef at a system head)', () => {
+    snapshotScore(clefChangeChart(), 'clef-change');
   });
 
   it('matches the committed snapshot for every clef in a flat key', () => {
