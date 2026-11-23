@@ -103,11 +103,11 @@ describe('POST /v1/imports with MusicXML (SIB2-152)', () => {
   it('keeps what the codec dropped as the job diagnostic', async () => {
     const xml = scoreToMusicXml(aabaChart()).replace(
       '<note>',
-      '<direction><direction-type><dynamics><f/></dynamics></direction-type></direction><note>',
+      '<direction><direction-type><dynamics><fz/></dynamics></direction-type></direction><note>',
     );
     const job = await settle((await upload(xml)).body.job.id);
     expect(job.status).toBe('succeeded');
-    expect(job.diagnostic).toContain('dynamics were dropped');
+    expect(job.diagnostic).toContain('the dynamic <fz> was dropped');
   });
 
   it('has no scan to show', async () => {

@@ -38,6 +38,10 @@
 
   interface Props {
     pages: readonly RenderedPage[];
+    /** The chart's title, for each sheet's label (SIB2-269). */
+    title?: string;
+    /** The text projection `sbscore show` prints, kept off-screen as the sheet's text alternative (SIB2-269). */
+    projection?: string;
     /** Which item is selected, and its box in that page's layout units. */
     selection?: { pageIndex: number; box: OverlayBox } | null;
     /** The second note of a slur being built (SIB2-168), shift-clicked beside the selected one. */
@@ -60,7 +64,7 @@
     onhover?: (pageIndex: number, point: Point | null, pxPerUnit?: number) => void;
   }
 
-  const { pages, selection = null, rangeSelection = null, multiSelection = [], chordSelection = null, barSelection = null, caret = null, addHint = null, hoverItem = null, onselect, onhover }: Props = $props();
+  const { pages, title = '', projection = '', selection = null, rangeSelection = null, multiSelection = [], chordSelection = null, barSelection = null, caret = null, addHint = null, hoverItem = null, onselect, onhover }: Props = $props();
   const multi = $derived(pages.length > 1);
 
   /** Screen pixels per layout unit of this page as drawn, which turns a pixel slop into layout units (SIB2-275). */
@@ -104,6 +108,11 @@
   }
 </script>
 
+<!-- The text alternative to the engraved sheet (SIB2-269): the same projection `sbscore show` prints (ADR-0009), off-screen
+     and named by each sheet's `aria-describedby`. Not hidden from assistive technology, only from the eye. -->
+{#if projection !== ''}
+  <pre class="sr-only" id="sheet-text" data-testid="sheet-text">{projection}</pre>
+{/if}
 <div class="sheets">
   {#each pages as page, index (page.index)}
     {#if index > 0}
@@ -126,7 +135,8 @@
           class="sheet"
           role="application"
           tabindex="0"
-          aria-label="Sheet music, page {index + 1}"
+          aria-label={`Sheet music${title === '' ? '' : `: ${title}`}, page ${index + 1} of ${pages.length}`}
+          aria-describedby={projection === '' ? undefined : 'sheet-text'}
           onclick={(event) => handleClick(index, event)}
           onmousemove={(event) => handleMove(index, event)}
           onmouseleave={() => onhover?.(index, null)}

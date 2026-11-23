@@ -65,7 +65,8 @@ means "not seen", not "not there". A feature that is only probable is marked `?`
 | F32 | Pickup bar, double and final barlines, flat/minor keys | x | x | x | x | x | x | x | x | 8 (supported) |
 
 Not seen on any page: cue notes, mid-chart key or time change, lyrics, dynamics, bar numbers, multi-bar
-rest numbers, jazz articulations (fall, doit, bend).
+rest numbers, jazz articulations (fall, doit, bend). Dynamics and hairpins (SIB2-274) and lyrics (SIB2-273) are
+supported anyway: see the ADR-0021 amendment.
 
 ## Support matrix
 

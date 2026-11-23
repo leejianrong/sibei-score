@@ -256,6 +256,10 @@ sbscore slur set <id> <from> <to> [--placement above|below|auto]  # a slur from 
 sbscore slur rm  <id> <slur-id|from>
 sbscore ottava set <id> <from> <to> --up|--down                  # an 8va (--up) or 8vb (--down) line over a run
 sbscore ottava rm  <id> <ottava-id|from>
+sbscore dynamic set <id> <address> <ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp|rfz>   # a dynamic under a note or rest
+sbscore dynamic rm  <id> <address>
+sbscore hairpin set <id> <from> <to> --cresc|--dim               # a wedge under a run of notes
+sbscore hairpin rm  <id> <hairpin-id|from>
 ```
 
 Durations are a note value and a dot per dot: `--dur 4`, `--dur 4.` (dotted quarter), `--dur 2..` —
@@ -329,6 +333,17 @@ between the notes and the chord row (which rises to make room), and carries over
 it as `<octave-shift type="down|up|stop" size="8">` (its `down` is our 8va) and reads it back; a two-octave
 shift is dropped with a warning. Charts written before it need no migration (`spanners` is optional). In the
 browser, select a note, shift-click a second one, and press 8va or 8vb in the Selected panel's Ottava field.
+
+A **dynamic** is a marking from a closed set (`ppp pp p mp mf f ff fff sf sfz fp rfz`) under a note or rest:
+`sbscore dynamic set <id> bar1.n1 mf`, `dynamic rm` to take it off. A **hairpin** is a crescendo or diminuendo wedge
+under a run: `sbscore hairpin set <id> bar1.n2 bar2.n1 --cresc` (or `--dim`). It is a `spanner` of kind `hairpin`
+(the slur's shape), so it follows its notes, a removed end note takes it with it, two may not overlap, and it splits
+into two halves where it crosses a line break. `show` prints `c5/4@mf` for a dynamic and `hairpin  bar1.n2 -> bar2.n1
+cresc hairpin-1` for a wedge; `hairpin rm` takes that id or the note it starts on. Both are drawn in one row under
+the staff (under each staff of a grand staff), which a chart without either does not reserve. MusicXML carries
+`<dynamics>` and `<wedge>` and reads them back; a dynamic outside the set is dropped with a warning. Playback is not
+modelled. In the browser, the Selected panel has a Dynamic field, and a Hairpin field beside Ottava (shift-click a
+second note). Charts written before them need no migration.
 
 ## Parts, staves and voices
 

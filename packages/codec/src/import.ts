@@ -21,6 +21,7 @@ import {
   MAX_VOICES,
   MIN_TEMPO,
   NAV_KINDS,
+  DYNAMICS,
   NAV_SIGNS,
   NAV_TEXT,
   barCapacity,
@@ -56,6 +57,8 @@ import type {
   StaffBar,
   Voice,
   GraceNote,
+  Dynamic,
+  HairpinShape,
   EndingRole,
   KeySignature,
   Mode,
@@ -273,7 +276,7 @@ function partNames(root: XmlElement): Map<string, { name: string; shortName: str
 
 /**
  * What the model still has no home for, named once each so the import is never silently thinner than the file
- * (SIB2-152): lyrics and dynamics. (Slurs, unsupported clefs and the rest are named by the part reader
+ * (SIB2-152): lyrics. (Dynamics and hairpins are read since SIB2-274.) (Slurs, unsupported clefs and the rest are named by the part reader
  * as it meets them. Extra parts, staves and voices are no longer lost: ADR-0041 slice 5a.)
  */
 function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
@@ -282,10 +285,6 @@ function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
     for (const child of childElements(measure)) {
       if (child.name === 'note') {
         if (firstChild(child, 'lyric') !== null) found.add('lyrics were dropped');
-      } else if (child.name === 'direction') {
-        for (const type of childElements(child, 'direction-type')) {
-          if (firstChild(type, 'dynamics') !== null) found.add('dynamics were dropped');
-        }
       }
     }
   }
@@ -380,6 +379,10 @@ class PartReader {
   private pendingOttava: { number: number; shift: 'up' | 'down' } | null = null;
   private openOttavas = new Map<number, { startId: string; shift: 'up' | 'down' }>();
   private lastNoteId: string | null = null;
+  /** A dynamic and a wedge begun by directions, waiting for the next note or rest (SIB2-274). */
+  private pendingDynamic: Dynamic | null = null;
+  private pendingWedge: { number: number; shape: HairpinShape } | null = null;
+  private openWedges = new Map<number, { startId: string; shape: HairpinShape }>();
   /** Grace notes read and waiting for the note that follows them (SIB2-185). */
   private pendingGraces: GraceNote[] = [];
   /** Dashed lines begun and not yet stopped, by MusicXML `number` (SIB2-170): the annotation each continues. */
@@ -428,6 +431,7 @@ class PartReader {
     if (this.pendingGraces.length > 0) this.note('grace notes with no note after them were dropped');
     if (this.openSlurs.size > 0) this.note('a slur that never stopped was dropped');
     if (this.openOttavas.size > 0) this.note('an ottava that never stopped was dropped');
+    if (this.openWedges.size > 0 || this.pendingWedge !== null) this.note('a hairpin that never stopped was dropped');
     for (const end of this.dashEnds) {
       const target = bars.find((bar) => bar.number === end.endNumber);
       if (target === undefined) continue;
@@ -557,6 +561,10 @@ class PartReader {
           if (parsed.unpitched) this.percussionStaves.add(staff as number);
           const notations = firstChild(child, 'notations');
           if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
+          if (this.pendingDynamic !== null) {
+            parsed.item.dynamic = this.pendingDynamic;
+            this.pendingDynamic = null;
+          }
           if (notations !== null && parsed.item.kind === 'note') {
             const marks = this.readArticulations(notations);
             if (marks.length > 0) parsed.item.articulations = marks;
@@ -573,6 +581,10 @@ class PartReader {
             if (this.pendingOttava !== null) {
               this.openOttavas.set(this.pendingOttava.number, { startId: parsed.item.id, shift: this.pendingOttava.shift });
               this.pendingOttava = null;
+            }
+            if (this.pendingWedge !== null) {
+              this.openWedges.set(this.pendingWedge.number, { startId: parsed.item.id, shape: this.pendingWedge.shape });
+              this.pendingWedge = null;
             }
           }
           acc.open = this.trackTuplet(acc.open, acc.tuplets, parsed);
@@ -601,6 +613,7 @@ class PartReader {
           // Only an octave shift is a note's, so a later part reads it; the rest belongs to the whole score.
           if (!this.primary) {
             this.readOctaveShift(child);
+            this.readDynamicMarks(child);
             break;
           }
           // A navigation mark (SIB2-175) is the bar's, and its words ("D.S. al Coda") are not a text direction.
@@ -623,6 +636,7 @@ class PartReader {
           }
           if (this.tempo === undefined) this.tempo = this.metronomeOf(child);
           this.readOctaveShift(child);
+          this.readDynamicMarks(child);
           this.readDashes(child, annotations[annotations.length - 1]?.id ?? null, number);
           const letter = this.rehearsalOf(child);
           if (letter !== null && !sections.some((s) => s.startBar === number)) {
@@ -723,6 +737,37 @@ class PartReader {
             continue;
           }
           this.pendingOttava = { number, shift: kind === 'down' ? 'up' : 'down' };
+        }
+      }
+    }
+  }
+
+  /**
+   * `<dynamics>` and `<wedge>` in a direction (SIB2-274). A dynamic marks the next note or rest; the closed set is read
+   * and any other (`fz`, `pppp`, `other-dynamics`) is named and dropped. A wedge start waits for the next note, and a
+   * stop closes on the note just read, as an octave shift does.
+   */
+  private readDynamicMarks(direction: XmlElement): void {
+    for (const type of childElements(direction, 'direction-type')) {
+      for (const group of childElements(type, 'dynamics')) {
+        const mark = childElements(group)[0];
+        if (mark === undefined) continue;
+        if ((DYNAMICS as readonly string[]).includes(mark.name)) this.pendingDynamic = mark.name as Dynamic;
+        else this.note(`the dynamic <${mark.name}> was dropped: only ${DYNAMICS.join(', ')} are kept`);
+      }
+      for (const wedge of childElements(type, 'wedge')) {
+        const kind = attr(wedge, 'type');
+        const number = Number(attr(wedge, 'number') ?? 1);
+        if (kind === 'stop') {
+          const open = this.openWedges.get(number);
+          this.openWedges.delete(number);
+          if (open === undefined || this.lastNoteId === null || open.startId === this.lastNoteId) {
+            this.note('a hairpin stop with no start was dropped');
+            continue;
+          }
+          this.spanners.push({ id: this.id('hairpin'), kind: 'hairpin', startId: open.startId, endId: this.lastNoteId, hairpin: open.shape });
+        } else if (kind === 'crescendo' || kind === 'diminuendo') {
+          this.pendingWedge = { number, shape: kind };
         }
       }
     }

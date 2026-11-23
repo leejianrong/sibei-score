@@ -25,8 +25,8 @@ OCR-attempted on import and editable from both surfaces.
 
 **Out of scope:** ~~D.S., D.C., segno, coda, Fine and To Coda~~ (now in scope, see the SIB2-175 amendment below); mid-chart time signature
 changes; and everything `REQS.md` already excluded — playback and audio,
-articulations, dynamics, ornaments, grace notes, multi-staff and multi-part scores,
-piano and drum notation, lyrics, collaboration.
+articulations, ~~dynamics~~ (now in scope, see the SIB2-274 amendment), ornaments, grace notes, multi-staff and multi-part scores,
+piano and drum notation, ~~lyrics~~ (now in scope, see the SIB2-273 amendment), collaboration.
 
 **Detected on import vs supported in the app** — these are now different lists.
 Import produces notes, rests, ties, triplets, chord symbols, key and time signature,
@@ -88,3 +88,49 @@ with the printed `<words>`; export and import round trip, so navigation marks ar
 
 **Consequences.** The "excluded navigation family" bullet above no longer applies. Layout reserves a band above the
 staff (above the rehearsal row) for a system that carries a mark.
+
+## Amendment (SIB2-274, SIB2-273): dynamics, hairpins and lyrics are in scope
+
+**Status:** Accepted, 2026-11-24. Reverses the exclusion of dynamics and lyrics.
+
+**Why the exclusion no longer holds.** It was written for a lead sheet read off a stand by one player. The charts the
+product now serves include vocal charts (a singer needs the words under the notes) and arranged parts (p, mf, crescendo
+are what an ensemble reads), and neither is out of reach of the model: both are per-note or per-run marks that touch no
+metric rule (ADR-0013). Both are supported and editable, not detected on import (as rehearsal letters), and nothing
+plays from them (no playback exists).
+
+**Dynamics.** `Note.dynamic?` and `Rest.dynamic?`, a `Dynamic` from the closed set `ppp pp p mp mf f ff fff sf sfz fp
+rfz`, optional-and-absent so no stored document changes (ADR-0028, ADR-0041 additive). A dynamic is attached to the
+note or rest it sits under, not to a bar position: it moves with its note (copy, transpose, move between staves) and
+needs no onset arithmetic. No free text ("cresc.", "dolce"): a closed set is what lets MusicXML round trip it. Drawn
+below the staff in the music font's own SMuFL glyphs (`dynamicForte`, `dynamicMF` and so on, vendored for both faces),
+centred on the note. Stem direction does not move it: the row is below the staff, per staff on a multi-staff system.
+
+**Hairpins.** A `Spanner` of `kind: 'hairpin'` in `Score.spanners` with `startId`, `endId` (notes, in reading order, as
+slurs and ottava) and `hairpin: 'crescendo' | 'diminuendo'`. Two hairpins may not overlap (they share one row). Always
+below the staff; no placement field. A wedge that crosses a system break is two halves, as a slur and an ottava line.
+Where an end note carries a dynamic the wedge starts after the first note's dynamic and stops before the last note's.
+
+**Layout.** One row under the staff (below the 8vb line when there is one), reserved only for a system whose staff has
+a dynamic or a hairpin, so a chart without either lays out exactly as before and no existing snapshot moves. The row
+holds its dynamics and wedges on one baseline (`dynamicsRow`, `DYNAMICS_*` in `vertical.ts`; the engraver places by the
+same numbers). Lyrics (below) sit under this row.
+
+**Operations.** `dynamic.set|rm` (target a note or rest), `hairpin.set|rm` (target the start note, `to`, `shape`); CLI
+`sbscore dynamic set|rm`, `sbscore hairpin set|rm --cresc|--dim`; the browser's Selected panel (a Dynamic field on any
+note or rest, a Hairpin field beside Ottava on a two-note selection); MCP reaches them through `batch`.
+
+**MusicXML.** `<direction><direction-type><dynamics><mf/>` before its note and `<wedge type="crescendo|diminuendo|stop">`;
+export and import round trip. A dynamic outside the closed set (`fz`, `pppp`, `other-dynamics`) is dropped with a named
+warning. "dynamics were dropped" is no longer a lossy case.
+
+**Lyrics (SIB2-273).** `Note.lyrics?: Lyric[]`, at most one `Lyric` per verse (1 to 4): `{ verse, text, syllabic:
+'single' | 'begin' | 'middle' | 'end', extend?: true }`. An array on the note (rather than one field) so a second
+verse needs no second model. A rest carries none. Drawn under the staff, centred under the note head, in a text face
+(`LYRIC_*` rows below the dynamics row, one row per verse in use on the system); a `begin` or `middle` syllable is
+followed by a hyphen centred between it and the next syllable of its verse, an `extend` line runs from the text to the
+next note that has a syllable in that verse. Layout reserves the rows only for a system that has lyrics. Operations
+`lyric.set|rm` (one syllable) and the bulk `lyrics.set <bar-range> "text with - hyphens"` that distributes syllables
+onto the notes of the range (a rest is skipped, `_` is a melisma extender, `~` a skipped note); MusicXML `<lyric
+number><syllabic><text><extend/>`. Wide syllables are not given extra bar width (layout allocates width from the music
+alone, ADR-0015): a long word on short notes can crowd its neighbour, which is the same trade the chord symbols make.

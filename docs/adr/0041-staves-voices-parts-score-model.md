@@ -257,7 +257,7 @@ below, the staff of its first note. **Clef change drawn (SIB2-241).** `clef set 
   unnamed), `meta.layout` (not written), a part's bracket/brace grouping (derived, not read), a note's accidental on a
   percussion staff, keys needing more than seven accidentals once written for a transposing part, a clef change
   inside a bar (moved to the bar's start), clefs other than G2/F4/C3/C4/percussion (read as the nearest, tab as
-  standard), lyrics, dynamics (chord tones were lossy here until SIB2-247).
+  standard), lyrics (dynamics and hairpins are carried since SIB2-274; chord tones were lossy here until SIB2-247).
 - **`writtenPart`** (`packages/music/src/part.ts`) now moves every staff and voice (percussion excepted), the chord lane
   once; a part with its own `transposition` moves by that interval instead of the instrument's and comes back with
   `transposition: 0` (applied). `concert` is still the identity, leaving a part's own transposition to the codec.

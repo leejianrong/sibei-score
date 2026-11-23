@@ -8,6 +8,8 @@ import type {
   GraceValue,
   EndingRole,
   Clip,
+  Dynamic,
+  HairpinShape,
   Id,
   KeySignature,
   NavKind,
@@ -295,6 +297,28 @@ export interface OttavaSetPayload {
 export type OttavaRmPayload = Record<string, never>;
 
 /**
+ * A dynamic marking on the target note or rest (SIB2-274, ADR-0021 amendment): one of the closed `DYNAMICS`, drawn below
+ * the staff at that item. A second `dynamic.set` replaces the first; `dynamic.rm` on an item with none is refused.
+ */
+export interface DynamicSetPayload {
+  value: Dynamic;
+}
+export type DynamicRmPayload = Record<string, never>;
+
+/**
+ * A hairpin from the target note to `to` (SIB2-274), a `Spanner` of kind `hairpin`: `crescendo` opens to the right,
+ * `diminuendo` closes. Same pair again is an upsert that changes the shape. Hairpins on one staff may not overlap.
+ */
+export interface HairpinSetPayload {
+  to: string;
+  shape: HairpinShape;
+  /** *Recorded.* The id of the hairpin this set landed on. */
+  id?: Id;
+}
+/** Remove a hairpin, named by its id (`hairpin-1`, which `show` prints) or by the note it starts on. */
+export type HairpinRmPayload = Record<string, never>;
+
+/**
  * A fermata over the target note or rest (SIB2-183). Setting one that is already there changes nothing;
  * `fermata.rm` on an item with none is refused so a typo does not read as success.
  */
@@ -539,6 +563,10 @@ export type Operation =
   | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
   | { type: 'ottava.set'; target: string; payload: OttavaSetPayload }
   | { type: 'ottava.rm'; target: string; payload?: OttavaRmPayload }
+  | { type: 'dynamic.set'; target: string; payload: DynamicSetPayload }
+  | { type: 'dynamic.rm'; target: string; payload?: DynamicRmPayload }
+  | { type: 'hairpin.set'; target: string; payload: HairpinSetPayload }
+  | { type: 'hairpin.rm'; target: string; payload?: HairpinRmPayload }
   | { type: 'grace.add'; target: string; payload: GraceAddPayload }
   | { type: 'grace.rm'; target: string; payload?: GraceRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
@@ -589,6 +617,10 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'slur.rm',
   'ottava.set',
   'ottava.rm',
+  'dynamic.set',
+  'dynamic.rm',
+  'hairpin.set',
+  'hairpin.rm',
   'grace.add',
   'grace.rm',
   'bar.add',

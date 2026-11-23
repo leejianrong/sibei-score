@@ -126,6 +126,8 @@ export interface Note {
    * stored document changes shape and `SCHEMA_VERSION` stays (ADR-0028). Playback length is not modelled.
    */
   fermata?: boolean;
+  /** A dynamic marking at this note (SIB2-274), drawn below the staff. Optional-and-absent (ADR-0028). */
+  dynamic?: Dynamic;
   /**
    * Staccato, accent and marcato marks on this note (SIB2-179), in `ARTICULATIONS` order and without repeats.
    * Optional-and-absent when there are none, so no stored document changes shape (ADR-0028). Jazz
@@ -190,6 +192,11 @@ export interface GraceNote {
   accidental: AccidentalDisplay;
 }
 
+/** The closed set of dynamic markings (SIB2-274, ADR-0021 amendment), softest to loudest, then the accents. */
+export type Dynamic = 'ppp' | 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff' | 'fff' | 'sf' | 'sfz' | 'fp' | 'rfz';
+
+export const DYNAMICS: readonly Dynamic[] = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp', 'rfz'];
+
 export type Articulation = 'staccato' | 'accent' | 'marcato';
 
 /** In the order they stack away from the notehead: staccato nearest, marcato furthest. */
@@ -203,6 +210,8 @@ export interface Rest {
   duration: Duration;
   /** A fermata over this rest (SIB2-183); optional-and-absent like a note's. */
   fermata?: boolean;
+  /** A dynamic marking at this rest (SIB2-274); optional-and-absent like a note's. */
+  dynamic?: Dynamic;
   confidence: Confidence;
   review: Review;
 }
@@ -579,15 +588,22 @@ export interface Spanner {
    * hit test draw them shifted. Optional on the shared shape so ADR-0041's lane takes it unchanged.
    */
   octaveShift?: OctaveShift;
+  /** A `hairpin` only (SIB2-274): which way the wedge opens. Always drawn below the staff. */
+  hairpin?: HairpinShape;
 }
 
 export type OctaveShift = 'up' | 'down';
 
 export const OCTAVE_SHIFTS: readonly OctaveShift[] = ['up', 'down'];
 
-export type SpannerKind = 'slur' | 'ottava';
+export type SpannerKind = 'slur' | 'ottava' | 'hairpin';
 
-export const SPANNER_KINDS: readonly SpannerKind[] = ['slur', 'ottava'];
+export const SPANNER_KINDS: readonly SpannerKind[] = ['slur', 'ottava', 'hairpin'];
+
+/** A `hairpin` opens (`crescendo`, getting louder) or closes (`diminuendo`) to the right (SIB2-274). */
+export type HairpinShape = 'crescendo' | 'diminuendo';
+
+export const HAIRPIN_SHAPES: readonly HairpinShape[] = ['crescendo', 'diminuendo'];
 
 export type SpannerPlacement = 'above' | 'below';
 

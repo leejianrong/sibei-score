@@ -118,7 +118,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
  * `slur set` accepts and the id `slur rm` accepts. Placement is printed only when it was chosen.
  */
 function slurLines(score: Score): string[] {
-  const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur' || spanner.kind === 'ottava');
+  const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur' || spanner.kind === 'ottava' || spanner.kind === 'hairpin');
   if (spanners.length === 0) return [];
   const multi = voiceSelects(score).length > 1;
   const addressOf = (id: string): string => {
@@ -131,7 +131,10 @@ function slurLines(score: Score): string[] {
     return id;
   };
   return spanners.map((slur) =>
-    slur.kind === 'ottava'
+    slur.kind === 'hairpin'
+      ? // `hairpin  bar1.n2 -> bar2.n3 cresc hairpin-1` (SIB2-274).
+        `hairpin  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)} ${slur.hairpin === 'diminuendo' ? 'dim' : 'cresc'} ${slur.id}`
+      : slur.kind === 'ottava'
       ? // `ottava  bar1.n2 -> bar2.n3 8va ottava-1` (SIB2-184): written lower than the notes sound for 8va.
         `ottava  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)} ${slur.octaveShift === 'down' ? '8vb' : '8va'} ${slur.id}`
       : `slur  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)}${slur.placement === undefined ? '' : ` ${slur.placement}`} ${slur.id}`,
@@ -375,7 +378,7 @@ function describe(item: BarItem, bar: BarView): string {
       stacked === null ? '' : stacked.actual === 3 && stacked.normal === 2 ? '(3)' : `(${stacked.actual}:${stacked.normal})`;
     const stackFlag = flagSuffix(item.review, item.confidence);
     const stackMarks = (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('');
-    return `[${tones.join(' ')}]/${value(item)}${stackRatio}${stackMarks}${item.fermata === true ? '^' : ''}${stackFlag === '' ? '' : ` ${stackFlag}`}`;
+    return `[${tones.join(' ')}]/${value(item)}${stackRatio}${stackMarks}${item.fermata === true ? '^' : ''}${item.dynamic === undefined ? '' : `@${item.dynamic}`}${stackFlag === '' ? '' : ` ${stackFlag}`}`;
   }
   const body = item.kind === 'note' ? (item.drum ?? formatPitch(item.pitch).toLowerCase()) : 'r';
   const tuplet = tupletOf(item.id, bar);
@@ -384,7 +387,7 @@ function describe(item: BarItem, bar: BarView): string {
 
   const flag = flagSuffix(item.review, item.confidence);
   // `^` is a fermata (SIB2-183), after the tie so `c5/4~^` reads as a held, tied note.
-  const hold = item.fermata === true ? '^' : '';
+  const hold = (item.fermata === true ? '^' : '') + (item.dynamic === undefined ? '' : `@${item.dynamic}`);
   // Articulations print after the tie as `:stac:acc:mar` (SIB2-179): `.` is taken by dotted durations.
   const marks = item.kind === 'note' ? (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('') : '';
   const head = item.kind === 'note' && item.head !== undefined ? `:${item.head}` : '';

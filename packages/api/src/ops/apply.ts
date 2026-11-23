@@ -10,6 +10,8 @@ import {
   TEMPO_UNITS,
   LINE_BREAKS,
   NAV_KINDS,
+  DYNAMICS,
+  HAIRPIN_SHAPES,
   NAV_SIGNS,
   MAX_BARS_PER_SYSTEM,
   MIN_BARS_PER_SYSTEM,
@@ -126,6 +128,8 @@ import type {
   ScoreImportPayload,
   SectionSetPayload,
   OttavaSetPayload,
+  DynamicSetPayload,
+  HairpinSetPayload,
   SlurSetPayload,
   StoredOperation,
   TransposePayload,
@@ -251,6 +255,14 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setNav(score, operation.target, operation.payload);
     case 'nav.rm':
       return removeNav(score, operation.target, operation.payload ?? {});
+    case 'dynamic.set':
+      return setDynamic(score, operation.target, operation.payload);
+    case 'dynamic.rm':
+      return removeDynamic(score, operation.target);
+    case 'hairpin.set':
+      return setHairpin(score, operation.target, operation.payload);
+    case 'hairpin.rm':
+      return removeHairpin(score, operation.target);
     case 'fermata.set':
       return setFermata(score, operation.target, true);
     case 'fermata.rm':
@@ -1305,6 +1317,129 @@ function setFermata(score: Score, target: string, on: boolean): Applied {
 function withoutFermata(item: BarItem): BarItem {
   const { fermata: _gone, ...rest } = item;
   return rest as BarItem;
+}
+
+// ---------------------------------------------------------------------------
+// dynamic.set, dynamic.rm, hairpin.set, hairpin.rm (SIB2-274)
+// ---------------------------------------------------------------------------
+
+/** Put a dynamic on a note or rest, replacing any it had. Absent is the off state. */
+function setDynamic(score: Score, target: string, payload: DynamicSetPayload): Applied {
+  if (!DYNAMICS.includes(payload?.value)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a dynamic is one of ${DYNAMICS.join(', ')}, not ${JSON.stringify(payload?.value ?? null)}`,
+    });
+  }
+  const resolved = resolveAddress(score, target, 'item');
+  const item = resolved.target as BarItem;
+  const updated: BarItem = { ...item, dynamic: payload.value };
+  return {
+    score: mapBar(score, resolved.bar.id, (bar) => ({
+      ...bar,
+      items: bar.items.map((other) => (other.id === item.id ? updated : other)),
+    }), resolved.select),
+    operation: { type: 'dynamic.set', target, payload },
+    changed: [item.id],
+  };
+}
+
+function removeDynamic(score: Score, target: string): Applied {
+  const resolved = resolveAddress(score, target, 'item');
+  const item = resolved.target as BarItem;
+  if (item.dynamic === undefined) {
+    throw new OperationError({ kind: 'validation', detail: `${target} has no dynamic, so there is nothing to remove` });
+  }
+  const { dynamic: _gone, ...rest } = item;
+  return {
+    score: mapBar(score, resolved.bar.id, (bar) => ({
+      ...bar,
+      items: bar.items.map((other) => (other.id === item.id ? (rest as BarItem) : other)),
+    }), resolved.select),
+    operation: { type: 'dynamic.rm', target },
+    changed: [item.id],
+  };
+}
+
+/**
+ * A crescendo or diminuendo wedge from the target note to `to`, in reading order. Two hairpins may not overlap (they
+ * share one row under the staff); across staves reading order interleaves, so a hairpin on another staff only clashes
+ * if its notes fall between these two, which is what the check measures. Same pair again is an upsert of the shape.
+ */
+function setHairpin(score: Score, target: string, payload: HairpinSetPayload): Applied {
+  if (typeof payload.to !== 'string' || payload.to.trim() === '') {
+    throw new OperationError({ kind: 'validation', detail: 'a hairpin needs an end note: hairpin set <start> <end> --cresc|--dim' });
+  }
+  if (!HAIRPIN_SHAPES.includes(payload.shape)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a hairpin's shape is ${HAIRPIN_SHAPES.join(' or ')}, not ${JSON.stringify(payload.shape ?? null)}`,
+    });
+  }
+  const start = resolveAddress(score, target, 'note').target;
+  const end = resolveAddress(score, payload.to, 'note').target;
+  const order = readingOrder(score);
+  const first = order.get(start.id) ?? 0;
+  const last = order.get(end.id) ?? 0;
+  if (start.id === end.id || first > last) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a hairpin runs from a note to a later one; ${target} to ${payload.to} does not`,
+    });
+  }
+  const spanners = score.spanners ?? [];
+  const existing = spanners.find(
+    (spanner) => spanner.kind === 'hairpin' && spanner.startId === start.id && spanner.endId === end.id,
+  );
+  const id = existing?.id ?? payload.id ?? nextId(score, 'hairpin');
+  const clash = spanners.find(
+    (spanner) =>
+      spanner.kind === 'hairpin' &&
+      spanner.id !== id &&
+      (order.get(spanner.startId) ?? 0) < last &&
+      (order.get(spanner.endId) ?? 0) > first,
+  );
+  if (clash !== undefined) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `${clash.id} already covers part of that run; remove it first (hairpin rm), hairpins do not overlap`,
+    });
+  }
+  const hairpin: Spanner = { id, kind: 'hairpin', startId: start.id, endId: end.id, hairpin: payload.shape };
+  return {
+    score: { ...score, spanners: [...spanners.filter((spanner) => spanner.id !== id), hairpin] },
+    operation: { type: 'hairpin.set', target, payload: { ...payload, id } },
+    changed: [id, start.id, end.id],
+  };
+}
+
+function removeHairpin(score: Score, target: string): Applied {
+  const spanners = score.spanners ?? [];
+  const lines = spanners.filter((spanner) => spanner.kind === 'hairpin');
+  let found: Spanner[] = lines.filter((spanner) => spanner.id === target);
+  if (found.length === 0) {
+    let noteId: Id | null = null;
+    try {
+      noteId = resolveAddress(score, target, 'note').target.id;
+    } catch {
+      noteId = null;
+    }
+    if (noteId !== null) found = lines.filter((spanner) => spanner.startId === noteId);
+  }
+  if (found.length !== 1) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `there is no hairpin at ${target}; name one by its id (hairpin-1, which show prints) or the note it starts on`,
+    });
+  }
+  const gone = found[0] as Spanner;
+  const kept = spanners.filter((spanner) => spanner.id !== gone.id);
+  const { spanners: _old, ...rest } = score;
+  return {
+    score: kept.length === 0 ? rest : { ...rest, spanners: kept },
+    operation: { type: 'hairpin.rm', target },
+    changed: [gone.id],
+  };
 }
 
 // ---------------------------------------------------------------------------

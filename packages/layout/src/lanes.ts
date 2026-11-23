@@ -3,11 +3,11 @@ import { TICKS_PER_QUARTER, allStaves, barCapacity, barView, isDrumKitStaff, ite
 import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
 import { clefChangeOf, effectiveClef, hasClefChanges } from './clefs.js';
 import { crossingFlips } from './crossing.js';
-import type { Clef, LayoutBarItem, LayoutOttava, LayoutTie } from './items.js';
+import type { Clef, LayoutBarItem, LayoutHairpin, LayoutOttava, LayoutTie } from './items.js';
 import type { LayoutBar } from './layout.js';
 import type { PageSpec } from './page.js';
 import type { SystemVertical } from './vertical.js';
-import { OTTAVA_BAND, OTTAVA_GAP, staffInk } from './vertical.js';
+import { OTTAVA_BAND, OTTAVA_GAP, dynamicsRow, hasDynamics, staffInk } from './vertical.js';
 import type { AllocatedBar, BarPrefix, BarSizing } from './widths.js';
 import { estimateBarWidth, rigidBarWidth } from './widths.js';
 
@@ -96,6 +96,8 @@ export interface LayoutStaff {
   /** Units above this staff's top line / below its bottom line of an 8va / 8vb line on it. Lower staves only (SIB2-233). */
   ottavaAboveOffset?: number;
   ottavaBelowOffset?: number;
+  /** Units below this staff's bottom line of its dynamics baseline (SIB2-274). The top staff's is the system's. */
+  dynamicsOffset?: number;
   bars: LayoutStaffBar[];
   /** Ties between this staff's notes, any voice, on this system. */
   ties: LayoutTie[];
@@ -398,6 +400,8 @@ export interface BuildLanesInput {
   systemIndex: number;
   /** The ottava lines of this system, so a staff below the top one reserves room for its own (SIB2-233). */
   ottavas?: readonly LayoutOttava[];
+  /** The hairpins of this system, so each staff reserves a dynamics row for its own (SIB2-274). */
+  hairpins?: readonly LayoutHairpin[];
 }
 
 export interface BuiltLanes extends LayoutLanes {
@@ -468,6 +472,18 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
         inkBelow = ottavaBelowOffset + OTTAVA_BAND;
       }
     }
+    // A lower staff's dynamics row sits under its ink and any 8vb line; the top staff's is the system's (SIB2-274).
+    let dynamicsOffset: number | undefined;
+    if (laneIndex > 0) {
+      const views = perBar.flatMap((voices) => voices.map((voice) => voice.view));
+      if (hasDynamics(views) || (input.hairpins ?? []).some((line) => line.staff === laneIndex)) {
+        const row = dynamicsRow(inkBelow);
+        dynamicsOffset = row.offset;
+        inkBelow = row.inkBelow;
+      }
+    } else if (vertical.dynamicsOffset !== undefined) {
+      dynamicsOffset = vertical.dynamicsOffset;
+    }
     return {
       index: laneIndex,
       staffId: lane.staff.id,
@@ -482,6 +498,7 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       inkBelow,
       ...(ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset }),
       ...(ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset }),
+      ...(dynamicsOffset === undefined ? {} : { dynamicsOffset }),
       bars,
       ties: input.tiesByStaff.get(lane.staff.id)?.get(input.systemIndex) ?? [],
     };

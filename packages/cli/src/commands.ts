@@ -1,7 +1,7 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
-import { NAV_KINDS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
+import { DYNAMICS, NAV_KINDS, clipProblem, copyRange, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
 import type { KeySignature, NavKind, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -158,6 +158,10 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore slur rm  <id> <slur-id|from>
   sbscore ottava set <id> <from> <to> --up|--down   an 8va (--up) or 8vb (--down) line over a run of notes
   sbscore ottava rm  <id> <ottava-id|from>
+  sbscore dynamic set <id> <address> <ppp|pp|p|mp|mf|f|ff|fff|sf|sfz|fp|rfz>   a dynamic under a note or rest
+  sbscore dynamic rm  <id> <address>
+  sbscore hairpin set <id> <from> <to> --cresc|--dim   a crescendo or diminuendo wedge under a run of notes
+  sbscore hairpin rm  <id> <hairpin-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
   sbscore break rm  <id> <bar>
   sbscore nav set <id> <bar> --segno|--coda|--to-coda|--fine|--dc|--ds|--dc-al-fine|--dc-al-coda|--ds-al-fine|--ds-al-coda
@@ -362,6 +366,10 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return slur(flags, client, io, json);
     case 'ottava':
       return ottava(flags, client, io, json);
+    case 'dynamic':
+      return dynamic(flags, client, io, json);
+    case 'hairpin':
+      return hairpin(flags, client, io, json);
     case 'break':
       return lineBreak(flags, client, io, json);
     case 'nav':
@@ -1563,6 +1571,39 @@ async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Prom
  * (`--up`: written an octave below the sound, line above the staff) or 8vb (`--down`) line over a run of notes.
  * The notes keep their sounding pitch. Same addresses as `slur set`; the server judges order and overlap.
  */
+async function dynamic(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `dynamic ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, 'a note or rest address', `dynamic ${sub}`));
+  if (sub === 'set') {
+    const value = requiredPositional(flags, 4, `a dynamic (${DYNAMICS.join(' ')})`, 'dynamic set');
+    return submit(flags, client, io, json, id, [{ type: 'dynamic.set', target, payload: { value } } as Operation]);
+  }
+  if (sub === 'rm') return submit(flags, client, io, json, id, [{ type: 'dynamic.rm', target } as Operation]);
+  throw new CliError(EXIT.usage, 'usage', 'dynamic takes set or rm');
+}
+
+/** `sbscore hairpin set <id> <from> <to> --cresc|--dim` and `hairpin rm <id> <hairpin-id|from>` (SIB2-274). */
+async function hairpin(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `hairpin ${sub}`);
+  if (sub === 'set') {
+    const target = qualified(flags, requiredPositional(flags, 3, 'the note it starts on', 'hairpin set'));
+    const to = qualified(flags, requiredPositional(flags, 4, 'the note it ends on', 'hairpin set'));
+    const cresc = flags.switches.has('cresc');
+    if (cresc === flags.switches.has('dim')) {
+      throw new CliError(EXIT.usage, 'usage', 'hairpin set needs exactly one of --cresc or --dim');
+    }
+    const payload = { to, shape: cresc ? 'crescendo' : 'diminuendo' };
+    return submit(flags, client, io, json, id, [{ type: 'hairpin.set', target, payload } as Operation]);
+  }
+  if (sub === 'rm') {
+    const target = qualified(flags, requiredPositional(flags, 3, 'a hairpin id or the note it starts on', 'hairpin rm'));
+    return submit(flags, client, io, json, id, [{ type: 'hairpin.rm', target } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'hairpin takes set or rm');
+}
+
 async function ottava(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `ottava ${sub}`);

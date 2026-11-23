@@ -11,6 +11,8 @@ import type {
   Id,
   KeySignature,
   NavKind,
+  Dynamic,
+  HairpinShape,
   Pitch,
   StartBarline,
   TieRole,
@@ -134,6 +136,8 @@ export interface NoteItem {
   x?: number;
   /** A fermata above this note (SIB2-183). */
   fermata?: boolean;
+  /** A dynamic marking under this note (SIB2-274). */
+  dynamic?: Dynamic;
   /** Staccato, accent and marcato marks, in stacking order (SIB2-179). */
   articulations?: Articulation[];
   /** Grace notes before this note, in reading order (SIB2-185). */
@@ -161,6 +165,8 @@ export interface RestItem {
   x?: number;
   /** A fermata above this rest (SIB2-183). */
   fermata?: boolean;
+  /** A dynamic marking under this rest (SIB2-274). */
+  dynamic?: Dynamic;
 }
 
 export interface ChordSymbolItem {
@@ -321,4 +327,17 @@ export interface LayoutSlur {
   fromNoteId: Id | null;
   toNoteId: Id | null;
   placement?: 'above' | 'below';
+}
+
+/**
+ * A hairpin on one system (SIB2-274). A null end means the wedge carries on past this system's edge, so a hairpin
+ * across a system break is two halves, one on each side; drawn below the staff in the dynamics row.
+ */
+export interface LayoutHairpin {
+  id: Id;
+  shape: HairpinShape;
+  fromNoteId: Id | null;
+  toNoteId: Id | null;
+  /** The staff of a multi-staff system the wedge belongs to, when it is not the top one. */
+  staff?: number;
 }

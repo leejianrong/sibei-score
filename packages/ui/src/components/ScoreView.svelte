@@ -18,11 +18,11 @@
    * no second write path — and a stale write recovers by reloading, never by retrying with the
    * server's version (ADR-0003).
    */
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
-  import { displayTitle, formatKeySignature, formatPitch, pitchToMidi, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
+  import { displayTitle, formatKeySignature, formatPitch, pitchToMidi, projectScore, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
   import type { AccidentalDisplay, Id, KeySignature, Score, TieRole } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
   import {
@@ -54,7 +54,7 @@
   import { FIRST_LANE, clampLane, laneLabel, needsQualifier, notePinnedIn, qualifierOf, staffClef, tupletOf } from '../lib/lanes.js';
   import type { Lane } from '../lib/lanes.js';
   import { renderScorePages } from '../lib/render.js';
-  import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
+  import { hairpinOp, hairpinsOnNote, removeHairpinOp, ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
   import type { SlurChoice } from '../lib/slur-edits.js';
   import Inspector from './Inspector.svelte';
   import type { NoteEdits, RestEdits, Selection } from './Inspector.svelte';
@@ -85,6 +85,7 @@
   import type { ArrowStep, SelectionEdit } from '../lib/selection.js';
   import ShortcutsOverlay from './ShortcutsOverlay.svelte';
   import { chartActionFor } from '../lib/keymap.js';
+  import { deletedWords, describeBar, describeChord, describeItem, describeMany } from '../lib/announce.js';
   import { GHOST_ID, actionForKey, caretAtItem, caretLabel, ghostScore, inputContext, startInput, stepInput } from '../lib/note-input.js';
   import type { InputAction, InputState } from '../lib/note-input.js';
 
@@ -334,6 +335,33 @@
     void barStructure;
     if (selectedPane !== null) selectedPane.scrollTop = 0;
   });
+  const selectionWords = $derived.by((): string => {
+    if (score === null || !editable) return '';
+    if (pickedIds.length > 1) return describeMany(pickedIds.length);
+    if (located !== null) {
+      const { item } = located;
+      return describeItem({
+        bar: located.barNumber,
+        beat: item.beat,
+        kind: item.kind,
+        ...(item.kind === 'note' ? { pitch: formatPitch(item.pitch), extraTones: item.tones?.length ?? 0 } : {}),
+        duration: item.duration,
+        ...(multiLane ? { lane: laneLabel(score, { staff: located.staffIndex + 1, voice: located.voice }) } : {}),
+      });
+    }
+    if (chordSel !== null) return describeChord(chordSel.barNumber, chordSel.beat, chordSel.mode === 'edit' ? chordSel.seedText : null);
+    if (barSel !== null) return describeBar(barSel.barNumber);
+    return '';
+  });
+  $effect(() => {
+    if (selectionWords !== '' && noteInput === null) announce(selectionWords);
+  });
+  // Note input has no selection: the caret is what moves, so its place (and any refusal) is what is said.
+  $effect(() => {
+    if (noteInput === null) return;
+    const where = untrack(() => (score === null ? '' : caretLabel(noteInput!.caret, score.meta.time)));
+    announce(`Note input, ${where}${inputMessage === null ? '' : `. ${inputMessage}`}`);
+  });
   // On a phone the rail is a bottom drawer (SIB2-267): shut until asked for, open by itself when something is
   // selected so its inspector is in view. On a wide window it is the rail it always was and this is unused.
   let railOpen = $state(false);
@@ -446,6 +474,25 @@
     return findItem(page.layout, selectedId);
   });
 
+  // What a screen reader hears (SIB2-269): one polite live region, written by `announce`. A selection is announced as
+  // it changes, an edit as it lands; the same sentence twice in a row is still heard (it is cleared first).
+  let liveMessage = $state('');
+  function announce(text: string): void {
+    liveMessage = '';
+    void tick().then(() => (liveMessage = text));
+  }
+  // The text projection `sbscore show` prints (ADR-0009): the sheet's text alternative, kept off-screen beside it.
+  const projection = $derived(score === null ? '' : projectScore(score));
+  // After an action removes the control that had focus (a rail button that vanishes with the selection), focus would fall
+  // to the page; it goes back to the sheet instead, where the keys still work.
+  async function restoreFocus(): Promise<void> {
+    await tick();
+    const active = document.activeElement;
+    if (active === null || active === document.body || !document.body.contains(active)) {
+      document.querySelector<HTMLElement>('.sheet')?.focus({ preventScroll: true });
+    }
+  }
+
   const selection = $derived.by((): Selection | null => {
     // A part is a preview, not the editable truth, so nothing is selectable while one is shown.
     if (!editable || located === null) return null;
@@ -461,6 +508,7 @@
         // The pin is not a layout property (it changes no ink), so it is read from the model note.
         spellingPinned: notePinned(item.noteId),
         fermata: item.fermata === true,
+        ...(item.dynamic === undefined ? {} : { dynamic: item.dynamic }),
         articulations: item.articulations ?? [],
         ...(item.drum === undefined ? {} : { drum: item.drum }),
         ...(item.head === undefined ? {} : { head: item.head }),
@@ -484,7 +532,13 @@
         })),
       };
     }
-    return { kind: 'rest', id: item.restId, duration: item.duration, fermata: item.fermata === true };
+    return {
+      kind: 'rest',
+      id: item.restId,
+      duration: item.duration,
+      fermata: item.fermata === true,
+      ...(item.dynamic === undefined ? {} : { dynamic: item.dynamic }),
+    };
   });
 
   /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
@@ -553,6 +607,14 @@
   async function handleOttava(shift: 'up' | 'down'): Promise<void> {
     if (score === null || selectedId === null || rangeId === null) return;
     const operation = ottavaOp(score, selectedId, rangeId, shift);
+    if (operation !== null) await runOps([operation]);
+  }
+
+  // Hairpins (SIB2-274) use the same two-note selection.
+  const hairpinsHere = $derived(score === null || selectedId === null ? [] : hairpinsOnNote(score, selectedId));
+  async function handleHairpin(shape: 'crescendo' | 'diminuendo'): Promise<void> {
+    if (score === null || selectedId === null || rangeId === null) return;
+    const operation = hairpinOp(score, selectedId, rangeId, shape);
     if (operation !== null) await runOps([operation]);
   }
 
@@ -777,6 +839,7 @@
     barSel = null;
     conflict = false;
     saveError = null;
+    void restoreFocus();
   }
 
   /**
@@ -947,7 +1010,9 @@
     if (score === null) return;
     const operations = selectionOps(score, pickedIds, edit);
     if (operations.length === 0) return;
-    await runOps(operations, edit.type !== 'delete' && edit.type !== 'move');
+    const count = pickedIds.length;
+    const ok = await runOps(operations, edit.type !== 'delete' && edit.type !== 'move');
+    if (ok && edit.type === 'delete') announce(deletedWords(count));
   }
 
   /** Select one note or rest by id, as a click on it would, wherever it is drawn; keeps it in view (SIB2-268). */
@@ -1265,7 +1330,11 @@
       writeFailure = null;
       await load();
       // A chord is built a pitch at a time (SIB2-243), so adding or removing one keeps the chord selected.
-      if (!keepSelection) deselect();
+      if (!keepSelection) {
+        deselect();
+        announce('Change saved');
+      }
+      void restoreFocus();
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -1308,6 +1377,7 @@
       writeFailure = null;
       await load();
       deselect();
+      announce(direction === 'undo' ? 'Undone' : 'Redone');
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         conflict = true;
@@ -1426,7 +1496,10 @@
           }
           return;
         case 'deselect':
-          if (pickedIds.length > 0 || barSel !== null || chordSel !== null) deselect();
+          if (pickedIds.length > 0 || barSel !== null || chordSel !== null) {
+            deselect();
+            announce('Selection cleared');
+          }
           return;
         case 'next':
         case 'prev':
@@ -1547,6 +1620,15 @@
               slurs={slursHere}
               onfermata={(on) =>
                 void runOps([{ type: on ? 'fermata.set' : 'fermata.rm', target: selection!.id } as Operation])}
+              ondynamic={(value) =>
+                void runOps([
+                  value === null
+                    ? ({ type: 'dynamic.rm', target: selection!.id } as Operation)
+                    : ({ type: 'dynamic.set', target: selection!.id, payload: { value } } as Operation),
+                ])}
+              hairpins={hairpinsHere}
+              onhairpin={(shape) => void handleHairpin(shape)}
+              onrmhairpin={(id) => void runOps([removeHairpinOp(id)])}
               onslur={(placement) => void handleSlur(placement)}
               onrmslur={(id) => void runOps([removeSlurOp(id)])}
               ottavas={ottavasHere}
@@ -2004,6 +2086,8 @@
     <!-- The workspace: just the sheet stage for most charts, and the retained scan beside it for one
          that came from an import (V14b, ADR-0019). The `split` class turns the single stage into a
          two-column review, each side its own scroll and its own zoom. -->
+    <!-- The one polite live region (SIB2-269): selections, edits and the note-input caret are said here. -->
+    <div class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="a11y-status">{liveMessage}</div>
     <div class="workspace" class:split={splitView}>
       {#if splitView && source !== null}
         <SourcePane jobId={source.jobId} imageCount={source.imageCount} />
@@ -2125,6 +2209,8 @@
           {/if}
           <SheetStack
             {pages}
+            title={displayTitle(score.meta.title)}
+            {projection}
             caret={caretOverlay}
             selection={selectionOverlay}
             rangeSelection={rangeOverlay}

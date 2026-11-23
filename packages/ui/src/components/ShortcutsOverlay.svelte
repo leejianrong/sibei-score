@@ -4,6 +4,7 @@
    * and no list of its own either: the rows are generated from `../lib/keymap.ts`, the same table `ScoreView.svelte`
    * dispatches keys through, so a binding cannot exist without being listed here (`tests/unit/ui-keymap.test.ts`).
    */
+  import { onDestroy } from 'svelte';
   import { SHORTCUT_GROUPS } from '../lib/keymap.js';
 
   interface Props {
@@ -12,6 +13,17 @@
   const { onclose }: Props = $props();
 
   const GROUPS = SHORTCUT_GROUPS;
+
+  // Focus goes into the dialog when it opens and back to where it was (else the sheet) when it closes (SIB2-269).
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  let closeButton = $state<HTMLButtonElement | null>(null);
+  $effect(() => {
+    closeButton?.focus();
+  });
+  onDestroy(() => {
+    const back = opener !== null && opener.isConnected && opener !== document.body ? opener : document.querySelector<HTMLElement>('.sheet');
+    back?.focus({ preventScroll: true });
+  });
 
   function keydown(event: KeyboardEvent): void {
     if (event.key === 'Escape' || event.key === '?') {
@@ -28,7 +40,7 @@
 <div class="dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" data-testid="shortcuts">
   <div class="top">
     <h2>Keyboard shortcuts</h2>
-    <button type="button" class="close" aria-label="Close shortcuts" onclick={onclose}>Close</button>
+    <button type="button" class="close" aria-label="Close shortcuts" bind:this={closeButton} onclick={onclose}>Close</button>
   </div>
   {#each GROUPS as group (group.title)}
     <h3>{group.title}</h3>

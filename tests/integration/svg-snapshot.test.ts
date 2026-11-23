@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -65,6 +65,17 @@ describe('rendered SVG', () => {
     // SIB2-175: a segno, Fine, To Coda, D.S. al Coda, a coda sign and D.C. al Fine, each in the row above the
     // rehearsal boxes, so a regression in either row's placement shows here.
     snapshotScore(navigationChart(), 'navigation');
+  });
+
+  it('matches the committed snapshot for the dynamics chart', () => {
+    // SIB2-274: every marking, a dynamic on a rest, hairpins (one across the system break, one ending at a dynamic),
+    // and the row under an 8vb line and a slur. A regression in the row's placement shows here.
+    snapshotScore(dynamicsChart(), 'dynamics');
+  });
+
+  it('matches the committed snapshot for the dynamics-on-staves chart', () => {
+    // SIB2-274: a grand staff, each staff with its own dynamics row and hairpin.
+    snapshotScore(dynamicsStavesChart(), 'dynamics-staves');
   });
 
   it('matches the committed snapshot for the slur chart', () => {
