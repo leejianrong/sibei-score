@@ -121,6 +121,12 @@ export interface ReviewSummary {
    * about whether the advisory should show (`NO_SECTIONS_ADVISORY`).
    */
   hasSections: boolean;
+  /**
+   * Whether the surfaces print `NO_SECTIONS_ADVISORY` (SIB2-238): no sections **and** a lead-sheet layout. A
+   * `meta.layout: 'score'` chart breaks systems by width (ADR-0041 section 5), not on the four-bar grid, so the
+   * advisory's claim is false there. One answer, so the two surfaces cannot disagree.
+   */
+  showNoSectionsAdvisory: boolean;
 }
 
 export function reviewSummary(score: Score): ReviewSummary {
@@ -130,6 +136,7 @@ export function reviewSummary(score: Score): ReviewSummary {
     invalidBars: invalid,
     meterNote: invalid.length === 0 ? null : meterNote(invalid.length),
     hasSections: score.sections.length > 0,
+    showNoSectionsAdvisory: score.sections.length === 0 && score.meta.layout !== 'score',
   };
 }
 

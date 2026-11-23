@@ -9,8 +9,10 @@ import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
 import { fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart } from './multi-staff-charts.js';
 import { clefsAndKeysChart, voiceCollisionsChart } from './staff-engraving-charts.js';
+import { clefChangeChart, fermatasStavesChart, ottavaStavesChart } from './staff-refinement-charts.js';
 import { drumChart } from './drum-chart.js';
 import { staffFurnitureChart } from './staff-furniture-chart.js';
+import { navigationChart } from './navigation-chart.js';
 import { nastyChart } from './nasty-chart.js';
 import { marksChart } from './marks-chart.js';
 import { slurChart } from './slur-chart.js';
@@ -44,6 +46,7 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   review: reviewChart,
   'long-form': longFormChart,
   'aaba-chart': aabaChart,
+  navigation: navigationChart,
   untitled: untitledChart,
   slurs: slurChart,
   marks: marksChart,
@@ -60,4 +63,7 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'clefs-and-keys': clefsAndKeysChart,
   'staff-furniture': staffFurnitureChart,
   'drum-kit': drumChart,
+  'ottava-staves': ottavaStavesChart,
+  'fermatas-staves': fermatasStavesChart,
+  'clef-change': clefChangeChart,
 };
