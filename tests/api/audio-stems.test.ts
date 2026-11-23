@@ -104,7 +104,7 @@ describe('the worker completes a job with several stems', () => {
     expect(score.meta.layout).not.toBe('score');
   });
 
-  it('keeps a guitar stem as a melody part with a warning', async () => {
+  it('keeps a guitar stem as a chord part with a warning', async () => {
     const all = stems();
     const guitar = { ...all[0]!, instrument: 'guitar' as const };
     const id = await submit();

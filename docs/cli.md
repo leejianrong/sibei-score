@@ -165,8 +165,8 @@ the stem with the best one, the key is inferred across all the pitched stems, an
 bass, drums (`Voice`, `Piano`, `Bass`, `Drums`, set by width). Each stem's warnings are printed prefixed by its
 instrument (`bass: low_confidence: ...`); a stem with no notes becomes an empty part with a warning. Stems that are
 not from one recording (a different `source.sha256` or duration), or more than 12, are refused whole with exit 2
-naming the stem (`stems[2]: ...`); a guitar or other stem alongside others is kept as a plain melody staff with a
-warning, rather than refused. A hosted audio job whose worker returns several stems lands the same score, metered
+naming the stem (`stems[2]: ...`); a guitar or other stem alongside others is kept as a two-staff chord part (read
+like a piano) with a warning, rather than refused. A hosted audio job whose worker returns several stems lands the same score, metered
 once (ADR-0034 amendment "several stems").
 
 `import FILE.musicxml` (also `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any file name)
