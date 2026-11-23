@@ -49,6 +49,7 @@ export function noteAndRestItems(score: Score, bar: BarView, shifts: Map<Id, 'up
         flagged: item.review.flagged,
         ...(item.fermata === true ? { fermata: true } : {}),
         ...(item.dynamic === undefined ? {} : { dynamic: item.dynamic }),
+        ...(item.lyrics === undefined ? {} : { lyrics: item.lyrics }),
         ...(item.drum === undefined ? {} : { drum: item.drum }),
         ...(item.head === undefined ? {} : { head: item.head }),
         ...(item.articulations === undefined ? {} : { articulations: item.articulations }),

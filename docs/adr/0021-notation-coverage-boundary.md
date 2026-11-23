@@ -124,13 +124,13 @@ note or rest, a Hairpin field beside Ottava on a two-note selection); MCP reache
 export and import round trip. A dynamic outside the closed set (`fz`, `pppp`, `other-dynamics`) is dropped with a named
 warning. "dynamics were dropped" is no longer a lossy case.
 
-**Lyrics (SIB2-273).** `Note.lyrics?: Lyric[]`, at most one `Lyric` per verse (1 to 4): `{ verse, text, syllabic:
+**Lyrics (SIB2-273, built).** `Note.lyrics?: Lyric[]`, at most one `Lyric` per verse (1 to 4): `{ verse, text, syllabic:
 'single' | 'begin' | 'middle' | 'end', extend?: true }`. An array on the note (rather than one field) so a second
 verse needs no second model. A rest carries none. Drawn under the staff, centred under the note head, in a text face
 (`LYRIC_*` rows below the dynamics row, one row per verse in use on the system); a `begin` or `middle` syllable is
 followed by a hyphen centred between it and the next syllable of its verse, an `extend` line runs from the text to the
 next note that has a syllable in that verse. Layout reserves the rows only for a system that has lyrics. Operations
 `lyric.set|rm` (one syllable) and the bulk `lyrics.set <bar-range> "text with - hyphens"` that distributes syllables
-onto the notes of the range (a rest is skipped, `_` is a melisma extender, `~` a skipped note); MusicXML `<lyric
-number><syllabic><text><extend/>`. Wide syllables are not given extra bar width (layout allocates width from the music
-alone, ADR-0015): a long word on short notes can crowd its neighbour, which is the same trade the chord symbols make.
+onto the notes of the range (a rest and a note tied from the one before are skipped, `_` is a held note drawn as a melisma extender); MusicXML `<lyric
+number><syllabic><text><extend/>`. A bar is given room for its widest syllables (the width weight in `widths.ts`), but notes are spaced within the bar by
+the music alone, so a long word on a run of short notes can still crowd its neighbour, the trade the chord symbols make.

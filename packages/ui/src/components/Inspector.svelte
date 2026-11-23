@@ -16,8 +16,8 @@
    * one that owns the conflict recovery rule (ADR-0003): reload, never retry with the server's
    * number wearing a disguise.
    */
-  import { ARTICULATIONS, DRUMS, DYNAMICS, NOTEHEAD_KINDS, isDrumId, parsePitch } from '@sibei/model';
-  import type { AccidentalDisplay, Articulation, Dots, Dynamic, DrumId, Duration, Id, NoteValue, NoteheadKind, Spanner, TieRole } from '@sibei/model';
+  import { ARTICULATIONS, DRUMS, DYNAMICS, MAX_VERSES, formatSyllable, NOTEHEAD_KINDS, isDrumId, parsePitch } from '@sibei/model';
+  import type { AccidentalDisplay, Articulation, Dots, Dynamic, Lyric, DrumId, Duration, Id, NoteValue, NoteheadKind, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import { thirdFrom } from '../lib/staff-edits.js';
@@ -35,6 +35,8 @@
     fermata: boolean;
     /** The dynamic marking at this note (SIB2-274), when it has one. */
     dynamic?: Dynamic;
+    /** The lyric syllables under this note, one per verse (SIB2-273). */
+    lyrics?: readonly Lyric[];
     /** Staccato, accent and marcato marks on this note (SIB2-179). */
     articulations: readonly Articulation[];
     /** The drum this note strikes, on a percussion staff (slice 6): it is then picked, not typed as a pitch. */
@@ -99,6 +101,12 @@
     /** Hairpins (SIB2-274) covering this note, and the controls that add one over the two selected notes. */
     hairpins?: readonly Spanner[];
     onhairpin?: (shape: 'crescendo' | 'diminuendo') => void;
+    /** Lyrics (SIB2-273): one syllable of one verse, and removing it; both apply at once. */
+    onlyric?: (change: { verse: number; text: string; extend: boolean }) => void;
+    onrmlyric?: (verse: number) => void;
+    /** A whole verse over a bar range, distributed onto the notes (`lyrics.set`); the bar the note is in, and the last bar. */
+    onlyrics?: (range: { first: number; last: number; verse: number; text: string }) => void;
+    lyricBars?: { bar: number; last: number } | null;
     onrmhairpin?: (id: Id) => void;
     onslur?: (placement: 'auto' | 'above' | 'below') => void;
     onrmslur?: (id: Id) => void;
@@ -141,6 +149,10 @@
     ondynamic,
     hairpins = [],
     onhairpin,
+    onlyric,
+    onrmlyric,
+    onlyrics,
+    lyricBars = null,
     onrmhairpin,
     onslur,
     onrmslur,
@@ -181,6 +193,24 @@
   }
 
   // The grace note being composed (SIB2-185): a pitch, a flag value and whether it is slashed.
+  // The lyric field (SIB2-273): which verse is shown, and what has been typed but not saved. A different note or verse
+  // starts again from what is stored.
+  let lyricVerse = $state(1);
+  let lyricDraft = $state<string | null>(null);
+  let lyricExtend = $state<boolean | null>(null);
+  let bulkVerse = $state(1);
+  let bulkText = $state('');
+  let bulkFirst = $state<string | null>(null);
+  let bulkLast = $state<string | null>(null);
+  $effect(() => {
+    void selection.id;
+    void lyricVerse;
+    lyricDraft = null;
+    lyricExtend = null;
+  });
+  const lyricNow = $derived(selection.kind === 'note' ? selection.lyrics?.find((lyric) => lyric.verse === lyricVerse) : undefined);
+  const lyricShown = $derived(lyricDraft ?? (lyricNow === undefined ? '' : formatSyllable(lyricNow)));
+  const lyricExtends = $derived(lyricExtend ?? lyricNow?.extend === true);
   let gracePitch = $state('');
   let graceValue = $state<8 | 16 | 32>(8);
   let graceSlashed = $state(true);
@@ -658,6 +688,111 @@
               </button>
             </div>
           {/each}
+        </div>
+      {/if}
+
+      {#if onlyric !== undefined}
+        <div class="field slur-field">
+          <span class="field-label">Lyric</span>
+          <div class="slur-row">
+            <select
+              class="pitch-input"
+              aria-label="Lyric verse"
+              value={lyricVerse}
+              onchange={(event) => (lyricVerse = Number((event.currentTarget as HTMLSelectElement).value))}
+            >
+              {#each Array.from({ length: MAX_VERSES }, (_, at) => at + 1) as verse (verse)}
+                <option value={verse}>Verse {verse}</option>
+              {/each}
+            </select>
+            <input
+              class="pitch-input"
+              aria-label="Lyric syllable"
+              placeholder="la, hel-, -lo"
+              value={lyricShown}
+              oninput={(event) => (lyricDraft = (event.currentTarget as HTMLInputElement).value)}
+            />
+          </div>
+          <label class="pin">
+            <input
+              type="checkbox"
+              checked={lyricExtends}
+              onchange={(event) => (lyricExtend = (event.currentTarget as HTMLInputElement).checked)}
+            />
+            <span class="pin-text">Extender line<em>Holds the syllable over the notes that follow, up to the verse's next syllable.</em></span>
+          </label>
+          <div class="slur-row">
+            <button
+              type="button"
+              class="btn btn-save"
+              disabled={saving || lyricShown.trim() === ''}
+              onclick={() => onlyric?.({ verse: lyricVerse, text: lyricShown.trim(), extend: lyricExtends })}
+            >
+              Set syllable
+            </button>
+            {#if lyricNow !== undefined}
+              <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onrmlyric?.(lyricVerse)}>Remove</button>
+            {/if}
+          </div>
+          <p class="inspector-note">A trailing hyphen (<code>hel-</code>) continues the word, a leading one (<code>-lo</code>) ends it. Applies at once (<code>lyric set</code>).</p>
+        </div>
+      {/if}
+
+      {#if onlyrics !== undefined && lyricBars !== null}
+        <div class="field slur-field">
+          <span class="field-label">Verse over bars</span>
+          <div class="slur-row">
+            <input
+              class="pitch-input"
+              aria-label="First bar"
+              inputmode="numeric"
+              value={bulkFirst ?? String(lyricBars.bar)}
+              oninput={(event) => (bulkFirst = (event.currentTarget as HTMLInputElement).value)}
+            />
+            <span>to</span>
+            <input
+              class="pitch-input"
+              aria-label="Last bar"
+              inputmode="numeric"
+              value={bulkLast ?? String(lyricBars.last)}
+              oninput={(event) => (bulkLast = (event.currentTarget as HTMLInputElement).value)}
+            />
+            <select
+              class="pitch-input"
+              aria-label="Verse"
+              value={bulkVerse}
+              onchange={(event) => (bulkVerse = Number((event.currentTarget as HTMLSelectElement).value))}
+            >
+              {#each Array.from({ length: MAX_VERSES }, (_, at) => at + 1) as verse (verse)}
+                <option value={verse}>Verse {verse}</option>
+              {/each}
+            </select>
+          </div>
+          <textarea
+            class="pitch-input"
+            aria-label="Verse text"
+            rows="3"
+            placeholder="Words by spaces, syl-la-bles by hyphens, _ for a held note"
+            value={bulkText}
+            oninput={(event) => (bulkText = (event.currentTarget as HTMLTextAreaElement).value)}
+          ></textarea>
+          <button
+            type="button"
+            class="btn btn-save"
+            disabled={saving || bulkText.trim() === ''}
+            onclick={() =>
+              onlyrics?.({
+                first: Number(bulkFirst ?? lyricBars.bar),
+                last: Number(bulkLast ?? lyricBars.last),
+                verse: bulkVerse,
+                text: bulkText,
+              })}
+          >
+            Set verse
+          </button>
+          <p class="inspector-note">
+            Spreads the text over the notes of these bars (rests and tied notes are skipped) and replaces that verse there (<code>lyrics set</code>).
+          </p>
         </div>
       {/if}
     {/if}

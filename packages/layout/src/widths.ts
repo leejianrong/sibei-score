@@ -43,6 +43,9 @@ const DOT_WIDTH = 6;
 const GRACE_WIDTH = 16;
 const CHORD_CHARACTER_WIDTH = 7;
 const CHORD_GAP = 14;
+/** A lyric syllable's room, estimated like a chord's: half an em per character at `LYRIC_SIZE`, and a gap to the next (SIB2-273). */
+const LYRIC_CHARACTER_WIDTH = 6.5;
+const LYRIC_GAP_WIDTH = 8;
 
 /**
  * What a stacked chord adds to a column (SIB2-243): an accidental column for the pitches that draw one (at most three
@@ -104,7 +107,10 @@ export function estimateBarWidth(score: Score, bar: BarView, prefix: BarPrefix):
     }
     const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
     const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
-    notes += NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH + graceWidth(item, keyAccidentals, GRACE_WIDTH, ACCIDENTAL_WIDTH / 2) + chordExtra(item, keyAccidentals, NOTE_WIDTH, ACCIDENTAL_WIDTH);
+    const base = NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH + graceWidth(item, keyAccidentals, GRACE_WIDTH, ACCIDENTAL_WIDTH / 2) + chordExtra(item, keyAccidentals, NOTE_WIDTH, ACCIDENTAL_WIDTH);
+    // A column is at least as wide as its widest syllable, so a bar of words is given room to be sung (SIB2-273).
+    const sung = Math.max(0, ...(item.lyrics ?? []).map((lyric) => lyric.text.length * LYRIC_CHARACTER_WIDTH + LYRIC_GAP_WIDTH));
+    notes += Math.max(base, sung);
   }
 
   let chords = 0;

@@ -7,7 +7,7 @@ import type { Clef, LayoutBarItem, LayoutHairpin, LayoutOttava, LayoutTie } from
 import type { LayoutBar } from './layout.js';
 import type { PageSpec } from './page.js';
 import type { SystemVertical } from './vertical.js';
-import { OTTAVA_BAND, OTTAVA_GAP, dynamicsRow, hasDynamics, staffInk } from './vertical.js';
+import { OTTAVA_BAND, OTTAVA_GAP, dynamicsRow, hasDynamics, lyricVerses, lyricsRow, staffInk } from './vertical.js';
 import type { AllocatedBar, BarPrefix, BarSizing } from './widths.js';
 import { estimateBarWidth, rigidBarWidth } from './widths.js';
 
@@ -98,6 +98,9 @@ export interface LayoutStaff {
   ottavaBelowOffset?: number;
   /** Units below this staff's bottom line of its dynamics baseline (SIB2-274). The top staff's is the system's. */
   dynamicsOffset?: number;
+  /** Where the first lyric verse's baseline sits below this staff's bottom line, and how many verses have a row (SIB2-273). */
+  lyricOffset?: number;
+  lyricVerses?: number;
   bars: LayoutStaffBar[];
   /** Ties between this staff's notes, any voice, on this system. */
   ties: LayoutTie[];
@@ -484,6 +487,20 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
     } else if (vertical.dynamicsOffset !== undefined) {
       dynamicsOffset = vertical.dynamicsOffset;
     }
+    // Lyrics (SIB2-273) sit under the dynamics row, per staff; the top staff's is the system's.
+    let lyricOffset: number | undefined;
+    let verses = 0;
+    if (laneIndex > 0) {
+      verses = lyricVerses(perBar.flatMap((voices) => voices.map((voice) => voice.view)));
+      if (verses > 0) {
+        const row = lyricsRow(inkBelow, verses);
+        lyricOffset = row.offset;
+        inkBelow = row.inkBelow;
+      }
+    } else if (vertical.lyricOffset !== undefined) {
+      lyricOffset = vertical.lyricOffset;
+      verses = vertical.lyricVerses ?? 1;
+    }
     return {
       index: laneIndex,
       staffId: lane.staff.id,
@@ -499,6 +516,7 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       ...(ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset }),
       ...(ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset }),
       ...(dynamicsOffset === undefined ? {} : { dynamicsOffset }),
+      ...(lyricOffset === undefined ? {} : { lyricOffset, lyricVerses: verses }),
       bars,
       ties: input.tiesByStaff.get(lane.staff.id)?.get(input.systemIndex) ?? [],
     };

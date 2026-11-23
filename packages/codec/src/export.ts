@@ -610,7 +610,7 @@ function slurMarks(score: Score): SlurMarks {
  * carrying note's duration. Marks, fermata and graces belong to the first note of the chord, so they are left off.
  */
 function toneAsNote(host: Note, tone: StackedNote): Note {
-  const { articulations: _a, fermata: _f, dynamic: _d, graces: _g, stack: _s, ...bare } = host;
+  const { articulations: _a, fermata: _f, dynamic: _d, lyrics: _l, graces: _g, stack: _s, ...bare } = host;
   return { ...bare, id: tone.id, pitch: tone.pitch, accidental: tone.accidental, tie: tone.tie, spellingPinned: tone.spellingPinned };
 }
 
@@ -633,8 +633,21 @@ function noteElement(note: Note, bar: BarView, slurs: SlurMark[], at: ItemContex
     at.percussion ? noteheadElement(note) : null,
     at.staff === null ? null : leaf('staff', at.staff),
     notations(note, bar, tuplet, undefined, slurs, note.fermata === true),
+    // The lyrics follow `<notations>`; a stacked chord's other pitches carry none (SIB2-273).
+    ...(chordOf === undefined ? lyricElements(note) : []),
   ];
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
+}
+
+/** `<lyric number="1"><syllabic>begin</syllabic><text>hel</text><extend/></lyric>` per verse of a note (SIB2-273). */
+function lyricElements(note: Note): XmlElement[] {
+  return (note.lyrics ?? []).map((lyric) =>
+    elem('lyric', { number: lyric.verse }, [
+      leaf('syllabic', lyric.syllabic),
+      leaf('text', lyric.text),
+      lyric.extend === true ? elem('extend', {}) : null,
+    ].filter((c): c is XmlElement => c !== null)),
+  );
 }
 
 /** A grace note: `<grace slash="yes"/>` for an acciaccatura, no `<duration>`, a `<type>` for its flags. */

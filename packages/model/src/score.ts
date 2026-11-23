@@ -129,6 +129,12 @@ export interface Note {
   /** A dynamic marking at this note (SIB2-274), drawn below the staff. Optional-and-absent (ADR-0028). */
   dynamic?: Dynamic;
   /**
+   * Lyric syllables sung on this note (SIB2-273), at most one per verse and in verse order. Optional-and-absent, never
+   * `[]`, so no stored document changes shape (ADR-0028). A rest carries none; a stacked chord's lyrics are the
+   * carrying note's.
+   */
+  lyrics?: Lyric[];
+  /**
    * Staccato, accent and marcato marks on this note (SIB2-179), in `ARTICULATIONS` order and without repeats.
    * Optional-and-absent when there are none, so no stored document changes shape (ADR-0028). Jazz
    * articulations (fall, doit, scoop) are not modelled.
@@ -196,6 +202,30 @@ export interface GraceNote {
 export type Dynamic = 'ppp' | 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff' | 'fff' | 'sf' | 'sfz' | 'fp' | 'rfz';
 
 export const DYNAMICS: readonly Dynamic[] = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff', 'sf', 'sfz', 'fp', 'rfz'];
+
+/** Where a syllable sits in its word: a whole word, or the start, middle or end of one (MusicXML's `<syllabic>`). */
+export type Syllabic = 'single' | 'begin' | 'middle' | 'end';
+
+export const SYLLABICS: readonly Syllabic[] = ['single', 'begin', 'middle', 'end'];
+
+/** Verses a note can carry; a fifth would be a second line of text, not a verse of this song. */
+export const MAX_VERSES = 4;
+
+/** The longest syllable. A line of words belongs in a text direction, not under one note. */
+export const MAX_LYRIC_LENGTH = 40;
+
+/**
+ * One syllable under a note (SIB2-273, ADR-0021 amendment). `begin` and `middle` draw a hyphen to the next syllable of
+ * the verse; `extend` draws a line from the syllable on through the notes that follow it, up to the verse's next
+ * syllable (a melisma).
+ */
+export interface Lyric {
+  /** 1 to `MAX_VERSES`. */
+  verse: number;
+  text: string;
+  syllabic: Syllabic;
+  extend?: true;
+}
 
 export type Articulation = 'staccato' | 'accent' | 'marcato';
 

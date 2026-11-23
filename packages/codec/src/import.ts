@@ -22,6 +22,8 @@ import {
   MIN_TEMPO,
   NAV_KINDS,
   DYNAMICS,
+  MAX_LYRIC_LENGTH,
+  MAX_VERSES,
   NAV_SIGNS,
   NAV_TEXT,
   barCapacity,
@@ -58,6 +60,7 @@ import type {
   Voice,
   GraceNote,
   Dynamic,
+  Lyric,
   HairpinShape,
   EndingRole,
   KeySignature,
@@ -275,15 +278,16 @@ function partNames(root: XmlElement): Map<string, { name: string; program: numbe
 
 /**
  * What the model still has no home for, named once each so the import is never silently thinner than the file
- * (SIB2-152): lyrics. (Dynamics and hairpins are read since SIB2-274.) (Slurs, unsupported clefs and the rest are named by the part reader
+ * (SIB2-152). (Dynamics and hairpins are read since SIB2-274 and lyrics since SIB2-273, so nothing is named here now
+ * but the lyric cases `readLyrics` meets.) (Slurs, unsupported clefs and the rest are named by the part reader
  * as it meets them. Extra parts, staves and voices are no longer lost: ADR-0041 slice 5a.)
  */
 function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
   const found = new Set<string>();
   for (const measure of measures) {
     for (const child of childElements(measure)) {
-      if (child.name === 'note') {
-        if (firstChild(child, 'lyric') !== null) found.add('lyrics were dropped');
+      if (child.name === 'note' && firstChild(child, 'lyric') !== null && firstChild(child, 'rest') !== null) {
+        found.add('lyrics on a rest were dropped: a syllable belongs to a note');
       }
     }
   }
@@ -560,6 +564,10 @@ class PartReader {
           if (parsed.unpitched) this.percussionStaves.add(staff as number);
           const notations = firstChild(child, 'notations');
           if (notations !== null && firstChild(notations, 'fermata') !== null) parsed.item.fermata = true;
+          if (parsed.item.kind === 'note') {
+            const lyrics = this.readLyrics(child);
+            if (lyrics.length > 0) parsed.item.lyrics = lyrics;
+          }
           if (this.pendingDynamic !== null) {
             parsed.item.dynamic = this.pendingDynamic;
             this.pendingDynamic = null;
@@ -739,6 +747,41 @@ class PartReader {
         }
       }
     }
+  }
+
+  /**
+   * `<lyric number syllabic text extend>` on a note (SIB2-273): one syllable per verse. The verse is the `number`
+   * attribute when it is 1 to 4 (else the lyric's place among the note's), and one outside that, a second syllable
+   * for a verse, or one with no text (`<humming/>`) is named and dropped.
+   */
+  private readLyrics(note: XmlElement): Lyric[] {
+    const found: Lyric[] = [];
+    for (const [index, el] of childElements(note, 'lyric').entries()) {
+      const given = attr(el, 'number');
+      const verse = given === null || !/^\d+$/.test(given) ? index + 1 : Number(given);
+      const text = childText(el, 'text');
+      if (text === null || text.trim() === '') {
+        this.note('a lyric with no text (humming, laughing) was dropped');
+        continue;
+      }
+      if (verse < 1 || verse > MAX_VERSES) {
+        this.note(`a lyric in verse ${verse} was dropped: a note carries verses 1 to ${MAX_VERSES}`);
+        continue;
+      }
+      if (found.some((lyric) => lyric.verse === verse)) {
+        this.note(`a second lyric for verse ${verse} on one note was dropped`);
+        continue;
+      }
+      const syllabic = childText(el, 'syllabic');
+      const clean = text.trim().slice(0, MAX_LYRIC_LENGTH);
+      found.push({
+        verse,
+        text: clean,
+        syllabic: syllabic === 'begin' || syllabic === 'middle' || syllabic === 'end' ? syllabic : 'single',
+        ...(firstChild(el, 'extend') !== null ? { extend: true as const } : {}),
+      });
+    }
+    return found.sort((a, b) => a.verse - b.verse);
   }
 
   /**

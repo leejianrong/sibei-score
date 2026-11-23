@@ -10,6 +10,7 @@ import type {
   Clip,
   Dynamic,
   HairpinShape,
+  Syllabic,
   Id,
   KeySignature,
   NavKind,
@@ -285,6 +286,35 @@ export interface OttavaSetPayload {
 export type OttavaRmPayload = Record<string, never>;
 
 /**
+ * One lyric syllable under the target note (SIB2-273, ADR-0021 amendment). `verse` defaults to 1. With no `syllabic`
+ * the text's own hyphens say where it sits in its word (`hel-` begins, `-lo` ends, `-l-` is a middle). A second
+ * `lyric.set` for the same verse replaces the first. `extend` draws a line on through the following notes.
+ */
+export interface LyricSetPayload {
+  text: string;
+  verse?: number;
+  syllabic?: Syllabic;
+  extend?: boolean;
+}
+/** Remove one verse's syllable from the note, or every verse's when `verse` is left out. */
+export interface LyricRmPayload {
+  verse?: number;
+}
+/**
+ * Distribute one verse over bars `first` to `last` of a voice of a staff (SIB2-273): `text` is words by spaces,
+ * syllables of a word by hyphens, `_` a note the previous syllable is held over. Replaces that verse in the stretch.
+ */
+export interface LyricsSetPayload {
+  /** A staff like `s1`; defaults to the first. */
+  staff?: string;
+  voice?: number;
+  first: number;
+  last: number;
+  text: string;
+  verse?: number;
+}
+
+/**
  * A dynamic marking on the target note or rest (SIB2-274, ADR-0021 amendment): one of the closed `DYNAMICS`, drawn below
  * the staff at that item. A second `dynamic.set` replaces the first; `dynamic.rm` on an item with none is refused.
  */
@@ -532,6 +562,9 @@ export type Operation =
   | { type: 'slur.rm'; target: string; payload?: SlurRmPayload }
   | { type: 'ottava.set'; target: string; payload: OttavaSetPayload }
   | { type: 'ottava.rm'; target: string; payload?: OttavaRmPayload }
+  | { type: 'lyric.set'; target: string; payload: LyricSetPayload }
+  | { type: 'lyric.rm'; target: string; payload?: LyricRmPayload }
+  | { type: 'lyrics.set'; payload: LyricsSetPayload }
   | { type: 'dynamic.set'; target: string; payload: DynamicSetPayload }
   | { type: 'dynamic.rm'; target: string; payload?: DynamicRmPayload }
   | { type: 'hairpin.set'; target: string; payload: HairpinSetPayload }
@@ -585,6 +618,9 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'slur.rm',
   'ottava.set',
   'ottava.rm',
+  'lyric.set',
+  'lyric.rm',
+  'lyrics.set',
   'dynamic.set',
   'dynamic.rm',
   'hairpin.set',

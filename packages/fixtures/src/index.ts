@@ -15,6 +15,7 @@ export * from './staff-furniture-chart.js';
 export * from './nasty-chart.js';
 export * from './navigation-chart.js';
 export * from './dynamics-chart.js';
+export * from './lyrics-chart.js';
 export * from './registry.js';
 export * from './simple-charts.js';
 export * from './marks-chart.js';

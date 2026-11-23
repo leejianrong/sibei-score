@@ -56,6 +56,8 @@ means "not seen", not "not there". A feature that is only probable is marked `?`
 | F20 | Fermata | x | | | | ? | | | | 1 |
 | F21 | Ottava line ("8" with bracket) | x | | | | | | | | 1 |
 | F22 | Dashed continuation line after a text direction | x | | | | | | | | 1 |
+| F23 | Dynamics and hairpins | M | M | M | M | M | M | M | M | Not seen on the sampled pages; added anyway (SIB2-274): `dynamic.set`/`hairpin.set`, a row under the staff, `<dynamics>`/`<wedge>` |
+| F24 | Lyrics | M | M | M | M | M | M | M | M | Not seen on the sampled pages; added anyway (SIB2-273): `lyric.set`/`lyrics.set`, verses under the staff, `<lyric>` |
 | F23 | Metronome mark with a note glyph | x | | | | | | | | 1 |
 | F27 | Grace notes (supported, SIB2-185) | ? | ? | | | | | | | 0 (probable 2) |
 | F28 | Multi-staff system: grand staff, drum staff, bracket and brace | x | | | | | | | | 1 |
