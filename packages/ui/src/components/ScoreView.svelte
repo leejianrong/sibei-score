@@ -66,12 +66,16 @@
   import type { NewItem as NewItemSpec } from '../lib/staff-edits.js';
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
-  import { allStaves, barByNumber, barViews, beatOfOnset, sectionStartingAt } from '@sibei/model';
+  import { allStaves, barByNumber, barViews, beatOfOnset, onsetOfBeat, sectionStartingAt } from '@sibei/model';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
   import { getScoreSource, getImport, reparseScore, resplitScore, REPARSE_ENGINES } from '../lib/api.js';
   import { hashOf } from '../lib/routing.js';
+  import NoteInputPanel from './NoteInputPanel.svelte';
+  import ShortcutsOverlay from './ShortcutsOverlay.svelte';
+  import { GHOST_ID, actionForKey, caretAtItem, caretLabel, ghostScore, inputContext, startInput, stepInput } from '../lib/note-input.js';
+  import type { InputAction, InputState } from '../lib/note-input.js';
 
   interface Props {
     id: string;
@@ -157,7 +161,9 @@
   const renderScore = $derived.by(() =>
     score === null
       ? null
-      : instrument === 'concert'
+      : ghost !== null
+        ? ghost
+        : instrument === 'concert'
         ? written
           ? writtenPart(score, 'concert', { ownParts: true })
           : score
@@ -332,6 +338,19 @@
   let laneChoice = $state<Lane>(FIRST_LANE);
   const activeLane = $derived(score === null ? FIRST_LANE : clampLane(score, laneChoice));
   const multiLane = $derived(score !== null && needsQualifier(score));
+
+  // Keyboard note input (SIB2-155). The caret state is pure (`../lib/note-input.ts`); this component owns the
+  // queue that runs one key's ops at a time, because each step reads the score as the last step left it.
+  let noteInput = $state<InputState | null>(null);
+  let inputMessage = $state<string | null>(null);
+  let showShortcuts = $state(false);
+  let inputQueue: InputAction[] = [];
+  let inputBusy = false;
+  const inputCtx = $derived(score === null ? null : inputContext(score));
+  // The previewed note is an ordinary score through the one render path; stored data is untouched.
+  const ghost = $derived(
+    noteInput !== null && inputCtx !== null && score !== null && editable ? ghostScore(score, noteInput, inputCtx) : null,
+  );
 
   // The beat under the pointer while it is over a chord band and nothing is being saved — the
   // "click above the staff to add a chord" affordance (the approved V5e interaction).
@@ -527,6 +546,22 @@
     return box === null ? null : { pageIndex: barSel.pageIndex, box };
   });
 
+  const caretOverlay = $derived.by(() => {
+    if (ghost === null) return null;
+    for (const [pageIndex, page] of pages.entries()) {
+      const box = boxFor(pageItemBoxes(page.layout, musicFont), GHOST_ID);
+      if (box !== null) return { pageIndex, box };
+    }
+    return null;
+  });
+
+  // Keep the caret on screen as it moves down the chart.
+  $effect(() => {
+    if (caretOverlay === null) return;
+    const frame = requestAnimationFrame(() => document.querySelector('[data-testid="note-input-ghost"]')?.scrollIntoView({ block: 'nearest' }));
+    return () => cancelAnimationFrame(frame);
+  });
+
   async function load(): Promise<void> {
     try {
       const record = await getScore(id);
@@ -665,6 +700,11 @@
     conflict = false;
     saveError = null;
 
+    if (noteInput !== null && score !== null) {
+      handleInputClick(page, point);
+      return;
+    }
+
     // A chord first: its band sits above the staff, clear of the notes, so a click there is never
     // ambiguous with a note. Clicking an existing chord edits it; clicking an empty beat in the band
     // adds one there (Q32). Only then does a click fall through to the notes and rests below.
@@ -714,6 +754,91 @@
     barSel = { pageIndex, barNumber: barHit.barNumber, staffIndex: barHit.staffIndex };
     // A click on an empty staff makes it active; the voice stays as chosen (clamped to what the staff has).
     laneChoice = { staff: barHit.staffIndex + 1, voice: laneChoice.voice };
+  }
+
+  /** In note input a click only moves the caret: onto a note (typing then overwrites it) or to the end of a bar's music. */
+  function handleInputClick(page: (typeof pages)[number], point: Point): void {
+    if (score === null || noteInput === null) return;
+    const ctx = inputContext(score);
+    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    if (hit !== null) {
+      if (hit.id === GHOST_ID) return;
+      const found = findItem(page.layout, hit.id);
+      if (found === null) return;
+      const lane = { staff: found.staffIndex + 1, voice: found.voice };
+      const at = caretAtItem(lane, found.barNumber, found.item.beat, score.meta.time);
+      noteInput = startInput(ctx, lane, { bar: at.bar, onset: at.onset }, noteInput.duration);
+      inputMessage = null;
+      return;
+    }
+    const barHit = barAt(pageBarBoxes(page.layout), point);
+    if (barHit === null) return;
+    const lane = clampLane(score, { staff: barHit.staffIndex + 1, voice: noteInput.caret.lane.voice });
+    noteInput = startInput(ctx, lane, { bar: barHit.barNumber }, noteInput.duration);
+    inputMessage = null;
+  }
+
+  /** Open note input at the selected note or bar, else the first bar of the active lane with no notes in it. */
+  function startNoteInput(): void {
+    if (score === null || !editable || noteInput !== null) return;
+    const ctx = inputContext(score);
+    const lane = activeLane;
+    const from =
+      located !== null && located.item.kind === 'note' && selectedId !== null
+        ? { bar: located.barNumber, onset: onsetOfBeat(located.item.beat, score.meta.time) }
+        : barSel !== null
+          ? { bar: barSel.barNumber }
+          : {};
+    const laneFrom = located !== null ? { staff: located.staffIndex + 1, voice: located.voice } : lane;
+    deselect();
+    noteInput = startInput(ctx, laneFrom, from);
+    inputMessage = null;
+  }
+
+  function stopNoteInput(): void {
+    noteInput = null;
+    inputMessage = null;
+    inputQueue = [];
+  }
+
+  /**
+   * Run one key's action. Actions queue and run one at a time: each reads the score the previous one left, so
+   * typing ahead of the server stays correct. A refused write puts the caret back where it was, drops what was
+   * typed after it, and says why in the panel; a stale version reloads rather than retries (ADR-0003).
+   */
+  function dispatchInput(action: InputAction): void {
+    inputQueue.push(action);
+    void pumpInput();
+  }
+
+  async function pumpInput(): Promise<void> {
+    if (inputBusy) return;
+    inputBusy = true;
+    try {
+      for (let next = inputQueue.shift(); next !== undefined; next = inputQueue.shift()) {
+        if (score === null || noteInput === null) break;
+        const before = noteInput;
+        const result = stepInput(before, next, inputContext(score));
+        if (result.exit) {
+          stopNoteInput();
+          break;
+        }
+        noteInput = result.state;
+        inputMessage = result.message;
+        if (result.ops.length === 0) continue;
+        const ok = await runOps(result.ops, true);
+        if (ok) continue;
+        inputQueue = [];
+        if (conflict) {
+          conflict = false;
+          await load();
+          inputMessage = 'The chart changed somewhere else, so it was reloaded. Carry on from the caret.';
+        }
+        if (score !== null) noteInput = startInput(inputContext(score), before.caret.lane, { bar: before.caret.bar, onset: before.caret.onset }, before.duration);
+      }
+    } finally {
+      inputBusy = false;
+    }
   }
 
   function selectChord(
@@ -979,7 +1104,7 @@
   $effect(() => {
     function onVoiceKey(event: KeyboardEvent): void {
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (score === null || !editable || saving || !multiLane || isTextField(event.target)) return;
+      if (score === null || !editable || saving || !multiLane || noteInput !== null || isTextField(event.target)) return;
       if (event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName)) return;
       const voice = voiceForKey(score, activeLane, event.key);
       if (voice === null) return;
@@ -988,6 +1113,39 @@
     }
     window.addEventListener('keydown', onVoiceKey);
     return () => window.removeEventListener('keydown', onVoiceKey);
+  });
+
+  /**
+   * The note-input keys (SIB2-155). `N` opens the mode; while it is open the keys of `actionForKey` are claimed and
+   * everything else (ctrl-Z, the browser's own shortcuts) passes through. `?` shows the shortcut list anywhere.
+   * Stands down over a text field, and Enter/Space over a focused button (they press it).
+   */
+  $effect(() => {
+    function onKey(event: KeyboardEvent): void {
+      if (isTextField(event.target) || score === null) return;
+      const control = event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName);
+      if (event.key === '?' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        showShortcuts = !showShortcuts;
+        return;
+      }
+      if (showShortcuts) return;
+      if (noteInput === null) {
+        if ((event.key === 'n' || event.key === 'N') && !event.ctrlKey && !event.metaKey && !event.altKey && !control && editable && !saving) {
+          event.preventDefault();
+          startNoteInput();
+        }
+        return;
+      }
+      if (!editable) return;
+      const action = actionForKey(event);
+      if (action === null) return;
+      if (control && action.type === 'advance') return;
+      event.preventDefault();
+      dispatchInput(action);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   });
 
   /**
@@ -1529,6 +1687,17 @@
               {#if multiLane}· <span class="lane-status" data-testid="active-lane">{laneLabel(score, activeLane)}</span>{/if}
               {#if !editable}· <span class="part-flag">{INSTRUMENTS.find((o) => o.value === instrument)?.label} part</span>{/if}
             </span>
+            {#if editable}
+              <button
+                type="button"
+                class="scan-toggle"
+                aria-pressed={noteInput !== null}
+                onclick={() => (noteInput === null ? startNoteInput() : stopNoteInput())}
+              >
+                Note input
+              </button>
+            {/if}
+            <button type="button" class="scan-toggle" aria-label="Keyboard shortcuts" onclick={() => (showShortcuts = true)}>?</button>
             <!-- The scan toggle lives here — always visible, so it can bring the scan back after it is
                  hidden (the pane itself is gone then). Shown only for a chart that has a scan. -->
             {#if hasSource}
@@ -1589,8 +1758,26 @@
               >
             </div>
           </div>
+          {#if noteInput !== null && inputCtx !== null && score !== null}
+            <NoteInputPanel
+              where={caretLabel(noteInput.caret, score.meta.time)}
+              laneText={multiLane ? laneLabel(score, noteInput.caret.lane) : null}
+              value={noteInput.duration.value}
+              dots={noteInput.duration.dots}
+              pendingAlter={noteInput.alter}
+              tieNext={noteInput.tieNext}
+              atEnd={noteInput.atEnd}
+              voices={inputCtx.voices(noteInput.caret.lane.staff)}
+              voice={noteInput.caret.lane.voice}
+              message={inputMessage}
+              error={saveError}
+              {saving}
+              onaction={dispatchInput}
+            />
+          {/if}
           <SheetStack
             {pages}
+            caret={caretOverlay}
             selection={selectionOverlay}
             rangeSelection={rangeOverlay}
             chordSelection={chordOverlay}
@@ -1602,6 +1789,9 @@
         </div>
       </div>
     </div>
+  {#if showShortcuts}
+    <ShortcutsOverlay onclose={() => (showShortcuts = false)} />
+  {/if}
   </section>
 {/if}
 

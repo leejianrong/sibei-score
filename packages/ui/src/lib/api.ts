@@ -475,6 +475,7 @@ export interface NoteSetPayload {
   accidental?: AccidentalDisplay;
   /** Pin the spelling so it survives a transpose (ADR-0017). V6e. */
   spellingPinned?: boolean;
+  tie?: 'none' | 'start' | 'stop' | 'both';
 }
 
 export interface RestAddPayload {
@@ -566,7 +567,7 @@ export type Operation =
   | { type: 'bar.add'; target?: string }
   | { type: 'bar.rm'; target: string }
   // Notes and rests added by position (slice 5b); the address carries the staff and voice qualifier.
-  | { type: 'note.add'; target: string; payload: { pitch: string; duration: Duration } }
+  | { type: 'note.add'; target: string; payload: { pitch: string; duration: Duration; tie?: 'start' | 'stop' | 'both' } }
   // Parts, staves and voices (ADR-0041 slice 2). A removal that holds notation is refused without `force`.
   | { type: 'part.add'; payload: { name?: string; clef?: Clef; staffType?: StaffType } }
   | { type: 'part.rm'; target: string; payload?: { force: true } }
