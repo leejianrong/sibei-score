@@ -1,0 +1,576 @@
+{
+  "schema_version": 1,
+  "source": {
+    "sha256": "eab0d68430446b00807416289a9756a8b42c1f28cbe66b346f70e5eec537c9a2",
+    "duration_s": 10.1
+  },
+  "instrument": "drums",
+  "producer": {
+    "model_id": "ground-truth",
+    "model_version": "mix-recipe-v1",
+    "stage": "transcribe"
+  },
+  "beats": [
+    {
+      "t_s": 0.0,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 0.6,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.2,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.7999999999999998,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 2.4,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 3.0,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 3.5999999999999996,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 4.2,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 4.8,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 5.3999999999999995,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 6.0,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 6.6,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 7.199999999999999,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 7.8,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 8.4,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 9.0,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 9.6,
+      "is_downbeat": true
+    }
+  ],
+  "notes": [
+    {
+      "id": "n0",
+      "onset_s": 0.0,
+      "offset_s": 0.15,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n1",
+      "onset_s": 1.2,
+      "offset_s": 1.3499999999999999,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n2",
+      "onset_s": 0.6,
+      "offset_s": 0.75,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n3",
+      "onset_s": 1.7999999999999998,
+      "offset_s": 1.95,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n4",
+      "onset_s": 0.0,
+      "offset_s": 0.15,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n5",
+      "onset_s": 0.3,
+      "offset_s": 0.44999999999999996,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n6",
+      "onset_s": 0.6,
+      "offset_s": 0.75,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n7",
+      "onset_s": 0.8999999999999999,
+      "offset_s": 1.05,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n8",
+      "onset_s": 1.2,
+      "offset_s": 1.3499999999999999,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n9",
+      "onset_s": 1.5,
+      "offset_s": 1.65,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n10",
+      "onset_s": 1.7999999999999998,
+      "offset_s": 1.95,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n11",
+      "onset_s": 2.1,
+      "offset_s": 2.25,
+      "pitch": 46,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-open"
+    },
+    {
+      "id": "n12",
+      "onset_s": 2.4,
+      "offset_s": 2.55,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n13",
+      "onset_s": 3.5999999999999996,
+      "offset_s": 3.75,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n14",
+      "onset_s": 3.9,
+      "offset_s": 4.05,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n15",
+      "onset_s": 3.0,
+      "offset_s": 3.15,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n16",
+      "onset_s": 4.2,
+      "offset_s": 4.35,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n17",
+      "onset_s": 2.4,
+      "offset_s": 2.55,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n18",
+      "onset_s": 2.6999999999999997,
+      "offset_s": 2.85,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n19",
+      "onset_s": 3.0,
+      "offset_s": 3.15,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n20",
+      "onset_s": 3.3,
+      "offset_s": 3.4499999999999997,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n21",
+      "onset_s": 3.5999999999999996,
+      "offset_s": 3.75,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n22",
+      "onset_s": 3.9,
+      "offset_s": 4.05,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n23",
+      "onset_s": 4.2,
+      "offset_s": 4.35,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n24",
+      "onset_s": 4.5,
+      "offset_s": 4.6499999999999995,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n25",
+      "onset_s": 4.8,
+      "offset_s": 4.95,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n26",
+      "onset_s": 6.0,
+      "offset_s": 6.1499999999999995,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n27",
+      "onset_s": 5.3999999999999995,
+      "offset_s": 5.55,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n28",
+      "onset_s": 6.6,
+      "offset_s": 6.75,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n29",
+      "onset_s": 4.8,
+      "offset_s": 4.95,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n30",
+      "onset_s": 5.1,
+      "offset_s": 5.25,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n31",
+      "onset_s": 5.3999999999999995,
+      "offset_s": 5.55,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n32",
+      "onset_s": 5.7,
+      "offset_s": 5.85,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n33",
+      "onset_s": 6.0,
+      "offset_s": 6.1499999999999995,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n34",
+      "onset_s": 6.3,
+      "offset_s": 6.45,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n35",
+      "onset_s": 6.6,
+      "offset_s": 6.75,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n36",
+      "onset_s": 6.8999999999999995,
+      "offset_s": 7.05,
+      "pitch": 46,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-open"
+    },
+    {
+      "id": "n37",
+      "onset_s": 7.199999999999999,
+      "offset_s": 7.35,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n38",
+      "onset_s": 8.4,
+      "offset_s": 8.549999999999999,
+      "pitch": 36,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "kick"
+    },
+    {
+      "id": "n39",
+      "onset_s": 7.8,
+      "offset_s": 7.949999999999999,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n40",
+      "onset_s": 9.0,
+      "offset_s": 9.15,
+      "pitch": 38,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "snare"
+    },
+    {
+      "id": "n41",
+      "onset_s": 7.199999999999999,
+      "offset_s": 7.35,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n42",
+      "onset_s": 7.5,
+      "offset_s": 7.6499999999999995,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n43",
+      "onset_s": 7.8,
+      "offset_s": 7.949999999999999,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n44",
+      "onset_s": 8.1,
+      "offset_s": 8.25,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n45",
+      "onset_s": 8.4,
+      "offset_s": 8.549999999999999,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n46",
+      "onset_s": 8.7,
+      "offset_s": 8.85,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n47",
+      "onset_s": 9.0,
+      "offset_s": 9.15,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    },
+    {
+      "id": "n48",
+      "onset_s": 9.299999999999999,
+      "offset_s": 9.45,
+      "pitch": 42,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": "hihat-closed"
+    }
+  ],
+  "warnings": []
+}

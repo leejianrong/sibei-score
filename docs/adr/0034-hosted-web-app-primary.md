@@ -374,7 +374,7 @@ which every existing size and shape check already handles. Limits: **at most 12 
 `source.sha256` and the same `source.duration_s` (to 10 ms); a malformed stem, a differing hash or duration, or too many
 stems fails the whole job as `invalid-result` (non-retryable, result kept, **nothing committed, not metered**) with the
 stem index in the diagnostic (`stems[2].source.sha256 differs ...`). A stem with an instrument this build cannot
-notate (`guitar`, `other`) is **not** refused when it has company: it becomes a plain melody staff with a warning (the
-lone-document refusal of ADR-0040 decision 3 is unchanged). `durationSeconds` is metered **once per job**, however
+notate (`guitar`, `other`) is **not** refused when it has company: it becomes a two-staff polyphonic part (read like a
+piano, with a warning) because `other` is typically chords (the lone-document refusal of ADR-0040 decision 3 is unchanged). `durationSeconds` is metered **once per job**, however
 many stems it had; `scoreId` and the diagnostics are recorded as for one document. The draft is one multi-part score
 (ADR-0040 amendment "several stems").
