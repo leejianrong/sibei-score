@@ -22,3 +22,4 @@ export * from './marks-chart.js';
 export * from './slur-chart.js';
 export * from './title-block-chart.js';
 export * from './instrument-names-chart.js';
+export * from './page-setup-chart.js';

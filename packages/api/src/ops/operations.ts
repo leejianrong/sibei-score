@@ -477,6 +477,21 @@ export interface ClefSetPayload {
   clef: Clef | null;
 }
 
+/**
+ * Page setup (SIB2-287), in millimetres: each field sets or, with null, clears one of `meta.page`'s values, and absent
+ * leaves it alone. A cleared field goes back to the layout's own default. An empty payload is refused.
+ */
+export interface PageSetPayload {
+  marginTop?: number | null;
+  marginRight?: number | null;
+  marginBottom?: number | null;
+  marginLeft?: number | null;
+  /** The height of the five-line staff; the whole page scales with it. */
+  staffSize?: number | null;
+  /** The clear space between two systems. */
+  systemGap?: number | null;
+}
+
 export interface InstrumentSetPayload {
   name?: string;
   /** The abbreviation for later systems (SIB2-286). Empty or null removes it. */
@@ -596,7 +611,8 @@ export type Operation =
   | { type: 'voice.add'; target?: string; payload?: VoiceAddPayload }
   | { type: 'voice.rm'; target: string; payload?: VoiceRmPayload }
   | { type: 'clef.set'; target: string; payload: ClefSetPayload }
-  | { type: 'instrument.set'; target?: string; payload: InstrumentSetPayload };
+  | { type: 'instrument.set'; target?: string; payload: InstrumentSetPayload }
+  | { type: 'page.set'; payload: PageSetPayload };
 
 export type OperationType = Operation['type'];
 
@@ -653,6 +669,7 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'voice.rm',
   'clef.set',
   'instrument.set',
+  'page.set',
 ];
 
 /**

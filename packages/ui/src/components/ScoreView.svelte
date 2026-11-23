@@ -62,6 +62,7 @@
   import type { ChordSelection } from './ChordInspector.svelte';
   import StructureInspector from './StructureInspector.svelte';
   import StaffPanel from './StaffPanel.svelte';
+  import PageSetupPanel from './PageSetupPanel.svelte';
   import NewItem from './NewItem.svelte';
   import { chordToneAddress, moveNoteOp, splitPointOf, newItemOp, seedPitchFor, voiceForKey } from '../lib/staff-edits.js';
   import type { NewItem as NewItemSpec } from '../lib/staff-edits.js';
@@ -1866,6 +1867,10 @@
             disabled={saving}
             onchange={(event) => void handleInstrumentNames((event.currentTarget as HTMLInputElement).checked)}
           /> Print instrument names (full on the first line, short after; <code>meta set --instrument-names</code>)</label>
+      </RailPanel>
+
+      <RailPanel title="Page setup">
+        <PageSetupPanel {score} {saving} onops={runOps} />
       </RailPanel>
 
       <RailPanel title="Clef and key">

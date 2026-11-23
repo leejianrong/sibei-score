@@ -1,6 +1,7 @@
 import {
   AddressError,
   INSTRUMENT_PRESETS,
+  PAGE_LIMITS_MM,
   MAX_SETUP_INSTRUMENTS,
   MAX_VOICES,
   allStaves,
@@ -15,11 +16,12 @@ import {
   voiceHoldsNotation,
   voiceIndexes,
 } from '@sibei/model';
-import type { Clef, Id, Part, PartSetup, Score, Spanner, Staff, StaffBar, StaffType } from '@sibei/model';
+import type { Clef, Id, PagePrefs, Part, PartSetup, Score, Spanner, Staff, StaffBar, StaffType } from '@sibei/model';
 import { OperationError } from './errors.js';
 import type {
   ClefSetPayload,
   InstrumentSetPayload,
+  PageSetPayload,
   PartAddPayload,
   PartRmPayload,
   StaffAddPayload,
@@ -389,5 +391,57 @@ export function withSetup(score: Score, setup: readonly PartSetup[]): Score {
       ...(staffCount > 1 ? { layout: 'score' as const } : {}),
       ...(named ? { showInstrumentNames: true } : {}),
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// page.set (SIB2-287)
+// ---------------------------------------------------------------------------
+
+const PAGE_FIELDS = [
+  ['marginTop', 'margin', 'top'],
+  ['marginRight', 'margin', 'right'],
+  ['marginBottom', 'margin', 'bottom'],
+  ['marginLeft', 'margin', 'left'],
+  ['staffSize', 'staffSize', null],
+  ['systemGap', 'systemGap', null],
+] as const;
+
+function validMillimetres(name: string, value: unknown, [low, high]: readonly [number, number]): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < low || value > high) {
+    return fail(`${name} is a number of millimetres from ${low} to ${high}, not ${JSON.stringify(value)}`);
+  }
+  // Tenths of a millimetre: nothing finer is a page setting, and it keeps the stored number short.
+  return Math.round(value * 10) / 10;
+}
+
+/** Set or clear the page setup fields named; what is left empty is removed, so a cleared chart has no `page` at all. */
+export function setPage(score: Score, payload: PageSetPayload): Applied {
+  const given = PAGE_FIELDS.filter(([field]) => payload[field] !== undefined);
+  if (given.length === 0) fail('page set needs at least one of marginTop, marginRight, marginBottom, marginLeft, staffSize, systemGap');
+  const margin: Record<string, number> = { ...score.meta.page?.margin };
+  let staffSize = score.meta.page?.staffSize;
+  let systemGap = score.meta.page?.systemGap;
+  for (const [field, kind, side] of given) {
+    const value = payload[field];
+    if (kind === 'margin') {
+      if (value === null) delete margin[side];
+      else margin[side] = validMillimetres(field, value, PAGE_LIMITS_MM.margin);
+    } else if (kind === 'staffSize') {
+      staffSize = value === null ? undefined : validMillimetres(field, value, PAGE_LIMITS_MM.staffSize);
+    } else {
+      systemGap = value === null ? undefined : validMillimetres(field, value, PAGE_LIMITS_MM.systemGap);
+    }
+  }
+  const page: PagePrefs = {
+    ...(Object.keys(margin).length === 0 ? {} : { margin }),
+    ...(staffSize === undefined ? {} : { staffSize }),
+    ...(systemGap === undefined ? {} : { systemGap }),
+  };
+  const { page: _old, ...meta } = score.meta;
+  return {
+    score: { ...score, meta: Object.keys(page).length === 0 ? meta : { ...meta, page } },
+    operation: { type: 'page.set', payload },
+    changed: [score.id],
   };
 }

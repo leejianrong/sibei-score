@@ -104,7 +104,7 @@ import type {
 import { parseChord, transposeChordText } from '@sibei/music';
 import { removeLyric, setLyric, setLyrics } from './lyric-ops.js';
 import { OperationError } from './errors.js';
-import { addPart, addStaff, addVoice, plannedSetup, removePart, removeStaff, removeVoice, setClef, setInstrument, withSetup } from './structure-ops.js';
+import { addPart, addStaff, addVoice, plannedSetup, removePart, removeStaff, removeVoice, setClef, setInstrument, setPage, withSetup } from './structure-ops.js';
 import { moveHand, moveNote } from './move-ops.js';
 import { clearRange, pasteRange } from './range-ops.js';
 import { isControlOperation } from './operations.js';
@@ -306,6 +306,8 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setClef(score, operation.target, operation.payload);
     case 'instrument.set':
       return setInstrument(score, operation.target, operation.payload);
+    case 'page.set':
+      return setPage(score, operation.payload);
     default: {
       // Unreachable for a well-typed Operation, but an op arriving over HTTP is not well-typed
       // until something checks, and this is that something.

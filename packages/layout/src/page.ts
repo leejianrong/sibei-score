@@ -6,6 +6,7 @@
  * `pointsPerUnit` maps the page to paper. A4 and Letter, A4 default (Q38).
  */
 
+import type { PagePrefs } from '@sibei/model';
 import type { PageNumberSettings } from './furniture.js';
 
 export type Paper = 'a4' | 'letter';
@@ -145,4 +146,31 @@ export function resolvePageSpec(input: PageSpecInput = {}): PageSpec {
 
 export function unitsToPoints(units: number, spec: PageSpec): number {
   return units * spec.pointsPerUnit;
+}
+
+const MM_PER_POINT = 25.4 / 72;
+
+/**
+ * What a score's `meta.page` (millimetres, SIB2-287) asks of the page, as a `PageSpecInput`. The staff size is the
+ * scale of the whole page: layout works in units, a unit is `pointsPerUnit` points, so a staff of `staffSize` mm is
+ * `staffSize / MM_PER_POINT / 40` points a unit. Margins and the system gap stay the physical size asked for whatever
+ * the staff size, by converting through the same scale. Absent fields add nothing, so a chart with no `page` resolves to
+ * exactly the default spec.
+ */
+export function pageInputFromMeta(page: PagePrefs | undefined, scale?: number): PageSpecInput {
+  if (page === undefined) return {};
+  // A caller that names the scale outright (`input.pointsPerUnit`) wins over the staff size, and the margins follow it.
+  const pointsPerUnit =
+    scale ?? (page.staffSize === undefined ? DEFAULT_POINTS_PER_UNIT : page.staffSize / MM_PER_POINT / (STAFF_SPACE * 4));
+  const units = (mm: number): number => mm / MM_PER_POINT / pointsPerUnit;
+  const margin: Partial<Margins> = {};
+  for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+    const mm = page.margin?.[side];
+    if (mm !== undefined) margin[side] = units(mm);
+  }
+  return {
+    ...(page.staffSize === undefined || scale !== undefined ? {} : { pointsPerUnit }),
+    ...(Object.keys(margin).length === 0 ? {} : { margin }),
+    ...(page.systemGap === undefined ? {} : { systemGap: units(page.systemGap) }),
+  };
 }

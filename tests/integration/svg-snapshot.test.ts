@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { lyricsChart, lyricsStavesChart, dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, instrumentNamesChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { lyricsChart, lyricsStavesChart, dynamicsChart, dynamicsStavesChart, navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, instrumentNamesChart, pageSetupChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -160,6 +160,11 @@ describe('rendered SVG', () => {
   // SIB2-286: instrument names on the first system, abbreviations after, left of the brace and bracket.
   it('matches the committed snapshot for instrument names (full on system one, short after)', () => {
     snapshotScore(instrumentNamesChart(), 'instrument-names');
+  });
+
+  // SIB2-287: a smaller staff, wider side margins and a tight system gap, from `meta.page`.
+  it('matches the committed snapshot for a page setup (staff size, margins and system gap off their defaults)', () => {
+    snapshotScore(pageSetupChart(), 'page-setup');
   });
 
   // SIB2-230 (ADR-0041, slice 6): a drum kit on five lines, looked at with `pnpm proof drum-kit` before its snapshot.
