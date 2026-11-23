@@ -78,3 +78,13 @@ export function formatBarRanges(bars: readonly number[], maxRuns = 5): string {
 function plural(count: number, word: string): string {
   return count === 1 ? word : `${word}s`;
 }
+
+/**
+ * An id a person can read in the library (SIB2-271): an import's `import-<uuid>` or `audio-<uuid>` keeps its
+ * kind and the first eight characters of the uuid; every other id (chosen by a person or `sbscore new`) is as it was.
+ * The row's title attribute carries the full id.
+ */
+export function displayId(id: string): string {
+  const match = /^(import|audio)-([0-9a-f]{8})[0-9a-f-]{20,}$/i.exec(id);
+  return match === null ? id : `${match[1]}-${match[2]}`;
+}
