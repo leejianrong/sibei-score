@@ -54,8 +54,8 @@ export const GRACE_SCALE = 0.65;
 export const GRACE_STEM_UNITS = 23;
 
 /** An ottava line sits this far past the highest or lowest note ink, and takes this much room itself (SIB2-184). */
-const OTTAVA_GAP = 15;
-const OTTAVA_BAND = 6;
+export const OTTAVA_GAP = 15;
+export const OTTAVA_BAND = 6;
 
 /**
  * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and

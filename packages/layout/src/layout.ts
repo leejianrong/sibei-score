@@ -131,6 +131,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   // System membership is independent of pagination, so ties can be resolved once the
   // systems are known and before they are placed on pages.
   const systemOfNote = new Map<Id, number>();
+  // Which staff of a multi-staff score a note is on, so an ottava line can be drawn on its own staff (SIB2-233).
+  const staffOfNote = new Map<Id, number>();
   planned.forEach((system, index) => {
     for (const bar of [...(system.pickup === null ? [] : [system.pickup]), ...system.bars]) {
       for (const item of bar.items) {
@@ -142,6 +144,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           for (const voice of voiceViewsOf(score, lane.staff, bar)) {
             for (const item of voice.view.items) {
               if (item.kind === 'note') systemOfNote.set(item.id, index);
+              if (item.kind === 'note') staffOfNote.set(item.id, lanes.indexOf(lane));
             }
           }
         }
@@ -151,7 +154,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   const tiesBySystem = planTies(notesInReadingOrder(score).map((entry) => entry.note), systemOfNote);
   const tiesByStaff = multi ? planLaneTies(score, lanes, systemOfNote) : new Map<Id, Map<number, LayoutTie[]>>();
   const slursBySystem = planSlurs(score, systemOfNote);
-  const ottavasBySystem = planOttavas(score, systemOfNote);
+  const ottavasBySystem = planOttavas(score, systemOfNote, multi ? staffOfNote : undefined);
   const shifts = ottavaShifts(score);
 
   // Which systems draw the clef and key signature (SIB2-173). Widths depend on it, pagination does not
@@ -178,8 +181,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
                 stems: voiceStems(allocated.map((entry) => voiceViewsOf(score, top.staff, entry.bar))),
               }),
           shifts,
-          ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up'),
-          ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down'),
+          ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up' && line.staff === undefined),
+          ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down' && line.staff === undefined),
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
           hasRehearsalMark:
             bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))) ||
@@ -220,6 +223,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           systemX: built.x,
           tiesByStaff,
           systemIndex: index,
+          ottavas: built.ottavas,
         });
         built.height = lanesBuilt.height;
         built.belowStaff = lanesBuilt.belowStaff;

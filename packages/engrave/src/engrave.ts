@@ -461,20 +461,26 @@ function engraveStavedSystem(
     if (curve !== null) children.push(curve);
   }
 
-  // Ottava lines are the top staff's: their height was reserved above and below it (SIB2-184).
-  const top = anchorsByStaff[0] ?? new Map();
+  // Ottava lines (SIB2-184) ride on the staff of their first note: layout reserved the height above and below that
+  // staff, the top one's in the system and the others' on the staff itself (SIB2-233).
   for (const line of system.ottavas) {
+    const staffIndex = line.staff ?? 0;
+    const staff = staves[staffIndex];
+    if (staff === undefined) continue;
+    const anchors = anchorsByStaff[staffIndex] ?? new Map();
+    const aboveOffset = staffIndex === 0 ? system.ottavaAboveOffset : staff.ottavaAboveOffset;
+    const belowOffset = staffIndex === 0 ? system.ottavaBelowOffset : staff.ottavaBelowOffset;
     const y =
       line.shift === 'up'
-        ? system.ottavaAboveOffset === undefined
+        ? aboveOffset === undefined
           ? undefined
-          : system.staveY - system.ottavaAboveOffset
-        : system.ottavaBelowOffset === undefined
+          : staff.staveY - aboveOffset
+        : belowOffset === undefined
           ? undefined
-          : system.staveY + units(4) + system.ottavaBelowOffset;
+          : staff.staveY + units(4) + belowOffset;
     if (y === undefined) continue;
-    const from = line.fromNoteId === null ? undefined : top.get(line.fromNoteId);
-    const to = line.toNoteId === null ? undefined : top.get(line.toNoteId);
+    const from = line.fromNoteId === null ? undefined : anchors.get(line.fromNoteId);
+    const to = line.toNoteId === null ? undefined : anchors.get(line.toNoteId);
     children.push(
       ...ottavaLine({
         shift: line.shift,

@@ -1,5 +1,6 @@
 import type { Id, OctaveShift, Pitch, Score } from '@sibei/model';
-import { barViews, orderedItems } from '@sibei/model';
+import { allStaves, barView, barViews, orderedItems } from '@sibei/model';
+import { isMultiLane, voiceViewsOf } from './lanes.js';
 import type { LayoutOttava } from './items.js';
 
 /**
@@ -18,15 +19,38 @@ export function ottavaShifts(score: Score): Map<Id, OctaveShift> {
   const shifts = new Map<Id, OctaveShift>();
   const lines = (score.spanners ?? []).filter((spanner) => spanner.kind === 'ottava' && spanner.octaveShift !== undefined);
   if (lines.length === 0) return shifts;
-  const order: Id[] = [];
-  for (const bar of barViews(score)) {
-    for (const item of orderedItems(bar)) if (item.kind === 'note') order.push(item.id);
+  // A multi-staff score keeps a line on its own staff: each staff is its own reading order, voices merged by onset
+  // (SIB2-233; before it, only the top staff's notes could be under a line). A single-staff chart is unchanged.
+  const orders: Id[][] = [];
+  if (isMultiLane(score)) {
+    for (const staff of allStaves(score)) {
+      const entries: { bar: number; onset: number; voice: number; id: Id }[] = [];
+      score.bars.forEach((bar, barIndex) => {
+        for (const voice of voiceViewsOf(score, staff, barView(score, bar))) {
+          for (const item of orderedItems(voice.view)) {
+            if (item.kind === 'note') entries.push({ bar: barIndex, onset: item.onset, voice: voice.index, id: item.id });
+          }
+        }
+      });
+      entries.sort((a, b) => a.bar - b.bar || a.onset - b.onset || a.voice - b.voice);
+      orders.push(entries.map((entry) => entry.id));
+    }
+  } else {
+    const order: Id[] = [];
+    for (const bar of barViews(score)) {
+      for (const item of orderedItems(bar)) if (item.kind === 'note') order.push(item.id);
+    }
+    orders.push(order);
   }
   for (const line of lines) {
-    const from = order.indexOf(line.startId);
-    const to = order.indexOf(line.endId);
-    if (from === -1 || to === -1 || from > to || line.octaveShift === undefined) continue;
-    for (const id of order.slice(from, to + 1)) shifts.set(id, line.octaveShift);
+    if (line.octaveShift === undefined) continue;
+    for (const order of orders) {
+      const from = order.indexOf(line.startId);
+      const to = order.indexOf(line.endId);
+      if (from === -1 || to === -1 || from > to) continue;
+      for (const id of order.slice(from, to + 1)) shifts.set(id, line.octaveShift);
+      break;
+    }
   }
   return shifts;
 }
@@ -36,13 +60,19 @@ export function ottavaShifts(score: Score): Map<Id, OctaveShift> {
  * note's; a system it enters or leaves mid-way has a null end there, so the engraver runs the line to the
  * system edge (and a wrapped line carries on at the next system's music).
  */
-export function planOttavas(score: Score, systemOfNote: Map<Id, number>): Map<number, LayoutOttava[]> {
+export function planOttavas(
+  score: Score,
+  systemOfNote: Map<Id, number>,
+  staffOfNote?: ReadonlyMap<Id, number>,
+): Map<number, LayoutOttava[]> {
   const bySystem = new Map<number, LayoutOttava[]>();
   for (const line of score.spanners ?? []) {
     if (line.kind !== 'ottava' || line.octaveShift === undefined) continue;
     const from = systemOfNote.get(line.startId);
     const to = systemOfNote.get(line.endId);
     if (from === undefined || to === undefined || from > to) continue;
+    // A line belongs to the staff of its first note; only a staff below the top one is named (SIB2-233).
+    const staff = staffOfNote?.get(line.startId) ?? 0;
     for (let system = from; system <= to; system += 1) {
       const entry: LayoutOttava = {
         id: line.id,
@@ -50,6 +80,7 @@ export function planOttavas(score: Score, systemOfNote: Map<Id, number>): Map<nu
         fromNoteId: system === from ? line.startId : null,
         toNoteId: system === to ? line.endId : null,
         labelled: system === from,
+        ...(staff > 0 ? { staff } : {}),
       };
       const list = bySystem.get(system);
       if (list === undefined) bySystem.set(system, [entry]);
