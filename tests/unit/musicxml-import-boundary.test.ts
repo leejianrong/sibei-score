@@ -58,10 +58,19 @@ describe('hostile XML is bounded', () => {
 describe('every lossy case is named in the warnings', () => {
   const warnings = (xml: string): string[] => musicXmlToScore(xml).warnings;
 
-  it('extra parts', () => expect(warnings(wrap(note(), '', 3))).toContain('2 further parts dropped: only the first part is read'));
-  it('extra staves', () => {
-    expect(warnings(wrap(note(), '<staves>2</staves>')).join('|')).toContain('2-staff part was read as its first staff only');
-    expect(warnings(wrap(note('<staff>2</staff>'))).join('|')).toContain('second staff');
+  it('parts and staves are kept, not dropped (ADR-0041 slice 5a)', () => {
+    const result = musicXmlToScore(wrap(note(), '', 3));
+    expect(result.score.parts).toHaveLength(3);
+    expect(result.warnings).toEqual([]);
+    const staves = musicXmlToScore(wrap(note() + note('<staff>2</staff>'), '<staves>2</staves>'));
+    expect(staves.score.parts[0]?.staves).toHaveLength(2);
+    expect(staves.warnings).toEqual([]);
+  });
+  it('parts and staves past the bounds', () => {
+    expect(warnings(wrap(note(), '', 40)).join('|')).toContain('further parts dropped: a score reads at most 32 parts');
+    expect(musicXmlToScore(wrap(note(), '', 40)).score.parts).toHaveLength(32);
+    expect(warnings(wrap(note('<staff>9</staff>'), '<staves>12</staves>')).join('|')).toContain('staves past the 8th of a part');
+    expect(warnings(wrap(note(), '<staves>8</staves>', 6)).join('|')).toContain('further parts dropped');
   });
   it('lyrics', () => expect(warnings(wrap(note('<lyric><text>la</text></lyric>')))).toContain('lyrics were dropped'));
   it('dynamics', () =>
@@ -81,12 +90,11 @@ describe('every lossy case is named in the warnings', () => {
     const result = musicXmlToScore(wrap(note() + grace));
     expect(result.warnings).toContain('grace notes with no note after them were dropped');
   });
-  it('a second voice and a chord tone', () => {
-    expect(warnings(wrap(note() + '<backup><duration>4</duration></backup>' + note()))).toContain(
-      'a second voice was dropped: single-voice only',
-    );
+  it('a fifth voice and a chord tone', () => {
+    const voices = [1, 2, 3, 4, 5].map((v) => note(`<voice>${v}</voice>`)).join('<backup><duration>4</duration></backup>');
+    expect(warnings(wrap(voices))).toContain('voices past the 4th on a staff were dropped');
     expect(warnings(wrap(note() + note('<chord/>')))).toContain(
-      'a chord note (a second simultaneous pitch) was dropped: single-voice only',
+      'a chord note (a second simultaneous pitch) was dropped: one pitch per voice',
     );
   });
   it('a clean file has none', () => expect(warnings(wrap(note()))).toEqual([]));

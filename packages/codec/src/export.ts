@@ -14,20 +14,39 @@
  * from, the text attribute is what this codec reads back.
  */
 
-import { TICKS_PER_QUARTER, annotationsOfBar, barViews, itemTicks, keyFifths, tupletOf } from '@sibei/model';
+import {
+  TICKS_PER_QUARTER,
+  annotationsOfBar,
+  barViews,
+  clefAt,
+  itemTicks,
+  keyFifths,
+  transposePitch,
+  transposeSpelling,
+  tupletOf,
+  voiceIndexes,
+  voiceSelects,
+} from '@sibei/model';
 import type {
   Annotation,
+  BarItem,
   BarView,
   Chord,
+  Clef,
   Ending,
   GraceNote,
+  Interval,
+  KeySignature,
   Note,
   NoteValue,
+  Part,
   Rest,
   Score,
+  Staff,
   Tempo,
   Tuplet,
 } from '@sibei/model';
+import { intervalOfSemitones, transposeElementValues } from './transposition.js';
 import { parseChord } from '@sibei/music';
 import type { ChordStructure, Root } from '@sibei/music';
 import { elem, leaf, serialize } from './xml.js';
@@ -54,20 +73,108 @@ const PROLOG = [
 export function scoreToMusicXml(score: Score): string {
   const marks = slurMarks(score);
   const ottavas = ottavaMarks(score);
+  const grid = barViews(score);
   const root = elem('score-partwise', { version: '4.0' }, [
     work(score),
     movementTitle(score),
     identification(score),
-    elem('part-list', {}, [
-      elem('score-part', { id: 'P1' }, [leaf('part-name', score.meta.title || 'Lead sheet')]),
-    ]),
-    elem(
-      'part',
-      { id: 'P1' },
-      barViews(score).map((bar, index, views) => measure(score, bar, index === 0, views[index - 1], marks, ottavas)),
-    ),
+    partList(score),
+    ...score.parts.map((part, index) => {
+      const ctx = partContext(score, part, index);
+      return elem(
+        'part',
+        { id: partId(index) },
+        grid.map((bar, barIndex) => measure(score, ctx, bar, barIndex, grid[barIndex - 1], marks, ottavas)),
+      );
+    }),
   ]);
   return serialize(root, { prolog: PROLOG });
+}
+
+const partId = (index: number): string => `P${index + 1}`;
+
+/**
+ * What a part needs while its measures are written (ADR-0041 slice 5a): its staves, each staff's views per voice, and
+ * the transposition it is written in. Voices are labelled `4 * staffIndex + voice`, so a second staff's voices are
+ * 5-8 as MuseScore numbers them, and a single staff's voice 1 is `<voice>1</voice>`, as it always was.
+ */
+interface PartContext {
+  part: Part;
+  index: number;
+  staves: { staff: Staff; percussion: boolean; voices: { index: number; label: number; views: BarView[] }[] }[];
+  /** More than one staff: notes then carry `<staff>`, and the attributes `<staves>`. */
+  multiStaff: boolean;
+  /** The interval from sounding to written pitch, null for a concert part. */
+  interval: Interval | null;
+  /** The key signature the part is written in (the score's key moved by `interval`). */
+  writtenKey: KeySignature;
+}
+
+function partContext(score: Score, part: Part, index: number): PartContext {
+  const interval = part.transposition === 0 ? null : intervalOfSemitones(part.transposition);
+  const key = score.meta.key;
+  let writtenKey = key;
+  if (interval !== null) {
+    const tonic = transposeSpelling({ step: key.tonic, alter: key.alter }, interval, key, true);
+    writtenKey = { tonic: tonic.step, alter: tonic.alter, mode: key.mode };
+  }
+  return {
+    part,
+    index,
+    multiStaff: part.staves.length > 1,
+    interval,
+    writtenKey,
+    staves: part.staves.map((staff, staffIndex) => ({
+      staff,
+      percussion: staff.type === 'percussion',
+      voices: voiceIndexes(staff).map((voice) => ({
+        index: voice,
+        label: staffIndex * 4 + voice,
+        views: barViews(score, { staff: staff.id, voice }),
+      })),
+    })),
+  };
+}
+
+/** A fallback name for a part with none: the title for the first (as it always was), else `Part N`. */
+export function exportedPartName(score: Score, part: Pick<Part, 'name'>, index: number): string {
+  if (part.name !== '') return part.name;
+  return index === 0 ? score.meta.title || 'Lead sheet' : `Part ${index + 1}`;
+}
+
+/**
+ * `<part-list>`: a `<score-part>` per part (its name and, when it has one, the General MIDI program as a
+ * `<midi-instrument>`; a part made only of percussion staves plays on channel 10). More than one part shares a
+ * bracket, which is what the layout draws: the bracket is derived from the part count, not stored (ADR-0041 slice 3).
+ */
+function partList(score: Score): XmlElement {
+  let channel = 0;
+  const scoreParts = score.parts.map((part, index) => {
+    const percussion = part.staves.length > 0 && part.staves.every((staff) => staff.type === 'percussion');
+    const hasInstrument = part.instrument !== null || percussion;
+    const id = `${partId(index)}-I1`;
+    const name = exportedPartName(score, part, index);
+    let midi: XmlElement | null = null;
+    if (hasInstrument) {
+      channel += 1;
+      if (channel === 10) channel += 1; // channel 10 is percussion's
+      midi = elem('midi-instrument', { id }, [
+        leaf('midi-channel', percussion ? 10 : Math.min(channel, 16)),
+        part.instrument === null ? null : leaf('midi-program', part.instrument + 1),
+      ]);
+    }
+    return elem('score-part', { id: partId(index) }, [
+      leaf('part-name', name),
+      hasInstrument ? elem('score-instrument', { id }, [leaf('instrument-name', name)]) : null,
+      midi,
+    ]);
+  });
+  if (score.parts.length < 2) return elem('part-list', {}, scoreParts);
+  return elem('part-list', {}, [
+    elem('part-group', { type: 'start', number: 1 }, [leaf('group-symbol', 'bracket'), leaf('group-barline', 'yes')]),
+    ...scoreParts,
+    elem('part-group', { type: 'stop', number: 1 }),
+  ]);
 }
 
 function work(score: Score): XmlElement | null {
@@ -99,29 +206,38 @@ function identification(score: Score): XmlElement {
 
 function measure(
   score: Score,
+  ctx: PartContext,
   bar: BarView,
-  isFirst: boolean,
+  barIndex: number,
   previous: BarView | undefined,
   slurs: SlurMarks,
   ottavas: OttavaMarks,
 ): XmlElement {
   const children: (XmlElement | null)[] = [];
+  const isFirst = barIndex === 0;
+  // Everything that belongs to the whole score rather than to one instrument (chords, text, rehearsal letters, the
+  // tempo) is written once, in the first part: the chords ride above the top staff (ADR-0041 section 3).
+  const lead = ctx.index === 0;
 
   // A line ends after the previous bar (SIB2-174), so this measure opens a new system. `join` and the
   // bars-per-line setting have no MusicXML form and are named lossy cases.
   if (previous?.lineBreak === 'after') children.push(elem('print', { 'new-system': 'yes' }));
 
-  if (isFirst) children.push(attributes(score));
+  if (isFirst) children.push(attributes(score, ctx, bar));
+  else {
+    const changes = clefChanges(ctx, bar);
+    if (changes.length > 0) children.push(elem('attributes', {}, changes));
+  }
 
   const left = leftBarline(bar);
   if (left !== null) children.push(left);
 
   // The tempo mark (SIB2-177) opens the first measure: a metronome beat unit and `<sound tempo>` in quarter-note bpm.
-  if (isFirst && score.meta.tempo !== undefined) children.push(tempoDirection(score.meta.tempo));
+  if (lead && isFirst && score.meta.tempo !== undefined) children.push(tempoDirection(score.meta.tempo));
 
   // A rehearsal letter for any section that begins on this bar. A section's free-text `name` has no
   // MusicXML home and is a named lossy case; its `letter` round-trips through `<rehearsal>`.
-  for (const section of score.sections) {
+  for (const section of lead ? score.sections : []) {
     if (section.startBar === bar.number && section.letter !== null && section.letter !== '') {
       children.push(rehearsal(section.letter));
     }
@@ -129,26 +245,49 @@ function measure(
 
   // All harmonies at the top of the measure, each offset from the measure start to its onset. A
   // harmony carries no duration, so this places every chord at its beat without disturbing a note.
-  for (const chord of [...bar.chords].sort((a, b) => a.onset - b.onset)) {
+  for (const chord of lead ? [...bar.chords].sort((a, b) => a.onset - b.onset) : []) {
     children.push(harmony(chord));
   }
 
   // Text directions (SIB2-169) ride as `<words>` above the staff, offset to their beat like a harmony.
-  for (const annotation of [...bar.annotations].sort((a, b) => a.onset - b.onset)) {
+  for (const annotation of lead ? [...bar.annotations].sort((a, b) => a.onset - b.onset) : []) {
     children.push(words(annotation));
     // A dashed continuation line (SIB2-170) opens right after its words and closes in the end bar.
     if (annotation.lineEndBarId !== undefined && score.bars.some((b) => b.id === annotation.lineEndBarId)) {
       children.push(dashes('start', annotation.id, bar));
     }
   }
-  for (const earlier of score.bars) {
+  for (const earlier of lead ? score.bars : []) {
     if (earlier.number > bar.number) continue;
     for (const annotation of annotationsOfBar(score, earlier.id)) {
       if (annotation.lineEndBarId === bar.id) children.push(dashes('stop', annotation.id, bar));
     }
   }
 
-  for (const note of noteElements(bar, slurs, ottavas)) children.push(note);
+  // Each staff's voices in turn; a `<backup>` to the top of the measure starts every voice after the first. A gap
+  // before a note is a `<forward>`, so onsets survive a read by something that lays notes end to end.
+  let cursor = 0;
+  for (const staffCtx of ctx.staves) {
+    for (const voice of staffCtx.voices) {
+      const view = voice.views[barIndex];
+      if (view === undefined || view.items.length === 0) continue;
+      if (cursor > 0) children.push(elem('backup', {}, [leaf('duration', cursor)]));
+      const written = writtenView(view, ctx, staffCtx.percussion, score.meta.key);
+      const staffNo = ctx.multiStaff ? ctx.staves.indexOf(staffCtx) + 1 : null;
+      cursor = 0;
+      for (const item of written.items) {
+        if (item.onset > cursor) children.push(elem('forward', {}, [leaf('duration', item.onset - cursor)]));
+        for (const el of itemElements(item, written, slurs, ottavas, {
+          voice: voice.label,
+          staff: staffNo,
+          percussion: staffCtx.percussion,
+        })) {
+          children.push(el);
+        }
+        cursor = Math.max(cursor, item.onset + itemTicks(item, written));
+      }
+    }
+  }
 
   const right = rightBarline(bar);
   if (right !== null) children.push(right);
@@ -196,14 +335,77 @@ function words(annotation: Annotation): XmlElement {
   ]);
 }
 
-function attributes(score: Score): XmlElement {
-  const key = score.meta.key;
+function attributes(score: Score, ctx: PartContext, bar: BarView): XmlElement {
+  const key = ctx.writtenKey;
+  const transpose = ctx.interval === null ? null : transposeElement(ctx.part.transposition);
   return elem('attributes', {}, [
     leaf('divisions', DIVISIONS),
     elem('key', {}, [leaf('fifths', keyFifths(key)), leaf('mode', key.mode)]),
     elem('time', {}, [leaf('beats', score.meta.time.beats), leaf('beat-type', score.meta.time.beatValue)]),
-    elem('clef', {}, [leaf('sign', 'G'), leaf('line', 2)]),
+    ctx.multiStaff ? leaf('staves', ctx.staves.length) : null,
+    // A part of two or more staves is a grand staff, which the layout braces (ADR-0041 slice 3).
+    ctx.multiStaff ? leaf('part-symbol', 'brace') : null,
+    ...ctx.staves.map(({ staff }, index) =>
+      clefElement(clefAt(score, staff, bar.number), ctx.multiStaff ? index + 1 : null),
+    ),
+    transpose,
   ]);
+}
+
+/** Mid-score clef changes at this bar: a `<clef>` per staff that has one (`clef set s2.bar5`). */
+function clefChanges(ctx: PartContext, bar: BarView): XmlElement[] {
+  const out: XmlElement[] = [];
+  ctx.staves.forEach(({ staff }, index) => {
+    const change = staff.bars.find((staffBar) => staffBar.barId === bar.id)?.clef;
+    if (change !== undefined) out.push(clefElement(change, ctx.multiStaff ? index + 1 : null));
+  });
+  return out;
+}
+
+const CLEF_SIGNS: Record<Clef, { sign: string; line?: number }> = {
+  treble: { sign: 'G', line: 2 },
+  bass: { sign: 'F', line: 4 },
+  alto: { sign: 'C', line: 3 },
+  tenor: { sign: 'C', line: 4 },
+  percussion: { sign: 'percussion' },
+};
+
+function clefElement(clef: Clef, number: number | null): XmlElement {
+  const { sign, line } = CLEF_SIGNS[clef];
+  return elem('clef', number === null ? {} : { number }, [leaf('sign', sign), line === undefined ? null : leaf('line', line)]);
+}
+
+/** `<transpose>`: written to sounding, so a Bb trumpet (written a tone above concert) is diatonic -1, chromatic -2. */
+function transposeElement(semitones: number): XmlElement {
+  const values = transposeElementValues(semitones);
+  return elem('transpose', {}, [
+    leaf('diatonic', values.diatonic),
+    leaf('chromatic', values.chromatic),
+    values.octaveChange === 0 ? null : leaf('octave-change', values.octaveChange),
+  ]);
+}
+
+/**
+ * The view as it is written down: a transposing part's pitches (and its graces) move by the part's own interval,
+ * spelled by that interval so the move is exactly reversible on import. A percussion staff's pitches are only
+ * where its notes sit on the staff, so they never move.
+ */
+function writtenView(view: BarView, ctx: PartContext, percussion: boolean, concertKey: KeySignature): BarView {
+  if (ctx.interval === null || percussion) return view;
+  const interval = ctx.interval;
+  const move = (pitch: Note['pitch']): Note['pitch'] => transposePitch(pitch, interval, concertKey, true);
+  return {
+    ...view,
+    items: view.items.map((item) =>
+      item.kind === 'note'
+        ? {
+            ...item,
+            pitch: move(item.pitch),
+            ...(item.graces === undefined ? {} : { graces: item.graces.map((grace) => ({ ...grace, pitch: move(grace.pitch) })) }),
+          }
+        : item,
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,11 +413,14 @@ function attributes(score: Score): XmlElement {
 // ---------------------------------------------------------------------------
 
 /** An ottava line's start before, or stop after, one note (SIB2-184): `<octave-shift>` in a `<direction>`. */
-type OttavaMarks = Map<string, { starts: XmlElement[]; stops: XmlElement[] }>;
+type OttavaMarks = Map<string, { starts: OttavaMark[]; stops: OttavaMark[] }>;
+
+/** One `<octave-shift>` direction, numbered per staff when it is built so two staves' lines never share a number. */
+type OttavaMark = (staff: number | null) => XmlElement;
 
 function ottavaMarks(score: Score): OttavaMarks {
   const marks: OttavaMarks = new Map();
-  const at = (id: string): { starts: XmlElement[]; stops: XmlElement[] } => {
+  const at = (id: string): { starts: OttavaMark[]; stops: OttavaMark[] } => {
     const found = marks.get(id) ?? { starts: [], stops: [] };
     marks.set(id, found);
     return found;
@@ -224,28 +429,37 @@ function ottavaMarks(score: Score): OttavaMarks {
     if (line.kind !== 'ottava' || line.octaveShift === undefined) continue;
     // MusicXML's `down` is a notes-printed-lower line, which is our 8va.
     const type = line.octaveShift === 'up' ? 'down' : 'up';
-    const direction = (kind: string): XmlElement =>
-      elem('direction', { placement: line.octaveShift === 'up' ? 'above' : 'below' }, [
-        elem('direction-type', {}, [elem('octave-shift', { type: kind, size: 8, number: 1 })]),
-      ]);
+    const direction =
+      (kind: string): OttavaMark =>
+      (staff) =>
+        elem('direction', { placement: line.octaveShift === 'up' ? 'above' : 'below' }, [
+          elem('direction-type', {}, [elem('octave-shift', { type: kind, size: 8, number: staff ?? 1 })]),
+          // A direction belongs to the staff the line is on, once there is more than one.
+          staff === null ? null : leaf('staff', staff),
+        ]);
     at(line.startId).starts.push(direction(type));
     at(line.endId).stops.push(direction('stop'));
   }
   return marks;
 }
 
-function noteElements(bar: BarView, slurs: SlurMarks, ottavas: OttavaMarks): XmlElement[] {
-  return bar.items.flatMap((item) => {
-    if (item.kind !== 'note') return [restElement(item, bar)];
-    const lines = ottavas.get(item.id);
-    return [
-      ...(lines?.starts ?? []),
-      // Grace notes come first, each a `<note><grace/>` with no duration (SIB2-185).
-      ...(item.graces ?? []).map(graceElement),
-      noteElement(item, bar, slurs.get(item.id) ?? []),
-      ...(lines?.stops ?? []),
-    ];
-  });
+/** Where an item sits in its part: the voice label, the staff number when the part has several, drum notes. */
+interface ItemContext {
+  voice: number;
+  staff: number | null;
+  percussion: boolean;
+}
+
+function itemElements(item: BarItem, bar: BarView, slurs: SlurMarks, ottavas: OttavaMarks, at: ItemContext): XmlElement[] {
+  if (item.kind !== 'note') return [restElement(item, bar, at)];
+  const lines = ottavas.get(item.id);
+  return [
+    ...(lines?.starts ?? []).map((make) => make(at.staff)),
+    // Grace notes come first, each a `<note><grace/>` with no duration (SIB2-185).
+    ...(item.graces ?? []).map((grace) => graceElement(grace, at)),
+    noteElement(item, bar, slurs.get(item.id) ?? [], at),
+    ...(lines?.stops ?? []).map((make) => make(at.staff)),
+  ];
 }
 
 /** A slur's start or stop on one note, as `<slur type number placement>` wants it. */
@@ -266,7 +480,13 @@ function slurMarks(score: Score): SlurMarks {
   const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur');
   if (spanners.length === 0) return marks;
   const order = new Map<string, number>();
-  for (const bar of barViews(score)) for (const item of bar.items) order.set(item.id, order.size);
+  // Position in the score, across every staff and voice: bar first, then onset. A tie counts as overlapping, which
+  // only ever costs a slur a higher number than it needed.
+  for (const which of voiceSelects(score)) {
+    barViews(score, which).forEach((view, barIndex) => {
+      for (const item of view.items) order.set(item.id, barIndex * 1_000_000 + item.onset);
+    });
+  }
   const placed = spanners
     .map((spanner) => ({ spanner, from: order.get(spanner.startId), to: order.get(spanner.endId) }))
     .filter((p): p is { spanner: typeof p.spanner; from: number; to: number } => p.from !== undefined && p.to !== undefined)
@@ -287,48 +507,60 @@ function slurMarks(score: Score): SlurMarks {
   return marks;
 }
 
-function noteElement(note: Note, bar: BarView, slurs: SlurMark[]): XmlElement {
+function noteElement(note: Note, bar: BarView, slurs: SlurMark[], at: ItemContext): XmlElement {
   const tuplet = tupletOf(note.id, bar);
   const children: (XmlElement | null)[] = [
-    pitchElement(note),
+    at.percussion ? unpitchedElement(note) : pitchElement(note),
     leaf('duration', itemTicks(note, bar)),
     ...tieElements(note),
-    leaf('voice', 1),
+    leaf('voice', at.voice),
     leaf('type', NOTE_TYPE[note.duration.value]),
     ...dots(note.duration.dots),
-    accidentalElement(note),
+    // A drum note has no accidental to draw: its pitch is only where it sits on the staff.
+    at.percussion ? null : accidentalElement(note),
     timeModification(tuplet),
+    at.staff === null ? null : leaf('staff', at.staff),
     notations(note, bar, tuplet, undefined, slurs, note.fermata === true),
   ];
   return elem('note', {}, children.filter((c): c is XmlElement => c !== null));
 }
 
 /** A grace note: `<grace slash="yes"/>` for an acciaccatura, no `<duration>`, a `<type>` for its flags. */
-function graceElement(grace: GraceNote): XmlElement {
+function graceElement(grace: GraceNote, at: ItemContext): XmlElement {
   return elem(
     'note',
     {},
     [
       elem('grace', grace.slashed ? { slash: 'yes' } : {}),
-      pitchElement(grace),
-      leaf('voice', 1),
+      at.percussion ? unpitchedElement(grace) : pitchElement(grace),
+      leaf('voice', at.voice),
       leaf('type', NOTE_TYPE[grace.value]),
-      accidentalElement(grace),
+      at.percussion ? null : accidentalElement(grace),
+      at.staff === null ? null : leaf('staff', at.staff),
     ].filter((c): c is XmlElement => c !== null),
   );
 }
 
-function restElement(rest: Rest, bar: BarView): XmlElement {
+function restElement(rest: Rest, bar: BarView, at: ItemContext): XmlElement {
   const tuplet = tupletOf(rest.id, bar);
   return elem('note', {}, [
     elem('rest', {}),
     leaf('duration', itemTicks(rest, bar)),
-    leaf('voice', 1),
+    leaf('voice', at.voice),
     leaf('type', NOTE_TYPE[rest.duration.value]),
     ...dots(rest.duration.dots),
     timeModification(tuplet),
+    at.staff === null ? null : leaf('staff', at.staff),
     notations(null, bar, tuplet, rest.id, [], rest.fermata === true),
   ].filter((c): c is XmlElement => c !== null));
+}
+
+/**
+ * A percussion note: `<unpitched>` carries only where the note sits on the staff (its display pitch), since the model
+ * has no drum noteheads or instrument map yet. The accidental, if any, is not written (a named lossy case).
+ */
+function unpitchedElement(note: Pick<Note, 'pitch'>): XmlElement {
+  return elem('unpitched', {}, [leaf('display-step', note.pitch.step), leaf('display-octave', note.pitch.octave)]);
 }
 
 function pitchElement(note: Pick<Note, 'pitch'>): XmlElement {
