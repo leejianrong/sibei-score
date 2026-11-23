@@ -167,3 +167,14 @@ one, because a silent port change is the kind of lie this repo dislikes.
 uniformly `tsc` — and note that `tests/arch/framework-free.test.ts` sweeps `.svelte` as well as
 `.ts` for the same reason: a guard on the UI reading only its `.ts` would be checking the quiet
 half of the package.
+
+**Keyboard note input (SIB2-155).** `N` (or the stage bar's Note input button) opens a mode with a caret (lane, bar,
+onset), a keypad (`NoteInputPanel.svelte`) and a `?` shortcut overlay. The logic is pure in `lib/note-input.ts`: `actionForKey`
+is the key map, `stepInput(state, action, ctx)` returns the next state and the **ordinary ops** (`note.add`/`rest.add`
+qualified by lane, `note.rm` for overwrite and Backspace, `note.set` for arrows/accidentals/ties, `bar.add`), so every entry
+is undoable by replay and has a CLI verb. Digits are durations **inside the mode only** (Sibelius keypad order, 1 = 32nd … 6 =
+whole); outside it they still pick a voice, and inside it voice is Ctrl+Alt+1-4. The state keeps no history: "the previous note"
+is the item that ends at the caret, read from the score, and `ScoreView` runs actions through a queue so each step reads the
+score the last one left. One key action is one batch is one undo; cross-request coalescing would need the op log to group
+batches (ADR-0003), which this does not change. The preview is `ghostScore()`: a copy of the score with the next note at the
+caret, rendered through the one `layout()` + `engravePage()` path; the adapter only boxes the note whose id is `GHOST_ID`.
