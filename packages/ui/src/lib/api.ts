@@ -563,6 +563,8 @@ export type Operation =
         instruments?: string[];
       };
     }
+  // Page setup (SIB2-287): millimetres, null clears a field.
+  | { type: 'page.set'; payload: Partial<Record<'marginTop' | 'marginRight' | 'marginBottom' | 'marginLeft' | 'staffSize' | 'systemGap', number | null>> }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'note.rm'; target: string }

@@ -539,3 +539,17 @@ lower, above is at or higher). Decisions:
 - **Surfaces.** `sbscore new --instrument piano --instrument bass --instrument drums` (a repeated option: `Flags.repeated`);
   the New chart form's `InstrumentPicker` (choose, change, move up/down, remove rows; empty is the lead sheet).
   `tests/unit/instrument-setup.test.ts` pins that both build the same score.
+
+## As built: page setup (SIB2-287)
+
+- **Model.** `meta.page?: { margin?: {top,right,bottom,left}, staffSize?, systemGap? }`, **millimetres**, every field optional
+  and absent keeping the layout's own default (ADR-0028: no migration, `SCHEMA_VERSION` stays 4). A page with no field set is
+  removed, so a chart that never used it is byte-for-byte what it was.
+- **Layout** (`pageInputFromMeta` in `layout/src/page.ts`): the staff size is the page scale (`pointsPerUnit` = size in points
+  over the staff's 40 units), so everything scales with it, text included; margins and the system gap are converted through the
+  same scale and keep their physical size. `layout()` merges the score's setup *under* the caller's `PageSpecInput` (an explicit
+  `pointsPerUnit` or margin side wins, and margins then follow the caller's scale), so the server and the browser, both calling
+  `layout()` with the same input, still agree byte for byte. Paper stays a render choice.
+- **Surfaces.** `page.set` (flat `marginTop|Right|Bottom|Left`, `staffSize`, `systemGap`; null clears; tenths of a mm; ranges in
+  `PAGE_LIMITS_MM`), `sbscore page set`, the rail's Page setup panel (`PageSetupPanel.svelte`), a `page:` line in `show`.
+  Fixture `page-setup`.

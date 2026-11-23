@@ -11,6 +11,7 @@ import { fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart } from './
 import { clefsAndKeysChart, voiceCollisionsChart } from './staff-engraving-charts.js';
 import { clefChangeChart, fermatasStavesChart, ottavaStavesChart } from './staff-refinement-charts.js';
 import { instrumentNamesChart } from './instrument-names-chart.js';
+import { pageSetupChart } from './page-setup-chart.js';
 import { drumChart } from './drum-chart.js';
 import { staffFurnitureChart } from './staff-furniture-chart.js';
 import { navigationChart } from './navigation-chart.js';
@@ -71,4 +72,5 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'fermatas-staves': fermatasStavesChart,
   'clef-change': clefChangeChart,
   'instrument-names': instrumentNamesChart,
+  'page-setup': pageSetupChart,
 };

@@ -66,6 +66,7 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'voice.add': ['index'],
   'voice.rm': ['force'],
   'clef.set': ['clef'],
+  'page.set': ['marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'staffSize', 'systemGap'],
   'instrument.set': ['name', 'shortName', 'instrument', 'transposition'],
 };
 

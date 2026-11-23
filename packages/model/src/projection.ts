@@ -71,6 +71,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (score.meta.chordStyle !== undefined) lines.push(`  chord style: ${score.meta.chordStyle}`);
   if (score.meta.layout === 'score') lines.push('  layout: score (systems break by width)');
   if (score.meta.showInstrumentNames === true) lines.push('  instrument names: shown');
+  if (score.meta.page !== undefined) lines.push(`  page: ${pageText(score.meta.page)}`);
 
   // The wording lives in `review.ts`, not here, because the score rail says the same sentence
   // (V4b): the engraver draws no flag, so the chrome carries review state and must carry it in
@@ -156,6 +157,16 @@ function isStructured(score: Score): boolean {
         (staff) => staff.clef !== 'treble' || staff.type !== 'standard' || staff.bars.some((staffBar) => staffBar.clef !== undefined),
       ),
   );
+}
+
+/** `staff 7mm, margins top 15 left 20, system gap 6mm`: only what is set. */
+function pageText(page: NonNullable<Score['meta']['page']>): string {
+  const parts: string[] = [];
+  if (page.staffSize !== undefined) parts.push(`staff ${page.staffSize}mm`);
+  const sides = (['top', 'right', 'bottom', 'left'] as const).filter((side) => page.margin?.[side] !== undefined);
+  if (sides.length > 0) parts.push(`margins ${sides.map((side) => `${side} ${page.margin![side]}`).join(' ')}mm`);
+  if (page.systemGap !== undefined) parts.push(`system gap ${page.systemGap}mm`);
+  return parts.join(', ');
 }
 
 /** `s2.v1.`: the qualifier a verb takes to reach this staff and voice. */
