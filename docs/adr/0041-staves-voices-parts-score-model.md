@@ -426,3 +426,25 @@ Alternatives rejected:
   displaced seconds, accidental columns, ledger lines). PR 3: MusicXML `<chord/>` both ways, replacing the
   "chord tones are dropped with a warning" lossy case. PR 4: the NoteEvents piano importer. PR 5: the browser editor.
   Until PR 2 lands the engraver draws only the carrying note's pitch.
+
+**PR 2 as built (SIB2-246): layout and the engraver.**
+
+- **Layout** hands the engraver one `NoteItem` per chord with `tones?: ToneItem[]` (the other pitches, each with its id, the
+  accidental glyph resolved against the key and the bar, its display and its own tie role); a lone note has no `tones` key, so
+  every single-note chart lays out as it did. Accidentals are resolved low to high within the chord. Ties pair **per pitch**
+  (`planTies`): a pitch pairs with a later pitch of the same sound and a tie names the pitch's own id; lone notes pair as before.
+  Staff ink (`staffInk`) reaches from the highest head to the lowest, and the stem direction there matches the engraver's
+  (the head furthest from the middle line decides, a tie goes down). Bar width estimates add accidental columns (at most three)
+  and one notehead when two heads are a second apart.
+- **The engraver** (`engrave/src/chords.ts` is the pure geometry; `engraveChord`/`chordInk` in `engrave.ts` the ink): one stem
+  from the head at the far end to the head on the stem's side (`StemInput.attachPosition`), so beams and flags measure from the
+  stem-side head exactly as for a lone note; heads a second or unison apart cross the stem (walking from the stem's attached end,
+  the second met moves, and the next head is free again); accidentals go in columns left of the whole chord, nearest column
+  first, an accidental taking the nearest column where it is a seventh (six half spaces) clear of those already there; ledger
+  lines are one rule per line spanning every head that needs it; dots sit right of the rightmost head, one row per space; marks
+  go on the head side (the chord's far end from the stem) and fermatas over its highest head; each pitch registers its own tie
+  anchor, and its tie arcs up for the chord's upper half and down for the lower (`TieEnd.tieUp`).
+- **Not done here, and deliberate:** a stacked chord moves as a whole against another voice (each of its pitches counts in `noteShifts`, but the chord's own heads do not re-pack); clef-change
+  and percussion staves never stack (a note on a percussion staff refuses a stack).
+- Proofed with `pnpm proof stacked-chords` and `pnpm proof piano-chords` (new fixtures, committed snapshots); no existing
+  snapshot moved and the browser/server byte-identity test covers both new fixtures.

@@ -9,6 +9,8 @@ import { writtenPitch } from '@sibei/layout';
 import { restFor } from './rests.js';
 import { ledgerPositions, staffPosition } from './staff.js';
 import { dotsWidth, noteheadFor } from './stems.js';
+import { accidentalRoom, displacedHeads } from './chords.js';
+import type { ChordHead } from './chords.js';
 
 /**
  * Where each onset sits inside its bar box.
@@ -168,6 +170,20 @@ function cellFor(font: MusicFont, item: NoteItem | RestItem): Cell {
         (item.accidental === 'parens' ? parensWidth(font) : 0);
 
   const grace = graceLayout(font, item.graces ?? []);
+  if (item.tones !== undefined && item.tones.length > 0) {
+    // A stacked chord (SIB2-243): the accidentals stack in columns, and heads a second apart need a notehead more.
+    const heads = chordHeadsOf(item);
+    const room = accidentalRoom(font, heads);
+    const second = displacedHeads(heads.map((head) => head.position), 'up').some(Boolean);
+    return {
+      item,
+      leadIn: room + grace.width,
+      graceWidth: grace.width,
+      graceOffsets: grace.offsets,
+      rigid: room + grace.width + font.width(notehead) * (second ? 2 : 1) + dotsWidth(font, item.duration) + MIN_GAP,
+      wanted,
+    };
+  }
   return {
     item,
     leadIn: leadIn + grace.width,
@@ -199,9 +215,20 @@ export function musicLeft(font: MusicFont, bar: LayoutBar): number {
  */
 const LEDGER_GAP = units(0.25);
 
+/** A stacked chord's heads as the chord geometry wants them, the carrying note first (treble positions: only the gaps matter). */
+export function chordHeadsOf(item: NoteItem): ChordHead[] {
+  const at = (pitch: NoteItem['pitch']): number => staffPosition(writtenPitch(pitch, item.ottava));
+  return [
+    { position: at(item.pitch), alter: item.accidentalGlyph, display: item.accidental },
+    ...(item.tones ?? []).map((tone) => ({ position: at(tone.pitch), alter: tone.accidentalGlyph, display: tone.accidental })),
+  ];
+}
+
 function ledgerSet(item: NoteItem | RestItem): Set<number> {
   if (item.kind !== 'note') return new Set();
-  return new Set(ledgerPositions(staffPosition(writtenPitch(item.pitch, item.ottava))));
+  return new Set(
+    chordHeadsOf(item).flatMap((head) => ledgerPositions(head.position)),
+  );
 }
 
 function shareLedgerLine(a: Set<number>, b: Set<number>): boolean {

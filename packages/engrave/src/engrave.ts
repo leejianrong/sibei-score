@@ -11,7 +11,7 @@ import type {
   RestItem,
 } from '@sibei/layout';
 import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, NAV_BAND, writtenPitch } from '@sibei/layout';
-import type { Clef, Id, TimeSignature } from '@sibei/model';
+import type { AccidentalDisplay, Alter, Clef, Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks, headOf } from '@sibei/model';
 import { furnitureText } from './furniture.js';
 import type { BarlineJoin } from './barlines.js';
@@ -36,10 +36,12 @@ import {
 import { CLEF_CHANGE_SIZE, clef, clefWidth, keySignature, timeSignature } from './signatures.js';
 import type { PlacedItem } from './spacing.js';
 import { ACCIDENTAL_GAP, accidentalGlyph, placeAligned, placeItems } from './spacing.js';
-import { ledgerLines, positionY, staffLines, staffPosition, staffPositionIn } from './staff.js';
+import { MIDDLE_LINE, ledgerLines, ledgerPositions, positionY, staffLines, staffPosition, staffPositionIn } from './staff.js';
+import { accidentalRights, displacedHeads } from './chords.js';
 import type { Stem, StemDirection } from './stems.js';
 import {
   beamCount,
+  DOT_GAP,
   dotPositions,
   flagFor,
   flagOrigin,
@@ -526,6 +528,21 @@ interface EngravedNote {
   levels: number;
   /** Null for a whole note and for every rest. */
   stem: Stem | null;
+  /**
+   * Set only for a stacked chord (SIB2-243): every head with its own place, and the extremes. `position` is then the
+   * head on the stem's own side (what the stem end and a beam are measured from); `directionPosition` the head furthest
+   * from the middle line, which decides a beamed group's direction.
+   */
+  chord?: ChordInk;
+  directionPosition?: number;
+}
+
+/** A stacked chord's heads, settled. A head's `id` is the pitch's own (the carrying note's, or a stack member's). */
+interface ChordInk {
+  heads: { id: Id; position: number; x: number; alter: Alter | null; display: AccidentalDisplay; right: number | null }[];
+  /** The highest and lowest head, as staff positions (smaller is higher). */
+  top: number;
+  bottom: number;
 }
 
 /**
@@ -822,7 +839,8 @@ function engraveBar(
   const beamedIds = new Set<Id>();
   for (const group of groups) {
     const members: BeamMember[] = [];
-    const direction = forced ?? groupStemDirection(group.map((entry) => notes.get(entry)?.position ?? 0));
+    const direction =
+      forced ?? groupStemDirection(group.map((entry) => notes.get(entry)?.directionPosition ?? notes.get(entry)?.position ?? 0));
     const breaks = secondaryBreaks(group.map((entry) => entry.item.onset), time);
     for (const [at, entry] of group.entries()) {
       const rebuilt = engraveItem(font, entry, staveY, direction, where);
@@ -850,14 +868,18 @@ function engraveBar(
     if (note === undefined) continue;
     byItemId.set(entry.item.kind === 'note' ? entry.item.noteId : entry.item.restId, note);
     if (entry.item.kind === 'note') {
-      anchors.set(entry.item.noteId, {
-        x: note.x,
-        noteheadWidth: font.width(note.glyph),
-        y: positionY(note.position, staveY),
-        stem: note.stem?.direction ?? null,
-        stemTipY: note.stem?.endY ?? null,
-        stemX: note.stem?.centre ?? null,
-      });
+      // A stacked chord's every pitch is a place a tie or slur can name; a lone note is the one pitch.
+      for (const head of note.chord?.heads ?? [{ id: entry.item.noteId, position: note.position, x: note.x }]) {
+        anchors.set(head.id, {
+          x: head.x,
+          noteheadWidth: font.width(note.glyph),
+          y: positionY(head.position, staveY),
+          stem: note.stem?.direction ?? null,
+          stemTipY: note.stem?.endY ?? null,
+          stemX: note.stem?.centre ?? null,
+          ...(note.chord === undefined ? {} : { tieUp: tieArcsUp(note.chord, head.position, note.stem?.direction ?? null) }),
+        });
+      }
     }
     // A note or rest the recogniser was unsure of gets a stripe down its column (ADR-0019),
     // sized from the notehead's own box rather than a measurement (ADR-0015).
@@ -871,7 +893,8 @@ function engraveBar(
         ...articulations(font, {
           x: note.x,
           width: font.width(note.glyph),
-          y: positionY(note.position, staveY),
+          // The head marks sit on is the chord's far end from the stem: its lowest for an up stem, its highest for a down.
+          y: positionY(markedPosition(note), staveY),
           staveY,
           stem: note.stem?.direction ?? forced ?? stemDirection(note.position),
           marks: entry.item.articulations,
@@ -879,7 +902,7 @@ function engraveBar(
       );
     }
     if (entry.item.fermata === true) {
-      const headTop = positionY(note.position, staveY) - units(0.5);
+      const headTop = positionY(note.chord?.top ?? note.position, staveY) - units(0.5);
       const up = note.stem !== null && note.stem.direction === 'up';
       // Under the note, not across the staff from it, for a stem-down voice or a head below the bottom line (SIB2-233).
       const under = mode.lowFermatas === true && entry.item.kind === 'note' && (mode.stems === 'down' || note.position > 8);
@@ -1118,6 +1141,9 @@ function engraveItem(
     context.clef === 'treble' || context.drumKit
       ? staffPosition(writtenPitch(item.pitch, item.ottava))
       : staffPositionIn(writtenPitch(item.pitch, item.ottava), context.clef);
+  if (item.tones !== undefined && item.tones.length > 0 && !context.percussion) {
+    return engraveChord(font, entry, item, glyph, staveY, direction, context);
+  }
   return {
     item,
     x: entry.x,
@@ -1137,6 +1163,158 @@ function engraveItem(
   };
 }
 
+/** Which way one pitch's tie arcs: up for the upper half of a chord, down for the lower, away from the stem at the middle. */
+function tieArcsUp(chord: ChordInk, position: number, stem: StemDirection | null): boolean {
+  const middle = (chord.top + chord.bottom) / 2;
+  if (position !== middle) return position < middle;
+  return (stem ?? 'down') === 'down';
+}
+
+/** The position marks sit against: the chord's lowest head under an up stem, its highest under a down one. */
+function markedPosition(note: EngravedNote): number {
+  if (note.chord === undefined) return note.position;
+  return note.stem?.direction === 'down' ? note.chord.top : note.chord.bottom;
+}
+
+/**
+ * A stacked chord (SIB2-243): one stem from the head at the far end through to the head on the stem's side, a second
+ * moved across the stem, the accidentals set in columns. `entry.x` is the left of the chord's block; the stem-side
+ * column sits at it for an up stem and one head in for a down stem with a second, so the block's left edge is where
+ * layout (and the accidental room it reserved) expects it.
+ */
+function engraveChord(
+  font: MusicFont,
+  entry: PlacedItem,
+  item: NoteItem,
+  glyph: MusicGlyphName,
+  staveY: number,
+  direction: StemDirection | null,
+  context: ItemContext,
+): EngravedNote {
+  const positionOf = (pitch: NoteItem['pitch']): number =>
+    context.clef === 'treble' || context.drumKit
+      ? staffPosition(writtenPitch(pitch, item.ottava))
+      : staffPositionIn(writtenPitch(pitch, item.ottava), context.clef);
+  const members = [
+    { id: item.noteId, pitch: item.pitch, alter: item.accidentalGlyph, display: item.accidental },
+    ...(item.tones ?? []).map((tone) => ({ id: tone.toneId, pitch: tone.pitch, alter: tone.accidentalGlyph, display: tone.accidental })),
+  ];
+  const positions = members.map((member) => positionOf(member.pitch));
+  const top = Math.min(...positions);
+  const bottom = Math.max(...positions);
+  const directionPosition = positions.reduce((far, next) => (Math.abs(next - MIDDLE_LINE) > Math.abs(far - MIDDLE_LINE) ? next : far));
+  const dir = direction ?? groupStemDirection(positions);
+  const stemSide = dir === 'up' ? top : bottom;
+  const attach = dir === 'up' ? bottom : top;
+  const width = font.width(glyph);
+  const stemmed = hasStem(item.duration);
+  const displaced = displacedHeads(positions, stemmed ? dir : 'up');
+  const moved = displaced.some(Boolean);
+  const base = entry.x;
+
+  // The stem is placed first, at the column its own side of the chord takes, then the far-side head is set against it.
+  let normalX = base;
+  if (stemmed && dir === 'down' && moved) normalX = base + width - font.anchor(glyph, 'stemDownNW').x;
+  const stemShape = stemmed
+    ? stem(font, { notehead: glyph, direction: dir, noteX: normalX, position: stemSide, attachPosition: attach, staveY })
+    : null;
+  const displacedX = stemShape === null ? base + width : dir === 'up' ? stemShape.right : stemShape.left - width;
+  const headXs = displaced.map((far) => (far ? displacedX : normalX));
+  const left = Math.min(...headXs, entry.accidentalX ?? Number.POSITIVE_INFINITY);
+  const rights = accidentalRights(
+    font,
+    members.map((member, index) => ({ position: positions[index] as number, alter: member.alter, display: member.display })),
+    left,
+  );
+  return {
+    item,
+    x: normalX,
+    position: stemSide,
+    glyph,
+    levels: beamCount(item.duration),
+    stem: stemShape,
+    directionPosition,
+    chord: {
+      heads: members.map((member, index) => ({
+        id: member.id,
+        position: positions[index] as number,
+        x: headXs[index] as number,
+        alter: member.alter,
+        display: member.display,
+        right: rights[index] ?? null,
+      })),
+      top,
+      bottom,
+    },
+  };
+}
+
+/** The ink of a stacked chord: heads, ledger lines shared where heads share a line, accidentals, dots, stem and flag. */
+function chordInk(font: MusicFont, note: EngravedNote, chord: ChordInk, staveY: number, isBeamed: boolean): SvgElement[] {
+  const elements: SvgElement[] = [];
+  const width = font.width(note.glyph);
+
+  // One ledger line per line position, spanning every head that needs it.
+  const lines = new Set(chord.heads.flatMap((head) => ledgerPositions(head.position)));
+  for (const line of [...lines].sort((a, b) => a - b)) {
+    const xs = chord.heads.filter((head) => ledgerPositions(head.position).includes(line)).map((head) => head.x);
+    const from = Math.min(...xs) - font.ink.ledgerExtension;
+    const to = Math.max(...xs) + width + font.ink.ledgerExtension;
+    elements.push(
+      el('rect', {
+        class: 'se-ledgerline',
+        x: from,
+        y: positionY(line, staveY) - font.ink.ledgerLine / 2,
+        width: to - from,
+        height: font.ink.ledgerLine,
+        fill: '#000000',
+      }),
+    );
+  }
+
+  for (const head of chord.heads) {
+    const y = positionY(head.position, staveY);
+    if (head.alter !== null && head.right !== null) {
+      const glyph = accidentalGlyph(head.alter);
+      if (head.display === 'parens') {
+        const right = head.right - font.width('accidentalParensRight');
+        const glyphX = right - font.width(glyph);
+        elements.push(font.element('accidentalParensRight', right, y));
+        elements.push(font.element(glyph, glyphX, y));
+        elements.push(font.element('accidentalParensLeft', glyphX - font.width('accidentalParensLeft'), y));
+      } else {
+        elements.push(font.element(glyph, head.right - font.width(glyph), y));
+      }
+    }
+    elements.push(font.element(note.glyph, head.x, y));
+  }
+
+  // Dots sit right of the rightmost head, one row per space the heads occupy (two heads whose dots would land on the
+  // same space share it).
+  if (note.item.duration.dots > 0) {
+    const first = Math.max(...chord.heads.map((head) => head.x)) + width + DOT_GAP;
+    const advance = font.width('augmentationDot') + DOT_GAP;
+    const rows = new Set(chord.heads.map((head) => (head.position % 2 === 0 ? head.position - 1 : head.position)));
+    for (const row of [...rows].sort((a, b) => a - b)) {
+      for (let dot = 0; dot < note.item.duration.dots; dot += 1) {
+        elements.push(font.element('augmentationDot', first + dot * advance, positionY(row, staveY)));
+      }
+    }
+  }
+
+  if (note.stem !== null) {
+    elements.push(stemElement(note.stem));
+    if (!isBeamed) {
+      const flag = flagFor(note.item.duration, note.stem.direction);
+      if (flag !== null) {
+        const origin = flagOrigin(font, flag, note.stem);
+        elements.push(font.element(flag, origin.x, origin.y));
+      }
+    }
+  }
+  return elements;
+}
+
 /**
  * A voice-3 note on voice 1's stem (`stemMerges`): the head that does not own the stem draws none, and the owner's runs up
  * past the other head as well, so the two read as one chord (SIB2-233).
@@ -1154,6 +1332,7 @@ function noteInk(
   staveY: number,
   isBeamed: boolean,
 ): SvgElement[] {
+  if (note.chord !== undefined) return chordInk(font, note, note.chord, staveY, isBeamed);
   const elements: SvgElement[] = [];
   const y = positionY(note.position, staveY);
 

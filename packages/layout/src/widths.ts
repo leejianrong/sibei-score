@@ -1,5 +1,5 @@
 import type { Alter, BarView, Note, Score, Step } from '@sibei/model';
-import { keySignatureAccidentals } from '@sibei/model';
+import { STEPS, keySignatureAccidentals } from '@sibei/model';
 import { clefChangesAt } from './clefs.js';
 import type { PageSpec } from './page.js';
 import type { PlannedSystem } from './grid.js';
@@ -45,6 +45,30 @@ const CHORD_CHARACTER_WIDTH = 7;
 const CHORD_GAP = 14;
 
 /**
+ * What a stacked chord adds to a column (SIB2-243): an accidental column for the pitches that draw one (at most three
+ * side by side, which is where the engraver starts packing them back under each other) and one more notehead's width
+ * when two heads are a second apart (the head that moves to the other side of the stem). Zero for a lone note.
+ */
+function chordExtra(
+  item: Note,
+  keyAccidentals: ReadonlyMap<Step, Alter>,
+  head: number,
+  accidental: number,
+): number {
+  if (item.stack === undefined || item.stack.length === 0) return 0;
+  const tones = [item, ...item.stack];
+  const drawing = tones.filter(
+    (tone) => tone.accidental === 'show' || tone.accidental === 'parens' || (tone.accidental !== 'hide' && tone.pitch.alter !== (keyAccidentals.get(tone.pitch.step) ?? 0)),
+  ).length;
+  // The primary's own accidental is counted by the caller; the others add columns up to three in all.
+  const primary = tones[0] === item && (item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== (keyAccidentals.get(item.pitch.step) ?? 0)) ? 1 : 0;
+  const columns = Math.min(drawing, 3) - Math.min(primary, 1);
+  const degrees = tones.map((tone) => tone.pitch.octave * 7 + STEPS.indexOf(tone.pitch.step)).sort((a, b) => a - b);
+  const hasSecond = degrees.some((degree, at) => at > 0 && degree - (degrees[at - 1] as number) === 1);
+  return Math.max(columns, 0) * accidental + (hasSecond ? head : 0);
+}
+
+/**
  * How much of a bar's box its clef, key signature and time signature take up.
  *
  * Published on every `AllocatedBar` and carried into the layout contract, because an
@@ -80,7 +104,7 @@ export function estimateBarWidth(score: Score, bar: BarView, prefix: BarPrefix):
     }
     const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
     const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
-    notes += NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH + graceWidth(item, keyAccidentals, GRACE_WIDTH, ACCIDENTAL_WIDTH / 2);
+    notes += NOTE_WIDTH + (drawsAccidental ? ACCIDENTAL_WIDTH : 0) + item.duration.dots * DOT_WIDTH + graceWidth(item, keyAccidentals, GRACE_WIDTH, ACCIDENTAL_WIDTH / 2) + chordExtra(item, keyAccidentals, NOTE_WIDTH, ACCIDENTAL_WIDTH);
   }
 
   let chords = 0;
@@ -115,7 +139,7 @@ export function rigidBarWidth(score: Score, bar: BarView, prefix: BarPrefix): nu
     }
     const keyAlter = keyAccidentals.get(item.pitch.step) ?? 0;
     const drawsAccidental = item.accidental === 'show' || item.accidental === 'parens' || item.pitch.alter !== keyAlter;
-    width += RIGID_NOTE + (drawsAccidental ? RIGID_ACCIDENTAL : 0) + item.duration.dots * RIGID_DOT + graceWidth(item, keyAccidentals, RIGID_GRACE, RIGID_ACCIDENTAL / 2);
+    width += RIGID_NOTE + (drawsAccidental ? RIGID_ACCIDENTAL : 0) + item.duration.dots * RIGID_DOT + graceWidth(item, keyAccidentals, RIGID_GRACE, RIGID_ACCIDENTAL / 2) + chordExtra(item, keyAccidentals, RIGID_NOTE, RIGID_ACCIDENTAL);
   }
   return prefixWidth(score, prefix) + width;
 }
