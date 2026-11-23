@@ -1,9 +1,10 @@
-import { barViews } from './staves.js';
+import { allStaves, barViews, voiceIndexes, voiceSelects } from './staves.js';
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { formatBeat, orderedItems } from './address.js';
-import { barReview, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from './review.js';
+import { NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary, scoreBarReview } from './review.js';
 import type { BarView, BarItem, Confidence, Review, Score, Tempo, TimeSignature } from './score.js';
+import type { VoiceSelect } from './staves.js';
 
 /**
  * The agent-facing text projection (ADR-0009). A **contract**, not ad-hoc formatting: agents will
@@ -79,6 +80,9 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (!review.hasSections) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
   lines.push('');
 
+  const structured = isStructured(score);
+  lines.push(...(structured ? structureLines(score) : []));
+
   const pickup = barViews(score).find((bar) => bar.number === 0);
   if (pickup !== undefined) {
     // A pickup sits outside the four-bar grid, the same way it does on the page (ADR-0015).
@@ -91,6 +95,8 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   }
 
   if (grid.length === 0 && pickup === undefined) lines.push('  (no bars)');
+
+  lines.push(...otherVoiceLines(score));
 
   const slurs = slurLines(score);
   if (slurs.length > 0) lines.push('', ...slurs);
@@ -107,10 +113,13 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
 function slurLines(score: Score): string[] {
   const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur' || spanner.kind === 'ottava');
   if (spanners.length === 0) return [];
+  const multi = voiceSelects(score).length > 1;
   const addressOf = (id: string): string => {
-    for (const bar of barViews(score)) {
-      const at = orderedItems(bar).findIndex((item) => item.id === id);
-      if (at >= 0) return `bar${bar.number}.n${at + 1}`;
+    for (const pick of voiceSelects(score)) {
+      for (const bar of barViews(score, pick)) {
+        const at = orderedItems(bar).findIndex((item) => item.id === id);
+        if (at >= 0) return `${multi ? qualifierOf(score, pick) : ''}bar${bar.number}.n${at + 1}`;
+      }
     }
     return id;
   };
@@ -120,6 +129,76 @@ function slurLines(score: Score): string[] {
         `ottava  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)} ${slur.octaveShift === 'down' ? '8vb' : '8va'} ${slur.id}`
       : `slur  ${addressOf(slur.startId)} -> ${addressOf(slur.endId)}${slur.placement === undefined ? '' : ` ${slur.placement}`} ${slur.id}`,
   );
+}
+
+/**
+ * Whether the score has more than the lead-sheet shape (ADR-0041): several staves or voices, or a part, clef or
+ * staff type that says something. A one-staff, one-voice default chart prints exactly what it always did.
+ */
+function isStructured(score: Score): boolean {
+  if (voiceSelects(score).length > 1) return true;
+  return score.parts.some(
+    (part) =>
+      part.name !== '' ||
+      part.instrument !== null ||
+      part.transposition !== 0 ||
+      part.staves.some(
+        (staff) => staff.clef !== 'treble' || staff.type !== 'standard' || staff.bars.some((staffBar) => staffBar.clef !== undefined),
+      ),
+  );
+}
+
+/** `s2.v1.`: the qualifier a verb takes to reach this staff and voice. */
+function qualifierOf(score: Score, select: VoiceSelect): string {
+  const staff = allStaves(score).findIndex((candidate) => candidate.id === select.staff) + 1;
+  return `s${staff}.v${select.voice ?? 1}.`;
+}
+
+/**
+ * The parts, staves and voices, printed once above the rows (SIB2-226), with the labels `part rm`, `staff rm`,
+ * `voice rm`, `clef set` and an address qualifier take:
+ *
+ *     part p1 "Piano" gm0
+ *       s1 treble  v1 v2
+ *       s2 bass  v1  bar5 treble
+ */
+function structureLines(score: Score): string[] {
+  const lines: string[] = [];
+  let number = 0;
+  score.parts.forEach((part, at) => {
+    const facts = [`p${at + 1}`, part.name === '' ? null : JSON.stringify(part.name), part.instrument === null ? null : `gm${part.instrument}`, part.transposition === 0 ? null : `transposition ${part.transposition > 0 ? '+' : ''}${part.transposition}`];
+    lines.push(`  part ${facts.filter((fact) => fact !== null).join(' ')}`);
+    for (const staff of part.staves) {
+      number += 1;
+      const changes = score.bars
+        .map((bar) => ({ bar, clef: staff.bars.find((staffBar) => staffBar.barId === bar.id)?.clef }))
+        .filter((change) => change.clef !== undefined)
+        .map((change) => `bar${change.bar.number} ${change.clef}`);
+      const type = staff.type === 'standard' ? '' : ` ${staff.type}`;
+      const voices = voiceIndexes(staff).map((voice) => `v${voice}`).join(' ');
+      lines.push(`    s${number} ${staff.clef}${type}  ${voices}${changes.length === 0 ? '' : `  ${changes.join(', ')}`}`);
+    }
+  });
+  if (voiceSelects(score).length > 1) {
+    lines.push('  rows below are s1.v1; address the rest as s2.v1.bar3.n2 (staff, voice, bar, item)');
+  }
+  return lines;
+}
+
+/** Every staff and voice after the first: its notes and rests by bar, under the qualifier that reaches them. */
+function otherVoiceLines(score: Score): string[] {
+  const lines: string[] = [];
+  for (const pick of voiceSelects(score).slice(1)) {
+    const body: string[] = [];
+    for (const bar of barViews(score, pick)) {
+      const melody = melodyLine(bar, score.meta.time, false);
+      if (melody !== null) body.push(`   ${melody}`);
+      const graces = graceLine(bar);
+      if (graces !== null) body.push(`   ${graces}`);
+    }
+    lines.push('', `${qualifierOf(score, pick).slice(0, -1)}${body.length === 0 ? '  (empty)' : ''}`, ...body);
+  }
+  return lines;
 }
 
 function header(score: Score): string {
@@ -145,7 +224,7 @@ function rowFor(bars: BarView[], score: Score, label?: string): string[] {
   const lines = [`${gutter.padStart(2)} ${chordLine(bars, score.meta.time)}`];
 
   for (const bar of bars) {
-    const melody = melodyLine(bar, score.meta.time);
+    const melody = melodyLine(bar, score.meta.time, scoreBarReview(score, bar).flagged);
     // An empty bar prints no melody line. The chord grid above already shows that it exists, and a
     // blank 32-bar chart would otherwise be 32 lines of nothing — which is the opposite of compact.
     if (melody !== null) lines.push(`   ${melody}`);
@@ -238,14 +317,14 @@ function graceLine(bar: BarView): string | null {
 }
 
 /** `bar2  n1 gb5/2  n2 f5/4 !`, or null when the bar holds nothing. */
-function melodyLine(bar: BarView, time: TimeSignature): string | null {
+function melodyLine(bar: BarView, time: TimeSignature, flagged: boolean): string | null {
   const items = orderedItems(bar);
   if (items.length === 0) return null;
 
   // `barReview`, not `bar.review`: the `!` and the header's count line must be the same fact, and
   // reading the stored flag here made them two (KAN-597). The chord and item `!` below stay stored,
   // because nothing can derive a chord's `unparsed-chord` or a note's `low-confidence`.
-  const label = `bar${bar.number}${barReview(bar, time).flagged ? '!' : ''}`;
+  const label = `bar${bar.number}${flagged ? '!' : ''}`;
   const parts = items.map((item, index) => `n${index + 1} ${describe(item, bar)}`);
   return `${label.padEnd(7)}${parts.join('  ')}`;
 }
@@ -300,6 +379,13 @@ function value(item: BarItem): string {
  * is how an agent learns the address forms, so it is worth being concrete.
  */
 function legend(score: Score): string[] {
+  if (voiceSelects(score).length > 1) {
+    return [
+      'Address: s1.v1.bar1.n2  or  s1.v1.bar1.beat2  or  an id like note-17  (staff, voice, bar, item)',
+      'A bare bar1.n2 is an error here, listing the staves and voices it could mean. Chords and text need no qualifier.',
+      'Onsets only: a beat with nothing on it is an error listing the bar’s real onsets.',
+    ];
+  }
   for (const bar of barViews(score)) {
     const items = orderedItems(bar);
     const second = items[1] ?? items[0];

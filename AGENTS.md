@@ -96,6 +96,7 @@ title/composer OCR (Q37 — V13 added the OCR pipeline, but it still needs a `Sc
 flag a low-confidence title). V13's chord-band OCR and stage-3 beat mapping are **done**. Don't assume a
 module exists because a plan mentions it.
 
+**ADR-0041 slice 2 (SIB2-226) adds staves and voices to the write path:** ops `part.add|rm`, `staff.add|rm`, `voice.add|rm`, `clef.set`, `instrument.set` (`api/src/ops/structure-ops.ts`; removing anything holding notation needs `force`), the staff and voice carried **in the address** (`s2.bar12.beat3`, `s2.v2.bar12.n3`; a bare address is an error listing the candidates once the score has more than one staff or voice), per-voice metric validity, the `sbscore part|staff|voice|clef|instrument` verbs and `--staff/--voice` sugar. Layout and the engraver still draw staff 1 voice 1 only (slices 3-4) and the browser still edits it (slice 5). See ADR-0041 "As built: slice 2".
 **v0.3 (the bespoke recogniser, ADR-0031) is under way — V15, V16 and V17a–V17e have landed; the default
 stays `oemer` until V17f scores oemer's widened-corpus baseline and re-decides the swap — and V17e found
 that a Stage 2b crop-alignment gap needs closing first (below).** V16 built the

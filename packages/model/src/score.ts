@@ -269,13 +269,19 @@ export interface Voice {
 export interface StaffBar {
   barId: Id;
   voices: Voice[];
+  /**
+   * A clef change at the start of this bar (`clef set s2.bar5`, ADR-0041 section 1): from here the staff reads in
+   * this clef until the next change. Optional-and-absent, so no stored document changes (ADR-0028); the staff's own
+   * `clef` is the opening one.
+   */
+  clef?: Clef;
 }
 
 export type StaffType = 'standard' | 'percussion' | 'tab';
 
 export type Clef = 'treble' | 'bass' | 'alto' | 'tenor' | 'percussion';
 
-/** `clef` is the staff's opening clef; a per-bar change is a later slice. Nothing draws it yet: every staff is treble. */
+/** `clef` is the staff's opening clef; a change at a bar is `StaffBar.clef`. Nothing draws either yet: every staff is treble. */
 export interface Staff {
   id: Id;
   type: StaffType;

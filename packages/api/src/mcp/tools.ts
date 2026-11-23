@@ -130,7 +130,9 @@ const OPERATIONS_SCHEMA = {
     'The operations to apply, in order, as one all-or-nothing batch (one undo undoes the batch). ' +
     'Each is `{ type, target?, payload? }`. `target` is an address printed by read_score: `bar3.beat2` a beat ' +
     '(where note.add and chord.set land; a beat with nothing on it is refused, listing the real onsets), `bar3.n2` ' +
-    'the second item of bar 3, `note-17` a stable id, and a bare `bar3` for the whole-bar operations (section, barline, ending).',
+    'the second item of bar 3, `note-17` a stable id, and a bare `bar3` for the whole-bar operations (section, barline, ending). A score with several staves or voices ' +
+    'needs `s2.bar3.n2` (staff 2) or `s2.v2.bar3.n2` (staff 2, voice 2); a bare address is then refused with the candidates ' +
+    'listed. Structure: part.add, part.rm (`p2`), staff.add, staff.rm (`s2`), voice.add, voice.rm (`s2.v2`), clef.set (`s2`, `s2.bar5`), instrument.set.',
   items: {
     type: 'object',
     required: ['type'],
