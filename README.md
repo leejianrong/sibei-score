@@ -142,7 +142,7 @@ A few more states below; the full set — including the handwritten face and a 5
 | The library | Editing a note |
 |---|---|
 | [<img src="screenshots/library.png" alt="The library view: a searchable list of charts with title, composer, key and version" width="420">](screenshots/library.png) | [<img src="screenshots/inspector.png" alt="A note selected on the sheet, with an inspector for pitch, duration and accidental in the rail" width="420">](screenshots/inspector.png) |
-| Search by title, composer or key. New charts come from the CLI. | Click a note; edit pitch, duration and accidental. Every edit is an op through the same API the CLI uses. |
+| Search by title, composer or key. Start a new chart from the browser or the CLI. | Click a note; edit pitch, duration and accidental. Every edit is an op through the same API the CLI uses. |
 
 The handwritten **jazz** face (Petaluma) is one control away from the engraved default:
 
