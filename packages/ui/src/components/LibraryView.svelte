@@ -33,7 +33,7 @@
   import { getMe } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { rememberReturn } from '../lib/session.js';
-  import { displayKey, relativeTime } from '../lib/format.js';
+  import { displayId, displayKey, relativeTime } from '../lib/format.js';
   import { AUDIO, hashOf } from '../lib/routing.js';
   import {
     chartId,
@@ -56,6 +56,25 @@
   let failure = $state<'offline' | 'signed-out' | 'error' | null>(null);
   let message = $state('');
   let query = $state('');
+  // Sort order (SIB2-271), remembered per browser: most recently edited first, or A to Z by title.
+  const SORT_KEY = 'sibei.librarySort';
+  type Sort = 'recent' | 'title';
+  function storedSort(): Sort {
+    try {
+      return window.localStorage.getItem(SORT_KEY) === 'title' ? 'title' : 'recent';
+    } catch {
+      return 'recent';
+    }
+  }
+  let sort = $state<Sort>(storedSort());
+  function chooseSort(next: Sort): void {
+    sort = next;
+    try {
+      window.localStorage.setItem(SORT_KEY, next);
+    } catch {
+      // storage can be blocked; the choice then lasts the session
+    }
+  }
 
   // The lifecycle actions (V8c). `confirmingId` is the one row asking to confirm a delete — delete
   // destroys the op log and cannot be undone (ADR-0003), so it asks first. `busyId` disables a row
@@ -87,7 +106,7 @@
   /** How often the browser polls the durable job while it runs (ADR-0001). */
   const IMPORT_POLL_MS = 800;
 
-  const shown = $derived(filtered(charts ?? [], query));
+  const shown = $derived(sorted(filtered(charts ?? [], query), sort));
 
   function rememberHere(): void {
     try {
@@ -109,6 +128,16 @@
       message = error instanceof Error ? error.message : String(error);
       onReachable(false);
     }
+  }
+
+  function sorted(rows: ScoreListing[], by: Sort): ScoreListing[] {
+    const copy = [...rows];
+    if (by === 'title') {
+      // Untitled charts sort last, under the word the list shows for them.
+      const name = (chart: ScoreListing): string => (chart.title === '' ? '\uffff' : chart.title.toLowerCase());
+      return copy.sort((a, b) => name(a).localeCompare(name(b)));
+    }
+    return copy.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   /** Title, composer or key. A key matches on prefix so `E` finds `Eb` and `Ebm`. */
@@ -285,7 +314,8 @@
   </form>
   <p class="nc-alt">
     or <button class="linklike" type="button" onclick={openSample} disabled={creatingBusy}>open a sample chart</button>
-    (a twelve-bar blues you can edit and delete). In a terminal: <code>{NEW_CHART_COMMAND}</code>
+    (a twelve-bar blues you can edit and delete).{#if charts !== null && charts.length === 0}
+      In a terminal: <code>{NEW_CHART_COMMAND}</code>{/if}
   </p>
 {/snippet}
 
@@ -428,6 +458,13 @@
       {#if query !== ''}
         <button class="search-clear" onclick={() => (query = '')}>Clear</button>
       {/if}
+      <label class="sort">
+        <span>Sort</span>
+        <select aria-label="Sort charts" value={sort} onchange={(event) => chooseSort(event.currentTarget.value === 'title' ? 'title' : 'recent')}>
+          <option value="recent">Recently edited</option>
+          <option value="title">Title</option>
+        </select>
+      </label>
     </div>
 
     {#if actionError !== null}
@@ -441,7 +478,7 @@
             <span class="row-name">
               {#if chart.title === ''}
                 <span><em>{UNTITLED}</em></span>
-                <span class="row-id">{chart.id}</span>
+                <span class="row-id" title={chart.id}>{displayId(chart.id)}</span>
               {:else}
                 <span>{chart.title}</span>
               {/if}
@@ -506,10 +543,6 @@
       </div>
     {/if}
 
-    <div class="lib-foot">
-      <span>Or author a chart in the terminal.</span>
-      <code>{NEW_CHART_COMMAND}</code>
-    </div>
   {/if}
 </section>
 
@@ -776,6 +809,28 @@
     outline: none;
   }
 
+  .sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .sort select {
+    font: inherit;
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: 12px;
+    color: var(--ink-soft);
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 3px 6px;
+  }
+
   .search-clear {
     background: none;
     border: 0;
@@ -1039,26 +1094,6 @@
     .act {
       transition: none;
     }
-  }
-
-  .lib-foot {
-    margin-top: 42px;
-    padding-top: 16px;
-    border-top: 1px solid var(--rule-soft);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 6px 14px;
-    font-size: 11.5px;
-    color: var(--ink-faint);
-    letter-spacing: 0.03em;
-  }
-  .lib-foot code {
-    font-family: var(--mono);
-    color: var(--ink-soft);
-    background: var(--panel-2);
-    border: 1px solid var(--rule-soft);
-    padding: 3px 8px;
   }
 
   @media (max-width: 900px) {
