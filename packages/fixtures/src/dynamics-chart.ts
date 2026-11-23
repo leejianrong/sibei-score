@@ -13,6 +13,7 @@ import type { BarSpec } from './builder.js';
  * - bar 4 into bar 5: a crescendo that **crosses the system break**, so it draws as two halves
  * - bar 5: sfz and fp, the two marks that are not a plain level
  * - bar 6: stems-up low notes with a dynamic, under an 8vb line, so the row sits below the ottava
+ * - bar 5 also has a slur forced below, over the sfz and fp, to see a below-slur against the row
  * - bar 7: a slur over notes that carry dynamics
  * - bar 8: ppp, rfz, sf and fff on eighth notes, the widest glyphs close together
  *
@@ -70,6 +71,7 @@ export function dynamicsChart(): Score {
     { id: 'hairpin-3', kind: 'hairpin', startId: at(4, 1), endId: at(5, 2), hairpin: 'crescendo' },
     { id: 'ottava-1', kind: 'ottava', startId: at(6, 1), endId: at(6, 4), octaveShift: 'down' },
     { id: 'slur-1', kind: 'slur', startId: at(7, 1), endId: at(7, 4) },
+    { id: 'slur-2', kind: 'slur', startId: at(5, 1), endId: at(5, 4), placement: 'below' },
   ];
   return score;
 }
