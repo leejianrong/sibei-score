@@ -2,6 +2,7 @@ import { allStaves, barViews, voiceIndexes, voiceSelects } from './staves.js';
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { formatBeat, orderedItems } from './address.js';
+import { chordTones, isStackedChord } from './chord-notes.js';
 import { NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary, scoreBarReview } from './review.js';
 import type { BarView, BarItem, Confidence, Review, Score, Tempo, TimeSignature } from './score.js';
 import type { VoiceSelect } from './staves.js';
@@ -348,6 +349,21 @@ function describe(item: BarItem, bar: BarView): string {
   const closes = tie === 'start' || tie === 'both';
 
   // A drum note prints its drum (`snare/8`), since its pitch is only where it is written (slice 6).
+  // A stacked chord prints its pitches low to high in brackets, each carrying its own tie (`[c4 ~e4~ g4]/4`); the
+  // pitch is the address suffix `bar1.n2.E4` takes (SIB2-243). A lone note prints exactly as it always did.
+  if (item.kind === 'note' && isStackedChord(item)) {
+    const tones = chordTones(item).map((tone) => {
+      const lead = tone.tie === 'stop' || tone.tie === 'both' ? '~' : '';
+      const trail = tone.tie === 'start' || tone.tie === 'both' ? '~' : '';
+      return `${lead}${formatPitch(tone.pitch).toLowerCase()}${trail}`;
+    });
+    const stacked = tupletOf(item.id, bar);
+    const stackRatio =
+      stacked === null ? '' : stacked.actual === 3 && stacked.normal === 2 ? '(3)' : `(${stacked.actual}:${stacked.normal})`;
+    const stackFlag = flagSuffix(item.review, item.confidence);
+    const stackMarks = (item.articulations ?? []).map((mark) => `:${ARTICULATION_SHORT[mark]}`).join('');
+    return `[${tones.join(' ')}]/${value(item)}${stackRatio}${stackMarks}${item.fermata === true ? '^' : ''}${stackFlag === '' ? '' : ` ${stackFlag}`}`;
+  }
   const body = item.kind === 'note' ? (item.drum ?? formatPitch(item.pitch).toLowerCase()) : 'r';
   const tuplet = tupletOf(item.id, bar);
   const ratio =
