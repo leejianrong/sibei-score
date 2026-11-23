@@ -6,7 +6,9 @@ import {
   barView,
   beatOfOnset,
   keyFifths,
+  chordTones,
   notesInReadingOrder,
+  pitchToMidi,
   notesOf,
   sectionStartingAt,
   tupletOf,
@@ -566,25 +568,40 @@ function planTies(notes: readonly Note[], systemOfNote: Map<Id, number>): Map<nu
     else list.push(tie);
   };
 
-  let pending: Id | null = null;
+  // A stacked chord (SIB2-243) ties per pitch: each of its pitches pairs with a later pitch of the same sound, and a tie
+  // names the pitch's own id. A lone note is one pitch with no sound to match, which pairs with the next lone note's
+  // close exactly as it always did, so a chart without chords plans the same ties.
+  interface Open {
+    id: Id;
+    owner: Id;
+    midi: number | null;
+  }
+  let pending: Open[] = [];
   for (const note of notes) {
-    const closes = note.tie === 'stop' || note.tie === 'both';
-    const opens = note.tie === 'start' || note.tie === 'both';
-
-    if (closes && pending !== null) {
-      const from = systemOfNote.get(pending);
+    const stacked = note.stack !== undefined && note.stack.length > 0;
+    const tones = stacked
+      ? chordTones(note).map((tone) => ({ id: tone.id, tie: tone.tie, midi: pitchToMidi(tone.pitch) as number | null }))
+      : [{ id: note.id, tie: note.tie, midi: null as number | null }];
+    const closed = new Set<Open>();
+    for (const tone of tones) {
+      if (tone.tie !== 'stop' && tone.tie !== 'both') continue;
+      const open = pending.find((candidate) => !closed.has(candidate) && (candidate.midi === null || tone.midi === null || candidate.midi === tone.midi));
+      if (open === undefined) continue;
+      closed.add(open);
+      const from = systemOfNote.get(open.owner);
       const to = systemOfNote.get(note.id);
-      if (from !== undefined && to !== undefined) {
-        if (from === to) {
-          push(from, { fromNoteId: pending, toNoteId: note.id });
-        } else {
-          push(from, { fromNoteId: pending, toNoteId: null });
-          push(to, { fromNoteId: null, toNoteId: note.id });
-        }
+      if (from === undefined || to === undefined) continue;
+      if (from === to) push(from, { fromNoteId: open.id, toNoteId: tone.id });
+      else {
+        push(from, { fromNoteId: open.id, toNoteId: null });
+        push(to, { fromNoteId: null, toNoteId: tone.id });
       }
-      pending = null;
     }
-    if (opens) pending = note.id;
+    pending = pending.filter((candidate) => !closed.has(candidate));
+    const opens = tones.filter((tone) => tone.tie === 'start' || tone.tie === 'both');
+    // A lone note's new open replaces what an earlier lone note left dangling, as the single pending slot always did.
+    if (!stacked && opens.length > 0) pending = pending.filter((candidate) => candidate.midi !== null);
+    for (const tone of opens) pending.push({ id: tone.id, owner: note.id, midi: tone.midi });
   }
 
   // A dangling tie start has nothing to tie to. It is a defect in the score, not

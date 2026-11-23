@@ -79,6 +79,18 @@ export interface GraceItem {
   accidentalGlyph: Alter | null;
 }
 
+/**
+ * One more pitch of a stacked chord (SIB2-243, ADR-0041 "As built: stacked chords"): drawn as a head on the carrying
+ * note's stem. It carries what is per-pitch: its id (a tie names it), pitch, the accidental to draw and its tie role.
+ */
+export interface ToneItem {
+  toneId: Id;
+  pitch: Pitch;
+  accidental: AccidentalDisplay;
+  accidentalGlyph: Alter | null;
+  tie: TieRole;
+}
+
 export interface NoteItem {
   kind: 'note';
   noteId: Id;
@@ -114,6 +126,11 @@ export interface NoteItem {
   articulations?: Articulation[];
   /** Grace notes before this note, in reading order (SIB2-185). */
   graces?: GraceItem[];
+  /**
+   * The other pitches of a stacked chord, in the order the model stores them (SIB2-243); `pitch` is one member of
+   * the chord too. Absent on a lone note, so every single-note chart's items are exactly what they were.
+   */
+  tones?: ToneItem[];
   /** The drum this note strikes on a percussion staff (slice 6): `pitch` is then where it is written. */
   drum?: DrumId;
   /** A notehead other than the drum's own. */

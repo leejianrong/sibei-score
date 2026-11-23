@@ -120,6 +120,12 @@ export interface StemInput {
   /** The note's staff position, in half spaces below the top line. */
   position: number;
   staveY: number;
+  /**
+   * A stacked chord's stem hangs from the head at the other end of the chord (SIB2-243): the lowest for an up stem,
+   * the highest for a down one, while its free end is measured from `position`, the head on the stem's own side.
+   * Absent for a lone note, where both are the one head.
+   */
+  attachPosition?: number;
 }
 
 /**
@@ -133,6 +139,7 @@ export interface StemInput {
  */
 export function stem(font: MusicFont, input: StemInput): Stem {
   const noteY = positionY(input.position, input.staveY);
+  const attachNoteY = positionY(input.attachPosition ?? input.position, input.staveY);
   const middleY = positionY(MIDDLE_LINE, input.staveY);
   const thickness = font.ink.stem;
 
@@ -144,7 +151,7 @@ export function stem(font: MusicFont, input: StemInput): Stem {
       left: right - thickness,
       right,
       centre: right - thickness / 2,
-      attachY: noteY + point.y,
+      attachY: attachNoteY + point.y,
       // A note below the staff keeps its stem reaching the middle line.
       endY: Math.min(noteY - STANDARD_STEM, middleY),
       thickness,
@@ -158,7 +165,7 @@ export function stem(font: MusicFont, input: StemInput): Stem {
     left,
     right: left + thickness,
     centre: left + thickness / 2,
-    attachY: noteY + point.y,
+    attachY: attachNoteY + point.y,
     endY: Math.max(noteY + STANDARD_STEM, middleY),
     thickness,
   };

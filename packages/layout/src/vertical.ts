@@ -128,12 +128,17 @@ export function staffInk(
       if (item.fermata === true && item.kind === 'rest') inkAbove = Math.max(inkAbove, FERMATA_BASE + FERMATA_HEIGHT);
       if (item.kind !== 'note') continue;
       const shift = shifts?.get(item.id);
-      const index = diatonic(item.pitch) + (shift === undefined ? 0 : shift === 'up' ? -7 : 7);
-      // A numbered voice's stems are fixed (up for 1 and 3, down for 2 and 4), whatever the pitch (slice 4).
+      const shiftBy = shift === undefined ? 0 : shift === 'up' ? -7 : 7;
+      // A stacked chord (SIB2-243) reaches as high as its highest head and as low as its lowest; a lone note is both.
+      const indexes = [item.pitch, ...(item.stack ?? []).map((tone) => tone.pitch)].map((pitch) => diatonic(pitch) + shiftBy);
+      const highest = Math.max(...indexes);
+      const lowest = Math.min(...indexes);
+      // A numbered voice's stems are fixed (up for 1 and 3, down for 2 and 4), whatever the pitch (slice 4). Otherwise
+      // the head furthest from the middle line decides, and a tie goes down (the engraver's `groupStemDirection`).
       const forced = stems?.get(item.id);
-      const stemUp = forced === undefined ? index < MIDDLE_LINE : forced === 'up';
-      const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
-      const below = (BOTTOM_LINE - index) * STEP_UNITS + NOTEHEAD_UNITS;
+      const stemUp = forced === undefined ? MIDDLE_LINE - lowest > highest - MIDDLE_LINE : forced === 'up';
+      const above = (highest - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
+      const below = (BOTTOM_LINE - lowest) * STEP_UNITS + NOTEHEAD_UNITS;
       inkAbove = Math.max(inkAbove, above + (stemUp ? STEM_UNITS : 0));
       // Marks sit on the notehead side, away from the stem, and each takes a band of room (SIB2-179).
       if (item.articulations !== undefined && item.articulations.length > 0) {

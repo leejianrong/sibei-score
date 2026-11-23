@@ -5,6 +5,7 @@ export * from './builder.js';
 export * from './crowded-chords-chart.js';
 export * from './dense-spacing-chart.js';
 export * from './grace-notes-chart.js';
+export * from './stacked-chords-charts.js';
 export * from './long-form-chart.js';
 export * from './multi-staff-charts.js';
 export * from './drum-chart.js';

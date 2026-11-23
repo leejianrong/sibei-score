@@ -33,6 +33,17 @@ export function noteAndRestItems(score: Score, bar: BarView, shifts: Map<Id, 'up
         accidental: item.accidental,
         // A drum has no accidental: its pitch is only where it is written.
         accidentalGlyph: item.drum === undefined ? (accidentals.get(item.id) ?? null) : null,
+        ...(item.stack === undefined || item.stack.length === 0
+          ? {}
+          : {
+              tones: item.stack.map((tone) => ({
+                toneId: tone.id,
+                pitch: tone.pitch,
+                accidental: tone.accidental,
+                accidentalGlyph: accidentals.get(tone.id) ?? null,
+                tie: tone.tie,
+              })),
+            }),
         tie: item.tie,
         tupletId: tuplet === null ? null : tuplet.id,
         flagged: item.review.flagged,

@@ -3,6 +3,7 @@ import { beamRules34Chart, beamRules68Chart, beamRulesChart, beamRulesCutChart }
 import { crowdedChordsChart } from './crowded-chords-chart.js';
 import { denseSpacingChart } from './dense-spacing-chart.js';
 import { graceNotesChart } from './grace-notes-chart.js';
+import { pianoChordsChart, stackedChordsChart } from './stacked-chords-charts.js';
 import { aabaChart } from './aaba-chart.js';
 import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
@@ -48,6 +49,8 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   marks: marksChart,
   articulations: articulationsChart,
   'grace-notes': graceNotesChart,
+  'stacked-chords': stackedChordsChart,
+  'piano-chords': pianoChordsChart,
   'title-block': titleBlockChart,
   'grand-staff': grandStaffChart,
   'two-voice': twoVoiceChart,
