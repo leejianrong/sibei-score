@@ -25,6 +25,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'note.rm': [],
   'note.move': ['to', 'ids'],
   'hand.move': ['from', 'to', 'first', 'last', 'below', 'above', 'ids'],
+  'range.paste': ['clip', 'ids'],
+  'range.clear': ['staff', 'first', 'last', 'harmony'],
   'rest.add': ['duration', 'id'],
   'rest.rm': [],
   'chord.set': ['text', 'spellingPinned', 'id'],
