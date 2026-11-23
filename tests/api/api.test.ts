@@ -337,7 +337,7 @@ describe('errors are machine-readable (ADR-0008)', () => {
 
   it('says which operation of a batch failed', async () => {
     await aChart();
-    const reply = await edit({ operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'C5')] });
+    const reply = await edit({ operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'Eb5')] });
     expect(reply.status).toBe(422);
     expect(reply.body.error).toMatchObject({ operation: 2 });
   });
@@ -396,7 +396,7 @@ describe('a batch is transactional over HTTP too (ADR-0008)', () => {
     const before = await call('GET', '/v1/scores/score-1');
 
     await edit({
-      operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'C5'), note('bar1.beat3', 'G5')],
+      operations: [note('bar1.beat2', 'F5'), note('bar1.beat1', 'Eb5'), note('bar1.beat3', 'G5')],
     });
 
     const after = await call('GET', '/v1/scores/score-1');

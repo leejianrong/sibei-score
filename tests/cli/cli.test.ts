@@ -453,7 +453,7 @@ describe('batch is a transactional op list (ADR-0008)', () => {
 
   it('applies none of it when one operation is invalid', async () => {
     await aChart();
-    await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'C5', '--dur', '4');
+    await sbscore('note', 'add', 'soul', 'bar1.beat1', '--pitch', 'C5', '--dur', '8');
     const before = (await sbscore('show', 'soul')).out;
 
     const result = await sbscore('batch', 'soul', '--ops', ops);
