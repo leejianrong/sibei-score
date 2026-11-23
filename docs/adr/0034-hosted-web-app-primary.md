@@ -352,3 +352,29 @@ metering is recorded only for a job that ends `succeeded`, after the import, so 
 not metered. The duration cross-check compares the document's `source.duration_s` with the worker's decoded
 duration and with the declared one, and only adds a `duration-mismatch` warning (tolerance: the larger of 1 s
 and 5%); it never rejects. The draft is score `audio-<jobId>`, so a redelivered `complete` lands one draft.
+
+### Amendment: several stems in one `complete` (SIB2-147)
+
+A separated multi-instrument job produces one NoteEvents per stem (the audio repo's ADR-0002). **Additive and backward
+compatible: a v1 worker that returns one document keeps working with no change.** `complete`'s `result` may carry the
+stems instead of one document:
+
+```json
+{ "leaseToken": "l_9c1...", "durationSeconds": 183.2,
+  "result": { "inline": { "stems": [ { "schema_version": 1, "instrument": "voice", "...": "NoteEvents v1" },
+                                      { "schema_version": 1, "instrument": "drums", "...": "NoteEvents v1" } ] } } }
+```
+
+or `"result": { "uploaded": true }` after `PUT`ting `{ "stems": [ ... ] }` to `resultUpload`. A NoteEvents v1 document has
+no `stems` key (its validator refuses unknown keys), so the two shapes cannot be confused, and a one-element
+`stems` is exactly the single-document case (same refusals, same draft). The wrapper object was chosen over a
+`results` array beside `inline` because the stored result, the upload and the import blob are all "one JSON object",
+which every existing size and shape check already handles. Limits: **at most 12 stems** (a longer list is
+`invalid-result`), and the whole document stays under the inline (8 MiB) and uploaded (32 MiB) caps. Every stem must carry the same
+`source.sha256` and the same `source.duration_s` (to 10 ms); a malformed stem, a differing hash or duration, or too many
+stems fails the whole job as `invalid-result` (non-retryable, result kept, **nothing committed, not metered**) with the
+stem index in the diagnostic (`stems[2].source.sha256 differs ...`). A stem with an instrument this build cannot
+notate (`guitar`, `other`) is **not** refused when it has company: it becomes a plain melody staff with a warning (the
+lone-document refusal of ADR-0040 decision 3 is unchanged). `durationSeconds` is metered **once per job**, however
+many stems it had; `scoreId` and the diagnostics are recorded as for one document. The draft is one multi-part score
+(ADR-0040 amendment "several stems").

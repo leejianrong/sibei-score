@@ -29,7 +29,7 @@ import type { NoteEvents } from './note-events.js';
 import { mapDrumEventsToScore } from './note-events-drums.js';
 import { mapPianoEventsToScore } from './note-events-piano.js';
 import { GRID_TICKS, quantizeNoteEvents } from './note-events-quantize.js';
-import type { QuantizedItem } from './note-events-quantize.js';
+import type { BarSpan, QuantizedItem, SharedGrid } from './note-events-quantize.js';
 import { SEMITONE_OF_STEP } from './pitch.js';
 import { spellPitchAt } from './spelling.js';
 import type { Bar, BarItem, Dots, Duration, Id, KeySignature, Mode, NoteValue, Review, Score, Step, Alter } from './score.js';
@@ -44,12 +44,18 @@ export interface NoteEventsMapOptions {
   composer?: string;
   /** Piano only: the MIDI pitch the hands pivot around when the split starts (default 60, middle C). */
   splitPoint?: number;
+  /** A multi-stem import: the beat grid (and bar span) shared by every stem (`note-events-stems.ts`). */
+  shared?: SharedGrid;
+  /** A multi-stem import: the one key every pitched stem is spelled in, instead of inferring its own. */
+  key?: KeySignature;
 }
 
 export interface NoteEventsDraft {
   score: Score;
   /** Human-readable notes for the import record: every warning, plus what was inferred. */
   diagnostics: string[];
+  /** The bars this stem's notes cover on the grid; absent for a document with no notes. Read by the combiner. */
+  span?: BarSpan;
 }
 
 export function mapNoteEventsToScore(events: NoteEvents, options: NoteEventsMapOptions): NoteEventsDraft {
@@ -57,8 +63,8 @@ export function mapNoteEventsToScore(events: NoteEvents, options: NoteEventsMapO
   if (events.instrument === 'drums') return mapDrumEventsToScore(events, options);
   // A piano is two hands and chords: the hand-splitting grand-staff mapper (SIB2-144).
   if (events.instrument === 'piano') return mapPianoEventsToScore(events, options);
-  const quantized = quantizeNoteEvents(events);
-  const key = inferKey(quantized.bars.flatMap((b) => b.items));
+  const quantized = quantizeNoteEvents(events, options.shared);
+  const key = options.key ?? inferKey(quantized.bars.flatMap((b) => b.items));
   const flaggedIds = flaggedSourceIds(events, quantized.warnings);
   const guessedBarring = quantized.warnings.some((w) => w.code === 'no-downbeats' || w.code === 'no-beat-grid');
 
@@ -119,7 +125,7 @@ export function mapNoteEventsToScore(events: NoteEvents, options: NoteEventsMapO
   if (quantized.bars.length > 0) {
     diagnostics.push(`inferred: ${keyName(key)}, ${quantized.time.beats}/${quantized.time.beatValue}, about ${quantized.tempoBpm} bpm`);
   }
-  return { score, diagnostics };
+  return { score, diagnostics, ...(quantized.span === undefined ? {} : { span: quantized.span }) };
 }
 
 function flag(): Review {

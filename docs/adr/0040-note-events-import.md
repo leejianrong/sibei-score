@@ -139,3 +139,30 @@ draft with its warnings.
   the draft. `sbscore reparse <id> --split-point N` (`POST /v1/scores/:id/reparse {splitPoint}`, and "Re-split hands" in the
   score view) writes a **new** draft from the stored document at another pivot, costs no recognition quota and needs no
   worker. `GET /v1/scores/:id/source` carries `kind: "note-events"` for such a draft.
+
+## Amendment (2026-11-24): several stems become one multi-part score (SIB2-147)
+
+The audio engine's separated mix is one NoteEvents per stem. `mapStemsToScore` (`packages/model/src/note-events-stems.ts`)
+imports them as **one score on one bar grid**; a lone document still goes to `mapNoteEventsToScore` unchanged. The
+transport (the worker's `complete`, the upload) is in ADR-0034's amendment; a set is `{ "stems": [...] }`, at most 12.
+
+- **One grid.** The beat grid comes from the stem with the best one: a usable grid (two or more beats) beats none, then
+  marked downbeats, then the most beats, then the instrument order drums, bass, piano, voice, other (with no grid
+  anywhere, the stem with the most notes). The origin, meter, tempo and pickup are inferred once from that grid and every
+  stem's first note, and handed to each stem's *own* mapper (melody quantizer, piano hand split, drum mapper) through
+  `options.shared`, so bar N is the same bar in every part. Every stem is cut to the union of the bars the stems cover; a
+  stem that starts late opens with rests, a stem with no notes is an empty part of whole-bar rests with a warning
+  (never an error). Bar 1 is flagged when the barring is a guess, once for the score.
+- **One key**, inferred over the pitched stems together (weighted by sounding time) and used to spell all of them.
+- **Parts in conventional order**, whatever the input order: voice, guitar, piano, other, bass, drums. Names `Voice`,
+  `Piano`, `Bass`, `Drums` (a second stem of one instrument is `Voice 2`), GM programs 54, 0, 33 and none (percussion).
+  Piano keeps its two staves and the hand-split warning; bass is on a bass clef; `meta.layout` is `score`. Item and staff
+  ids are made unique across parts.
+- **Refused whole:** stems that are not from one recording (a differing `source.sha256` or `duration_s`), more than 12,
+  or none. **Unsupported instruments** (`guitar`, `other`) in a set of two or more are kept as a plain melody staff
+  (chords collapse to one line) with an `unsupported-instrument` warning, because refusing the stem would discard the
+  band; the same document alone is still refused (decision 3).
+- **Diagnostics** are every stem's warnings, prefixed by the stem (`bass: low_confidence: ...`), the grid's own
+  warnings once, and one `inferred:` line; review flags (low confidence) survive on the notes.
+- Built and scored against **synthetic** stems only (`packages/synth/src/note-events-stems.ts`: the `fullBandChart`
+  fixture rendered as lead, piano, bass and drums, one tempo, one hash), because the engine has no multi-stem producer yet.

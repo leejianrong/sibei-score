@@ -26,7 +26,8 @@ import { drumById, drumOfNoteEvent } from './drums.js';
 import type { DrumId } from './drums.js';
 import type { NoteEvents } from './note-events.js';
 import type { NoteEventsDraft, NoteEventsMapOptions } from './note-events-map.js';
-import { GRID_TICKS, beatGrid, onsetBias, snap } from './note-events-quantize.js';
+import { GRID_TICKS, gridOf, onsetBias, snap } from './note-events-quantize.js';
+import type { BarSpan } from './note-events-quantize.js';
 import type { BarItem, Dots, Duration, NoteValue, Review, Score } from './score.js';
 
 /** The same floor as the melody mapper's (kept here to avoid an import cycle with it). */
@@ -91,7 +92,7 @@ function durationOfTicks(ticks: number): Duration {
 
 export function mapDrumEventsToScore(events: NoteEvents, options: NoteEventsMapOptions): NoteEventsDraft {
   const notes = [...events.notes].sort((a, b) => a.onset_s - b.onset_s || a.pitch - b.pitch || cmp(a.id, b.id));
-  const grid = beatGrid(events, notes);
+  const grid = gridOf(events, notes, options.shared);
   const warnings = [...grid.warnings];
   const diagnostics: string[] = [];
   const { time, capacity } = grid;
@@ -138,13 +139,17 @@ export function mapDrumEventsToScore(events: NoteEvents, options: NoteEventsMapO
 
   // Bars from the first hit's bar to the last hit's; leading silence is trimmed. A hit before the first downbeat
   // makes a short pickup (bar 0) that begins at that hit.
-  const firstBar = Math.floor(all[0]!.tick / capacity);
-  const lastBar = Math.floor(all[all.length - 1]!.tick / capacity);
+  const own: BarSpan = {
+    firstBar: Math.floor(all[0]!.tick / capacity),
+    lastBar: Math.floor(all[all.length - 1]!.tick / capacity),
+    pickupStart: all[0]!.tick,
+  };
+  const { firstBar, lastBar, pickupStart } = options.shared?.span ?? own;
   const pickup = firstBar === -1;
   const spans: Array<{ number: number; start: number; length: number }> = [];
   for (let index = firstBar; index <= lastBar; index += 1) {
     const number = pickup ? index + 1 : index - firstBar + 1;
-    if (pickup && index === -1) spans.push({ number, start: all[0]!.tick, length: -all[0]!.tick });
+    if (pickup && index === -1) spans.push({ number, start: pickupStart, length: -pickupStart });
     else spans.push({ number, start: index * capacity, length: capacity });
   }
 
@@ -210,7 +215,7 @@ export function mapDrumEventsToScore(events: NoteEvents, options: NoteEventsMapO
     bars: barViews,
     parts: [{ name: 'Drums', staves: [{ type: 'percussion', bars: staffBars }] }],
   });
-  return finish(score, warnings, events, diagnostics, grid.tempoBpm);
+  return { ...finish(score, warnings, events, diagnostics, grid.tempoBpm), span: own };
 }
 
 function empty(options: NoteEventsMapOptions): Score {
