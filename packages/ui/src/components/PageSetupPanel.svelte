@@ -74,7 +74,7 @@
 <style>
   .page-setup {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
   .ps-field {
@@ -98,6 +98,8 @@
     padding: 7px 9px;
     min-height: 32px;
     min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
   .ps-field input:focus {
     border-color: var(--accent);
