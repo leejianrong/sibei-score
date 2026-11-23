@@ -84,6 +84,8 @@ export interface SystemVertical {
 }
 
 export interface SystemVerticalInput {
+  /** The clef in force over a bar, where the staff changes clef (`staffInk`, SIB2-241). */
+  clefOf?: (bar: BarView) => Clef;
   /** A staved system's fermata rule (`staffInk`), SIB2-233. */
   lowFermatas?: boolean;
   bars: BarView[];
@@ -117,15 +119,19 @@ export function staffInk(
   stems?: ReadonlyMap<Id, 'up' | 'down'>,
   /** A staved system puts a fermata under a stem-down voice's note and under a note below the staff (SIB2-233). */
   lowFermatas = false,
+  /** The clef in force over a bar, where the staff changes clef (SIB2-241); `clef` is the opening one. */
+  clefOf?: (bar: BarView) => Clef,
 ): StaffInk {
   if (clef === 'percussion') return { inkAbove: 0, inkBelow: 0 };
-  const TOP_LINE = CLEF_TOP_LINE[clef];
-  const MIDDLE_LINE = TOP_LINE - 4;
-  const BOTTOM_LINE = TOP_LINE - 8;
   let inkAbove = 0;
   let inkBelow = 0;
 
   for (const bar of bars) {
+    const barClef = clefOf?.(bar) ?? clef;
+    if (barClef === 'percussion') continue;
+    const TOP_LINE = CLEF_TOP_LINE[barClef];
+    const MIDDLE_LINE = TOP_LINE - 4;
+    const BOTTOM_LINE = TOP_LINE - 8;
     for (const item of bar.items) {
       // A fermata rides above the staff and above the note's own ink, so the chord band must clear it
       // (SIB2-183). A rest has no ink above the staff, so it sits at the fixed height.
@@ -171,7 +177,7 @@ export function staffInk(
 }
 
 export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
-  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems, input.lowFermatas === true);
+  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef, input.stems, input.lowFermatas === true, input.clefOf);
 
   // An ottava line goes between the notes and everything above (or below) them, so the chord row rises with it.
   let ottavaAboveOffset: number | undefined;

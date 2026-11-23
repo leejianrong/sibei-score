@@ -101,3 +101,49 @@ export function fermatasStavesChart(): Score {
     ],
   });
 }
+
+/**
+ * A clef change at a bar (SIB2-241): a lower staff that opens in bass, changes to treble at bar 3 (a small clef in that
+ * bar's lead-in, mid-system), carries on in treble over the next system break (which therefore opens with the full treble
+ * clef and a key signature in treble positions) and goes back to bass at bar 6. The notes are the same pitches written in
+ * whichever clef is in force, so the ledger lines and positions show the change took effect.
+ */
+export function clefChangeChart(): Score {
+  const ids = createIdFactory();
+  const make = (number: number): BarBuilder => new BarBuilder(ids, { number });
+  const count = 8;
+  const top = Array.from({ length: count }, (_, i) =>
+    make(i + 1).chord(1, ['A', 'F#m7', 'Bm7', 'E7'][i % 4]!, BEAT).note('C#5', q).note('E5', q).note('A4', q).note('B4', q).build(),
+  );
+  const low = Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    const b = make(n);
+    // Bass-range notes in bars 1-2, treble-range ones from bar 3, back to bass at 6.
+    return (n === 1 || n === 2 || n >= 6
+      ? b.note('A2', q).note('E3', q).note('A3', q).note('C#3', q)
+      : b.note('A4', q).note('C#5', q).note('E5', q).note('A5', q)
+    ).build();
+  });
+  const score = makeStaffedScore({
+    id: 'clef-change',
+    title: 'Clef Change at a Bar',
+    composer: 'fixture',
+    key: { tonic: 'A', alter: 0, mode: 'major' },
+    bars: top,
+    parts: [
+      {
+        name: 'Piano',
+        instrument: 0,
+        staves: [
+          { clef: 'treble', bars: top.map((view) => voiceOfView(view)) },
+          { clef: 'bass', bars: low.map((view) => voiceOfView(view)) },
+        ],
+      },
+    ],
+  });
+  const lower = score.parts[0]!.staves[1]!;
+  const at = (n: number) => lower.bars.find((bar) => bar.barId === score.bars[n - 1]!.id)!;
+  at(3).clef = 'treble';
+  at(6).clef = 'bass';
+  return score;
+}

@@ -33,7 +33,7 @@ import {
   flaggedItemShade,
   invalidBarShade,
 } from './shading.js';
-import { clef, clefWidth, keySignature, timeSignature } from './signatures.js';
+import { CLEF_CHANGE_SIZE, clef, clefWidth, keySignature, timeSignature } from './signatures.js';
 import type { PlacedItem } from './spacing.js';
 import { ACCIDENTAL_GAP, accidentalGlyph, placeAligned, placeItems } from './spacing.js';
 import { ledgerLines, positionY, staffLines, staffPosition, staffPositionIn } from './staff.js';
@@ -371,13 +371,15 @@ function engraveStavedSystem(
       const anchors = anchorsByStaff[staff.index];
       if (anchors === undefined) continue;
       const percussion = staff.type === 'percussion';
+      // The clef in force over this bar: the staff's opening one unless a change has come (SIB2-241).
+      const barClef = staffBar.clef ?? staff.clef;
       const flips = percussion ? new Set<Id>() : stemFlips(staffBar.voices);
-      const merges = percussion ? new Map<Id, StemMerge>() : stemMerges(staffBar.voices, staff.clef, flips);
+      const merges = percussion ? new Map<Id, StemMerge>() : stemMerges(staffBar.voices, barClef, flips);
       for (const [voiceIndex, voice] of staffBar.voices.entries()) {
         const first = voiceIndex === 0;
         const mode: BarMode = {
           staveY: staff.staveY,
-          clef: staff.clef,
+          clef: barClef,
           percussion,
           drumKit: staff.drumKit === true,
           chrome: staff.index === 0 && first,
@@ -392,7 +394,7 @@ function engraveStavedSystem(
                 ? KIT_FEET_REST_SHIFT
                 : restShiftOf(voice, staffBar.voices)
               : restShiftOf(voice, staffBar.voices),
-          shifts: noteShifts(font, { voice, voices: staffBar.voices, clef: staff.clef, flips, merges }),
+          shifts: noteShifts(font, { voice, voices: staffBar.voices, clef: barClef, flips, merges }),
           flips,
           merges,
           lowFermatas: true,
@@ -622,6 +624,12 @@ function engraveBar(
     switch (item.kind) {
       case 'clef':
         if (!mode.prefix) break;
+        if (item.change === true) {
+          // A change of clef: small, in the lead-in, after which the bar's own clef is the new one (SIB2-241).
+          before.push(clef(font, prefixX, staveY, item.clef, CLEF_CHANGE_SIZE));
+          prefixX += clefWidth(font, item.clef) * CLEF_CHANGE_SIZE + units(0.4);
+          break;
+        }
         before.push(clef(font, prefixX, staveY, item.clef));
         prefixX += clefWidth(font, item.clef) + units(0.4);
         break;
