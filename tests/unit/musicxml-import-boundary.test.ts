@@ -90,11 +90,12 @@ describe('every lossy case is named in the warnings', () => {
     const result = musicXmlToScore(wrap(note() + grace));
     expect(result.warnings).toContain('grace notes with no note after them were dropped');
   });
-  it('a fifth voice and a chord tone', () => {
+  it('a fifth voice, and a chord note that repeats a pitch (SIB2-243: a chord note is read as a stacked chord)', () => {
     const voices = [1, 2, 3, 4, 5].map((v) => note(`<voice>${v}</voice>`)).join('<backup><duration>4</duration></backup>');
     expect(warnings(wrap(voices))).toContain('voices past the 4th on a staff were dropped');
-    expect(warnings(wrap(note() + note('<chord/>')))).toContain(
-      'a chord note (a second simultaneous pitch) was dropped: one pitch per voice',
+    expect(warnings(wrap(note() + note('<chord/>')))).toContain('a chord note repeating a pitch of its chord was dropped');
+    expect(warnings(wrap('<note><chord/><pitch><step>E</step><octave>4</octave></pitch><type>quarter</type></note>'))).toContain(
+      'a chord note with no note to join was dropped',
     );
   });
   it('a clean file has none', () => expect(warnings(wrap(note()))).toEqual([]));

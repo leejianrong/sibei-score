@@ -160,7 +160,7 @@ exit 2 and creates nothing. A silent file imports as an empty one-bar draft with
 `import FILE.musicxml` (also `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any file name)
 reads **MusicXML** through the codec into an editable draft with a fresh history, and needs **no worker**.
 Parts, staves and up to four voices a staff become real parts, staves and voices (a draft of several staves is
-set by width, `meta.layout` `score`), and the import **never goes silent about what it drops**: chord tones,
+set by width, `meta.layout` `score`), and the import **never goes silent about what it drops**: a chord past ten pitches (a `<chord/>` note otherwise joins its chord),
 lyrics, dynamics, a fifth voice, a mid-piece key or meter change, unsupported articulations or clefs, a file
 past 32 parts or 32 staves and the like are listed under the success line (and are the job's `diagnostic` in `--json`).
 The file is untrusted, so it is bounded (10 MB of XML, an `.mxl` may not expand past that, nesting is capped,

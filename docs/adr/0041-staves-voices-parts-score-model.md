@@ -257,7 +257,7 @@ below, the staff of its first note. **Clef change drawn (SIB2-241).** `clef set 
   unnamed), `meta.layout` (not written), a part's bracket/brace grouping (derived, not read), a note's accidental on a
   percussion staff, keys needing more than seven accidentals once written for a transposing part, a clef change
   inside a bar (moved to the bar's start), clefs other than G2/F4/C3/C4/percussion (read as the nearest, tab as
-  standard), chord tones, lyrics, dynamics.
+  standard), lyrics, dynamics (chord tones were lossy here until SIB2-247).
 - **`writtenPart`** (`packages/music/src/part.ts`) now moves every staff and voice (percussion excepted), the chord lane
   once; a part with its own `transposition` moves by that interval instead of the instrument's and comes back with
   `transposition: 0` (applied). `concert` is still the identity, leaving a part's own transposition to the codec.
@@ -452,3 +452,11 @@ Alternatives rejected:
   and percussion staves never stack (a note on a percussion staff refuses a stack).
 - Proofed with `pnpm proof stacked-chords` and `pnpm proof piano-chords` (new fixtures, committed snapshots); no existing
   snapshot moved and the browser/server byte-identity test covers both new fixtures.
+
+**PR 3 as built (SIB2-247): MusicXML `<chord/>`.** Export writes the carrying note, then one `<chord/>` note per other pitch,
+each with the chord's duration, voice, staff and time modification and its **own** pitch, accidental and `<tie>`/`<tied>`;
+articulations, fermata, graces and slurs ride the first note only, and the tuplet start/stop mark too. A transposing part
+moves every pitch (`writtenView`). Import joins a `<chord/>` pitched note to the note before it in its voice (the carrying
+note keeps its own pitch, so a round trip reproduces the stored order), and **replaces** the old "a chord note was dropped:
+one pitch per voice" case. Still named, never silent: a chord note with no note to join, a rest or unpitched one, a repeat of a
+pitch already in the chord, and a chord past ten pitches. Drums struck together keep the voice-per-drum reading (slice 6c).

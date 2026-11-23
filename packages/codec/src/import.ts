@@ -35,6 +35,9 @@ import {
   makeChord,
   makeNote,
   makeRest,
+  MAX_CHORD_TONES,
+  chordTones,
+  toneWithPitch,
   makeScore,
   makeSection,
   transposePitch,
@@ -269,7 +272,7 @@ function partNames(root: XmlElement): Map<string, { name: string; program: numbe
 
 /**
  * What the model still has no home for, named once each so the import is never silently thinner than the file
- * (SIB2-152): lyrics and dynamics. (Chord tones, slurs, unsupported clefs and the rest are named by the part reader
+ * (SIB2-152): lyrics and dynamics. (Slurs, unsupported clefs and the rest are named by the part reader
  * as it meets them. Extra parts, staves and voices are no longer lost: ADR-0041 slice 5a.)
  */
 function warnLossyContent(measures: XmlElement[], warnings: string[]): void {
@@ -521,8 +524,31 @@ class PartReader {
             break;
           }
           if (firstChild(child, 'chord') !== null) {
-            // A second note at the same onset: one pitch to a voice (ADR-0021), so this is dropped rather than refused.
-            this.note('a chord note (a second simultaneous pitch) was dropped: one pitch per voice');
+            // A `<chord/>` note joins the note it follows as another pitch of one stacked chord (SIB2-243); that was
+            // "a chord note was dropped" before. Anything that cannot join is still named, never silently lost.
+            const host = acc.items[acc.items.length - 1];
+            if (host === undefined || host.kind !== 'note' || host.drum !== undefined || this.lastOnset !== host.onset) {
+              this.note('a chord note with no note to join was dropped');
+              break;
+            }
+            const joined = this.readNote(child, host.onset);
+            if (joined.item.kind !== 'note' || joined.unpitched) {
+              this.note('a chord note that is a rest or unpitched was dropped');
+              break;
+            }
+            const pitch = joined.item.pitch;
+            if (toneWithPitch(host, pitch) !== undefined) {
+              this.note('a chord note repeating a pitch of its chord was dropped');
+              break;
+            }
+            if (chordTones(host).length >= MAX_CHORD_TONES) {
+              this.note(`a chord of more than ${MAX_CHORD_TONES} pitches was cut to ${MAX_CHORD_TONES}`);
+              break;
+            }
+            host.stack = [
+              ...(host.stack ?? []),
+              { id: joined.item.id, pitch, accidental: joined.item.accidental, tie: joined.item.tie, spellingPinned: false },
+            ];
             break;
           }
           const parsed = this.readNote(child, cursor);
