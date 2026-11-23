@@ -145,3 +145,29 @@ describe('building a two-staff, two-voice score from the CLI', () => {
     expect((await sbscore('show', 'tune')).out).not.toContain(':diamond');
   });
 });
+
+describe('note move and hands move (SIB2-244)', () => {
+  it('re-homes a note, then a bar range below a pitch, and undo reverses each', async () => {
+    await sbscore('new', '--id', 'tune', '--bars', '2');
+    await sbscore('staff', 'add', 'tune', 'p1', '--clef', 'bass');
+    await sbscore('rest', 'add', 'tune', 's2.bar1.beat1', '--dur', '1');
+    await sbscore('rest', 'add', 'tune', 's2.bar2.beat1', '--dur', '1');
+    await sbscore('note', 'add', 'tune', 's1.bar1.beat1', '--pitch', 'C3', '--dur', '1');
+    await sbscore('note', 'add', 'tune', 's1.bar2.beat1', '--pitch', 'E5', '--dur', '2');
+    await sbscore('note', 'add', 'tune', 's1.bar2.beat1', '--pitch', 'D3', '--dur', '2');
+
+    expect((await sbscore('note', 'move', 'tune', 's1.bar1.n1', '--to', 's2')).code).toBe(EXIT.ok);
+    expect(pitches(await open(), { staff: 'staff-2' })).toEqual(['C3']);
+    expect((await sbscore('undo', 'tune')).code).toBe(EXIT.ok);
+    expect(pitches(await open(), { staff: 'staff-2' })).toEqual([]);
+
+    expect((await sbscore('hands', 'move', 'tune', '1-2', '--from', 's1', '--to', 's2', '--below', 'C4')).code).toBe(EXIT.ok);
+    const moved = await open();
+    expect(pitches(moved, { staff: 'staff-2' }).sort()).toEqual(['C3', 'D3']);
+    expect(pitches(moved, { staff: 'staff-1' })).toEqual(['E5']);
+
+    const nothing = await sbscore('hands', 'move', 'tune', '1-2', '--from', 's1', '--to', 's2', '--below', 'C2');
+    expect(nothing.code).toBe(EXIT.validation);
+    expect(nothing.err).toMatch(/nothing moved/);
+  });
+});

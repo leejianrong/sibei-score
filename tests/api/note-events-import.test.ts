@@ -114,6 +114,37 @@ describe('POST /v1/imports with a NoteEvents document (ADR-0040)', () => {
     expect(listed.jobs).toEqual([]);
   });
 
+  it('keeps a piano file\'s split point on the job, and re-splits the draft at another one with no re-upload (SIB2-244)', async () => {
+    const handNotes = (score: Score): number[] =>
+      allStaves(score).map((staff) => barViews(score, { staff: staff.id }).flatMap((bar) => bar.items.filter((i) => i.kind === 'note')).length);
+    const response = await fetch(`${base}/v1/imports?splitPoint=96`, { method: 'POST', body: fixture('piano-two-hands.json'), headers: { 'content-type': 'application/json' } });
+    expect(response.status).toBe(202);
+    const high = await settle(((await response.json()) as any).job.id);
+    expect(high.engine).toBe('note-events;split=96');
+    const highScore = await scoreOf(high.scoreId);
+
+    const source = (await (await fetch(`${base}/v1/scores/${high.scoreId}/source`)).json()) as any;
+    expect(source.kind).toBe('note-events');
+
+    const resplit = await fetch(`${base}/v1/scores/${high.scoreId}/reparse`, { method: 'POST', body: JSON.stringify({ splitPoint: 30 }), headers: { 'content-type': 'application/json' } });
+    expect(resplit.status).toBe(202);
+    const again = await settle(((await resplit.json()) as any).job.id);
+    expect(again.engine).toBe('note-events;split=30');
+    expect(again.scoreId).not.toBe(high.scoreId);
+    const lowScore = await scoreOf(again.scoreId);
+    expect(handNotes(lowScore)).not.toEqual(handNotes(highScore));
+  });
+
+  it('refuses a split point outside the piano, and a re-split of anything that is not a NoteEvents draft', async () => {
+    const bad = await fetch(`${base}/v1/imports?splitPoint=5`, { method: 'POST', body: fixture('piano-two-hands.json'), headers: { 'content-type': 'application/json' } });
+    expect(bad.status).toBe(422);
+    const job = await settle((await upload(fixture('piano-two-hands.json'))).body.job.id);
+    const plain = await fetch(`${base}/v1/scores/${job.scoreId}/reparse`, { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } });
+    expect(plain.status).toBe(503);
+    const outOfRange = await fetch(`${base}/v1/scores/${job.scoreId}/reparse`, { method: 'POST', body: JSON.stringify({ splitPoint: 200 }), headers: { 'content-type': 'application/json' } });
+    expect(outOfRange.status).toBe(422);
+  });
+
   it('still refuses an image with no worker (503)', async () => {
     const response = await fetch(`${base}/v1/imports`, { method: 'POST', body: new Uint8Array([1]), headers: { 'content-type': 'image/png' } });
     expect(response.status).toBe(503);

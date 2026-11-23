@@ -19,6 +19,38 @@ import type { NoteEvents } from '@sibei/model';
  */
 export const NOTE_EVENTS_SOURCE = 'note-events';
 
+/** The MIDI pitches a hand split may pivot on: the piano's own range. */
+export const MIN_SPLIT_POINT = 21;
+export const MAX_SPLIT_POINT = 108;
+
+/**
+ * The marker with its options (SIB2-244): a piano import's `splitPoint` is kept on the job so a re-draft or a retry
+ * reproduces the draft the user asked for. It rides on the same opaque `engine` column (no schema change, ADR-0006's
+ * adapters untouched): `note-events` alone is the default, `note-events;split=62` pivots the hands on D#4.
+ */
+export function noteEventsEngine(splitPoint?: number): string {
+  return splitPoint === undefined ? NOTE_EVENTS_SOURCE : `${NOTE_EVENTS_SOURCE};split=${splitPoint}`;
+}
+
+/** Whether a job's `engine` marks a NoteEvents job, with or without options. */
+export function isNoteEventsEngine(engine: string | null): boolean {
+  return engine === NOTE_EVENTS_SOURCE || (engine !== null && engine.startsWith(`${NOTE_EVENTS_SOURCE};`));
+}
+
+/** The split point a NoteEvents job was asked for, or undefined for the default. */
+export function splitPointOfEngine(engine: string | null): number | undefined {
+  const match = engine === null ? null : /;split=(\d+)$/.exec(engine);
+  return match === null ? undefined : Number(match[1]);
+}
+
+/** A `splitPoint` from a request: undefined when absent, a number when it is a MIDI pitch in the piano's range, else null. */
+export function validSplitPoint(raw: unknown): number | undefined | null {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = typeof raw === 'string' ? (/^\d+$/.test(raw) ? Number(raw) : Number.NaN) : raw;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < MIN_SPLIT_POINT || value > MAX_SPLIT_POINT) return null;
+  return value;
+}
+
 /** Why a NoteEvents upload was refused. Each is its own server error kind. */
 export type NoteEventsRejection = 'malformed' | 'unsupported-version' | 'unsupported-instrument';
 

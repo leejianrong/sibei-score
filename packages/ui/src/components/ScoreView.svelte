@@ -62,15 +62,15 @@
   import StructureInspector from './StructureInspector.svelte';
   import StaffPanel from './StaffPanel.svelte';
   import NewItem from './NewItem.svelte';
-  import { chordToneAddress, newItemOp, seedPitchFor, voiceForKey } from '../lib/staff-edits.js';
+  import { chordToneAddress, moveNoteOp, splitPointOf, newItemOp, seedPitchFor, voiceForKey } from '../lib/staff-edits.js';
   import type { NewItem as NewItemSpec } from '../lib/staff-edits.js';
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
-  import { barByNumber, barViews, beatOfOnset, sectionStartingAt } from '@sibei/model';
+  import { allStaves, barByNumber, barViews, beatOfOnset, sectionStartingAt } from '@sibei/model';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
-  import { getScoreSource, getImport, reparseScore, REPARSE_ENGINES } from '../lib/api.js';
+  import { getScoreSource, getImport, reparseScore, resplitScore, REPARSE_ENGINES } from '../lib/api.js';
   import { hashOf } from '../lib/routing.js';
 
   interface Props {
@@ -135,6 +135,9 @@
   let reparseEngine = $state<string>('');
   let reparsing = $state(false);
   let reparseError = $state<string | null>(null);
+  // A piano draft from NoteEvents (SIB2-244) has no scan but can be split between the hands again: a new draft at another pivot.
+  let resplittable = $state(false);
+  let resplitText = $state('');
 
   // The export format (V8e). PDF is the default and is what the sheet on screen is; MusicXML is a
   // codec at the edges (ADR-0004), so it does not change the sheet, only the file the rail downloads.
@@ -567,8 +570,37 @@
       } else {
         source = null;
       }
+      resplittable = provenance.kind === 'note-events';
     } catch {
       source = null;
+    }
+  }
+
+  /** Re-split a piano draft at another pitch (SIB2-244): a NEW draft over the stored document; this chart is untouched. */
+  async function handleResplit(): Promise<void> {
+    if (reparsing) return;
+    const point = splitPointOf(resplitText);
+    if (point === null) {
+      reparseError = `${JSON.stringify(resplitText.trim())} is not a pitch for the hand split — try 60 or C4.`;
+      return;
+    }
+    reparsing = true;
+    reparseError = null;
+    try {
+      let job = await resplitScore(id, point);
+      while (job.status === 'queued' || job.status === 'running') {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        job = await getImport(job.id);
+      }
+      if (job.status === 'succeeded' && job.scoreId !== null) {
+        window.location.hash = hashOf({ view: 'score', id: job.scoreId });
+      } else {
+        reparseError = job.diagnostic ?? 'the re-split did not produce a chart';
+      }
+    } catch (error) {
+      reparseError = error instanceof Error ? error.message : 'the re-split could not be started';
+    } finally {
+      reparsing = false;
     }
   }
 
@@ -789,6 +821,25 @@
     if (score === null || located === null || located.item.kind !== 'note') return;
     const here = qualifierOf(score, { staff: located.staffIndex + 1, voice: located.voice });
     await runOps([{ type: 'note.rm', target: chordToneAddress(here, located.barNumber, located.item.beat, pitch) } as Operation], true);
+  }
+
+  /** The staves the selected note could move to (every other one), for the inspector's Move to other staff (SIB2-244). */
+  const moveTargets = $derived.by(() => {
+    if (score === null || located === null || located.item.kind !== 'note') return [];
+    const staves = allStaves(score);
+    return staves
+      .map((staff, at) => ({ to: `s${at + 1}`, label: `Staff ${at + 1} · ${staff.clef}`, at }))
+      .filter((target) => target.at !== located.staffIndex)
+      .map(({ to, label }) => ({ to, label }));
+  });
+
+  /** Re-home the selected note (or the chosen head of its chord, alone) on another staff: `note.move`. */
+  async function handleMove(to: string): Promise<void> {
+    if (score === null || located === null || located.item.kind !== 'note') return;
+    const here = qualifierOf(score, { staff: located.staffIndex + 1, voice: located.voice });
+    const address = `${here}bar${located.barNumber}.beat${located.item.beat}`;
+    const chosen = selection?.kind === 'note' && selection.tones.length > 1 ? selection.tones.find((tone) => tone.id === selectedTone) : undefined;
+    await runOps([moveNoteOp(chosen === undefined ? address : `${address}.${chosen.pitch}`, to)]);
   }
 
   /** Change one pitch of the selected chord's tie, accidental or spelling pin (SIB2-252): `note.set` at its pitch address. */
@@ -1402,6 +1453,8 @@
               ontoneadd={(pitch) => void handleToneAdd(pitch)}
               ontonerm={(pitch) => void handleToneRemove(pitch)}
               ontoneset={(pitch, change) => void handleToneSet(pitch, change)}
+              {moveTargets}
+              onmove={(to) => void handleMove(to)}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}
@@ -1505,6 +1558,17 @@
                 </select>
                 <button type="button" class="reparse-btn" disabled={reparsing} onclick={handleReparse}>
                   {reparsing ? 'Re-parsing…' : 'Re-parse'}
+                </button>
+                {#if reparseError !== null}
+                  <span class="reparse-error" role="alert">{reparseError}</span>
+                {/if}
+              </div>
+            {/if}
+            {#if resplittable}
+              <div class="reparse" role="group" aria-label="Re-split the hands">
+                <input class="reparse-engine" aria-label="Split point for the hands" placeholder="C4" bind:value={resplitText} disabled={reparsing} />
+                <button type="button" class="reparse-btn" disabled={reparsing} onclick={handleResplit}>
+                  {reparsing ? 'Re-splitting…' : 'Re-split hands'}
                 </button>
                 {#if reparseError !== null}
                   <span class="reparse-error" role="alert">{reparseError}</span>

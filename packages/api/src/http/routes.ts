@@ -21,7 +21,7 @@ import {
 } from '../export/export.js';
 import type { Artefact, Exporter } from '../export/export.js';
 import { MUSICXML_SOURCE, validateMusicXmlUpload } from '../imports/musicxml.js';
-import { NOTE_EVENTS_SOURCE, validateNoteEventsUpload } from '../imports/note-events.js';
+import { MAX_SPLIT_POINT, MIN_SPLIT_POINT, isNoteEventsEngine, validSplitPoint, validateNoteEventsUpload } from '../imports/note-events.js';
 import { multipartBoundary, parseMultipartImages, validateUpload } from '../imports/upload.js';
 import type { UploadRejection } from '../imports/upload.js';
 import type { AudioService } from '../audio/service.js';
@@ -104,7 +104,7 @@ export interface ImportService {
    * Store an already-validated NoteEvents document (ADR-0040) and enqueue a job for it. Needs no OMR
    * worker, so it works whether or not `available` — the runner maps it with a pure function.
    */
-  submitNoteEvents(owner: Owner, document: Buffer): Promise<ImportJob>;
+  submitNoteEvents(owner: Owner, document: Buffer, options?: { splitPoint?: number }): Promise<ImportJob>;
   /** Store an already-validated MusicXML document (SIB2-152, plain XML: an `.mxl` is unpacked at the boundary) and enqueue a job. */
   submitMusicXml(owner: Owner, xml: Buffer): Promise<ImportJob>;
   /** Requeue a failed job for a retry (Q80), or `null` if it is missing, not this owner's, or not failed. */
@@ -117,7 +117,7 @@ export interface ImportService {
    * keeps its default. `null` when the score has no import behind it (hand-authored or duplicated) and
    * so no source to re-run — the route turns that into a clean 4xx, never a 500.
    */
-  reparse(owner: Owner, scoreId: Id, options: { engine?: string }): Promise<ImportJob | null>;
+  reparse(owner: Owner, scoreId: Id, options: { engine?: string; splitPoint?: number }): Promise<ImportJob | null>;
   /**
    * The retained source image at page `index` of a job — the scan V14's split-pane review shows beside
    * the recognised score and `sbscore reparse` re-runs (ADR-0019 keeps them permanently for exactly
@@ -156,6 +156,8 @@ export interface SourceImage {
 export interface SourceProvenance {
   jobId: JobId;
   imageCount: number;
+  /** Present for a NoteEvents draft (SIB2-244), which has no scan but can be split again at another point. */
+  kind?: 'note-events';
 }
 
 /** A body larger than this is refused unread. An op batch is kilobytes (ADR-0029: real caps). */
@@ -384,7 +386,7 @@ async function sourceOfScore(response: ServerResponse, context: RouteContext, sc
     200,
     provenance === null
       ? { jobId: null, imageCount: 0 }
-      : { jobId: provenance.jobId, imageCount: provenance.imageCount },
+      : { jobId: provenance.jobId, imageCount: provenance.imageCount, ...(provenance.kind === undefined ? {} : { kind: provenance.kind }) },
   );
 }
 
@@ -462,7 +464,10 @@ async function submitImport(
   if (isNoteEvents) {
     const check = validateNoteEventsUpload(bytes);
     if (!check.ok) return send(response, badNoteEvents(check.reason, check.message, check.problems));
-    const job = await context.imports.submitNoteEvents(context.owner, bytes);
+    // A piano file's hand split pivots on `?splitPoint=` (SIB2-244), kept on the job.
+    const splitPoint = validSplitPoint(new URL(request.url ?? '/', 'http://localhost').searchParams.get('splitPoint'));
+    if (splitPoint === null) return send(response, badSplitPoint());
+    const job = await context.imports.submitNoteEvents(context.owner, bytes, splitPoint === undefined ? {} : { splitPoint });
     response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
     return sendJson(response, 202, { job });
   }
@@ -507,10 +512,17 @@ async function reparseScore(
   scoreId: Id,
   body: unknown,
 ): Promise<number> {
-  if (context.imports !== undefined && !context.imports.photoImport) {
-    return send(response, photoImportUnavailable());
-  }
-  if (context.imports === undefined || !context.imports.available) {
+  // A re-split of a NoteEvents draft (SIB2-244) names a `splitPoint` and needs no worker; a re-parse of a scan does.
+  const splitPoint = validSplitPoint((body as { splitPoint?: unknown } | null)?.splitPoint);
+  if (splitPoint === null) return send(response, badSplitPoint());
+  if (splitPoint === undefined) {
+    if (context.imports !== undefined && !context.imports.photoImport) {
+      return send(response, photoImportUnavailable());
+    }
+    if (context.imports === undefined || !context.imports.available) {
+      return send(response, noImportPipeline());
+    }
+  } else if (context.imports === undefined) {
     return send(response, noImportPipeline());
   }
 
@@ -531,7 +543,10 @@ async function reparseScore(
     );
   }
 
-  const job = await context.imports.reparse(context.owner, scoreId, engine === undefined ? {} : { engine });
+  const job = await context.imports.reparse(context.owner, scoreId, {
+    ...(engine === undefined ? {} : { engine }),
+    ...(splitPoint === undefined ? {} : { splitPoint }),
+  });
   if (job === null) {
     // No import behind this score — a hand-authored or duplicated chart has no scan to re-run. A 422
     // (readable request, nothing to act on), never a 500, and its `detail` lets a client branch (ADR-0008).
@@ -547,6 +562,13 @@ async function reparseScore(
   }
   response.setHeader('location', `${IMPORTS}/${encodeURIComponent(job.id)}`);
   return sendJson(response, 202, { job });
+}
+
+/** A `splitPoint` that is not a MIDI pitch in the piano's range: a 422 of the NoteEvents family, so the CLI's exit code is the same. */
+function badSplitPoint(): Problem {
+  return problem(422, 'invalid-note-events', `splitPoint is a MIDI pitch from ${MIN_SPLIT_POINT} to ${MAX_SPLIT_POINT} (60 is middle C)`, {
+    detail: { kind: 'invalid-note-events', problems: ['splitPoint is out of range'] },
+  });
 }
 
 /** Sentinel: the body named an engine, but not one this build knows (a 422, not the worker's error). */
@@ -582,7 +604,7 @@ async function retryImport(response: ServerResponse, context: RouteContext, id: 
   }
   const existing = await context.imports.reader.get(context.owner, id);
   if (existing === null) return send(response, noSuchImport(id));
-  if (!context.imports.photoImport && existing.engine !== NOTE_EVENTS_SOURCE && existing.engine !== MUSICXML_SOURCE) {
+  if (!context.imports.photoImport && !isNoteEventsEngine(existing.engine) && existing.engine !== MUSICXML_SOURCE) {
     return send(response, photoImportUnavailable());
   }
   if (existing.status !== 'failed') {

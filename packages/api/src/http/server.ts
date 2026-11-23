@@ -26,7 +26,7 @@ import type { HostedAuthOptions } from '../auth/hosted.js';
 import { createOwnerEraser, isManaged } from '../account/erase.js';
 import { createExporter } from '../export/export.js';
 import { MUSICXML_SOURCE } from '../imports/musicxml.js';
-import { NOTE_EVENTS_SOURCE } from '../imports/note-events.js';
+import { isNoteEventsEngine, noteEventsEngine } from '../imports/note-events.js';
 import { createMcpEndpoint } from '../mcp/endpoint.js';
 import { createJobRunner } from '../imports/runner.js';
 import { WorkerError } from '../imports/worker-client.js';
@@ -335,7 +335,7 @@ export function createApi(options: ApiOptions): Api {
       runner.wake();
       return job;
     },
-    async submitNoteEvents(owner: Owner, document: Buffer) {
+    async submitNoteEvents(owner: Owner, document: Buffer, options = {}) {
       // A draft is a score: it needs room in the library (V23), but it costs no recognition quota.
       if (limits !== undefined) limits.checkScoreRoom((await store.list(owner)).length);
       // The validated document is the source, kept in the BlobStore with the job so a better
@@ -346,7 +346,7 @@ export function createApi(options: ApiOptions): Api {
       const key = `note-events-source:${encodeURIComponent(owner)}:${createHash('sha256').update(document).digest('hex')}`;
       await blobs.put(key, document);
       await ledger.record(owner, key, 'import-source');
-      const job = await jobs.create(owner, [key], NOTE_EVENTS_SOURCE);
+      const job = await jobs.create(owner, [key], noteEventsEngine(options.splitPoint));
       runner.wake();
       return job;
     },
@@ -379,8 +379,18 @@ export function createApi(options: ApiOptions): Api {
       // the route turns it into a clean 4xx, never a 500. The chosen engine (V14e) rides on the new job
       // so the runner can thread it to the worker; `null` leaves the worker its default.
       const source = await jobs.getByScoreId(owner, scoreId);
-      // A NoteEvents draft has no scan to re-run (ADR-0040).
-      if (source === null || source.engine === NOTE_EVENTS_SOURCE || source.engine === MUSICXML_SOURCE) return null;
+      if (source === null || source.engine === MUSICXML_SOURCE) return null;
+      // A NoteEvents draft has no scan to re-run (ADR-0040), but a piano one can be split again at another point
+      // (SIB2-244): a new job over the same stored document, which costs no recognition quota. A scan can only be
+      // re-parsed, and a NoteEvents draft only re-split.
+      if (isNoteEventsEngine(source.engine)) {
+        if (options.splitPoint === undefined) return null;
+        if (limits !== undefined) limits.checkScoreRoom((await store.list(owner)).length);
+        const job = await jobs.create(owner, source.imageKeys, noteEventsEngine(options.splitPoint));
+        runner.wake();
+        return job;
+      }
+      if (options.splitPoint !== undefined) return null;
       if (limits !== undefined) {
         limits.checkScoreRoom((await store.list(owner)).length);
         // The same pages through the worker again cost the same; bytes were paid for on upload.
@@ -396,7 +406,7 @@ export function createApi(options: ApiOptions): Api {
       // owner's job), so an out-of-range index and a foreign job both fall to the same null the route
       // turns into a 404. The content-type comes from the bytes, never a stored declaration (ADR-0029).
       const job = await jobs.get(owner, id);
-      if (job === null || job.engine === NOTE_EVENTS_SOURCE || job.engine === MUSICXML_SOURCE || index < 0 || index >= job.imageKeys.length) return null;
+      if (job === null || isNoteEventsEngine(job.engine) || job.engine === MUSICXML_SOURCE || index < 0 || index >= job.imageKeys.length) return null;
       const bytes = await blobs.get(job.imageKeys[index]!);
       if (bytes === null) return null;
       const format = imageFormatOf(bytes);
@@ -411,7 +421,13 @@ export function createApi(options: ApiOptions): Api {
       // empty provenance rather than a 404 (a scan-less chart is the common case, not an error).
       const job = await jobs.getByScoreId(owner, scoreId);
       // A NoteEvents job's one blob is JSON, not a page: it has no scan to show (ADR-0040).
-      return job === null ? null : { jobId: job.id, imageCount: job.engine === NOTE_EVENTS_SOURCE || job.engine === MUSICXML_SOURCE ? 0 : job.imageKeys.length };
+      return job === null
+        ? null
+        : {
+            jobId: job.id,
+            imageCount: isNoteEventsEngine(job.engine) || job.engine === MUSICXML_SOURCE ? 0 : job.imageKeys.length,
+            ...(isNoteEventsEngine(job.engine) ? { kind: 'note-events' as const } : {}),
+          };
     },
     reader: jobs,
     streams: jobStreams,

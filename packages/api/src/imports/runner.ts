@@ -9,7 +9,7 @@ import { OperationError } from '../ops/errors.js';
 import type { ImportJob, JobWriter } from '../store/jobs.js';
 import type { Owner } from '../store/repository.js';
 import { MUSICXML_SOURCE, decode } from './musicxml.js';
-import { NOTE_EVENTS_SOURCE } from './note-events.js';
+import { isNoteEventsEngine, splitPointOfEngine } from './note-events.js';
 import { imageFormatOf } from './upload.js';
 import { WorkerError } from './worker-client.js';
 import type { WorkerClient } from './worker-client.js';
@@ -149,7 +149,7 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
     publisher.publish(job.owner, { jobId: job.id, status: 'running' });
 
     try {
-      if (job.engine === NOTE_EVENTS_SOURCE) {
+      if (isNoteEventsEngine(job.engine)) {
         await processNoteEvents(job);
         return;
       }
@@ -212,11 +212,16 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
    * with the audio engine's warnings as its diagnostic. A job whose blob has vanished or no longer
    * validates fails like any other (Q80), committing nothing.
    */
+  const splitOption = (engine: string | null): { splitPoint?: number } => {
+    const splitPoint = splitPointOfEngine(engine);
+    return splitPoint === undefined ? {} : { splitPoint };
+  };
+
   async function processNoteEvents(job: ImportJob): Promise<void> {
     const bytes = await blobs.get(job.imageKeys[0]!);
     if (bytes === null) throw new WorkerError('the NoteEvents document is missing from the blob store');
     const events = parseNoteEvents(JSON.parse(bytes.toString('utf8')));
-    const { score, diagnostics } = mapNoteEventsToScore(events, { id: `import-${job.id}` });
+    const { score, diagnostics } = mapNoteEventsToScore(events, { id: `import-${job.id}`, ...splitOption(job.engine) });
     const scoreId = await land(job, score);
     const done = await jobs.complete(job.id, [], scoreId, diagnostics.length === 0 ? null : diagnostics.join('\n'));
     if (done !== null) publisher.publish(done.owner, { jobId: done.id, status: 'succeeded' });

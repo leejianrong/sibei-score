@@ -278,6 +278,8 @@ export async function getScore(id: Id): Promise<ScoreRecord> {
 export interface ScoreSource {
   jobId: Id | null;
   imageCount: number;
+  /** `note-events` for an audio draft, which has no scan but can be split between the hands again (SIB2-244). */
+  kind?: 'note-events';
 }
 
 export async function getScoreSource(id: Id): Promise<ScoreSource> {
@@ -358,10 +360,10 @@ export async function submitImport(files: readonly File[]): Promise<ImportJobVie
  * unknown-version or unsupported-instrument file is a 422 whose message surfaces as the import error.
  * No OMR worker is involved, so this works on a server started without one.
  */
-export async function submitNoteEvents(file: File): Promise<ImportJobView> {
+export async function submitNoteEvents(file: File, splitPoint?: number): Promise<ImportJobView> {
   let response: Response;
   try {
-    response = await fetch(`${V1}/imports`, {
+    response = await fetch(splitPoint === undefined ? `${V1}/imports` : `${V1}/imports?splitPoint=${splitPoint}`, {
       method: 'POST',
       body: file,
       headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -438,6 +440,15 @@ export const REPARSE_ENGINES: readonly ReparseEngine[] = [
  */
 export async function reparseScore(id: Id, engine?: string): Promise<ImportJobView> {
   const body = engine === undefined ? {} : { engine };
+  return await postReparse(id, body);
+}
+
+/** Re-split a piano NoteEvents draft at another pitch (SIB2-244): a new draft over the stored document, no re-upload. */
+export async function resplitScore(id: Id, splitPoint: number): Promise<ImportJobView> {
+  return await postReparse(id, { splitPoint });
+}
+
+async function postReparse(id: Id, body: Record<string, unknown>): Promise<ImportJobView> {
   const result = await postJson<{ job: ImportJobView }>(`${V1}/scores/${encodeURIComponent(id)}/reparse`, body);
   return result.job;
 }
@@ -523,6 +534,9 @@ export type Operation =
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'note.rm'; target: string }
+  // Re-home music between staves (SIB2-244): a note, chord or one pitch, or a bar range of one hand.
+  | { type: 'note.move'; target: string; payload: { to: string } }
+  | { type: 'hand.move'; payload: { from: string; to: string; first: number; last: number; below?: string; above?: string } }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }

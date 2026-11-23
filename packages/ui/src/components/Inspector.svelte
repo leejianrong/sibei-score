@@ -103,6 +103,9 @@
     ontoneadd?: (pitch: string) => void;
     ontonerm?: (pitch: string) => void;
     /** One pitch's own tie, accidental or spelling pin (SIB2-252), applied at once like the slur controls. */
+    /** The other staves a note can be re-homed on, and the move itself (SIB2-244); absent on a one-staff chart. */
+    moveTargets?: readonly { to: string; label: string }[];
+    onmove?: (to: string) => void;
     ontoneset?: (pitch: string, change: { tie?: TieRole; accidental?: AccidentalDisplay; spellingPinned?: boolean }) => void;
     ongracerm?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
@@ -136,6 +139,8 @@
     ontoneadd,
     ontonerm,
     ontoneset,
+    moveTargets = [],
+    onmove,
     onsave,
     tuplet = null,
     onsettuplet,
@@ -199,6 +204,9 @@
   const chosenTone = $derived(
     selection.kind === 'note' && selection.tones.length > 1 ? selection.tones.find((tone) => tone.id === selectedTone) : undefined,
   );
+  // Which staff the move button sends to: the one picked, else the first other staff.
+  let moveToPick = $state<string | null>(null);
+  const moveTo = $derived(moveToPick ?? moveTargets[0]?.to ?? '');
   const TIES: readonly TieRole[] = ['none', 'start', 'stop', 'both'];
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
@@ -506,6 +514,26 @@
             </label>
           </div>
         {/if}
+      {/if}
+
+      {#if onmove !== undefined && moveTargets.length > 0 && !isDrum && selection.kind === 'note'}
+        <div class="field slur-field" role="group" aria-label="Staff of this note">
+          <span class="field-label">Staff</span>
+          <p class="inspector-note">
+            {chosenTone === undefined ? 'Re-homes this note' : `Re-homes the chosen head ${chosenTone.pitch} alone`} on another staff, same time and length. A
+            chord that is only partly moved splits.
+          </p>
+          {#if moveTargets.length > 1}
+            <select class="pitch-input" aria-label="Destination staff" value={moveTo} onchange={(event) => (moveToPick = (event.currentTarget as HTMLSelectElement).value)}>
+              {#each moveTargets as target (target.to)}
+                <option value={target.to}>{target.label}</option>
+              {/each}
+            </select>
+          {/if}
+          <button type="button" class="btn btn-cancel" disabled={saving} onclick={() => onmove?.(moveTo)}>
+            Move to other staff
+          </button>
+        </div>
       {/if}
 
       {#if ongraceadd !== undefined}
