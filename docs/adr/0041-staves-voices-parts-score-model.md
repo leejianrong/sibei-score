@@ -189,3 +189,17 @@ Voice    { index (1-based), items: BarItem[], tuplets: Tuplet[] }
 - **Not drawn yet.** Layout and the engraver read `barViews(score)`, so only staff 1, voice 1 is drawn until slices
   3 and 4; a multi-staff score renders without error. The layout's per-bar metrics (the rose wash on an invalid bar)
   still look at that voice only.
+
+## As built: slice 3 (SIB2-227, layout)
+
+Layout now aligns staves and voices; the engraver (slice 4) does not draw them yet. No schema change. Details and the
+output contract are in `agent_docs/architecture.md` ("Staves and voices in the layout").
+
+- **Additive output.** `LayoutSystem.staves`, `groups` and `staffSpan`, `LayoutBar.alignment`, and an optional `x` on
+  note, rest, chord and annotation items appear only for a multi-staff or multi-voice score. Every single-staff
+  single-voice chart's layout, every committed snapshot and the browser/server byte-identity test are unchanged.
+- **`meta.layout: 'lead-sheet' | 'score'`** is the multi-staff system-break policy of section 5, added as an optional
+  field (ADR-0028): no migration, `SCHEMA_VERSION` stays 4. `lead-sheet`/absent keeps the four-bar grid; `score` breaks
+  by width. No op or verb sets it yet (a later slice, with its CLI verb and UI control, Q79).
+- Braces come from a part's staves, the bracket from there being several parts; there is no explicit grouping field.
+- `makeStaffedScore` (`packages/model/src/build-staves.ts`) builds multi-staff scores for tests and fixtures without ops.

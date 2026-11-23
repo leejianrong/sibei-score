@@ -33,6 +33,45 @@ allocated — so an adapter knows where a bar's *music* starts rather than guess
 added when there were two adapters and they disagreed. A repeat sign is still the
 adapter's to make room for, which is the same gap one size smaller.
 
+## Staves and voices in the layout (ADR-0041, SIB2-227)
+
+A chart with one staff and one voice lays out exactly as it always has: none of the fields below appear. A score with
+more than one staff, or a staff-bar with two voices that have music, takes the **staves path** (`isMultiLane`,
+`packages/layout/src/lanes.ts`) and its `LayoutSystem` gains three optional fields. The contract slice 4's engraver
+draws from:
+
+- `LayoutSystem.bars` is still the **first staff's first voice**, with the chord row, rehearsal marks, bar numbers and
+  tempo. `LayoutSystem.staves: LayoutStaff[]` lists every staff top to bottom: `staffId`, `partId`, `type`, `clef`,
+  `staveOffset` (from the top staff line) and `staveY` (absolute, set at pagination), `height`, `inkAbove`/`inkBelow`
+  (ledger-line room), `ties`, and `bars: LayoutStaffBar[]` (`prefix` = which of clef/key/time this staff draws at the
+  bar head; `voices: LayoutVoice[]` with `index`, `stems` up/down/auto and `items`). Staff 0 voice 1's `items` is the
+  same array as `system.bars[i].items`.
+- **Alignment.** Every note, rest, chord symbol and annotation carries `x`; every item with the same onset in a bar,
+  on any staff or voice, has the same x. `LayoutBar.alignment = { left, right, columns: [{onset, x}] }` is the
+  source. Spacing is a damped function of rhythmic distance (`alignBar`), a pure function of the onsets and the bar
+  box. A chord off every note's onset is interpolated between the columns around it.
+- **Widths.** A bar is as wide as its widest staff's estimate, floored by the union of all staves' rigid widths
+  (`sizingFor` handed to `allocateWidths`); `prefixWidth` is the same for every staff of a bar, so the first column
+  starts at one x. Per-staff `prefix` differs only in that a percussion or tab staff draws no key signature.
+- **Vertical.** `aboveStaff`/`chordBaselineOffset` are the top staff's: the chord and text row lives above the top part
+  only. Each lower staff sits `max(STAFF_GAP (+PART_GAP between parts), ink above it reaches down + ink it reaches up +
+  INK_CLEARANCE)` below the last; ink is read against the staff's own clef (`staffInk`, treble/bass/alto/tenor).
+  `system.height` is the whole stack, so pagination and page breaks need no change.
+- **Grouping.** `groups: LayoutStaffGroup[]`: a `brace` for each part with 2+ staves (a piano), one `bracket` across the
+  system when there are 2+ parts (derived: the model has no explicit grouping yet). Each is a box (`x`,`width`,`y`,
+  `height`), `x` its left edge, `y`/`height` from the first staff's top line to the last staff's bottom line.
+  `staffSpan` is the vertical run a barline (and the system's left edge) makes across all staves.
+- **System breaks.** `meta.layout` (`'lead-sheet'` default, or `'score'`; optional, so no migration, ADR-0028). `lead-sheet`
+  is the four-bar grid of ADR-0015, unchanged, even for a multi-staff score. `score` breaks a line when the next bar
+  (its rigid width over all staves, at least `minBarWidth`) would not fit; sections and `lineBreak` still apply. No op
+  sets it yet.
+- Not drawn yet: the engraver still draws `system.bars` only (the first staff), so a multi-staff score shows its top
+  staff until slice 4. Per-part transposed keys, tabs' six lines and cross-staff beams are not modelled.
+
+**See alignment without an engraver:** `pnpm layout:overlay [fixture] [--page N]` draws staff lines, groups, the barline
+span, the aligned columns and every item's x as an SVG/PNG in `out/layout-overlay/`. Fixtures: `grand-staff`,
+`two-voice`, `lead-bass`, `full-band` (`packages/fixtures/src/multi-staff-charts.ts`, built with `makeStaffedScore`).
+
 ## The engraver, and how the fonts get in
 
 `packages/engrave` is framework-free like `layout` and `model`: it emits SVG **markup**

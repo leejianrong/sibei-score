@@ -385,7 +385,19 @@ export interface ScoreMeta {
    * changes and `SCHEMA_VERSION` stays (ADR-0028). It is notation only: nothing plays.
    */
   tempo?: Tempo;
+  /**
+   * How systems are broken (ADR-0041 section 5, SIB2-227). `lead-sheet` (also what absence means) is the four-bar
+   * grid of ADR-0015, exactly as before. `score` breaks a system when the next bar would not fit the line, the way a
+   * multi-staff score is set. Optional-and-absent like `footer`, so **no migration**: no stored document changes and
+   * `SCHEMA_VERSION` stays (ADR-0028). No op sets it yet (a later slice adds the `meta.set` field with its verb).
+   */
+  layout?: ScoreLayoutKind;
 }
+
+/** How a score's systems are broken. See `ScoreMeta.layout`. */
+export type ScoreLayoutKind = 'lead-sheet' | 'score';
+
+export const SCORE_LAYOUT_KINDS: readonly ScoreLayoutKind[] = ['lead-sheet', 'score'];
 
 /** A metronome mark: `unit` is the beat (a quarter, a dotted quarter) and `bpm` how many of them a minute. */
 export interface Tempo {

@@ -1,4 +1,4 @@
-import type { BarView, Id, OctaveShift, Pitch } from '@sibei/model';
+import type { BarView, Clef, Id, OctaveShift, Pitch } from '@sibei/model';
 import { STEPS } from '@sibei/model';
 import type { PageSpec } from './page.js';
 
@@ -22,10 +22,20 @@ function diatonic(pitch: Pitch): number {
   return pitch.octave * 7 + STEPS.indexOf(pitch.step);
 }
 
-/** Treble clef: the top line is F5, the middle line B4, the bottom line E4. */
-const TOP_LINE = diatonic({ step: 'F', alter: 0, octave: 5 });
-const MIDDLE_LINE = diatonic({ step: 'B', alter: 0, octave: 4 });
-const BOTTOM_LINE = diatonic({ step: 'E', alter: 0, octave: 4 });
+/** Treble clef's top line is F5 (the middle line is B4, the bottom E4; see `staffInk`). */
+const TREBLE_TOP_LINE = diatonic({ step: 'F', alter: 0, octave: 5 });
+
+/**
+ * The top line of each pitched clef as a diatonic index (a staff's lines are a third apart, so the middle line is 4
+ * below the top and the bottom 8). Treble is what every single-staff chart has always used; the others serve the
+ * lower staves of a multi-staff system (SIB2-227). A percussion staff has no pitch, so no ink.
+ */
+const CLEF_TOP_LINE: Record<Exclude<Clef, 'percussion'>, number> = {
+  treble: TREBLE_TOP_LINE,
+  bass: diatonic({ step: 'A', alter: 0, octave: 3 }),
+  alto: diatonic({ step: 'G', alter: 0, octave: 4 }),
+  tenor: diatonic({ step: 'E', alter: 0, octave: 4 }),
+};
 
 /** One diatonic step is half a staff space. */
 const STEP_UNITS = 5;
@@ -81,19 +91,40 @@ export interface SystemVerticalInput {
   shifts?: Map<Id, OctaveShift>;
   ottavaAbove?: boolean;
   ottavaBelow?: boolean;
+  /** The clef of the staff the ink is measured against; absent is treble, as every chart has always been. */
+  clef?: Clef;
 }
 
-export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
+export interface StaffInk {
+  /** Units above the top staff line that the notes, stems, marks and fermatas reach. */
+  inkAbove: number;
+  /** Units below the bottom staff line. */
+  inkBelow: number;
+}
+
+/**
+ * The ink one staff's music puts above and below its five lines, in a given clef. `systemVertical` is this plus the
+ * rows a system stacks above it; a multi-staff system asks it once per staff to place the staves (SIB2-227).
+ */
+export function staffInk(
+  bars: readonly BarView[],
+  shifts: Map<Id, OctaveShift> | undefined,
+  clef: Clef = 'treble',
+): StaffInk {
+  if (clef === 'percussion') return { inkAbove: 0, inkBelow: 0 };
+  const TOP_LINE = CLEF_TOP_LINE[clef];
+  const MIDDLE_LINE = TOP_LINE - 4;
+  const BOTTOM_LINE = TOP_LINE - 8;
   let inkAbove = 0;
   let inkBelow = 0;
 
-  for (const bar of input.bars) {
+  for (const bar of bars) {
     for (const item of bar.items) {
       // A fermata rides above the staff and above the note's own ink, so the chord band must clear it
       // (SIB2-183). A rest has no ink above the staff, so it sits at the fixed height.
       if (item.fermata === true && item.kind === 'rest') inkAbove = Math.max(inkAbove, FERMATA_BASE + FERMATA_HEIGHT);
       if (item.kind !== 'note') continue;
-      const shift = input.shifts?.get(item.id);
+      const shift = shifts?.get(item.id);
       const index = diatonic(item.pitch) + (shift === undefined ? 0 : shift === 'up' ? -7 : 7);
       const stemUp = index < MIDDLE_LINE;
       const above = (index - TOP_LINE) * STEP_UNITS + NOTEHEAD_UNITS;
@@ -122,8 +153,11 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
     }
   }
 
-  inkAbove = Math.max(inkAbove, 0);
-  inkBelow = Math.max(inkBelow, 0);
+  return { inkAbove: Math.max(inkAbove, 0), inkBelow: Math.max(inkBelow, 0) };
+}
+
+export function systemVertical(input: SystemVerticalInput, spec: PageSpec): SystemVertical {
+  let { inkAbove, inkBelow } = staffInk(input.bars, input.shifts, input.clef);
 
   // An ottava line goes between the notes and everything above (or below) them, so the chord row rises with it.
   let ottavaAboveOffset: number | undefined;

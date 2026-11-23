@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { aabaChart, articulationsChart, everyGlyphChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, articulationsChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -45,6 +45,11 @@ const FIXTURES: Record<string, () => Score> = {
   'grace-notes': graceNotesChart,
   'title-block': titleBlockChart,
   articulations: articulationsChart,
+  // The multi-staff fixtures (SIB2-227): the engraver draws only the first staff until slice 4, and both paths must agree.
+  'grand-staff': grandStaffChart,
+  'two-voice': twoVoiceChart,
+  'lead-bass': leadBassChart,
+  'full-band': fullBandChart,
 };
 
 /** Derived from the packages that own them, so a face or a paper added later is covered here. */
