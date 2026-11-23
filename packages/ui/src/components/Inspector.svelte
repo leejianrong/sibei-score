@@ -75,6 +75,8 @@
 
   interface Props {
     selection: Selection;
+    /** Which staff and voice the object is in, for a chart with more than one of either. Absent for a lead sheet. */
+    lane?: string | null;
     /** True once a save on this selection came back 409: the server moved on without this edit. */
     conflict: boolean;
     saving: boolean;
@@ -107,6 +109,7 @@
 
   const {
     selection,
+    lane = null,
     conflict,
     saving,
     error,
@@ -224,7 +227,7 @@
 <div class="inspector">
   <div class="inspector-head">
     <span class="inspector-kind"><b>{selection.kind === 'note' ? 'Note' : 'Rest'}</b> selected</span>
-    <span class="inspector-addr">{selection.id}</span>
+    <span class="inspector-addr">{selection.id}{lane ? ` · ${lane}` : ''}</span>
   </div>
 
   {#if conflict}

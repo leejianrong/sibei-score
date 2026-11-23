@@ -50,6 +50,8 @@
   import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
   import type { ChordBox } from '../lib/chord-hit.js';
   import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
+  import { FIRST_LANE, clampLane, laneLabel, needsQualifier, notePinnedIn, qualifierOf, tupletOf } from '../lib/lanes.js';
+  import type { Lane } from '../lib/lanes.js';
   import { renderScorePages } from '../lib/render.js';
   import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
   import type { SlurChoice } from '../lib/slur-edits.js';
@@ -304,7 +306,14 @@
   // not an item, so it is its own state; the id is just the page and the bar number, and everything
   // the Structure panel shows is looked up fresh from the model by number, so a reload never leaves
   // it holding a stale copy (the same discipline as note/chord selection).
-  let barSel = $state<{ pageIndex: number; barNumber: number } | null>(null);
+  let barSel = $state<{ pageIndex: number; barNumber: number; staffIndex: number } | null>(null);
+
+  // The active staff and voice (ADR-0041, slice 5b): where an edit by position lands. A click on a note,
+  // a rest or a bar's staff sets it; it is kept inside what the chart has (a removed staff or voice
+  // falls back). A chart with one staff and one voice never shows it and addresses unqualified.
+  let laneChoice = $state<Lane>(FIRST_LANE);
+  const activeLane = $derived(score === null ? FIRST_LANE : clampLane(score, laneChoice));
+  const multiLane = $derived(score !== null && needsQualifier(score));
 
   // The beat under the pointer while it is over a chord band and nothing is being saved — the
   // "click above the staff to add a chord" affordance (the approved V5e interaction).
@@ -362,23 +371,13 @@
 
   /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
   function notePinned(noteId: Id): boolean {
-    if (score === null) return false;
-    for (const bar of barViews(score)) {
-      for (const barItem of bar.items) {
-        if (barItem.id === noteId && barItem.kind === 'note') return barItem.spellingPinned;
-      }
-    }
-    return false;
+    return score !== null && notePinnedIn(score, noteId);
   }
 
-  /** The tuplet an item sits in, from the stored score (SIB2-166). */
+  /** The tuplet an item sits in, from the stored score, on any staff or voice (SIB2-166). */
   function tupletOfItem(itemId: Id): { actual: number; normal: number } | null {
-    if (score === null) return null;
-    for (const bar of barViews(score)) {
-      const found = bar.tuplets.find((t) => t.memberIds.includes(itemId));
-      if (found !== undefined) return { actual: found.actual, normal: found.normal };
-    }
-    return null;
+    const found = score === null ? null : tupletOf(score, itemId);
+    return found === null ? null : { actual: found.actual, normal: found.normal };
   }
 
   /** A chord's spelling pin, looked up from the stored score by id (the seed for the chord inspector). */
@@ -493,7 +492,7 @@
     if (barSel === null) return null;
     const page = pages[barSel.pageIndex];
     if (page === undefined) return null;
-    const box = barBoxFor(pageBarBoxes(page.layout), barSel.barNumber);
+    const box = barBoxFor(pageBarBoxes(page.layout), barSel.barNumber, barSel.staffIndex);
     return box === null ? null : { pageIndex: barSel.pageIndex, box };
   });
 
@@ -636,6 +635,7 @@
       barSel = null;
       selectedId = hit.id;
       selectedPage = pageIndex;
+      laneChoice = { staff: hit.staffIndex + 1, voice: hit.voice };
       return;
     }
 
@@ -650,7 +650,9 @@
     }
     selectedId = null;
     chordSel = null;
-    barSel = { pageIndex, barNumber: barHit.barNumber };
+    barSel = { pageIndex, barNumber: barHit.barNumber, staffIndex: barHit.staffIndex };
+    // A click on an empty staff makes it active; the voice stays as chosen (clamped to what the staff has).
+    laneChoice = { staff: barHit.staffIndex + 1, voice: laneChoice.voice };
   }
 
   function selectChord(
@@ -725,6 +727,8 @@
    */
   async function handleSave(edits: NoteEdits | RestEdits): Promise<void> {
     if (score === null || located === null || selectedId === null) return;
+    // A rest is replaced by position, so the address names the staff and voice the rest sits in.
+    const here = qualifierOf(score, { staff: located.staffIndex + 1, voice: located.voice });
 
     const operations: Operation[] =
       located.item.kind === 'note'
@@ -733,12 +737,12 @@
             { type: 'rest.rm', target: selectedId },
             {
               type: 'rest.add',
-              target: `bar${located.barNumber}.beat${located.item.beat}`,
+              target: `${here}bar${located.barNumber}.beat${located.item.beat}`,
               payload: { duration: (edits as RestEdits).duration },
             },
             // `rest.add` makes a new rest, which would drop the old one's fermata (SIB2-183).
             ...(located.item.fermata === true
-              ? [{ type: 'fermata.set', target: `bar${located.barNumber}.beat${located.item.beat}` } as Operation]
+              ? [{ type: 'fermata.set', target: `${here}bar${located.barNumber}.beat${located.item.beat}` } as Operation]
               : []),
           ];
 
@@ -1275,6 +1279,9 @@
           {#key selection.id}
             <Inspector
               {selection}
+              lane={multiLane && located !== null
+                ? laneLabel(score, { staff: located.staffIndex + 1, voice: located.voice })
+                : null}
               {conflict}
               {saving}
               error={saveError}
@@ -1352,6 +1359,7 @@
           <div class="stage-bar">
             <span>
               {pages.length} {pages.length === 1 ? 'page' : 'pages'}
+              {#if multiLane}· <span class="lane-status" data-testid="active-lane">{laneLabel(score, activeLane)}</span>{/if}
               {#if !editable}· <span class="part-flag">{INSTRUMENTS.find((o) => o.value === instrument)?.label} part</span>{/if}
             </span>
             <!-- The scan toggle lives here — always visible, so it can bring the scan back after it is
@@ -1658,6 +1666,10 @@
 
   .part-flag {
     color: var(--flag);
+    font-weight: 600;
+  }
+  .lane-status {
+    color: var(--ink-soft);
     font-weight: 600;
   }
 
