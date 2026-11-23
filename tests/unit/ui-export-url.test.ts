@@ -41,8 +41,18 @@ describe('exportRoute prints the same format the URL requests', () => {
 });
 
 describe('the format list the toggle is built from', () => {
-  it('offers pdf first and musicxml, with human labels', () => {
-    expect(FORMATS.map((f) => f.value)).toEqual(['pdf', 'musicxml']);
+  it('offers pdf first, then musicxml and svg, with human labels', () => {
+    expect(FORMATS.map((f) => f.value)).toEqual(['pdf', 'musicxml', 'svg']);
     expect(FORMATS.find((f) => f.value === 'musicxml')?.label).toBe('MusicXML');
+  });
+});
+
+describe('the SVG choice (SIB2-277)', () => {
+  it('names the page, which defaults to 1, only for svg', () => {
+    expect(exportUrl('score-1', { ...CONCERT, format: 'svg' })).toContain('format=svg&');
+    expect(exportUrl('score-1', { ...CONCERT, format: 'svg' })).toContain('&page=1');
+    expect(exportUrl('score-1', { ...CONCERT, format: 'svg', page: 3 })).toContain('&page=3');
+    expect(exportUrl('score-1', { ...CONCERT, page: 3 })).not.toContain('page=');
+    expect(exportRoute({ ...CONCERT, format: 'svg', page: 2 }).query).toContain('&page=2');
   });
 });

@@ -201,7 +201,21 @@ function chordBoxes(
  * How far past a box's edge a click still counts as hitting it. A notehead is a few units
  * wide; a pointer is not a pixel, so the target it hits has to be more generous than the ink.
  */
-const HIT_MARGIN = units(1.2);
+export const HIT_MARGIN = units(1.2);
+
+/**
+ * The least slop a click gets **on screen**, in CSS pixels (SIB2-275). `HIT_MARGIN` is in layout units, so it shrinks
+ * with the zoom: at 100% a notehead is about 9 px and the margin about 9 px more, at 50% half that, and a click a few
+ * pixels off the ink fell through to the bar. The handlers pass the sheet's px-per-unit and take the larger of the two,
+ * so the target is never smaller than this around the ink, whatever the zoom. It changes no ink: only which pointer
+ * positions count as a hit.
+ */
+export const MIN_HIT_PX = 12;
+
+/** The margin, in layout units, for a sheet drawn at `pxPerUnit` screen pixels per layout unit. */
+export function hitMargin(pxPerUnit: number | undefined): number {
+  return pxPerUnit === undefined || !(pxPerUnit > 0) ? HIT_MARGIN : Math.max(HIT_MARGIN, MIN_HIT_PX / pxPerUnit);
+}
 
 function distanceToBox(box: ItemBox, point: Point): number {
   const dx = Math.max(box.x - point.x, 0, point.x - (box.x + box.width));
@@ -209,8 +223,8 @@ function distanceToBox(box: ItemBox, point: Point): number {
   return Math.hypot(dx, dy);
 }
 
-/** The nearest box to a point, or `null` when nothing on the page is close enough to count. */
-export function hitTest(boxes: readonly ItemBox[], point: Point): ItemBox | null {
+/** The nearest box to a point, or `null` when nothing on the page is within `margin` (layout units) of it. */
+export function hitTest(boxes: readonly ItemBox[], point: Point, margin: number = HIT_MARGIN): ItemBox | null {
   let best: ItemBox | null = null;
   let bestDistance = Infinity;
   for (const box of boxes) {
@@ -220,7 +234,7 @@ export function hitTest(boxes: readonly ItemBox[], point: Point): ItemBox | null
       best = box;
     }
   }
-  return best !== null && bestDistance <= HIT_MARGIN ? best : null;
+  return best !== null && bestDistance <= margin ? best : null;
 }
 
 /** The box for an id already known — after a fresh render, to redraw the selection outline. */
