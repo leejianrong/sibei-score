@@ -270,6 +270,22 @@ The engraver draws every staff and voice that layout emits. No schema change. De
   single-staff single-voice chart is byte for byte as before (tests pin it); the address hint now names an address that
   exists (`s1.v2.bar3.n2` for a one-staff two-voice chart) and a percussion staff no longer says `percussion` twice.
 
+
+## As built: slice 5b (SIB2-229, the browser editor)
+
+The editor opens and edits any staff and voice (this supersedes slice 2's "the browser still edits staff 1, voice 1").
+
+- **Hit-testing reads the layout's `staves`.** `pageItemBoxes`, `findItem` and `pageBarBoxes` (`packages/ui/src/lib`) walk
+  `system.staves` when it is present, with the engraver's own `placeAligned`, `noteShifts`, `restShiftOf` and the staff's
+  clef, so a click resolves to the staff and voice it was drawn on; a lead sheet takes the unchanged path (`staffIndex` 0,
+  `voice` 1). Each box and each bar band carries its `staffIndex`, and a chord's x is the aligned `item.x`.
+- **The active lane** (`lib/lanes.ts`: `Lane { staff, voice }`, 1-based as the address grammar numbers them) is set by a click and
+  shown in the stage bar (`Staff 2 · bass · Voice 2`) and in the inspector, only when the chart needs a qualifier
+  (`needsQualifier`: more than one staff, or a staff with more than one voice). Edits of an existing note go by id; edits by
+  position (a rest replaced, a note added) carry `qualifierOf(score, lane)`, which is empty for a one-staff, one-voice chart
+  so its ops are byte-identical to before.
+- A slur or ottava joins two notes of one lane only; the controls stay off across lanes.
+
 ## As built: slice 6 (SIB2-230, percussion and the drum map)
 
 A drum kit on a five-line percussion staff. No schema change: the two new `Note` fields are optional-and-absent
