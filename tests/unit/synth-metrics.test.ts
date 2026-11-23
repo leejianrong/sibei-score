@@ -1,4 +1,4 @@
-import { createIdFactory, dur, makeBar, makeNote, makeRest, makeScore } from '@sibei/model';
+import { createIdFactory, dur, makeBar, makeNote, makeRest, makeScore, barViews, withBarViews } from '@sibei/model';
 import type { ItemToken, OmrMetrics } from '@sibei/synth';
 import {
   aggregate,
@@ -126,12 +126,10 @@ describe('scoreOmr', () => {
   it('penalises a chart that lost a note', () => {
     const truth = generateScore({ seed: 21, bars: 8, chords: false });
     // Drop the first item of the first non-empty bar.
-    const predicted = {
-      ...truth,
-      bars: truth.bars.map((bar, index) =>
-        index === 0 ? { ...bar, items: bar.items.slice(1) } : bar,
-      ),
-    };
+    const predicted = withBarViews(
+      truth,
+      barViews(truth).map((bar, index) => (index === 0 ? { ...bar, items: bar.items.slice(1) } : bar)),
+    );
     const m = scoreOmr(predicted, truth);
     expect(m.note.recall).toBeLessThan(1);
   });

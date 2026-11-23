@@ -7,7 +7,7 @@ import {
   resolveLog,
 } from '@sibei/api';
 import type { ControlOperation, Operation, StoredOperation } from '@sibei/api';
-import { dur, formatPitch, notesOf } from '@sibei/model';
+import { dur, formatPitch, notesOf, barViews } from '@sibei/model';
 
 /**
  * Undo and redo as log resolution (V8a, ADR-0003), with no store in sight — the same discipline as
@@ -43,7 +43,7 @@ const redo: ControlOperation = { type: 'redo' };
 function pitches(stored: StoredOperation[]): string[] {
   const score = replayLog(stored);
   if (score === null) return [];
-  return score.bars.flatMap((bar) => notesOf(bar).map((note) => formatPitch(note.pitch)));
+  return barViews(score).flatMap((bar) => notesOf(bar).map((note) => formatPitch(note.pitch)));
 }
 
 describe('resolveLog: which content ops a log resolves to', () => {

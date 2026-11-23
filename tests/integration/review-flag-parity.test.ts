@@ -1,5 +1,5 @@
 import { reviewChart } from '@sibei/fixtures';
-import { barReview, orderedItems, projectScore } from '@sibei/model';
+import { barReview, orderedItems, projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 
@@ -33,7 +33,7 @@ import { describe, expect, it } from 'vitest';
 /** The flagged-object set the browser derives from the model, over bars/notes/chords. */
 function browserFlagSet(score: Score): Set<string> {
   const flags = new Set<string>();
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     if (barReview(bar, score.meta.time).flagged) flags.add(`bar${bar.number}`);
     orderedItems(bar).forEach((item, index) => {
       if (item.review.flagged) flags.add(`bar${bar.number}.n${index + 1}`);
@@ -111,7 +111,7 @@ describe('the CLI and the browser flag the same objects (V14)', () => {
     // a `text` line with its beat and id. The parity above stays scoped to bars/notes/chords, whose
     // flags it compares; this pins that the annotation's own flag is now visible to the CLI too.
     const score = reviewChart();
-    const flaggedAnnotation = score.bars
+    const flaggedAnnotation = barViews(score)
       .flatMap((bar) => bar.annotations)
       .find((annotation) => annotation.review.flagged);
     expect(flaggedAnnotation, 'the review fixture carries a flagged annotation').toBeDefined();

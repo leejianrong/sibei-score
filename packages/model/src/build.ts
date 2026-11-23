@@ -4,6 +4,7 @@ import type {
   Annotation,
   Bar,
   BarItem,
+  BarView,
   Chord,
   Dots,
   Duration,
@@ -23,6 +24,12 @@ import type {
   Tuplet,
 } from './score.js';
 import { SCHEMA_VERSION } from './score.js';
+import { defaultParts, gridBar, withBarViews } from './staves.js';
+
+function asView(bar: Bar | BarView): BarView {
+  const view = bar as Partial<BarView>;
+  return { ...bar, items: view.items ?? [], tuplets: view.tuplets ?? [], chords: view.chords ?? [], annotations: view.annotations ?? [] };
+}
 
 /**
  * Plain constructors with the defaults every object needs. Nothing here writes to a
@@ -122,7 +129,8 @@ export interface BarInit {
   review?: Review;
 }
 
-export function makeBar(init: BarInit): Bar {
+/** A bar as authors think of it: the grid entry with its first voice's items and its harmony. `makeScore` splits it. */
+export function makeBar(init: BarInit): BarView {
   return {
     id: init.id,
     number: init.number,
@@ -164,7 +172,8 @@ export interface ScoreInit {
   style?: string | null;
   key?: KeySignature;
   time?: TimeSignature;
-  bars?: Bar[];
+  /** Bars as `makeBar` builds them; their content is filed into the one part, staff and voice `makeScore` creates. */
+  bars?: (Bar | BarView)[];
   sections?: Section[];
 }
 
@@ -186,13 +195,18 @@ export function makeScore(init: ScoreInit): Score {
     key: init.key ?? DEFAULT_KEY,
     time: init.time ?? DEFAULT_TIME,
   };
-  return {
+  const views: BarView[] = (init.bars ?? []).map(asView);
+  const grid = views.map(gridBar);
+  const score: Score = {
     schemaVersion: SCHEMA_VERSION,
     id: init.id,
     meta,
-    bars: init.bars ?? [],
+    bars: grid,
     sections: init.sections ?? [],
+    harmony: [],
+    parts: defaultParts(grid.map((bar) => bar.id)),
   };
+  return withBarViews(score, views);
 }
 
 /**

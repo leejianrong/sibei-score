@@ -4,7 +4,8 @@ import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, ScoreStore } from '@sibei/api';
 import { EXIT, run } from '@sibei/cli';
 import { layout } from '@sibei/layout';
-import type { Bar, Score } from '@sibei/model';
+import { barViews } from '@sibei/model';
+import type { BarView, Score } from '@sibei/model';
 
 /**
  * `sbscore tuplet set|rm` over a real server (SIB2-166). The applier owns the change; this asserts the
@@ -47,7 +48,7 @@ async function open(): Promise<Score> {
   return (JSON.parse(opened.out) as Document).score;
 }
 
-const barAt = (score: Score, n: number): Bar => score.bars.find((b) => b.number === n)!;
+const barAt = (score: Score, n: number): BarView => barViews(score).find((b) => b.number === n)!;
 
 describe('sbscore tuplet', () => {
   it('brackets three eighths, shows them as (3), and undoes as one unit', async () => {

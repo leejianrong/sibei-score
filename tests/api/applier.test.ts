@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { LOCAL_OWNER, OperationError, createApplier, replayLog } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Applier, ApplyResult, Operation, ScoreStore } from '@sibei/api';
-import { dur, makeBar, makeScore, notesOf } from '@sibei/model';
+import { dur, makeBar, makeScore, notesOf, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -303,7 +303,7 @@ describe('the expected-version check (ADR-0003)', () => {
     ).rejects.toThrow(/the score is at version 5, not 4/);
 
     // The first client's edit survived, which is the whole point.
-    const notes = notesOf((await store.get(LOCAL_OWNER, 'score-1'))!.score.bars[0]!);
+    const notes = notesOf(barViews((await store.get(LOCAL_OWNER, 'score-1'))!.score)[0]!);
     expect(notes[0]?.pitch).toMatchObject({ step: 'D', alter: -1 });
   });
 
@@ -416,7 +416,7 @@ describe('a batch is transactional (ADR-0008)', () => {
     });
     expect(result.version).toBe(5);
     const score = (await context.store.get(LOCAL_OWNER, 'score-1'))!.score;
-    expect(score.bars[0]!.items).toHaveLength(4);
+    expect(barViews(score)[0]!.items).toHaveLength(4);
     expect(score.meta.style).toBe('Medium swing');
   });
 
@@ -428,7 +428,7 @@ describe('a batch is transactional (ADR-0008)', () => {
       target: 'bar2.beat1',
       payload: { duration: dur(2) },
     });
-    const bar = (await context.store.get(LOCAL_OWNER, 'score-1'))!.score.bars[1]!;
+    const bar = barViews((await context.store.get(LOCAL_OWNER, 'score-1'))!.score)[1]!;
     expect(notesOf(bar)[0]!.duration).toEqual(dur(2));
   });
 
@@ -503,7 +503,7 @@ describe('the store refuses a write with no operation behind it', () => {
 
 describe('undo and redo, by replay of the op log (V8a, ADR-0003)', () => {
   const pitchesOf = async (fixture: Fixture): Promise<string[]> =>
-    (await fixture.store.get(LOCAL_OWNER, 'score-1'))!.score.bars.flatMap((bar) =>
+    barViews((await fixture.store.get(LOCAL_OWNER, 'score-1'))!.score).flatMap((bar) =>
       notesOf(bar).map((n) => `${n.pitch.step}${n.pitch.octave}`),
     );
 
@@ -703,8 +703,8 @@ describe('duplicate: a copy with a fresh history (V8c, ADR-0003)', () => {
       expectedVersion: copyVersion,
     });
     // The copy grew a note; the source has the three it always had.
-    expect(notesOf((await docOf(ctx, 'copy')).bars[0]!)).toHaveLength(4);
-    expect(notesOf((await docOf(ctx, 'score-1')).bars[0]!)).toHaveLength(3);
+    expect(notesOf(barViews(await docOf(ctx, 'copy'))[0]!)).toHaveLength(4);
+    expect(notesOf(barViews(await docOf(ctx, 'score-1'))[0]!)).toHaveLength(3);
   });
 
   it('refuses score.import on the client ops route (ADR-0008)', async () => {
@@ -807,6 +807,6 @@ describe('unknown payload fields (SIB2-188)', () => {
       payload: { pitch: 'C5', duration: dur(4), tuplet: { actual: 3 }, id: 'note-1' },
     } as unknown as Operation;
     const score = replayLog([at(1, CREATE), at(2, old)]);
-    expect(notesOf(score!.bars[0]!)).toHaveLength(1);
+    expect(notesOf(barViews(score!)[0]!)).toHaveLength(1);
   });
 });

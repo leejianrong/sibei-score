@@ -126,3 +126,35 @@ existing test, snapshot, and the browser/server byte-identity test must pass unm
 single-staff, single-voice chart is unchanged. Only then do later slices add multi-staff/voice capability (ops and
 addresses, then layout time-alignment, then engraving, then CLI/UI/MCP, then percussion, later tab). Hosted launch
 hotfixes branch from the tag, not from `main`.
+
+## As built: slice 1 (SIB2-225, schema v4)
+
+The document shape landed with **no behaviour change**; every snapshot and the browser/server byte-identity test pass
+unmodified. Exact field names (all JSON-plain; `packages/model/src/score.ts`):
+
+```
+Score    { schemaVersion: 4, id, meta, bars: Bar[], sections, harmony: HarmonyBar[], parts: Part[], spanners? }
+Bar      { id, number, startBarline, endBarline, ending, review, lineBreak? }          the global measure grid
+HarmonyBar { barId, chords: Chord[], annotations: Annotation[] }                      one entry per bar
+Part     { id, name, instrument: number | null (GM program), transposition: number (semitones), staves: Staff[] }
+Staff    { id, type: 'standard' | 'percussion' | 'tab', clef: Clef, bars: StaffBar[] }
+StaffBar { barId, voices: Voice[] }
+Voice    { index (1-based), items: BarItem[], tuplets: Tuplet[] }
+```
+
+- **The grid keeps the name `bars` and the type `Bar`** (the ADR's "measures"): renaming it would touch every consumer
+  and every test for no change in meaning. A later slice may rename it.
+- A voice is identified by `index` within its staff-bar, not by an id; staves and parts have ids (`staff-1`,
+  `part-1` after migration). Clef is per staff for now (nothing draws any but treble); a per-bar change is a later slice.
+- `harmony` and each staff's `bars` are keyed by `barId`, not parallel to `bars` by position, so a bar insert, move
+  or removal cannot desynchronise them; readers treat a missing entry as empty. Writers keep them dense.
+- `spanners` is unchanged (optional-and-absent), as the ADR's lane.
+- **Migration v3 to v4** is a pure rearrangement (every id, onset and tick untouched); the only new ids are `part-1`
+  and `staff-1`. Op payloads are unchanged. A `score.import` in an old log carries a v3 document and is migrated as it
+  is folded (the logged payload is left as written), so old logs replay to the same score.
+- **Accessors** (`packages/model/src/staves.ts`): `barView(score, bar, select?)` / `barViews(score, select?)` return a
+  `BarView`, the old `Bar` shape rebuilt for one staff and voice (`VoiceSelect { staff?, voice? }`, default first staff,
+  voice 1) from the grid entry, the voice and the harmony lane; `withBarView` / `withBarViews` / `mapBarView` write
+  one back; `annotationsOfBar` / `chordsOfBar` read the lane cheaply. `makeBar` still builds a `BarView` and
+  `makeScore` files it, so a one-staff chart is still one call. Nothing outside `staves.ts` and the migration walks
+  `parts` or `harmony` by hand, except `idsOf`.

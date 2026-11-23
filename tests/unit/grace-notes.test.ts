@@ -5,7 +5,7 @@ import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { graceNotesChart } from '@sibei/fixtures';
 import { layout } from '@sibei/layout';
-import { barMetrics, projectScore } from '@sibei/model';
+import { barMetrics, projectScore, barViews } from '@sibei/model';
 import type { Note, Score } from '@sibei/model';
 import { writtenPart } from '@sibei/music';
 
@@ -29,7 +29,7 @@ const notes: Operation[] = [
   { type: 'note.add', target: 'bar1.beat3', payload: { pitch: 'G5', duration: { value: 2, dots: 0 } } },
 ];
 const firstNote = (score: Score): Note => {
-  const item = score.bars[0]?.items[0];
+  const item = barViews(score)[0]?.items[0];
   if (item?.kind !== 'note') throw new Error('no note');
   return item;
 };
@@ -73,7 +73,7 @@ describe('grace.add and grace.rm', () => {
     const plain = run([create, ...notes]).score;
     const graced = run([create, ...notes, { type: 'grace.add', target: 'bar1.n1', payload: { pitch: 'D5' } }]).score;
     const time = plain.meta.time;
-    expect(barMetrics(graced.bars[0]!, time)).toEqual(barMetrics(plain.bars[0]!, time));
+    expect(barMetrics(barViews(graced)[0]!, time)).toEqual(barMetrics(barViews(plain)[0]!, time));
   });
 });
 
@@ -99,7 +99,7 @@ describe('graces on the page', () => {
 
   it('leaves a chart without graces byte for byte as it was', () => {
     const chart = graceNotesChart();
-    for (const bar of chart.bars) for (const item of bar.items) if (item.kind === 'note') delete item.graces;
+    for (const bar of barViews(chart)) for (const item of bar.items) if (item.kind === 'note') delete item.graces;
     expect(renderScoreToSvg(chart)[0]!.svg).not.toContain('se-grace');
   });
 
@@ -125,14 +125,14 @@ describe('graces in the text projection and MusicXML', () => {
     expect(xml).toContain('<grace/>');
     const back = musicXmlToScore(xml);
     expect(back.warnings.join(' ')).not.toContain('grace');
-    const first = back.score.bars[2]!.items[0] as Note;
+    const first = barViews(back.score)[2]!.items[0] as Note;
     expect(first.graces?.map((g) => [g.pitch.step, g.value, g.slashed])).toEqual([
       ['C', 16, true],
       ['E', 16, true],
       ['F', 16, true],
     ]);
     // Rhythm is untouched: the same bars are valid.
-    expect(back.score.bars.map((b) => b.items.length)).toEqual(chart.bars.map((b) => b.items.length));
+    expect(barViews(back.score).map((b) => b.items.length)).toEqual(barViews(chart).map((b) => b.items.length));
   });
 
   it('drops a grace before a rest or at the end with a warning', () => {

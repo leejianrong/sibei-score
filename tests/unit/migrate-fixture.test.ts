@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SCHEMA_VERSION, migrateDocument } from '@sibei/model';
+import { SCHEMA_VERSION, migrateDocument, barViews } from '@sibei/model';
 import type { RawDocument } from '@sibei/model';
+import { toLegacyDocument } from '../fixtures/legacy-document.js';
 
 /**
  * Real fixture documents, each carried from the schema version a build actually wrote to the
@@ -47,8 +48,8 @@ describe('a real fixture climbs from the earliest schema version to the current 
 
   it('backfills spellingPinned onto every note AND every chord (the gap V8f closed)', () => {
     const { score } = migrateDocument(v1());
-    const notes = score.bars.flatMap((bar) => bar.items.filter((i) => i.kind === 'note'));
-    const chords = score.bars.flatMap((bar) => bar.chords);
+    const notes = barViews(score).flatMap((bar) => bar.items.filter((i) => i.kind === 'note'));
+    const chords = barViews(score).flatMap((bar) => bar.chords);
 
     expect(notes.length).toBe(4);
     expect(chords.length).toBe(3);
@@ -58,7 +59,7 @@ describe('a real fixture climbs from the earliest schema version to the current 
 
   it('leaves a rest untouched: rests carry no spelling pin', () => {
     const { score } = migrateDocument(v1());
-    const rest = score.bars[0]!.items.find((i) => i.kind === 'rest');
+    const rest = barViews(score)[0]!.items.find((i) => i.kind === 'rest');
     expect(rest).toBeDefined();
     expect('spellingPinned' in (rest as object)).toBe(false);
   });
@@ -69,8 +70,10 @@ describe('a real fixture climbs from the earliest schema version to the current 
     // The expected current document is the v1 one with exactly `spellingPinned: false` added to each
     // note and chord and the version bumped. Deep equality proves the migration added those and
     // touched nothing else — structure, ties, the repeat, the ending and the section all preserved.
+    // The v4 step (ADR-0041) rearranges the shape, so the comparison is made in the v3 shape: the migrated score is
+    // read back through `toLegacyDocument`, which is exactly what the v3 -> v4 step is the inverse of.
     const expected = v1();
-    expected.schemaVersion = SCHEMA_VERSION;
+    expected.schemaVersion = 3;
     for (const bar of expected.bars as RawDocument[]) {
       bar.items = (bar.items as RawDocument[]).map((item) =>
         item.kind === 'note' ? { ...item, spellingPinned: false } : item,
@@ -78,7 +81,7 @@ describe('a real fixture climbs from the earliest schema version to the current 
       bar.chords = (bar.chords as RawDocument[]).map((chord) => ({ ...chord, spellingPinned: false }));
     }
 
-    expect(score).toEqual(expected);
+    expect(toLegacyDocument(score)).toEqual(expected);
   });
 
   it('preserves the musical content a reader would check first', () => {
@@ -106,22 +109,22 @@ describe('a real v2 fixture climbs the last step, KAN-610', () => {
     // A note's own low-confidence flag is a different question from its bar's, and this migration
     // has no business touching it.
     expect(score.bars[1]!.review).toEqual({ flagged: false, reasons: [] });
-    expect(score.bars[1]!.items[0]).toMatchObject({ review: { flagged: true, reasons: ['low-confidence'] } });
+    expect(barViews(score)[1]!.items[0]).toMatchObject({ review: { flagged: true, reasons: ['low-confidence'] } });
   });
 
   it('changes nothing else — only the dropped reason and the version', () => {
     const { score } = migrateDocument(v2InvalidBar());
     const expected = v2InvalidBar();
-    expected.schemaVersion = SCHEMA_VERSION;
+    expected.schemaVersion = 3;
     (expected.bars as RawDocument[])[0]!.review = { flagged: false, reasons: [] };
-    expect(score).toEqual(expected);
+    expect(toLegacyDocument(score)).toEqual(expected);
   });
 
   it('preserves the musical content a reader would check first', () => {
     const { score } = migrateDocument(v2InvalidBar());
     expect(score.meta).toMatchObject({ title: 'On Green Dolphin Street', composer: 'Bronislau Kaper' });
     expect(score.bars).toHaveLength(2);
-    expect(score.bars[0]!.chords[0]).toMatchObject({ text: 'Cmaj7' });
+    expect(barViews(score)[0]!.chords[0]).toMatchObject({ text: 'Cmaj7' });
     expect(score.sections).toEqual([{ id: 'section-1', startBar: 1, letter: 'A', name: 'Head' }]);
   });
 });

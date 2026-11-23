@@ -1,5 +1,5 @@
 import type { KeySignature, Note } from '@sibei/model';
-import { scoreMetrics } from '@sibei/model';
+import { scoreMetrics, barViews } from '@sibei/model';
 import { isChord } from '@sibei/music';
 import { extractLabels, generateScore } from '@sibei/synth';
 import { describe, expect, it } from 'vitest';
@@ -37,7 +37,7 @@ describe('generateScore', () => {
   it('spells the diatonic melody to the key: D major has F# and C# (chromatic off)', () => {
     // chromatic: 0 isolates the diatonic core — with inflections on, an F natural is a legal accidental.
     const score = generateScore({ seed: 8, key: D_MAJOR, bars: 16, chords: false, chromatic: 0 });
-    const notes = score.bars.flatMap((bar) =>
+    const notes = barViews(score).flatMap((bar) =>
       bar.items.filter((item) => item.kind === 'note'),
     );
     for (const note of notes) {
@@ -52,7 +52,7 @@ describe('generateScore', () => {
     const notes: Note[] = [];
     for (let seed = 0; seed < 30; seed += 1) {
       const score = generateScore({ seed, bars: 16, chords: false });
-      for (const bar of score.bars) {
+      for (const bar of barViews(score)) {
         for (const item of bar.items) if (item.kind === 'note') notes.push(item);
       }
     }

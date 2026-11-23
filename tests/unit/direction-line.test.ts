@@ -3,7 +3,7 @@ import { applyOperation, replay, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { layout } from '@sibei/layout';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { renderScorePages } from '@sibei/ui';
@@ -27,14 +27,14 @@ const svgOf = (score: Score): string => renderScoreToSvg(score).map((p) => p.svg
 describe('text set --until', () => {
   it('stores the end bar by id, shows it, replays, keeps it on re-set and clears it with null', () => {
     const { score, ops } = chart();
-    const annotation = score.bars[1]!.annotations[0]!;
+    const annotation = barViews(score)[1]!.annotations[0]!;
     expect(annotation.lineEndBarId).toBe(score.bars[6]!.id);
     expect(projectScore(score)).toContain('"solo" ---> bar7');
     expect(replay(ops)).toEqual(score);
     const kept = applyOperation(score, { type: 'text.set', target: 'bar2.beat1', payload: { text: 'solo!' } });
-    expect(kept.score.bars[1]!.annotations[0]!.lineEndBarId).toBe(score.bars[6]!.id);
+    expect(barViews(kept.score)[1]!.annotations[0]!.lineEndBarId).toBe(barViews(score)[6]!.id);
     const cleared = applyOperation(score, { type: 'text.set', target: 'bar2.beat1', payload: { text: 'solo', until: null } });
-    expect('lineEndBarId' in cleared.score.bars[1]!.annotations[0]!).toBe(false);
+    expect('lineEndBarId' in barViews(cleared.score)[1]!.annotations[0]!).toBe(false);
   });
 
   it('refuses an end bar before the direction', () => {
@@ -47,7 +47,7 @@ describe('text set --until', () => {
   it('lets the end bar go: removing it clears the line instead of dangling', () => {
     const { score } = chart('bar10');
     const removed = applyOperation(score, { type: 'bar.rm', target: 'bar10' });
-    expect('lineEndBarId' in removed.score.bars[1]!.annotations[0]!).toBe(false);
+    expect('lineEndBarId' in barViews(removed.score)[1]!.annotations[0]!).toBe(false);
   });
 
   it('draws segments across the bars it covers, closing with one hook, and a wrapped line continues', () => {
@@ -75,7 +75,7 @@ describe('text set --until', () => {
     expect(xml).toContain('<dashes type="start"');
     expect(xml).toContain('<dashes type="stop"');
     const back = musicXmlToScore(xml).score;
-    const annotation = back.bars[1]!.annotations[0]!;
+    const annotation = barViews(back)[1]!.annotations[0]!;
     expect(back.bars.find((b) => b.id === annotation.lineEndBarId)?.number).toBe(7);
   });
 });

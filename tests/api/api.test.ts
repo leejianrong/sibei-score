@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi, silentLogger } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, Operation, ScoreStore } from '@sibei/api';
-import { dur } from '@sibei/model';
+import { barViews, dur } from '@sibei/model';
+import type { Score } from '@sibei/model';
 
 /**
  * The `/v1/` API, over real HTTP against a real store.
@@ -416,8 +417,8 @@ describe('a batch is transactional over HTTP too (ADR-0008)', () => {
 
 describe('undo and redo over HTTP (V8a, ADR-0003)', () => {
   const pitchCount = async (): Promise<number> => {
-    const score = (await call('GET', '/v1/scores/score-1')).body.score as { bars: { items: unknown[] }[] };
-    return score.bars.reduce((n, bar) => n + bar.items.length, 0);
+    const score = (await call('GET', '/v1/scores/score-1')).body.score as Score;
+    return barViews(score).reduce((n, bar) => n + bar.items.length, 0);
   };
   const versionNow = async (): Promise<number> =>
     (await call('GET', '/v1/scores/score-1')).body.version as number;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OperationError, applyOperation, replay } from '@sibei/api';
 import type { Operation } from '@sibei/api';
-import { TICKS_PER_QUARTER, projectScore, reviewSummary } from '@sibei/model';
+import { TICKS_PER_QUARTER, projectScore, reviewSummary, barViews } from '@sibei/model';
 import type { Chord, Score } from '@sibei/model';
 
 /**
@@ -25,7 +25,7 @@ function applyAll(operations: Operation[]): Score {
 const set = (target: string, text: string): Operation => ({ type: 'chord.set', target, payload: { text } });
 
 const chordsOf = (score: Score, barNumber: number): Chord[] =>
-  score.bars.find((bar) => bar.number === barNumber)?.chords ?? [];
+  barViews(score).find((bar) => bar.number === barNumber)?.chords ?? [];
 
 describe('placing chords at a beat within a bar (Q32)', () => {
   it('sets a chord on beat 1, anchored to that onset', () => {

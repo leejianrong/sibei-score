@@ -12,9 +12,8 @@ import {
   makeSection,
   NO_SECTIONS_ADVISORY,
   projectScore,
-  resolveAddress,
-} from '@sibei/model';
-import type { Bar, Score } from '@sibei/model';
+  resolveAddress, barViews } from '@sibei/model';
+import type { BarView, Score } from '@sibei/model';
 import { nastyChart } from '@sibei/fixtures';
 
 /**
@@ -24,7 +23,7 @@ import { nastyChart } from '@sibei/fixtures';
 
 const Q = TICKS_PER_QUARTER;
 
-function chart(bars: Bar[], meta: Partial<Parameters<typeof makeScore>[0]> = {}): Score {
+function chart(bars: BarView[], meta: Partial<Parameters<typeof makeScore>[0]> = {}): Score {
   return makeScore({ id: 'score-1', title: 'Body and Soul', bars, ...meta });
 }
 
@@ -159,7 +158,7 @@ describe('chord symbols carry beat placement', () => {
 
   it('keeps every symbol of the nasty chart legible', () => {
     const projection = projectScore(nastyChart());
-    for (const bar of nastyChart().bars) {
+    for (const bar of barViews(nastyChart())) {
       for (const chord of bar.chords) expect(projection).toContain(chord.text);
     }
     // And no symbol is glued to the next: every `|`-delimited cell splits on whitespace into
@@ -227,7 +226,7 @@ describe('chord symbols carry beat placement', () => {
 });
 
 describe('the melody line', () => {
-  function aBar(items: Bar['items'], extra: Partial<Parameters<typeof makeBar>[0]> = {}): Score {
+  function aBar(items: BarView['items'], extra: Partial<Parameters<typeof makeBar>[0]> = {}): Score {
     return chart([makeBar({ id: 'bar-1', number: 1, items, ...extra })]);
   }
 
@@ -458,7 +457,7 @@ describe('it prints the addresses the CLI accepts (ADR-0007, ADR-0009)', () => {
 
   it('and they resolve to the items in the order the line lists them', () => {
     const score = nastyChart();
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       const line = find(score, `bar${bar.number} `) || find(score, `bar${bar.number}!`);
       if (line === '') continue;
       const ordinals = [...line.matchAll(/\bn(\d+)\b/g)].map((match) => Number(match[1]));

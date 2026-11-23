@@ -1,8 +1,9 @@
+import { barViews } from './staves.js';
 import { beatOfOnset, tupletOf } from './duration.js';
 import { formatKeySignature, formatPitch } from './pitch.js';
 import { formatBeat, orderedItems } from './address.js';
 import { barReview, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from './review.js';
-import type { Bar, BarItem, Confidence, Review, Score, Tempo, TimeSignature } from './score.js';
+import type { BarView, BarItem, Confidence, Review, Score, Tempo, TimeSignature } from './score.js';
 
 /**
  * The agent-facing text projection (ADR-0009). A **contract**, not ad-hoc formatting: agents will
@@ -78,13 +79,13 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
   if (!review.hasSections) lines.push(`  ${NO_SECTIONS_ADVISORY}`);
   lines.push('');
 
-  const pickup = score.bars.find((bar) => bar.number === 0);
+  const pickup = barViews(score).find((bar) => bar.number === 0);
   if (pickup !== undefined) {
     // A pickup sits outside the four-bar grid, the same way it does on the page (ADR-0015).
     lines.push(...rowFor([pickup], score, 'pickup'));
   }
 
-  const grid = score.bars.filter((bar) => bar.number !== 0);
+  const grid = barViews(score).filter((bar) => bar.number !== 0);
   for (let at = 0; at < grid.length; at += perRow) {
     lines.push(...rowFor(grid.slice(at, at + perRow), score));
   }
@@ -107,7 +108,7 @@ function slurLines(score: Score): string[] {
   const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur' || spanner.kind === 'ottava');
   if (spanners.length === 0) return [];
   const addressOf = (id: string): string => {
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       const at = orderedItems(bar).findIndex((item) => item.id === id);
       if (at >= 0) return `bar${bar.number}.n${at + 1}`;
     }
@@ -123,7 +124,7 @@ function slurLines(score: Score): string[] {
 
 function header(score: Score): string {
   const { title, composer, key, time, style } = score.meta;
-  const bars = score.bars.filter((bar) => bar.number !== 0).length;
+  const bars = barViews(score).filter((bar) => bar.number !== 0).length;
   // An unnamed chart is now the state a plain `sbscore new` leaves behind (KAN-594), so the title
   // is omitted the way the composer and the style line already are, rather than printed as an empty
   // cell that leaves a leading em-dash on the line. The header degrades to the key, meter and
@@ -136,7 +137,7 @@ function header(score: Score): string {
 }
 
 /** One four-bar row: the chord line, then a melody line per bar that has anything in it. */
-function rowFor(bars: Bar[], score: Score, label?: string): string[] {
+function rowFor(bars: BarView[], score: Score, label?: string): string[] {
   const first = bars[0];
   if (first === undefined) return [];
 
@@ -160,7 +161,7 @@ function rowFor(bars: Bar[], score: Score, label?: string): string[] {
  * `|Ebm7      Bb7       |Ebm7  Ab7 |`. Chord symbols carry beat placement, because where in the bar
  * a chord falls is musical information and not layout.
  */
-function chordLine(bars: Bar[], time: TimeSignature): string {
+function chordLine(bars: BarView[], time: TimeSignature): string {
   return `${bars.map((bar) => cell(bar, time)).join('')}|`;
 }
 
@@ -176,7 +177,7 @@ function chordLine(bars: Bar[], time: TimeSignature): string {
  * Beat placement therefore degrades gracefully rather than breaking: with room it is exact, and
  * without room the order is still right and nothing is lost.
  */
-function cell(bar: Bar, time: TimeSignature): string {
+function cell(bar: BarView, time: TimeSignature): string {
   const chords = [...bar.chords].sort((a, b) => a.onset - b.onset);
   const placed: { at: number; text: string }[] = [];
   let cursor = 0;
@@ -205,7 +206,7 @@ function cell(bar: Bar, time: TimeSignature): string {
  * `bar4 text  beat1 "(unis.)" annotation-3` — the text directions in a bar (SIB2-169), each with the
  * beat a `text set` accepts and the id `text rm` accepts. Only printed for a bar that has any.
  */
-function textLine(bar: Bar, time: TimeSignature, score: Score): string | null {
+function textLine(bar: BarView, time: TimeSignature, score: Score): string | null {
   if (bar.annotations.length === 0) return null;
   const parts = [...bar.annotations]
     .sort((a, b) => a.onset - b.onset)
@@ -223,7 +224,7 @@ function textLine(bar: Bar, time: TimeSignature, score: Score): string | null {
  * `/value`, a trailing `s` for a slashed one (an acciaccatura), and the id `grace rm` accepts. The melody line is
  * untouched: a grace takes no time. Only printed for a bar that has any.
  */
-function graceLine(bar: Bar): string | null {
+function graceLine(bar: BarView): string | null {
   const items = orderedItems(bar);
   const groups: string[] = [];
   items.forEach((item, index) => {
@@ -237,7 +238,7 @@ function graceLine(bar: Bar): string | null {
 }
 
 /** `bar2  n1 gb5/2  n2 f5/4 !`, or null when the bar holds nothing. */
-function melodyLine(bar: Bar, time: TimeSignature): string | null {
+function melodyLine(bar: BarView, time: TimeSignature): string | null {
   const items = orderedItems(bar);
   if (items.length === 0) return null;
 
@@ -255,7 +256,7 @@ function melodyLine(bar: Bar, time: TimeSignature): string | null {
  * Lower case for pitches, following ADR-0009's own example — it keeps a melody line from shouting,
  * and a chord symbol above it stays the thing that is capitalised.
  */
-function describe(item: BarItem, bar: Bar): string {
+function describe(item: BarItem, bar: BarView): string {
   const tie = item.kind === 'note' ? item.tie : 'none';
   const opens = tie === 'stop' || tie === 'both';
   const closes = tie === 'start' || tie === 'both';
@@ -299,7 +300,7 @@ function value(item: BarItem): string {
  * is how an agent learns the address forms, so it is worth being concrete.
  */
 function legend(score: Score): string[] {
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     const items = orderedItems(bar);
     const second = items[1] ?? items[0];
     if (second === undefined) continue;

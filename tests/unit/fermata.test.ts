@@ -4,7 +4,7 @@ import type { Operation } from '@sibei/api';
 import { musicXmlToScore, scoreToMusicXml } from '@sibei/codec';
 import { marksChart } from '@sibei/fixtures';
 import { layout } from '@sibei/layout';
-import { projectScore } from '@sibei/model';
+import { projectScore, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 
@@ -31,13 +31,13 @@ const base: Operation[] = [
 describe('fermata.set and fermata.rm', () => {
   it('puts a fermata on a note and on a rest, and takes it off again', () => {
     const on = run([...base, { type: 'fermata.set', target: 'bar1.n1' }, { type: 'fermata.set', target: 'bar1.n2' }]);
-    expect(on.score.bars[0]!.items.map((item) => item.fermata)).toEqual([true, true]);
+    expect(barViews(on.score)[0]!.items.map((item) => item.fermata)).toEqual([true, true]);
     expect(replay(on.log)).toEqual(on.score);
 
     const off = run([...on.log, { type: 'fermata.rm', target: 'bar1.n1' }]);
     // Absent, never `false`: an old document and a cleared one are the same shape.
-    expect('fermata' in off.score.bars[0]!.items[0]!).toBe(false);
-    expect(off.score.bars[0]!.items[1]!.fermata).toBe(true);
+    expect('fermata' in barViews(off.score)[0]!.items[0]!).toBe(false);
+    expect(barViews(off.score)[0]!.items[1]!.fermata).toBe(true);
   });
 
   it('is idempotent to set, and refuses to remove what is not there', () => {
@@ -54,7 +54,7 @@ describe('fermata.set and fermata.rm', () => {
       { type: 'note.set', target: 'bar1.n1', payload: { pitch: 'D5' } },
       { type: 'transpose', payload: { to: { tonic: 'F', alter: 0, mode: 'major' } } },
     ]);
-    expect(held.score.bars[0]!.items[0]!.fermata).toBe(true);
+    expect(barViews(held.score)[0]!.items[0]!.fermata).toBe(true);
   });
 
   it('shows as ^ in the text projection', () => {
@@ -79,7 +79,7 @@ describe('fermata drawing and MusicXML', () => {
     const xml = scoreToMusicXml(score);
     expect(xml.match(/<fermata type="upright"\/>/g)).toHaveLength(2);
     const back = musicXmlToScore(xml, { id: 'chart' });
-    expect(back.score.bars[0]!.items.map((item) => item.fermata)).toEqual([true, true]);
+    expect(barViews(back.score)[0]!.items.map((item) => item.fermata)).toEqual([true, true]);
     expect(back.warnings).toEqual([]);
   });
 });

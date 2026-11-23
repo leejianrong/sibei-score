@@ -1,6 +1,6 @@
 import { createHttpWorkerClient } from '@sibei/api';
 import type { Score } from '@sibei/model';
-import { mapOmrToScore } from '@sibei/model';
+import { mapOmrToScore, barViews, withBarViews } from '@sibei/model';
 import { generateScore } from '@sibei/synth';
 import type { CorpusSpec, Predict } from '@sibei/synth/imaging';
 import { runEval } from '@sibei/synth/imaging';
@@ -20,12 +20,10 @@ import { describe, expect, it } from 'vitest';
 const fakePredict: Predict = async (_image, _format, spec: CorpusSpec): Promise<Score> => {
   const truth = generateScore({ seed: spec.seed, bars: spec.bars });
   if (spec.level === 'clean') return truth;
-  return {
-    ...truth,
-    bars: truth.bars.map((bar, index) =>
-      index === 0 ? { ...bar, items: bar.items.slice(1) } : bar,
-    ),
-  };
+  return withBarViews(
+    truth,
+    barViews(truth).map((bar, index) => (index === 0 ? { ...bar, items: bar.items.slice(1) } : bar)),
+  );
 };
 
 describe('runEval (plumbing, fake recogniser)', () => {

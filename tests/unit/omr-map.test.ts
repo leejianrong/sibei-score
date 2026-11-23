@@ -18,8 +18,7 @@ import {
   type OmrNotehead,
   type OmrRest,
   type OmrStaff,
-  type Score,
-} from '@sibei/model';
+  type Score, barViews } from '@sibei/model';
 
 /**
  * The V11 unit test plan: "oemer object -> model mapping for each object kind, including ties and
@@ -110,8 +109,8 @@ function page(parts: {
   };
 }
 
-const notesOf = (score: { bars: { items: unknown[] }[] }): Note[] =>
-  score.bars.flatMap((b) => b.items).filter((i): i is Note => (i as Note).kind === 'note');
+const notesOf = (score: Score): Note[] =>
+  barViews(score).flatMap((b) => b.items).filter((i): i is Note => (i as Note).kind === 'note');
 
 describe('mapOmrToScore — bars and segmentation', () => {
   it('splits a system into bars at the detected barlines, notes landing in x order', () => {
@@ -125,7 +124,7 @@ describe('mapOmrToScore — bars and segmentation', () => {
       { id: 's' },
     );
     expect(score.bars.map((b) => b.number)).toEqual([1, 2, 3, 4]);
-    expect(score.bars.map((b) => b.items.length)).toEqual([1, 1, 1, 1]);
+    expect(barViews(score).map((b) => b.items.length)).toEqual([1, 1, 1, 1]);
   });
 
   it('merges near-duplicate barlines (a barline drawn beside a stem fires twice)', () => {
@@ -159,7 +158,7 @@ describe('mapOmrToScore — bars and segmentation', () => {
   it('a system with no divider is a single bar', () => {
     const score = mapOmrToScore([page({ noteheads: [note(300, 2), note(500, 2)] })], { id: 's' });
     expect(score.bars.length).toBe(1);
-    expect(score.bars[0]!.items.length).toBe(2);
+    expect(barViews(score)[0]!.items.length).toBe(2);
   });
 });
 
@@ -204,7 +203,7 @@ describe('mapOmrToScore — durations', () => {
       [page({ noteheads: [note(500, 2, { label: 'QUARTER' }), note(200, 4, { label: 'QUARTER' })] })],
       { id: 's' },
     );
-    const items = score.bars[0]!.items;
+    const items = barViews(score)[0]!.items;
     // Sorted by x: the note at 200 is first (onset 0), the note at 500 second (onset one quarter).
     expect(items.map((i) => i.onset)).toEqual([0, TICKS_PER_QUARTER]);
   });
@@ -230,7 +229,7 @@ describe('mapOmrToScore — pitch (treble, default key)', () => {
 describe('mapOmrToScore — rests', () => {
   it('maps a rest to a Rest item with its duration', () => {
     const score = mapOmrToScore([page({ rests: [rest(300, 'QUARTER')] })], { id: 's' });
-    const item = score.bars[0]!.items[0]!;
+    const item = barViews(score)[0]!.items[0]!;
     expect(item.kind).toBe('rest');
     expect(item.duration.value).toBe(4);
   });
@@ -240,7 +239,7 @@ describe('mapOmrToScore — rests', () => {
       [page({ noteheads: [note(200, 2), note(600, 2)], rests: [rest(400, 'QUARTER')] })],
       { id: 's' },
     );
-    expect(score.bars[0]!.items.map((i) => i.kind)).toEqual(['note', 'rest', 'note']);
+    expect(barViews(score)[0]!.items.map((i) => i.kind)).toEqual(['note', 'rest', 'note']);
   });
 });
 
@@ -260,13 +259,13 @@ describe('mapOmrToScore — metric validity is flagged, never repaired (ADR-0013
       ],
       { id: 's' },
     );
-    expect(barReview(score.bars[0]!, DEFAULT_TIME).flagged).toBe(false);
-    expect(barReview(score.bars[1]!, DEFAULT_TIME).flagged).toBe(true);
-    expect(barReview(score.bars[1]!, DEFAULT_TIME).reasons).toContain('metrically-invalid');
+    expect(barReview(barViews(score)[0]!, DEFAULT_TIME).flagged).toBe(false);
+    expect(barReview(barViews(score)[1]!, DEFAULT_TIME).flagged).toBe(true);
+    expect(barReview(barViews(score)[1]!, DEFAULT_TIME).reasons).toContain('metrically-invalid');
     // The mapper does not store the derivable reason either (KAN-610) — same rule as the applier.
     expect(score.bars[1]!.review).toEqual({ flagged: false, reasons: [] });
     // The invalid bar is still stored with its item, not dropped.
-    expect(score.bars[1]!.items.length).toBe(1);
+    expect(barViews(score)[1]!.items.length).toBe(1);
   });
 });
 
@@ -284,7 +283,7 @@ describe('mapOmrToScore — what import does not invent', () => {
       { id: 's' },
     );
     expect(notesOf(score).every((n) => n.tie === 'none')).toBe(true);
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       expect(bar.tuplets).toEqual([]);
       expect(bar.chords).toEqual([]);
       expect(bar.startBarline).toBe('none');
@@ -360,7 +359,7 @@ describe('mapOmrToScore — systems and pages', () => {
     );
     const ids = [
       score.id,
-      ...score.bars.flatMap((b) => [b.id, ...b.items.map((i) => i.id)]),
+      ...barViews(score).flatMap((b) => [b.id, ...b.items.map((i) => i.id)]),
     ];
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -414,8 +413,8 @@ describe('mapOmrToScore — the committed real dump', () => {
  * flagged annotation, not a bogus chord", "a box between two onsets resolves to the earlier beat").
  */
 describe('mapOmrToScore — chords from the band (V13)', () => {
-  const chordsOf = (score: Score) => score.bars.flatMap((b) => b.chords);
-  const annotationsOf = (score: Score) => score.bars.flatMap((b) => b.annotations);
+  const chordsOf = (score: Score) => barViews(score).flatMap((b) => b.chords);
+  const annotationsOf = (score: Score) => barViews(score).flatMap((b) => b.annotations);
 
   it('turns a band token above a note into a chord at that beat', () => {
     const score = mapOmrToScore(

@@ -4,7 +4,7 @@ import { createApi, memoryBlobStore, silentLogger } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, BlobKey, ManagedBlobStore, Operation, ScoreStore } from '@sibei/api';
 import { musicXmlToScore } from '@sibei/codec';
-import { dur } from '@sibei/model';
+import { dur, barViews } from '@sibei/model';
 
 /**
  * `GET /v1/scores/:id/export` over real HTTP against a real store (V3, ADR-0006, Q81).
@@ -177,7 +177,7 @@ describe('exporting a chart as MusicXML (V8d, ADR-0004)', () => {
     expect(xml.startsWith('<?xml')).toBe(true);
     // Round the export back through the importer: the melody the chart holds is really in there.
     const { score } = musicXmlToScore(xml);
-    const pitches = score.bars.flatMap((bar) =>
+    const pitches = barViews(score).flatMap((bar) =>
       bar.items.filter((i) => i.kind === 'note').map((i) => `${i.pitch.step}${i.pitch.octave}`),
     );
     expect(pitches).toContain('E5');

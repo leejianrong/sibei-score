@@ -8,8 +8,7 @@ import {
   dur,
   formatPitch,
   notesOf,
-  reviewSummary,
-} from '@sibei/model';
+  reviewSummary, barViews } from '@sibei/model';
 import type { Score } from '@sibei/model';
 
 /**
@@ -102,7 +101,7 @@ describe('note.add', () => {
     const applied = applyOperation(create(), quarterAt('bar1.beat1', 'Eb5'));
     expect(applied.changed).toEqual(['note-1']);
     expect((applied.operation as { payload: { id: string } }).payload.id).toBe('note-1');
-    expect(formatPitch(notesOf(applied.score.bars[0]!)[0]!.pitch)).toBe('Eb5');
+    expect(formatPitch(notesOf(barViews(applied.score)[0]!)[0]!.pitch)).toBe('Eb5');
   });
 
   it('keeps items in onset order however they arrive', () => {
@@ -111,7 +110,7 @@ describe('note.add', () => {
       quarterAt('bar1.beat1', 'Eb5'),
       quarterAt('bar1.beat2', 'F5'),
     ]);
-    expect(score.bars[0]!.items.map((item) => item.onset)).toEqual([0, Q, 2 * Q]);
+    expect(barViews(score)[0]!.items.map((item) => item.onset)).toEqual([0, Q, 2 * Q]);
   });
 
   it('takes the next free id rather than counting, so a removal cannot cause a collision', () => {
@@ -127,7 +126,7 @@ describe('note.add', () => {
 
   it('accepts a beat past the end of the bar, because ADR-0013 stores it', () => {
     const score = applyOperation(create(), quarterAt('bar1.beat9', 'Eb5')).score;
-    expect(score.bars[0]!.items[0]!.onset).toBe(8 * Q);
+    expect(barViews(score)[0]!.items[0]!.onset).toBe(8 * Q);
   });
 
   it('refuses a second item on an onset that is taken', () => {
@@ -214,7 +213,7 @@ describe('note.add and note.set field validation (KAN-606)', () => {
       create(),
       add({ accidental: 'show', tie: 'start', spellingPinned: true }),
     ).score;
-    const note = notesOf(score.bars[0]!)[0]!;
+    const note = notesOf(barViews(score)[0]!)[0]!;
     expect([note.accidental, note.tie, note.spellingPinned]).toEqual(['show', 'start', true]);
   });
 });
@@ -228,7 +227,7 @@ describe('note.set', () => {
       target: 'bar1.beat1',
       payload: { pitch: 'Bb4' },
     }).score;
-    const note = notesOf(score.bars[0]!)[0]!;
+    const note = notesOf(barViews(score)[0]!)[0]!;
     expect(formatPitch(note.pitch)).toBe('Bb4');
     expect(note.duration).toEqual(dur(4));
     expect(note.id).toBe('note-1');
@@ -240,7 +239,7 @@ describe('note.set', () => {
       target: 'bar1.beat1',
       payload: {},
     }).score;
-    expect(score.bars[0]!.items).toEqual(withANote().bars[0]!.items);
+    expect(barViews(score)[0]!.items).toEqual(barViews(withANote())[0]!.items);
   });
 
   it('refuses to edit a rest as if it were a note', () => {
@@ -260,7 +259,7 @@ describe('note.set', () => {
       target: 'note-1',
       payload: { duration: dur(2) },
     }).score;
-    expect(notesOf(score.bars[0]!)[0]!.duration).toEqual(dur(2));
+    expect(notesOf(barViews(score)[0]!)[0]!.duration).toEqual(dur(2));
   });
 });
 
@@ -270,7 +269,7 @@ describe('removing', () => {
       quarterAt('bar1.beat1', 'Eb5'),
       { type: 'note.rm', target: 'bar1.beat1' },
     ]);
-    expect(score.bars[0]!.items).toEqual([]);
+    expect(barViews(score)[0]!.items).toEqual([]);
   });
 
   it('removes a rest, so a rest is not a one-way door', () => {
@@ -278,7 +277,7 @@ describe('removing', () => {
       { type: 'rest.add', target: 'bar1.beat1', payload: { duration: dur(4) } },
       { type: 'rest.rm', target: 'bar1.beat1' },
     ]);
-    expect(score.bars[0]!.items).toEqual([]);
+    expect(barViews(score)[0]!.items).toEqual([]);
   });
 
   it('will not remove a rest with note.rm', () => {
@@ -296,7 +295,7 @@ describe('removing', () => {
 describe('metric validity is flagged, never repaired or refused (ADR-0013)', () => {
   it('derives a flag for a bar that does not fill the meter, but stores none of it (KAN-610)', () => {
     const score = applyOperation(create(), quarterAt('bar1.beat1', 'Eb5')).score;
-    const bar = score.bars[0]!;
+    const bar = barViews(score)[0]!;
     expect(barMetrics(bar, score.meta.time).status).toBe('under');
     expect(barReview(bar, score.meta.time)).toEqual({
       flagged: true,
@@ -312,7 +311,7 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
       { type: 'note.add', target: 'bar1.beat1', payload: { pitch: 'Eb5', duration: dur(1) } },
       { type: 'note.add', target: 'bar1.beat2', payload: { pitch: 'F5', duration: dur(1) } },
     ]);
-    const bar = score.bars[0]!;
+    const bar = barViews(score)[0]!;
     expect(barMetrics(bar, score.meta.time).status).toBe('over');
     expect(bar.items).toHaveLength(2);
     expect(barReview(bar, score.meta.time).reasons).toContain('metrically-invalid');
@@ -327,7 +326,7 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
       quarterAt('bar1.beat4', 'Ab5'),
     ]);
     expect(score.bars[0]!.review).toEqual({ flagged: false, reasons: [] });
-    expect(barReview(score.bars[0]!, score.meta.time)).toEqual({ flagged: false, reasons: [] });
+    expect(barReview(barViews(score)[0]!, score.meta.time)).toEqual({ flagged: false, reasons: [] });
   });
 
   it('leaves a blank chart unflagged, because an empty bar is not a review case (KAN-597)', () => {
@@ -369,8 +368,8 @@ describe('metric validity is flagged, never repaired or refused (ADR-0013)', () 
       payload: { time: { beats: 3, beatValue: 4 } },
     }).score;
     expect(score.bars[0]!.review).toEqual({ flagged: false, reasons: [] });
-    expect(barReview(score.bars[0]!, score.meta.time).reasons).toContain('metrically-invalid');
-    expect(score.bars[0]!.items).toHaveLength(4);
+    expect(barReview(barViews(score)[0]!, score.meta.time).reasons).toContain('metrically-invalid');
+    expect(barViews(score)[0]!.items).toHaveLength(4);
   });
 
   it('leaves review reasons it did not set alone', () => {
@@ -520,7 +519,7 @@ describe('replay from empty (ADR-0003)', () => {
     // The session assigns note-1, note-2, rest-1, note-3 in bar 1 and note-4 in bar 2, then
     // removes bar1.n4 — which is note-3, the note on beat 4.
     const replayed = replay(normalise(session))!;
-    expect(replayed.bars.flatMap((bar) => bar.items.map((item) => item.id))).toEqual([
+    expect(barViews(replayed).flatMap((bar) => bar.items.map((item) => item.id))).toEqual([
       'note-1',
       'note-2',
       'rest-1',
@@ -541,8 +540,8 @@ describe('replay from empty (ADR-0003)', () => {
     expect(replay(log)).not.toEqual(before);
     // Not an inverse operation anywhere: undo is replay minus the last entry (ADR-0003). The last
     // entry removed note-3, so the document before it still has note-3 in it.
-    expect(before!.bars.flatMap((bar) => bar.items.map((item) => item.id))).toContain('note-3');
-    expect(replay(log)!.bars.flatMap((bar) => bar.items.map((item) => item.id))).not.toContain(
+    expect(barViews(before!).flatMap((bar) => bar.items.map((item) => item.id))).toContain('note-3');
+    expect(barViews(replay(log)!).flatMap((bar) => bar.items.map((item) => item.id))).not.toContain(
       'note-3',
     );
   });

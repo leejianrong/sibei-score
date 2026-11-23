@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 import { applyOperation, replay, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
@@ -37,10 +38,10 @@ describe('bar.add', () => {
     expect(numbers(score)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(score.sections[0]!.startBar).toBe(7);
     // The old bar 6 (id bar-6) is now bar 8 and still holds its note.
-    const moved = score.bars.find((b) => b.id === 'bar-6')!;
+    const moved = barViews(score).find((b) => b.id === 'bar-6')!;
     expect(moved.number).toBe(8);
     expect(moved.items).toHaveLength(1);
-    expect(score.bars.find((b) => b.number === 5)!.items).toHaveLength(0);
+    expect(barViews(score).find((b) => b.number === 5)!.items).toHaveLength(0);
   });
 
   it('replays from its recorded ids', () => {

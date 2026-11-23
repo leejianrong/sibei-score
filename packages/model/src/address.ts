@@ -1,5 +1,6 @@
+import { barView, barViews } from './staves.js';
 import { beatOfOnset, onsetOfBeat } from './duration.js';
-import type { Bar, BarItem, Chord, Id, Note, Rest, Score } from './score.js';
+import type { BarView, BarItem, Chord, Id, Note, Rest, Score } from './score.js';
 
 /**
  * Musical position addresses (ADR-0007). The CLI addresses by position because that is what a
@@ -37,7 +38,7 @@ export type AddressKind = 'item' | 'note' | 'rest' | 'chord';
 export type Addressable = Note | Rest | Chord;
 
 export interface Resolved<T extends Addressable = Addressable> {
-  bar: Bar;
+  bar: BarView;
   target: T;
   /** Ticks from the start of the bar. */
   onset: number;
@@ -45,7 +46,7 @@ export interface Resolved<T extends Addressable = Addressable> {
 
 /** Where an address points, whether or not anything is there yet. */
 export interface Position {
-  bar: Bar;
+  bar: BarView;
   onset: number;
 }
 
@@ -218,7 +219,7 @@ export function resolveAddress(
  * whole bar rather than to a position within one, so it resolves here rather than through
  * `resolveAddress`, which is about the notes and chords *inside* a bar.
  */
-export function resolveBar(score: Score, address: Address | string): Bar {
+export function resolveBar(score: Score, address: Address | string): BarView {
   const parsed = typeof address === 'string' ? parseAddress(address) : address;
   if (parsed.form !== 'bar') {
     throw new AddressError({ kind: 'not-a-bar', text: formatAddress(parsed) });
@@ -245,7 +246,7 @@ export function resolvePosition(score: Score, address: Address | string): Positi
 }
 
 function resolveId(score: Score, id: Id, looking: AddressKind): Resolved {
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     for (const candidate of addressablesOf(bar)) {
       if (candidate.id === id) return checkKind({ bar, target: candidate, onset: candidate.onset }, looking, id);
     }
@@ -303,8 +304,9 @@ function resolveBeat(
   );
 }
 
-function barOrThrow(score: Score, number: number): Bar {
-  const bar = score.bars.find((candidate) => candidate.number === number);
+function barOrThrow(score: Score, number: number): BarView {
+  const gridBar = score.bars.find((candidate) => candidate.number === number);
+  const bar = gridBar === undefined ? undefined : barView(score, gridBar);
   if (bar === undefined) {
     throw new AddressError({
       kind: 'no-such-bar',
@@ -323,7 +325,7 @@ function barOrThrow(score: Score, number: number): Bar {
  * addressing still has to mean one specific thing. A stable sort over the stored array is
  * exactly "by onset, then by insertion order" (ADR-0007).
  */
-export function orderedItems(bar: Bar): BarItem[] {
+export function orderedItems(bar: BarView): BarItem[] {
   return [...bar.items].sort((a, b) => a.onset - b.onset);
 }
 
@@ -332,7 +334,7 @@ export function orderedItems(bar: Bar): BarItem[] {
  * is a first-class object (Q35) and would otherwise be unreachable by position — see the note
  * on `AddressKind` in the tests about what ADR-0007's "third note" leaves open.
  */
-function addressablesOf(bar: Bar): Addressable[] {
+function addressablesOf(bar: BarView): Addressable[] {
   return [...orderedItems(bar), ...bar.chords];
 }
 

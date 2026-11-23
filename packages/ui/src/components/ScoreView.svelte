@@ -60,7 +60,7 @@
   import StructureInspector from './StructureInspector.svelte';
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
-  import { beatOfOnset, sectionStartingAt } from '@sibei/model';
+  import { barByNumber, barViews, beatOfOnset, sectionStartingAt } from '@sibei/model';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
@@ -355,7 +355,7 @@
   /** A note's spelling pin, looked up from the stored score by id — the layout item does not carry it. */
   function notePinned(noteId: Id): boolean {
     if (score === null) return false;
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       for (const barItem of bar.items) {
         if (barItem.id === noteId && barItem.kind === 'note') return barItem.spellingPinned;
       }
@@ -366,7 +366,7 @@
   /** The tuplet an item sits in, from the stored score (SIB2-166). */
   function tupletOfItem(itemId: Id): { actual: number; normal: number } | null {
     if (score === null) return null;
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       const found = bar.tuplets.find((t) => t.memberIds.includes(itemId));
       if (found !== undefined) return { actual: found.actual, normal: found.normal };
     }
@@ -376,7 +376,7 @@
   /** A chord's spelling pin, looked up from the stored score by id (the seed for the chord inspector). */
   function chordPinned(chordId: Id): boolean {
     if (score === null) return false;
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       for (const chord of bar.chords) {
         if (chord.id === chordId) return chord.spellingPinned;
       }
@@ -456,8 +456,8 @@
   // the render — so like note/chord pins it is looked up from `score`, never from the layout items.
   const barStructure = $derived.by((): BarStructure | null => {
     if (!editable || barSel === null || score === null) return null;
-    const bar = score.bars.find((candidate) => candidate.number === barSel!.barNumber);
-    if (bar === undefined) return null;
+    const bar = barByNumber(score, barSel!.barNumber);
+    if (bar === null) return null;
     const section = sectionStartingAt(score, bar.number);
     return {
       barNumber: bar.number,

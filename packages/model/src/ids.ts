@@ -1,11 +1,12 @@
 import type { Id, Score } from './score.js';
+import { FIRST_VOICE, barViews, staffOf } from './staves.js';
 
 /**
  * Stable IDs are app-owned and readable: `note-17`, `bar-3`, `chord-9` (ADR-0007).
  * A factory rather than a global counter, so a render or a test is deterministic.
  */
 
-export type IdPrefix = 'score' | 'bar' | 'note' | 'rest' | 'chord' | 'tuplet' | 'section' | 'annotation' | 'slur' | 'ottava' | 'grace';
+export type IdPrefix = 'score' | 'bar' | 'note' | 'rest' | 'chord' | 'tuplet' | 'section' | 'annotation' | 'slur' | 'ottava' | 'grace' | 'part' | 'staff';
 
 export interface IdFactory {
   next(prefix: IdPrefix): Id;
@@ -35,7 +36,7 @@ export function parseId(id: Id): { prefix: string; ordinal: number } | null {
 /** Every id in a score, in reading order. */
 export function idsOf(score: Score): Id[] {
   const ids: Id[] = [score.id];
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     ids.push(bar.id);
     for (const item of bar.items) {
       ids.push(item.id);
@@ -44,6 +45,24 @@ export function idsOf(score: Score): Id[] {
     for (const tuplet of bar.tuplets) ids.push(tuplet.id);
     for (const chord of bar.chords) ids.push(chord.id);
     for (const annotation of bar.annotations) ids.push(annotation.id);
+  }
+  // Everything the first staff's first voice (read above) does not cover: the structure itself and any other voice.
+  const primary = staffOf(score);
+  for (const part of score.parts) {
+    ids.push(part.id);
+    for (const staff of part.staves) {
+      ids.push(staff.id);
+      for (const staffBar of staff.bars) {
+        for (const voice of staffBar.voices) {
+          if (staff === primary && voice.index === FIRST_VOICE) continue;
+          for (const item of voice.items) {
+            ids.push(item.id);
+            if (item.kind === 'note') for (const grace of item.graces ?? []) ids.push(grace.id);
+          }
+          for (const tuplet of voice.tuplets) ids.push(tuplet.id);
+        }
+      }
+    }
   }
   for (const section of score.sections) ids.push(section.id);
   for (const spanner of score.spanners ?? []) ids.push(spanner.id);

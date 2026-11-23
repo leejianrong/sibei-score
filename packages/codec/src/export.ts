@@ -14,10 +14,10 @@
  * from, the text attribute is what this codec reads back.
  */
 
-import { TICKS_PER_QUARTER, itemTicks, keyFifths, tupletOf } from '@sibei/model';
+import { TICKS_PER_QUARTER, annotationsOfBar, barViews, itemTicks, keyFifths, tupletOf } from '@sibei/model';
 import type {
   Annotation,
-  Bar,
+  BarView,
   Chord,
   Ending,
   GraceNote,
@@ -64,7 +64,7 @@ export function scoreToMusicXml(score: Score): string {
     elem(
       'part',
       { id: 'P1' },
-      score.bars.map((bar, index) => measure(score, bar, index === 0, score.bars[index - 1], marks, ottavas)),
+      barViews(score).map((bar, index, views) => measure(score, bar, index === 0, views[index - 1], marks, ottavas)),
     ),
   ]);
   return serialize(root, { prolog: PROLOG });
@@ -99,9 +99,9 @@ function identification(score: Score): XmlElement {
 
 function measure(
   score: Score,
-  bar: Bar,
+  bar: BarView,
   isFirst: boolean,
-  previous: Bar | undefined,
+  previous: BarView | undefined,
   slurs: SlurMarks,
   ottavas: OttavaMarks,
 ): XmlElement {
@@ -143,7 +143,7 @@ function measure(
   }
   for (const earlier of score.bars) {
     if (earlier.number > bar.number) continue;
-    for (const annotation of earlier.annotations) {
+    for (const annotation of annotationsOfBar(score, earlier.id)) {
       if (annotation.lineEndBarId === bar.id) children.push(dashes('stop', annotation.id, bar));
     }
   }
@@ -182,7 +182,7 @@ function rehearsal(letter: string): XmlElement {
 }
 
 /** The number pairs a start with its stop; the annotation's position in the whole score keeps it unique. */
-function dashes(type: 'start' | 'stop', annotationId: string, _bar: Bar): XmlElement {
+function dashes(type: 'start' | 'stop', annotationId: string, _bar: BarView): XmlElement {
   const digits = (((Number(annotationId.replace(/\D/g, '')) || 1) - 1) % 16) + 1;
   return elem('direction', { placement: 'above' }, [
     elem('direction-type', {}, [elem('dashes', { type, number: digits })]),
@@ -234,7 +234,7 @@ function ottavaMarks(score: Score): OttavaMarks {
   return marks;
 }
 
-function noteElements(bar: Bar, slurs: SlurMarks, ottavas: OttavaMarks): XmlElement[] {
+function noteElements(bar: BarView, slurs: SlurMarks, ottavas: OttavaMarks): XmlElement[] {
   return bar.items.flatMap((item) => {
     if (item.kind !== 'note') return [restElement(item, bar)];
     const lines = ottavas.get(item.id);
@@ -266,7 +266,7 @@ function slurMarks(score: Score): SlurMarks {
   const spanners = (score.spanners ?? []).filter((spanner) => spanner.kind === 'slur');
   if (spanners.length === 0) return marks;
   const order = new Map<string, number>();
-  for (const bar of score.bars) for (const item of bar.items) order.set(item.id, order.size);
+  for (const bar of barViews(score)) for (const item of bar.items) order.set(item.id, order.size);
   const placed = spanners
     .map((spanner) => ({ spanner, from: order.get(spanner.startId), to: order.get(spanner.endId) }))
     .filter((p): p is { spanner: typeof p.spanner; from: number; to: number } => p.from !== undefined && p.to !== undefined)
@@ -287,7 +287,7 @@ function slurMarks(score: Score): SlurMarks {
   return marks;
 }
 
-function noteElement(note: Note, bar: Bar, slurs: SlurMark[]): XmlElement {
+function noteElement(note: Note, bar: BarView, slurs: SlurMark[]): XmlElement {
   const tuplet = tupletOf(note.id, bar);
   const children: (XmlElement | null)[] = [
     pitchElement(note),
@@ -318,7 +318,7 @@ function graceElement(grace: GraceNote): XmlElement {
   );
 }
 
-function restElement(rest: Rest, bar: Bar): XmlElement {
+function restElement(rest: Rest, bar: BarView): XmlElement {
   const tuplet = tupletOf(rest.id, bar);
   return elem('note', {}, [
     elem('rest', {}),
@@ -382,7 +382,7 @@ function timeModification(tuplet: Tuplet | null): XmlElement | null {
 /** `<notations>` gathers the tie *notation* and the tuplet bracket. Null when there is nothing to say. */
 function notations(
   note: Note | null,
-  bar: Bar,
+  bar: BarView,
   tuplet: Tuplet | null,
   restId?: string,
   slurs: SlurMark[] = [],
@@ -509,7 +509,7 @@ function kindOf(s: ChordStructure): string {
 // Barlines and endings
 // ---------------------------------------------------------------------------
 
-function leftBarline(bar: Bar): XmlElement | null {
+function leftBarline(bar: BarView): XmlElement | null {
   const parts: XmlElement[] = [];
   if (bar.startBarline === 'repeat-start') {
     parts.push(leaf('bar-style', 'heavy-light'), elem('repeat', { direction: 'forward' }));
@@ -519,7 +519,7 @@ function leftBarline(bar: Bar): XmlElement | null {
   return parts.length === 0 ? null : elem('barline', { location: 'left' }, parts);
 }
 
-function rightBarline(bar: Bar): XmlElement | null {
+function rightBarline(bar: BarView): XmlElement | null {
   const parts: XmlElement[] = [];
   const style = END_BAR_STYLE[bar.endBarline];
   if (style !== null) parts.push(leaf('bar-style', style));
@@ -529,7 +529,7 @@ function rightBarline(bar: Bar): XmlElement | null {
   return parts.length === 0 ? null : elem('barline', { location: 'right' }, parts);
 }
 
-const END_BAR_STYLE: Record<Bar['endBarline'], string | null> = {
+const END_BAR_STYLE: Record<BarView['endBarline'], string | null> = {
   single: null,
   double: 'light-light',
   final: 'light-heavy',

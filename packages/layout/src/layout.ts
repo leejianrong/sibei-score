@@ -1,6 +1,7 @@
-import type { Bar, BarMetrics, ChordStylePreset, Id, KeySignature, Note, Score, TimeSignature } from '@sibei/model';
+import type { BarView, BarMetrics, ChordStylePreset, Id, KeySignature, Note, Score, TimeSignature } from '@sibei/model';
 import {
   TICKS_PER_QUARTER,
+  annotationsOfBar,
   barMetrics,
   beatOfOnset,
   keyFifths,
@@ -373,7 +374,7 @@ function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'dow
 
 function buildBarItems(
   score: Score,
-  bar: Bar,
+  bar: BarView,
   entry: AllocatedBar,
   shifts: Map<Id, 'up' | 'down'>,
   barNumbers: boolean,
@@ -484,7 +485,7 @@ function buildBarItems(
   // The bars a dashed line passes through or closes on (SIB2-170), from any earlier bar's direction.
   for (const earlier of score.bars) {
     if (earlier.number >= bar.number) continue;
-    for (const annotation of earlier.annotations) {
+    for (const annotation of annotationsOfBar(score, earlier.id)) {
       const end = annotation.lineEndBarId === undefined ? undefined : score.bars.find((b) => b.id === annotation.lineEndBarId);
       if (end !== undefined && end.number >= bar.number) {
         items.push({ kind: 'directionLine', annotationId: annotation.id, endsHere: end.number === bar.number });
@@ -520,7 +521,7 @@ function graceItems(note: Note, key: KeySignature): GraceItem[] {
 }
 
 /** The onset at or before this one, which is what a chord symbol sits above. */
-function anchorFor(bar: Bar, onset: number): Id | null {
+function anchorFor(bar: BarView, onset: number): Id | null {
   let best: { id: Id; onset: number } | null = null;
   for (const item of bar.items) {
     if (item.onset > onset) continue;

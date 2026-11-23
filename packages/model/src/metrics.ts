@@ -1,5 +1,6 @@
+import { barViews } from './staves.js';
 import { barCapacity, itemTicks } from './duration.js';
-import type { Bar, Score, TimeSignature } from './score.js';
+import type { BarView, Score, TimeSignature } from './score.js';
 
 /**
  * Metric validity is a derived, always-computable property, never an invariant
@@ -31,7 +32,7 @@ export interface BarMetrics {
   valid: boolean;
 }
 
-export function barMetrics(bar: Bar, time: TimeSignature): BarMetrics {
+export function barMetrics(bar: BarView, time: TimeSignature): BarMetrics {
   const expected = barCapacity(time);
   const actual = bar.items.reduce((sum, item) => sum + itemTicks(item, bar), 0);
   const status: MetricStatus =
@@ -62,19 +63,19 @@ export function barMetrics(bar: Bar, time: TimeSignature): BarMetrics {
  * empty pickup that is genuinely a mistake is a structural oddity rather than a metric
  * one, and this file is about metres; nothing detects structural oddities today.
  */
-function isValid(bar: Bar, actual: number, expected: number): boolean {
+function isValid(bar: BarView, actual: number, expected: number): boolean {
   if (actual === 0) return true;
   if (bar.number === 0) return actual <= expected;
   return actual === expected;
 }
 
-export function isMetricallyValid(bar: Bar, time: TimeSignature): boolean {
+export function isMetricallyValid(bar: BarView, time: TimeSignature): boolean {
   return barMetrics(bar, time).valid;
 }
 
 /** Every bar's metrics, in bar order. Consumers decide what to do about them. */
 export function scoreMetrics(score: Score): BarMetrics[] {
-  return score.bars.map((bar) => barMetrics(bar, score.meta.time));
+  return barViews(score).map((bar) => barMetrics(bar, score.meta.time));
 }
 
 /** The bars a human or an agent should be pointed at. */

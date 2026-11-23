@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import { formatChord, parseChord } from '@sibei/music';
 import {
   CHORD_QUALITIES,
@@ -66,7 +67,7 @@ describe('widening chords leaves notes byte-identical', () => {
     for (const seed of [1, 5, 42, 99]) {
       const rich = generateScore({ seed, bars: 16, richChords: true });
       const diatonic = generateScore({ seed, bars: 16, richChords: false });
-      const notesOf = (score: typeof rich) => score.bars.map((bar) => bar.items);
+      const notesOf = (score: typeof rich) => barViews(score).map((bar) => bar.items);
       expect(notesOf(rich)).toEqual(notesOf(diatonic));
     }
   });
@@ -74,7 +75,7 @@ describe('widening chords leaves notes byte-identical', () => {
   it('but the chords themselves differ (rich is not diatonic)', () => {
     const rich = generateScore({ seed: 5, bars: 16, richChords: true });
     const diatonic = generateScore({ seed: 5, bars: 16, richChords: false });
-    const chords = (score: typeof rich) => score.bars.flatMap((b) => b.chords.map((c) => c.text));
+    const chords = (score: typeof rich) => barViews(score).flatMap((b) => b.chords.map((c) => c.text));
     expect(chords(rich)).not.toEqual(chords(diatonic));
   });
 });

@@ -1,4 +1,4 @@
-import type { Alter, Bar, Note, Score, Step } from '@sibei/model';
+import type { Alter, BarView, Note, Score, Step } from '@sibei/model';
 import { keySignatureAccidentals } from '@sibei/model';
 import type { PageSpec } from './page.js';
 import type { PlannedSystem } from './grid.js';
@@ -15,7 +15,7 @@ export interface BarPrefix {
 }
 
 export interface AllocatedBar {
-  bar: Bar;
+  bar: BarView;
   x: number;
   width: number;
   isPickup: boolean;
@@ -63,7 +63,7 @@ function prefixWidth(score: Score, prefix: BarPrefix): number {
  * How much room a bar would like. A weight, not a measurement — the draw adapter's
  * formatter does the real spacing inside whatever box it is given.
  */
-export function estimateBarWidth(score: Score, bar: Bar, prefix: BarPrefix): number {
+export function estimateBarWidth(score: Score, bar: BarView, prefix: BarPrefix): number {
   const keyAccidentals = keySignatureAccidentals(score.meta.key);
 
   let notes = PADDING;
@@ -99,7 +99,7 @@ const RIGID_DOT = 5;
 const RIGID_GRACE = 13;
 const RIGID_PADDING = 28;
 
-export function rigidBarWidth(score: Score, bar: Bar, prefix: BarPrefix): number {
+export function rigidBarWidth(score: Score, bar: BarView, prefix: BarPrefix): number {
   const keyAccidentals = keySignatureAccidentals(score.meta.key);
   let width = RIGID_PADDING;
   for (const item of bar.items) {
@@ -129,7 +129,7 @@ export function rigidBarWidth(score: Score, bar: Bar, prefix: BarPrefix): number
  */
 const MIN_PICKUP_NOTE_WIDTH = 46;
 
-function pickupWidth(score: Score, bar: Bar, prefix: BarPrefix, available: number): number {
+function pickupWidth(score: Score, bar: BarView, prefix: BarPrefix, available: number): number {
   const prefixOnly = prefixWidth(score, prefix);
   const contents = estimateBarWidth(score, bar, prefix) - prefixOnly;
   const notes = Math.max(contents, MIN_PICKUP_NOTE_WIDTH);

@@ -1,7 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { POSTGRES_TABLE_SCHEMA_VERSION, openPostgresAuthStore, openPostgresJobStore, openPostgresStore } from '@sibei/api/postgres';
 import type { JobStore, ScoreStore } from '@sibei/api';
-import { aScore, anEdit, insert } from '../store/helpers.js';
+import type { Score } from '@sibei/model';
+import { SCHEMA_VERSION } from '@sibei/model';
+import { toLegacyDocument } from '../fixtures/legacy-document.js';
+import { aScore, anEdit, insert, update } from '../store/helpers.js';
 import { pg, provisionDatabase, quiet } from './support.js';
 import type { PgPool, TestDatabase } from './support.js';
 
@@ -459,5 +464,24 @@ describe('concurrency is decided by the database, not by luck', () => {
     expect(new Set(ids).size).toBe(20);
     expect(claims.every((job) => job?.status === 'running' && job.attempts === 1)).toBe(true);
     expect(await runnerA.claim()).toBeNull();
+  });
+});
+
+describe('a real v3 document, the shape before ADR-0041 (SIB2-225)', () => {
+  const v3 = (): Score =>
+    JSON.parse(readFileSync(join(import.meta.dirname, '../fixtures/model-v3/score.json'), 'utf8')) as Score;
+
+  it('is migrated on read, written back, and the score version does not move (ADR-0028)', async () => {
+    const store = await openStore();
+    await insert(store, 'alice', v3());
+    const found = await store.get('alice', 'v3-chart');
+    expect(found?.score.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(found?.score.parts).toHaveLength(1);
+    expect(found?.version).toBe(1);
+    expect(JSON.stringify(toLegacyDocument(found!.score))).toBe(JSON.stringify(v3()));
+    const again = await store.get('alice', 'v3-chart');
+    expect(again?.score).toEqual(found?.score);
+    expect(again?.version).toBe(1);
+    expect(await update(store, 'alice', 'v3-chart', 1, found!.score)).toMatchObject({ ok: true, version: 2 });
   });
 });

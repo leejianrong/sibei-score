@@ -1,6 +1,7 @@
+import { barViews } from './staves.js';
 import { invalidBars, isMetricallyValid } from './metrics.js';
 import { beatOfOnset } from './duration.js';
-import type { Bar, Review, ReviewReason, Score, TimeSignature } from './score.js';
+import type { BarView, Review, ReviewReason, Score, TimeSignature } from './score.js';
 
 /**
  * What "needs review" means, in one place, because more than one surface says it.
@@ -73,7 +74,7 @@ export const NO_SECTIONS_ADVISORY =
  * just a bar's *other* reasons already — the filter is a no-op on a current document and a safety
  * net for one that has not been migrated yet.
  */
-export function barReview(bar: Bar, time: TimeSignature): Review {
+export function barReview(bar: BarView, time: TimeSignature): Review {
   // Only the derivable reason is recomputed. The others are the import pipeline's and a rhythm has
   // no business clearing them.
   const stored = bar.review.reasons.filter((reason) => reason !== 'metrically-invalid');
@@ -91,7 +92,7 @@ export interface ReviewSummary {
    */
   anythingFlagged: boolean;
   /**
-   * Bar numbers that do not fill the meter, in bar order (ADR-0013). An **empty** bar is not one
+   * BarView numbers that do not fill the meter, in bar order (ADR-0013). An **empty** bar is not one
    * of them: a blank chart is the normal starting state, so it is not a review case at all
    * (KAN-597, and the reasoning is in `metrics.ts`).
    */
@@ -134,7 +135,7 @@ function meterNote(count: number): string {
 }
 
 function anythingFlagged(score: Score): boolean {
-  return score.bars.some(
+  return barViews(score).some(
     (bar) =>
       barReview(bar, score.meta.time).flagged ||
       bar.items.some((item) => item.review.flagged) ||
@@ -163,7 +164,7 @@ export interface FlaggedObject {
 export function flaggedObjects(score: Score): FlaggedObject[] {
   const time = score.meta.time;
   const found: FlaggedObject[] = [];
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     const where = `bar${bar.number}`;
     const barFlags = barReview(bar, time);
     if (barFlags.flagged) {

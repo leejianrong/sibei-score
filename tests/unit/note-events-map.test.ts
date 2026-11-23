@@ -9,8 +9,7 @@ import {
   projectScore,
   reviewSummary,
   splitTicks,
-  type NoteEvents,
-} from '@sibei/model';
+  type NoteEvents, barViews } from '@sibei/model';
 
 const load = (name: string): NoteEvents =>
   parseNoteEvents(JSON.parse(readFileSync(join(__dirname, '..', 'fixtures', 'note-events', name), 'utf8')));
@@ -22,7 +21,7 @@ describe('mapNoteEventsToScore (ADR-0040)', () => {
     expect(formatKeySignature(score.meta.key)).toBe('C');
     expect(score.meta.time).toEqual({ beats: 4, beatValue: 4 });
     expect(score.bars).toHaveLength(4);
-    for (const bar of score.bars) expect(barMetrics(bar, score.meta.time).valid).toBe(true);
+    for (const bar of barViews(score)) expect(barMetrics(bar, score.meta.time).valid).toBe(true);
     const text = projectScore(score);
     expect(text).toContain('e4/4');
     expect(reviewSummary(score).invalidBars).toEqual([]);
@@ -30,7 +29,7 @@ describe('mapNoteEventsToScore (ADR-0040)', () => {
 
   it('flags a low-confidence note and shows it in the text projection', () => {
     const { score } = map('bass-walking-beats.json');
-    const flagged = score.bars.flatMap((b) => b.items).filter((i) => i.review.flagged);
+    const flagged = barViews(score).flatMap((b) => b.items).filter((i) => i.review.flagged);
     expect(flagged).toHaveLength(1);
     expect(flagged[0]!.confidence).toBeCloseTo(0.41);
     expect(projectScore(score)).toContain('!41');
@@ -61,7 +60,7 @@ describe('mapNoteEventsToScore (ADR-0040)', () => {
   it('maps a silent document to an empty draft, not an error', () => {
     const { score, diagnostics } = map('valid_silent_voice.json');
     expect(score.bars).toHaveLength(1);
-    expect(score.bars[0]!.items).toEqual([]);
+    expect(barViews(score)[0]!.items).toEqual([]);
     expect(diagnostics[0]).toBe('silent_input: no audible signal in the input');
   });
 
@@ -70,7 +69,7 @@ describe('mapNoteEventsToScore (ADR-0040)', () => {
     doc.notes = [{ id: 'a', onset_s: 1.5, offset_s: 2.45, pitch: 60, confidence: 0.9 }];
     doc.beats = Array.from({ length: 8 }, (_, i) => ({ t_s: i * 0.5, is_downbeat: i % 4 === 0 }));
     const { score } = mapNoteEventsToScore(doc, { id: 'x' });
-    const [a, b] = score.bars;
+    const [a, b] = barViews(score);
     expect(a!.items.at(-1)).toMatchObject({ kind: 'note', tie: 'start' });
     expect(b!.items[0]).toMatchObject({ kind: 'note', tie: 'stop' });
   });

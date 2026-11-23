@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 import { ImportError, musicXmlToScore, parseXml, scoreToMusicXml, XmlError } from '@sibei/codec';
 import { FIXTURE_REGISTRY } from '@sibei/fixtures';
@@ -71,8 +72,8 @@ describe('every lossy case is named in the warnings', () => {
     const grace = '<note><grace/><pitch><step>D</step><octave>4</octave></pitch><type>eighth</type></note>';
     const result = musicXmlToScore(wrap(grace + note()));
     expect(result.warnings).toEqual([]);
-    expect(result.score.bars[0]!.items).toHaveLength(1);
-    const first = result.score.bars[0]!.items[0];
+    expect(barViews(result.score)[0]!.items).toHaveLength(1);
+    const first = barViews(result.score)[0]!.items[0];
     expect(first?.kind === 'note' ? first.graces?.length : 0).toBe(1);
   });
   it('a grace note with no note after it is dropped with a warning', () => {

@@ -1,5 +1,5 @@
 import { invalidBarChart } from '@sibei/fixtures';
-import type { Bar, Duration, TimeSignature } from '@sibei/model';
+import type { BarView, Duration, TimeSignature } from '@sibei/model';
 import {
   barCapacity,
   barMetrics,
@@ -23,7 +23,7 @@ import { describe, expect, it } from 'vitest';
  * expects a throw.
  */
 
-function barOf(durations: Duration[], number = 1): Bar {
+function barOf(durations: Duration[], number = 1): BarView {
   const ids = createIdFactory();
   let onset = 0;
   const items = durations.map((duration) => {

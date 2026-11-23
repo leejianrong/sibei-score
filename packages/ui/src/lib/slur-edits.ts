@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import type { Id, Score, Spanner } from '@sibei/model';
 import type { Operation } from './api.js';
 
@@ -12,7 +13,7 @@ import type { Operation } from './api.js';
 /** Reading-order index of every note, bar by bar. Rests are not in it: a slur needs notes at both ends. */
 function noteOrder(score: Score): Map<Id, number> {
   const order = new Map<Id, number>();
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     const items = [...bar.items].sort((a, b) => a.onset - b.onset);
     for (const item of items) if (item.kind === 'note') order.set(item.id, order.size);
   }

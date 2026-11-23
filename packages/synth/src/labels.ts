@@ -11,6 +11,7 @@
  * Framework-free, Node-free plain TypeScript.
  */
 
+import { barViews } from '@sibei/model';
 import type { Score, Step, Alter } from '@sibei/model';
 
 /** A melodic note reduced to what OMR can be scored on: pitch and rhythm. */
@@ -52,7 +53,7 @@ export interface ScoreLabels {
 /** Extract the comparable label sequence from a score, in reading order. */
 export function extractLabels(score: Score): ScoreLabels {
   return {
-    bars: score.bars.map((bar) => ({
+    bars: barViews(score).map((bar) => ({
       number: bar.number,
       items: bar.items.map((item): ItemToken =>
         item.kind === 'note'

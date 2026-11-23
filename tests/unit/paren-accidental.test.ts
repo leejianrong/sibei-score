@@ -1,3 +1,4 @@
+import { barViews } from '@sibei/model';
 import { describe, expect, it } from 'vitest';
 import { applyOperation, OperationError } from '@sibei/api';
 import type { Operation } from '@sibei/api';
@@ -22,13 +23,13 @@ function build(accidental: string): Score {
 describe('parens accidental', () => {
   it('is accepted by note.add and note.set and refuses unknown displays', () => {
     const score = build('parens');
-    expect((score.bars[0]!.items[0] as { accidental: string }).accidental).toBe('parens');
+    expect((barViews(score)[0]!.items[0] as { accidental: string }).accidental).toBe('parens');
     const set = applyOperation(build('auto'), {
       type: 'note.set',
       target: 'bar1.beat1',
       payload: { accidental: 'parens' },
     });
-    expect((set.score.bars[0]!.items[0] as { accidental: string }).accidental).toBe('parens');
+    expect((barViews(set.score)[0]!.items[0] as { accidental: string }).accidental).toBe('parens');
     expect(() => build('cautionary')).toThrow(OperationError);
   });
 
@@ -42,7 +43,7 @@ describe('parens accidental', () => {
     const xml = scoreToMusicXml(build('parens'));
     expect(xml).toContain('parentheses="yes"');
     const back = musicXmlToScore(xml).score;
-    const note = back.bars.flatMap((b) => b.items).find((i) => i.kind === 'note') as { accidental: string };
+    const note = barViews(back).flatMap((b) => b.items).find((i) => i.kind === 'note') as { accidental: string };
     expect(note.accidental).toBe('parens');
   });
 });
