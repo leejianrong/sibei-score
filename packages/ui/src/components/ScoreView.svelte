@@ -67,6 +67,7 @@
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
   import { allStaves, barByNumber, barViews, beatOfOnset, onsetOfBeat, sectionStartingAt } from '@sibei/model';
+  import RailPanel from './RailPanel.svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
   import SourcePane from './SourcePane.svelte';
@@ -1367,8 +1368,7 @@
         {/if}
       </div>
 
-      <div class="group control-row">
-        <h3>Transpose</h3>
+      <RailPanel title="Transpose">
         <div class="transpose-row">
           <select
             class="key-select"
@@ -1393,11 +1393,10 @@
           Changes the chart's concert key — the melody and chords move together. A logged, undoable
           edit, not a view: the version bumps.
         </p>
-      </div>
+      </RailPanel>
 
       {#if editable}
-        <div class="group control-row">
-          <h3>Staves and voices</h3>
+        <RailPanel title="Staves and voices" open>
           <StaffPanel
             {score}
             lane={activeLane}
@@ -1407,11 +1406,10 @@
             onops={runOps}
             onlane={(next) => (laneChoice = next)}
           />
-        </div>
+        </RailPanel>
       {/if}
 
-      <div class="group control-row">
-        <h3>Title block</h3>
+      <RailPanel title="Title block">
         <input class="meta-input" aria-label="Title" placeholder="Title" bind:value={titleDraft} />
         <input class="meta-input" aria-label="Subtitle" placeholder="Subtitle" bind:value={subtitleDraft} />
         <textarea class="meta-input" aria-label="Composer" placeholder="Composer (one per line)" rows="2" bind:value={composerDraft}></textarea>
@@ -1423,10 +1421,9 @@
         <p class="control-note">
           Printed above the first system. A logged, undoable edit (<code>meta set --title --subtitle --composer --arranger --style</code>).
         </p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Bars per line</h3>
+      <RailPanel title="Bars per line">
         <select
           class="part-select"
           aria-label="Bars per line"
@@ -1439,10 +1436,9 @@
           {/each}
         </select>
         <p class="control-note">Where one line should end instead, click a bar and set its line break. A logged, undoable edit (<code>meta set --bars-per-system</code>, <code>break set</code>).</p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Layout</h3>
+      <RailPanel title="Layout">
         <select
           class="part-select"
           aria-label="How systems are broken"
@@ -1454,10 +1450,9 @@
           <option value="score">Score (lines break by width)</option>
         </select>
         <p class="control-note">For a chart of several staves. A logged, undoable edit (<code>meta set --layout</code>).</p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Clef and key</h3>
+      <RailPanel title="Clef and key">
         <select
           class="part-select"
           aria-label="Where clef and key signature are drawn"
@@ -1470,10 +1465,9 @@
           <option value="page">First system of each page</option>
         </select>
         <p class="control-note">Later systems without them get the room back. A logged, undoable edit (<code>meta set --signature-policy</code>).</p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Footer</h3>
+      <RailPanel title="Footer">
         <textarea
           class="footer-text"
           aria-label="Page footer text"
@@ -1496,10 +1490,9 @@
           A copyright or credit line in the bottom margin, wrapped to fit. A logged, undoable edit
           (<code>meta set --footer</code>).
         </p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Tempo</h3>
+      <RailPanel title="Tempo">
         <div class="transpose-row">
           <select class="key-select" aria-label="Tempo beat unit" bind:value={tempoUnit}>
             <option value="4">quarter =</option>
@@ -1529,10 +1522,9 @@
           A metronome mark above the first bar; notation only, nothing plays. A logged, undoable edit
           (<code>meta set --tempo</code>).
         </p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Chord symbols</h3>
+      <RailPanel title="Chord symbols">
         <select
           class="key-select"
           aria-label="Print chords as"
@@ -1549,10 +1541,9 @@
           How this chart prints its chords; the chord text is unchanged. A logged, undoable edit
           (<code>meta set --chord-style</code>).
         </p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Face</h3>
+      <RailPanel title="Face">
         <SegmentedControl
           label="Music face"
           options={FONTS}
@@ -1563,10 +1554,9 @@
           Bravura, engraved · Petaluma, the handwritten Real Book face. The face is chosen per
           render, not per chart.
         </p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Paper</h3>
+      <RailPanel title="Paper">
         <SegmentedControl
           label="Paper size"
           options={PAPERS}
@@ -1575,10 +1565,9 @@
           onselect={(chosen) => (paper = chosen)}
         />
         <p class="control-note">Paper changes the line breaks, so the page above changes with it.</p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Page numbers</h3>
+      <RailPanel title="Page numbers">
         <select
           class="part-select"
           aria-label="Page number position"
@@ -1604,30 +1593,26 @@
           <label class="control-note"><input type="checkbox" bind:checked={numberFirst} /> Number the first page</label>
         {/if}
         <p class="control-note">Printed in the margin of every page of the PDF. Off by default; a render choice, not stored in the chart.</p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Blank staves</h3>
+      <RailPanel title="Blank staves">
         <label class="control-note"><input type="checkbox" bind:checked={blankStaves} /> Fill the rest of the last page with empty staves</label>
         <p class="control-note">For writing in by hand. Off by default; a render choice, not stored in the chart (<code>export --blank-staves</code>).</p>
-      </div>
+      </RailPanel>
 
-      <div class="group control-row">
-        <h3>Bar numbers</h3>
+      <RailPanel title="Bar numbers">
         <label class="control-note"><input type="checkbox" bind:checked={barNumbers} /> Number the bar at the head of each line</label>
         <p class="control-note">Drawn by default. A render choice, not stored in the chart (<code>export --no-bar-numbers</code>).</p>
-      </div>
+      </RailPanel>
 
       {#if hasTransposingPart}
-        <div class="group control-row">
-          <h3>Transposing parts</h3>
+        <RailPanel title="Transposing parts">
           <label class="control-note"><input type="checkbox" bind:checked={written} /> Write each at its own written pitch</label>
           <p class="control-note">The print is concert by default. A view, nothing stored (<code>export --written</code>); editing is off while it is on.</p>
-        </div>
+        </RailPanel>
       {/if}
 
-      <div class="group">
-        <h3>Part</h3>
+      <RailPanel title="Part" open plain>
         <select
           class="part-select"
           aria-label="Instrument part"
@@ -1651,10 +1636,9 @@
             chart is unchanged.
           </p>
         {/if}
-      </div>
+      </RailPanel>
 
-      <div class="group">
-        <h3>Export</h3>
+      <RailPanel title="Export" open plain>
         <SegmentedControl
           label="Export format"
           options={FORMATS.map((f) => f.value)}
@@ -1679,7 +1663,7 @@
             paper and face, which are page choices. A transposing part exports transposed.
           </p>
         {/if}
-      </div>
+      </RailPanel>
     </div>
     </aside>
 
@@ -1859,7 +1843,7 @@
     padding: 20px 22px 40px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 14px;
   }
 
   .rail-title {
@@ -1975,11 +1959,6 @@
     border-color: var(--ink-faint);
   }
 
-  .control-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
   .control-note {
     font-size: 11px;
     color: var(--ink-faint);
