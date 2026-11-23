@@ -14,7 +14,7 @@
 # It is authored but NOT built or tested in this repo's CI (no GPU there, and CPU is the floor). Build
 # it on a GPU host: `docker build -f Dockerfile.gpu -t sibei-omr-gpu .`
 
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
 
 # Ubuntu 22.04 ships Python 3.10, but the worker pins >=3.11,<3.12 (pyproject), so install 3.11 from
 # deadsnakes. The system libraries are the same two the CPU image needs (glib for opencv-headless,
