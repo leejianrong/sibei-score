@@ -227,7 +227,7 @@ The engraver draws every staff and voice that layout emits. No schema change. De
 **Refinement of slice 4 (SIB2-233).** Crossing voices at a quarter or longer note turn their stems away from each other;
 voices 1 and 3 on the same unbeamed quarter or half share one stem; a fermata hangs under a note below the staff or in a
 stem-down voice (`fermataBelow` joined the vendored glyphs, 63); an ottava line is drawn on, and reserves room above or
-below, the staff of its first note. Still imperfect: a crossing at a beamed or tuplet note keeps its numbered stems, voice
+below, the staff of its first note. **Clef change drawn (SIB2-241).** `clef set sN.barM` is now engraved: a small clef (three quarters size) in the lead-in of the bar that changes, with room reserved in the bar's prefix on every staff's column; a system head shows the clef in force there at full size and the key signature in that clef's positions; notes, ledger lines, ink and hit-testing read each bar's own clef. No cautionary clef at a system's end. Still imperfect: a crossing at a beamed or tuplet note keeps its numbered stems, voice
 4 does not merge onto voice 2, and a voice that crosses at a different onset than its partner's still draws through it.
 
 ## As built: slice 5a (SIB2-229, MusicXML and `writtenPart`)

@@ -1,5 +1,5 @@
 import { engravePage } from '@sibei/engrave';
-import { fermatasStavesChart, ottavaStavesChart, voiceCollisionsChart } from '@sibei/fixtures';
+import { clefChangeChart, fermatasStavesChart, ottavaStavesChart, voiceCollisionsChart } from '@sibei/fixtures';
 import { crossingFlips, layout } from '@sibei/layout';
 import { dur as makeDur } from '@sibei/model';
 import type { Score } from '@sibei/model';
@@ -59,5 +59,35 @@ describe('a fermata under its note', () => {
     // Bass E2 (below the staff) and voice 2's whole note take the inverted fermata; three others stay above.
     expect(count(svg, 'se-fermataBelow')).toBe(2);
     expect(count(svg, 'se-fermataAbove')).toBe(3);
+  });
+});
+
+describe('a clef change at a bar (SIB2-241)', () => {
+  const small = (svg: string): number => count(svg, 'se-grace se-gClef') + count(svg, 'se-grace se-fClef');
+
+  it('draws a small clef in the lead-in of the bar that changes, and none at a system head', () => {
+    const systems = layout(clefChangeChart()).pages[0]!.systems;
+    // Bar 3 changes bass to treble mid-system, bar 6 back to bass mid-system; bar 5 heads a system and draws it full size.
+    const changes = systems.flatMap((s) =>
+      s.staves![1]!.bars.flatMap((bar) => bar.voices[0]!.items.filter((item) => item.kind === 'clef' && item.change === true)),
+    );
+    expect(changes.map((item) => (item.kind === 'clef' ? item.clef : ''))).toEqual(['treble', 'bass']);
+    const opening = systems[1]!.staves![1]!.bars[0]!.voices[0]!.items.find((item) => item.kind === 'clef');
+    expect(opening).toMatchObject({ clef: 'treble' });
+    expect(opening).not.toHaveProperty('change');
+    expect(small(render(clefChangeChart()))).toBe(2);
+  });
+
+  it('reads the notes after the change in the new clef', () => {
+    const [first] = layout(clefChangeChart()).pages[0]!.systems;
+    const bars = first!.staves![1]!.bars;
+    expect(bars[0]!.clef).toBeUndefined();
+    expect(bars[2]!.clef).toBe('treble');
+  });
+
+  it('makes room in the lead-in, so the bar is wider by the small clef', () => {
+    const [first] = layout(clefChangeChart()).pages[0]!.systems;
+    expect(first!.bars[2]!.prefixWidth).toBeGreaterThan(first!.bars[1]!.prefixWidth);
+    expect(first!.bars[2]!.prefix.clefChange).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import type { BarItem, BarView, Id, Part, Score, Staff, StaffType, TimeSignature } from '@sibei/model';
 import { TICKS_PER_QUARTER, allStaves, barCapacity, barView, isDrumKitStaff, itemTicks, keyFifths } from '@sibei/model';
 import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
+import { clefChangeOf, effectiveClef, hasClefChanges } from './clefs.js';
 import { crossingFlips } from './crossing.js';
 import type { Clef, LayoutBarItem, LayoutOttava, LayoutTie } from './items.js';
 import type { LayoutBar } from './layout.js';
@@ -66,6 +67,8 @@ export interface LayoutStaffBar {
   barId: Id;
   /** Which of the clef, key and time signature this staff draws at the head of this bar. */
   prefix: BarPrefix;
+  /** The clef in force over this bar, only where it is not the staff's opening one (SIB2-241). */
+  clef?: Clef;
   voices: LayoutVoice[];
 }
 
@@ -164,7 +167,11 @@ export function lanesOf(score: Score): Lane[] {
 export function isMultiLane(score: Score): boolean {
   const staves = allStaves(score);
   if (staves.length > 1) return true;
-  return staves.some((staff) => staff.bars.some((bar) => bar.voices.filter((voice) => voice.items.length > 0).length > 1));
+  return (
+    staves.some((staff) => staff.bars.some((bar) => bar.voices.filter((voice) => voice.items.length > 0).length > 1)) ||
+    // A clef change is drawn by the staved path, even on a lone staff (SIB2-241).
+    staves.some((staff) => hasClefChanges(score, staff))
+  );
 }
 
 export interface VoiceView {
@@ -421,6 +428,8 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       kit ? 'treble' : lane.staff.clef,
       kit ? kitStems(perBar) : voiceStems(perBar, input.shifts),
       true,
+      // Where the staff changes clef, each bar is measured in the clef in force there (SIB2-241).
+      !kit && hasClefChanges(score, lane.staff) ? (bar) => effectiveClef(score, lane.staff, bar.id) : undefined,
     );
     const bars = allocated.map((entry, barIndex): LayoutStaffBar => {
       const voices = perBar[barIndex] ?? [];
@@ -428,6 +437,9 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       return {
         barId: entry.bar.id,
         prefix: staffPrefix(lane.staff.type, entry.prefix),
+        ...(effectiveClef(score, lane.staff, entry.bar.id) === lane.staff.clef
+          ? {}
+          : { clef: effectiveClef(score, lane.staff, entry.bar.id) }),
         voices: voices.map((voice, voiceIndex): LayoutVoice => {
           const stems: StemDirection = twoOrMore ? (voice.index % 2 === 1 ? 'up' : 'down') : kit ? 'up' : 'auto';
           // The top staff's first voice is the lead-sheet bar's own item list.
@@ -545,7 +557,11 @@ function laneItems(
   const bar = voice.view;
   if (first) {
     const prefix = staffPrefix(staff.type, entry.prefix);
-    if (prefix.clef) items.push({ kind: 'clef', clef: staff.clef });
+    if (prefix.clef) items.push({ kind: 'clef', clef: effectiveClef(score, staff, entry.bar.id) });
+    else if (entry.prefix.clefChange === true && staff.type !== 'percussion') {
+      const change = clefChangeOf(score, staff, entry.bar.id);
+      if (change !== null) items.push({ kind: 'clef', clef: change, change: true });
+    }
     if (prefix.keySignature) {
       items.push({ kind: 'keySignature', key: score.meta.key, fifths: keyFifths(score.meta.key) });
     }
