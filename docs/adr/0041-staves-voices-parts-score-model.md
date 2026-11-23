@@ -257,3 +257,15 @@ The engraver draws every staff and voice that layout emits. No schema change. De
   `transposition: 0` (applied). `concert` is still the identity, leaving a part's own transposition to the codec.
   A view has one key signature, so an own-transposition part's key signature is the requested instrument's until the
   engraver draws per-part keys.
+- **`meta.layout` has its op, verb and control** (SIB2-232): `meta.set` takes `layout: 'lead-sheet' | 'score' | null`
+  (`lead-sheet` and null clear it, so absence is the one way to say the default), `sbscore meta set --layout`, a Layout
+  select in the score view's rail (the same `meta.set`, one ctrl-Z undoes it), a `layout: score` line in `show` when set,
+  MCP through its batch. Slice 3's "no op or verb sets it yet" is closed.
+- **`Part.group` is not added.** Brackets stay derived from the part count and braces from a part's staves. A field
+  nobody reads is a trap (the engraver, slice 4, draws what slice 3's layout derives), and the one thing it would buy,
+  grouping some parts but not others (a horn section bracketed apart from the rhythm section), has no op, verb or control
+  to set it and no file that needs it yet. It would be additive and optional (ADR-0028, no migration) when it does; MusicXML
+  `<part-group>` is written as one bracket round all parts and not read.
+- **The text projection** (`show`) prints the structure block only for more than the lead-sheet shape, so a
+  single-staff single-voice chart is byte for byte as before (tests pin it); the address hint now names an address that
+  exists (`s1.v2.bar3.n2` for a one-staff two-voice chart) and a percussion staff no longer says `percussion` twice.

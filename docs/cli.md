@@ -90,6 +90,7 @@ sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [
                       [--footer TEXT] [--footer-pages first|last|all]
                       [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
+                      [--layout lead-sheet|score]
                       [--tempo 4=120]
 ```
 
@@ -118,6 +119,13 @@ path, so they match byte for byte): `standard` (the default: `Δ7`, `m7`, `ø7`)
 `-7♭5`), `words` (`maj7`, `min7`, `min7♭5`, `dim`, `aug`) or `real-book` (`MA7`, `MI7`, `MI7♭5`). It is
 a rendering choice only: the stored chord text, `show` and MusicXML are unchanged, and MusicXML does not
 carry the style. `standard` clears it. It is a logged, undoable edit with a select in the score view's rail.
+
+`--layout` says how the systems of a chart with several staves are broken (ADR-0041 section 5): `lead-sheet`
+(the default, and what a chart without the setting does) keeps the four-bar grid of a lead sheet, `score` breaks a
+system when the next bar would not fit the line, the way a score is set (`--bars-per-system` and section breaks
+still apply to `lead-sheet` only). `lead-sheet` or an empty `--layout ''` clears it. It is a logged, undoable edit
+with a Layout select in the score view's rail, `show` prints `layout: score` when it is set, and MusicXML has no
+home for it (a file of several staves imported from MusicXML comes in as `score`).
 
 `--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (after the pickup, if any; `4=120`, `4.=60` for a
 dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text

@@ -65,6 +65,7 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
 
   if (score.meta.tempo !== undefined) lines.push(`  tempo: ${tempoText(score.meta.tempo)}`);
   if (score.meta.chordStyle !== undefined) lines.push(`  chord style: ${score.meta.chordStyle}`);
+  if (score.meta.layout === 'score') lines.push('  layout: score (systems break by width)');
 
   // The wording lives in `review.ts`, not here, because the score rail says the same sentence
   // (V4b): the engraver draws no flag, so the chrome carries review state and must carry it in
@@ -174,13 +175,16 @@ function structureLines(score: Score): string[] {
         .map((bar) => ({ bar, clef: staff.bars.find((staffBar) => staffBar.barId === bar.id)?.clef }))
         .filter((change) => change.clef !== undefined)
         .map((change) => `bar${change.bar.number} ${change.clef}`);
-      const type = staff.type === 'standard' ? '' : ` ${staff.type}`;
+      // A percussion staff in a percussion clef would say the word twice.
+      const type = staff.type === 'standard' || staff.type === staff.clef ? '' : ` ${staff.type}`;
       const voices = voiceIndexes(staff).map((voice) => `v${voice}`).join(' ');
       lines.push(`    s${number} ${staff.clef}${type}  ${voices}${changes.length === 0 ? '' : `  ${changes.join(', ')}`}`);
     }
   });
   if (voiceSelects(score).length > 1) {
-    lines.push('  rows below are s1.v1; address the rest as s2.v1.bar3.n2 (staff, voice, bar, item)');
+    // The example is an address that exists: the second staff and voice the score has.
+    const other = voiceSelects(score)[1] as Required<VoiceSelect>;
+    lines.push(`  rows below are s1.v1; address the rest as ${qualifierOf(score, other)}bar3.n2 (staff, voice, bar, item)`);
   }
   return lines;
 }
