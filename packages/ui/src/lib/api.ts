@@ -10,6 +10,7 @@ import type {
   EndingRole,
   Id,
   KeySignature,
+  NoteValue,
   NavKind,
   Score,
   StartBarline,
@@ -306,6 +307,14 @@ export async function deleteScore(id: Id): Promise<void> {
   await sendNoBody('DELETE', `${V1}/scores/${encodeURIComponent(id)}`);
 }
 
+/**
+ * Start a chart (SIB2-270): `POST /v1/scores` with a batch whose first operation is `score.create`,
+ * the same request `sbscore new` sends. Resolves with the new chart's id.
+ */
+export async function createScore(operations: readonly Operation[]): Promise<Id> {
+  return (await postJson<{ scoreId: Id }>(`${V1}/scores`, { operations })).scoreId;
+}
+
 export interface DuplicateResult {
   scoreId: Id;
   version: number;
@@ -465,8 +474,8 @@ async function postReparse(id: Id, body: Record<string, unknown>): Promise<Impor
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
  * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
  * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
- * `ending.set`/`ending.rm`; SIB2-166 `tuplet.set`/`tuplet.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163/178 `meta.set` for the title block, page footer and chord style. `score.create` exists on the
- * server and has no UI control yet — booked debt (Q79), not a gap this file is meant to close.
+ * `ending.set`/`ending.rm`; SIB2-166 `tuplet.set`/`tuplet.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163/178 `meta.set` for the title block, page footer and chord style. SIB2-270 gave `score.create` its
+ * control (the library's New chart), closing the last Q79 exception.
  * Slice 5b adds `note.add` (the bar panel's Add note) and the part, staff, voice, clef and instrument verbs.
  */
 export interface NoteSetPayload {
@@ -533,6 +542,18 @@ export interface MetaSetPayload {
 }
 
 export type Operation =
+  | {
+      type: 'score.create';
+      payload: {
+        id: string;
+        title?: string;
+        composer?: string;
+        key?: KeySignature;
+        time?: { beats: number; beatValue: NoteValue };
+        barCount?: number;
+        pickup?: boolean;
+      };
+    }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'note.rm'; target: string }

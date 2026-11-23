@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "source": {
+    "sha256": "fcafe157539f66d7ef6073235411a484b9ff681ef79a48de9e5c08b5b752469a",
+    "duration_s": 11.364036281179139
+  },
+  "instrument": "piano",
+  "producer": {
+    "model_id": "ground-truth",
+    "model_version": "recipe-v1",
+    "stage": "transcribe"
+  },
+  "beats": [
+    {
+      "t_s": 0.0,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 0.75,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 1.5,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 2.25,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 3.0,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 3.75,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 4.5,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 5.25,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 6.0,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 6.75,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 7.5,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 8.25,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 9.0,
+      "is_downbeat": true
+    },
+    {
+      "t_s": 9.75,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 10.5,
+      "is_downbeat": false
+    },
+    {
+      "t_s": 11.25,
+      "is_downbeat": false
+    }
+  ],
+  "notes": [
+    {
+      "id": "n0",
+      "onset_s": 0.0,
+      "offset_s": 2.7,
+      "pitch": 37,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n1",
+      "onset_s": 0.0,
+      "offset_s": 2.7,
+      "pitch": 40,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n2",
+      "onset_s": 0.0,
+      "offset_s": 2.7,
+      "pitch": 44,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n3",
+      "onset_s": 0.0,
+      "offset_s": 0.675,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n4",
+      "onset_s": 0.75,
+      "offset_s": 1.0875,
+      "pitch": 66,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n5",
+      "onset_s": 1.125,
+      "offset_s": 1.7999999999999998,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n6",
+      "onset_s": 1.875,
+      "offset_s": 2.8875,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n7",
+      "onset_s": 3.0,
+      "offset_s": 5.699999999999999,
+      "pitch": 37,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n8",
+      "onset_s": 3.0,
+      "offset_s": 5.699999999999999,
+      "pitch": 40,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n9",
+      "onset_s": 3.0,
+      "offset_s": 5.699999999999999,
+      "pitch": 44,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n10",
+      "onset_s": 3.0,
+      "offset_s": 3.3375000000000004,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n11",
+      "onset_s": 3.375,
+      "offset_s": 4.725,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n12",
+      "onset_s": 4.875,
+      "offset_s": 5.2125,
+      "pitch": 69,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n13",
+      "onset_s": 5.25,
+      "offset_s": 5.925000000000001,
+      "pitch": 69,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n14",
+      "onset_s": 6.0,
+      "offset_s": 8.7,
+      "pitch": 37,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n15",
+      "onset_s": 6.0,
+      "offset_s": 8.7,
+      "pitch": 40,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n16",
+      "onset_s": 6.0,
+      "offset_s": 8.7,
+      "pitch": 44,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n17",
+      "onset_s": 6.0,
+      "offset_s": 6.675000000000001,
+      "pitch": 69,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n18",
+      "onset_s": 6.75,
+      "offset_s": 8.100000000000001,
+      "pitch": 68,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    },
+    {
+      "id": "n19",
+      "onset_s": 8.25,
+      "offset_s": 8.587499999999999,
+      "pitch": 64,
+      "cents": null,
+      "velocity": null,
+      "confidence": 1.0,
+      "drum_class": null
+    }
+  ],
+  "warnings": []
+}
