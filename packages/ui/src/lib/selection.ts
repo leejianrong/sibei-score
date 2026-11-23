@@ -1,5 +1,5 @@
-import { STEPS, allBarViews, keySignatureAccidentals, allStaves, chordTones, formatPitch, formatBeat, beatOfOnset } from '@sibei/model';
-import type { Articulation, Duration, Id, Pitch, Score, TieRole } from '@sibei/model';
+import { STEPS, allBarViews, barCapacity, itemTicks, keySignatureAccidentals, allStaves, chordTones, formatPitch, formatBeat, beatOfOnset } from '@sibei/model';
+import type { Articulation, ClipSpec, Duration, Id, Pitch, Score, TieRole } from '@sibei/model';
 import type { Operation } from './api.js';
 import type { Lane } from './lanes.js';
 import { qualifierOf } from './lanes.js';
@@ -21,6 +21,7 @@ interface Entry {
   onset: number;
   beat: number;
   duration: Duration;
+  ticks: number;
   /** Every pitch of a note, lowest first, each with the id the ops resolve; empty for a rest. */
   tones: { id: Id; pitch: Pitch; primary: boolean }[];
 }
@@ -41,6 +42,7 @@ function entries(score: Score): Entry[] {
           onset: item.onset,
           beat: beatOfOnset(item.onset, score.meta.time),
           duration: item.duration,
+          ticks: itemTicks(item, view),
           tones: item.kind === 'note' ? chordTones(item).map((tone) => ({ id: tone.id, pitch: tone.pitch, primary: tone.primary })) : [],
         });
       }
@@ -91,6 +93,31 @@ export function liveItems(score: Score, ids: readonly Id[]): Id[] {
 export function countNotes(score: Score, ids: readonly Id[]): number {
   const wanted = new Set(ids);
   return entries(score).filter((entry) => wanted.has(entry.id) && entry.kind === 'note').length;
+}
+
+/**
+ * The span the selected items cover, as the `ClipSpec` that copies them, and the position just after it (for Duplicate).
+ * One staff: the first picked item's. `null` when none of the ids is in the score.
+ */
+export function selectionSpan(score: Score, ids: readonly Id[]): { spec: ClipSpec; after: { bar: number; onset: number }; lane: Lane; first: { bar: number; onset: number } } | null {
+  const wanted = new Set(ids);
+  const chosen = entries(score).filter((entry) => wanted.has(entry.id));
+  const head = chosen[0];
+  if (head === undefined) return null;
+  const mine = chosen.filter((entry) => entry.lane.staff === head.lane.staff);
+  const capacity = barCapacity(score.meta.time);
+  const bars = score.bars.map((bar) => bar.number);
+  const abs = (entry: Entry): number => bars.indexOf(entry.bar) * capacity + entry.onset;
+  const start = Math.min(...mine.map(abs));
+  const end = Math.max(...mine.map((entry) => abs(entry) + entry.ticks));
+  const at = (tick: number): { bar: number; onset: number } => ({ bar: bars[Math.floor(tick / capacity)] ?? bars[bars.length - 1]! + 1, onset: tick % capacity });
+  const first = at(start);
+  return {
+    spec: { staff: head.lane.staff, from: first, to: { bar: bars[Math.floor((end - 1) / capacity)]!, onset: ((end - 1) % capacity) + 1 }, ids: mine.map((entry) => entry.id) },
+    after: at(end),
+    lane: head.lane,
+    first,
+  };
 }
 
 export type SelectionEdit =

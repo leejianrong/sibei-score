@@ -16,10 +16,15 @@
     saving: boolean;
     error: string | null;
     onedit: (edit: SelectionEdit) => void;
+    hasClip: boolean;
+    oncopy: () => void;
+    oncut: () => void;
+    onduplicate: () => void;
+    onpaste: () => void;
     onclear: () => void;
   }
 
-  const { count, notes, staves, saving, error, onedit, onclear }: Props = $props();
+  const { count, notes, staves, saving, error, onedit, hasClip, oncopy, oncut, onduplicate, onpaste, onclear }: Props = $props();
 
   const VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
   const DOTS = [0, 1, 2] as const;
@@ -38,6 +43,12 @@
 
 <div class="selection-panel" role="group" aria-label="Selection" data-testid="selection-panel">
   <p class="count" data-testid="selection-count">{count} items selected{notes < count ? ` (${notes} notes)` : ''}</p>
+  <div class="row">
+    <button type="button" class="btn" disabled={saving} onclick={oncopy}>Copy</button>
+    <button type="button" class="btn" disabled={saving} onclick={oncut}>Cut</button>
+    <button type="button" class="btn" disabled={saving} onclick={onduplicate}>Duplicate</button>
+    <button type="button" class="btn" disabled={saving || !hasClip} onclick={onpaste}>Paste here</button>
+  </div>
   <div class="row">
     <button type="button" class="btn" disabled={saving} onclick={() => onedit({ type: 'step', steps: 1 })}>Up a step</button>
     <button type="button" class="btn" disabled={saving} onclick={() => onedit({ type: 'step', steps: -1 })}>Down a step</button>
@@ -73,7 +84,7 @@
   {#if error !== null}<p class="problem" role="alert">{error}</p>{/if}
   <p class="note">
     Shift-click a second note to select the range, Ctrl/⌘-click to add or remove one, shift-click another bar to select
-    a bar range, Ctrl/⌘ A for the whole staff. One undo reverses an edit to all of it.
+    a bar range, Ctrl/⌘ A for the whole staff. Ctrl/⌘ C, X and V copy, cut and paste at the first selected note or the selected bar (the clip is JSON the CLI reads too). One undo reverses an edit to all of it.
   </p>
 </div>
 

@@ -103,6 +103,7 @@ import { parseChord, transposeChordText } from '@sibei/music';
 import { OperationError } from './errors.js';
 import { addPart, addStaff, addVoice, removePart, removeStaff, removeVoice, setClef, setInstrument } from './structure-ops.js';
 import { moveHand, moveNote } from './move-ops.js';
+import { clearRange, pasteRange } from './range-ops.js';
 import { isControlOperation } from './operations.js';
 import type {
   ChordSetPayload,
@@ -210,6 +211,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return moveNote(score, operation.target, operation.payload, mapBar);
     case 'hand.move':
       return moveHand(score, operation.payload, mapBar);
+    case 'range.paste':
+      return pasteRange(score, operation.target, operation.payload, mapBar);
+    case 'range.clear':
+      return clearRange(score, operation.payload, mapBar);
     case 'rest.add':
       return addRest(score, operation.target, operation.payload);
     case 'rest.rm':

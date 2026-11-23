@@ -132,7 +132,7 @@ const OPERATIONS_SCHEMA = {
     '(where note.add and chord.set land; a beat with nothing on it is refused, listing the real onsets), `bar3.n2` ' +
     'the second item of bar 3, `note-17` a stable id, and a bare `bar3` for the whole-bar operations (section, barline, ending). A score with several staves or voices ' +
     'needs `s2.bar3.n2` (staff 2) or `s2.v2.bar3.n2` (staff 2, voice 2); a bare address is then refused with the candidates ' +
-    'listed. Structure: part.add, part.rm (`p2`), staff.add, staff.rm (`s2`), voice.add, voice.rm (`s2.v2`), clef.set (`s2`, `s2.bar5`), instrument.set. Between hands: note.move (target `bar3.n2` or a pitch `bar3.n2.E4`, payload `{to: "s2"}`) and hand.move (payload `{from, to, first, last, below?, above?}`).',
+    'listed. Structure: part.add, part.rm (`p2`), staff.add, staff.rm (`s2`), voice.add, voice.rm (`s2.v2`), clef.set (`s2`, `s2.bar5`), instrument.set. Between hands: note.move (target `bar3.n2` or a pitch `bar3.n2.E4`, payload `{to: "s2"}`) and hand.move (payload `{from, to, first, last, below?, above?}`). Ranges: range.paste (target `bar9.beat1`, payload `{clip}` where the clip is the JSON `sbscore range copy` prints: it replaces the span it covers) and range.clear (payload `{staff: "s1", first, last, harmony?}`).',
   items: {
     type: 'object',
     required: ['type'],

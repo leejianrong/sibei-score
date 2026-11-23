@@ -7,6 +7,7 @@ import type {
   EndBarline,
   GraceValue,
   EndingRole,
+  Clip,
   Id,
   KeySignature,
   NavKind,
@@ -438,6 +439,21 @@ export interface HandMovePayload {
   ids?: Id[];
 }
 
+/** Paste a clip (`@sibei/model`'s `Clip`, what `sbscore range copy` prints) at the op's target address, replacing the span it covers. */
+export interface RangePastePayload {
+  clip: Clip;
+  /** *Recorded.* The fresh ids the paste made, in order. */
+  ids?: Id[];
+}
+
+/** Empty whole bars `first` to `last` of a staff (`s1`); with `harmony`, their chord symbols and text too. */
+export interface RangeClearPayload {
+  staff: string;
+  first: number;
+  last: number;
+  harmony?: boolean;
+}
+
 export interface ScoreImportPayload {
   document: Score;
 }
@@ -466,6 +482,8 @@ export type Operation =
   | { type: 'note.rm'; target: string }
   | { type: 'note.move'; target: string; payload: NoteMovePayload }
   | { type: 'hand.move'; payload: HandMovePayload }
+  | { type: 'range.paste'; target: string; payload: RangePastePayload }
+  | { type: 'range.clear'; payload: RangeClearPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
@@ -513,6 +531,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'note.rm',
   'note.move',
   'hand.move',
+  'range.paste',
+  'range.clear',
   'rest.add',
   'rest.rm',
   'chord.set',
