@@ -15,7 +15,7 @@ import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
 import { planSystems } from './grid.js';
 import { buildFurniture, footerReserve } from './furniture.js';
 import type { Lane, LayoutAlignment, LayoutStaff, LayoutStaffGroup, LayoutStaffSpan } from './lanes.js';
-import { buildLanes, fitFor, isMultiLane, lanesOf, placeLanes, sizingFor, voiceViewsOf } from './lanes.js';
+import { buildLanes, fitFor, isMultiLane, lanesOf, placeLanes, sizingFor, voiceStems, voiceViewsOf } from './lanes.js';
 import type { LayoutFurniture } from './furniture.js';
 import type { Clef, LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
 import { ottavaShifts, planOttavas } from './ottava.js';
@@ -171,7 +171,12 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         {
           // The top staff's ink is every voice of it; the other staves are stacked below (lanes.ts).
           bars: top === undefined ? bars : allocated.flatMap((entry) => voiceViewsOf(score, top.staff, entry.bar).map((voice) => voice.view)),
-          ...(top === undefined ? {} : { clef: top.staff.clef }),
+          ...(top === undefined
+            ? {}
+            : {
+                clef: top.staff.clef,
+                stems: voiceStems(allocated.map((entry) => voiceViewsOf(score, top.staff, entry.bar))),
+              }),
           shifts,
           ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up'),
           ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down'),

@@ -7,6 +7,8 @@ export * from './dense-spacing-chart.js';
 export * from './grace-notes-chart.js';
 export * from './long-form-chart.js';
 export * from './multi-staff-charts.js';
+export * from './staff-engraving-charts.js';
+export * from './staff-furniture-chart.js';
 export * from './nasty-chart.js';
 export * from './registry.js';
 export * from './simple-charts.js';

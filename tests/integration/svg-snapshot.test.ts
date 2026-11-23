@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { aabaChart, articulationsChart, everyGlyphChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -103,6 +103,36 @@ describe('rendered SVG', () => {
     // annotation. Nothing else in the corpus draws either treatment, so this file is where a
     // change to the shading geometry or colour shows up as something to look at (ADR-0019).
     snapshotScore(reviewChart(), 'review');
+  });
+
+  // SIB2-228 (ADR-0041, slice 4): the staves-and-voices fixtures, each looked at with `pnpm proof <name>` before its
+  // snapshot was written, and the description of what was seen is in the slice's PR.
+  it('matches the committed snapshot for the grand staff (a brace, a bass clef, one barline through both staves)', () => {
+    snapshotScore(grandStaffChart(), 'grand-staff');
+  });
+
+  it('matches the committed snapshot for two voices on one staff (stems apart, rests offset)', () => {
+    snapshotScore(twoVoiceChart(), 'two-voice');
+  });
+
+  it('matches the committed snapshot for a lead and a bass (a bracket across two parts)', () => {
+    snapshotScore(leadBassChart(), 'lead-bass');
+  });
+
+  it('matches the committed snapshots for the full band (a bracket, a brace, a one-line percussion staff, three pages)', () => {
+    snapshotScore(fullBandChart(), 'full-band');
+  });
+
+  it('matches the committed snapshot for voices meeting (shared unison, seconds, a crossing, a third voice, a triplet and a tie)', () => {
+    snapshotScore(voiceCollisionsChart(), 'voice-collisions');
+  });
+
+  it('matches the committed snapshot for every clef in a flat key', () => {
+    snapshotScore(clefsAndKeysChart(), 'clefs-and-keys');
+  });
+
+  it('matches the committed snapshot for repeats, marks and rests on a lower staff', () => {
+    snapshotScore(staffFurnitureChart(), 'staff-furniture');
   });
 
   it('is identical when the same score is rendered twice', () => {

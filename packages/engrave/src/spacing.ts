@@ -111,6 +111,11 @@ export interface PlacedItem {
   slotX: number;
   /** Left edge of each grace note's notehead, in reading order (SIB2-185); absent when the note has none. */
   graceXs?: number[];
+  /**
+   * Where the accidental is drawn when the notehead was moved aside for another voice's (slice 4): the accidental
+   * stays where the notehead would have been, since the moved head sits against the other voice's. Absent otherwise.
+   */
+  accidentalX?: number;
 }
 
 /**
@@ -253,6 +258,41 @@ export function placeItems(font: MusicFont, bar: LayoutBar): PlacedItem[] {
       const right = bar.x + bar.width - RIGHT_PAD;
       const width = font.width(restFor(only.item.duration));
       only.x = left + Math.max(right - left - width, 0) / 2;
+      only.leftEdge = only.x;
+    }
+  }
+  return placed;
+}
+
+/**
+ * Where each note and rest goes on a multi-staff or multi-voice system (ADR-0041, slice 4): not decided here at all.
+ * Layout aligned every onset of the bar across every staff and voice and stamped the column's x on each item
+ * (`LayoutBar.alignment`), so this only turns that x into the same `PlacedItem` the single-staff spacing makes, with the
+ * accidental and grace notes hung to its left in the room alignment's left padding leaves.
+ */
+export function placeAligned(font: MusicFont, bar: LayoutBar, centreWholeRest = true): PlacedItem[] {
+  const placed: PlacedItem[] = [];
+  const left = musicLeft(font, bar);
+  for (const item of bar.items) {
+    if (item.kind !== 'note' && item.kind !== 'rest') continue;
+    const cell = cellFor(font, item);
+    const x = item.x ?? left + cell.leadIn;
+    const start = x - cell.leadIn;
+    placed.push({
+      item,
+      x,
+      leftEdge: start,
+      slotX: x,
+      ...(cell.graceOffsets.length === 0 ? {} : { graceXs: cell.graceOffsets.map((offset) => start + offset) }),
+    });
+  }
+
+  // A rest that fills the bar is centred in the music, as the single-staff spacing does (SIB2-192).
+  const only = placed.length === 1 ? placed[0] : undefined;
+  if (centreWholeRest && only !== undefined && only.item.kind === 'rest' && bar.metrics.expected > 0 && bar.alignment !== undefined) {
+    if (durationTicks(only.item.duration) >= bar.metrics.expected && !bar.isPickup) {
+      const width = font.width(restFor(only.item.duration));
+      only.x = bar.alignment.left + Math.max(bar.alignment.right - bar.alignment.left - width, 0) / 2;
       only.leftEdge = only.x;
     }
   }
