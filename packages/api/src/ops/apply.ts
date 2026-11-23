@@ -399,6 +399,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
   const perSystem = nextBarsPerSystem(score, payload);
   const tempo = nextTempo(score, payload);
   const layout = nextLayout(score, payload);
+  const showNames = nextShowNames(score, payload);
   const {
     footer: _footer,
     subtitle: _subtitle,
@@ -408,6 +409,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
     barsPerSystem: _bars,
     tempo: _tempo,
     layout: _layout,
+    showInstrumentNames: _names,
     ...rest
   } = score.meta;
   const next: Score = {
@@ -427,6 +429,7 @@ function setMeta(score: Score, payload: MetaSetPayload): Applied {
       ...(perSystem === undefined ? {} : { barsPerSystem: perSystem }),
       ...(tempo === undefined ? {} : { tempo }),
       ...(layout === undefined ? {} : { layout }),
+      ...(showNames === undefined ? {} : { showInstrumentNames: showNames }),
     },
   };
 
@@ -467,6 +470,17 @@ function nextLayout(score: Score, payload: MetaSetPayload): ScoreLayoutKind | un
     });
   }
   return asked;
+}
+
+/** Whether instrument names print (SIB2-286): untouched unless named; false or null is stored as absent. */
+function nextShowNames(score: Score, payload: MetaSetPayload): true | undefined {
+  const asked = payload.showInstrumentNames;
+  if (asked === undefined) return score.meta.showInstrumentNames === true ? true : undefined;
+  if (asked === null || asked === false) return undefined;
+  if (asked !== true) {
+    throw new OperationError({ kind: 'validation', detail: `showInstrumentNames is true or false, not ${JSON.stringify(asked)}` });
+  }
+  return true;
 }
 
 /** The tempo mark after a `meta.set` (SIB2-177): untouched unless named; null removes it. */

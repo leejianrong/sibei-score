@@ -17,6 +17,7 @@ import { furnitureText } from './furniture.js';
 import type { BarlineJoin } from './barlines.js';
 import { endBarline, ending, openingBarline, startBarline } from './barlines.js';
 import { staffGroups } from './groups.js';
+import { instrumentNames } from './names.js';
 import type { StemMerge, VoiceShift } from './voices.js';
 import { noteShifts, stemFlips, stemMerges, restShiftOf, stemsOf, voicesWithMusic } from './voices.js';
 import type { BeamCandidate } from './beam-groups.js';
@@ -243,6 +244,7 @@ export function engraveSystem(
   if (options.staffLines) {
     children.push(...staffLines(font, { x: system.x, width: system.width, staveY: system.staveY }));
     if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY));
+    children.push(...instrumentNames(system, options.textFont));
   }
   children.push(...barInk);
   if (system.blank === true && options.staffLines) {
@@ -428,7 +430,7 @@ function engraveStavedSystem(
       );
     }
     if (!opensOnRepeat) children.push(openingBarline(font, system.x, system.staveY, join));
-    children.push(...staffGroups(groups));
+    children.push(...staffGroups(groups), ...instrumentNames(system, options.textFont));
   }
   children.push(...barlineInk, ...barInk);
 

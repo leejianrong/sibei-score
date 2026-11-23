@@ -91,6 +91,7 @@ sbscore meta set <id> [--title T] [--subtitle S] [--composer C] [--arranger A] [
                       [--signature-policy every|first|page]
                       [--chord-style standard|dash|words|real-book]
                       [--layout lead-sheet|score]
+                      [--instrument-names on|off]
                       [--tempo 4=120]
 ```
 
@@ -126,6 +127,11 @@ system when the next bar would not fit the line, the way a score is set (`--bars
 still apply to `lead-sheet` only). `lead-sheet` or an empty `--layout ''` clears it. It is a logged, undoable edit
 with a Layout select in the score view's rail, `show` prints `layout: score` when it is set, and MusicXML has no
 home for it (a file of several staves imported from MusicXML comes in as `score`).
+
+`--instrument-names on` prints each part's name at the left of its staves, left of the brace and bracket: the full
+name (`instrument set --name`) on the first system, the short name (`--short-name`, an empty value removes it) on the
+rest, with room reserved only where a name is drawn. `off` clears it. A logged, undoable edit with a checkbox in the
+rail's Layout panel; MusicXML carries the names as `<part-name>` and `<part-abbreviation>` but not the on/off choice.
 
 `--tempo` draws a metronome mark, a small note glyph and a number, above the first bar (after the pickup, if any; `4=120`, `4.=60` for a
 dotted beat; units 1, 2, 4 and 8; 20 to 400; an empty `--tempo ''` removes it). It is separate from the free-text
@@ -316,7 +322,7 @@ sbscore staff rm  <id> <s2> [--force]
 sbscore voice add <id> [<s2>]                    # the next free voice of a staff, 2 to 4
 sbscore voice rm  <id> <s2.v2> [--force]
 sbscore clef set  <id> <s2|s2.bar5> --clef bass  # a staff's clef, or a change from bar 5 (--clef none clears a change)
-sbscore instrument set <id> [<p1>] [--name Piano] [--instrument 0|none] [--transposition -2]
+sbscore instrument set <id> [<p1>] [--name Piano] [--short-name Pno.] [--instrument 0|none] [--transposition -2]
 ```
 
 A score is parts, each with staves, each with up to four voices (ADR-0041); a lead sheet is one of each, and every
