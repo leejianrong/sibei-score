@@ -58,7 +58,8 @@ function render(score: Score): string {
 describe('chord labels never overlap', () => {
   for (const [name, build] of Object.entries(FIXTURE_REGISTRY)) {
     it(`in the ${name} fixture`, () => {
-      expect(overlaps(render(build()))).toEqual([]);
+      // Page by page: two pages' systems can share a baseline and an x, and are not on one sheet (SIB2-227).
+      expect(renderScoreToSvg(build()).flatMap((page) => overlaps(page.svg))).toEqual([]);
     });
   }
 

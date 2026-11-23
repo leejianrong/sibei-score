@@ -7,3 +7,5 @@ export * from './vertical.js';
 export * from './ottava.js';
 export * from './layout.js';
 export * from './furniture.js';
+export * from './lanes.js';
+export * from './bar-items.js';

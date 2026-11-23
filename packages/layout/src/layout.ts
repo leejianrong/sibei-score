@@ -3,17 +3,21 @@ import {
   TICKS_PER_QUARTER,
   annotationsOfBar,
   barMetrics,
+  barView,
   beatOfOnset,
   keyFifths,
   notesInReadingOrder,
+  notesOf,
   sectionStartingAt,
   tupletOf,
 } from '@sibei/model';
-import { graceAccidentals, resolveBarAccidentals } from './accidentals.js';
+import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
 import { planSystems } from './grid.js';
 import { buildFurniture, footerReserve } from './furniture.js';
+import type { Lane, LayoutAlignment, LayoutStaff, LayoutStaffGroup, LayoutStaffSpan } from './lanes.js';
+import { buildLanes, fitFor, isMultiLane, lanesOf, placeLanes, sizingFor, voiceViewsOf } from './lanes.js';
 import type { LayoutFurniture } from './furniture.js';
-import type { GraceItem, LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
+import type { Clef, LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
 import { ottavaShifts, planOttavas } from './ottava.js';
 import type { PageSpec, PageSpecInput } from './page.js';
 import { resolvePageSpec } from './page.js';
@@ -39,6 +43,11 @@ export interface LayoutBar {
    * where the bar's music starts without guessing it a second time (see `widths.ts`).
    */
   prefixWidth: number;
+  /**
+   * The shared horizontal spacing of this bar across every staff and voice: where its music runs from and to, and the x
+   * of each onset. Present only on a multi-staff or multi-voice system (SIB2-227).
+   */
+  alignment?: LayoutAlignment;
   /** Derived, carried through so consumers can flag rather than reject (ADR-0013). */
   metrics: BarMetrics;
   items: LayoutBarItem[];
@@ -69,6 +78,15 @@ export interface LayoutSystem {
   /** Units above the top staff line of an 8va line, and below the bottom staff line of an 8vb one. */
   ottavaAboveOffset?: number;
   ottavaBelowOffset?: number;
+  /**
+   * The staves of a multi-staff system, top to bottom, each with its voices' items, clef, y and ties; the braces and
+   * bracket joining them; and the run a barline makes across them (SIB2-227). All three are absent on a single-staff
+   * single-voice chart, whose one staff is `bars` and `staveY` above. `aboveStaff` and the chord row belong to the top
+   * staff; `belowStaff` is under the bottom one.
+   */
+  staves?: LayoutStaff[];
+  groups?: LayoutStaffGroup[];
+  staffSpan?: LayoutStaffSpan;
   /** An empty ruled staff added to fill the last page (SIB2-181): clef and staff lines, no bars. */
   blank?: true;
 }
@@ -100,7 +118,15 @@ export interface LayoutResult {
 
 export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   const spec = resolvePageSpec(input);
-  const planned = planSystems(score);
+  // More than one staff, or two voices with music: the staves path (lanes.ts, SIB2-227). Everything it adds is
+  // optional on the output, and a single-staff single-voice chart never enters it.
+  const multi = isMultiLane(score);
+  const lanes = lanesOf(score);
+  const sizing = multi ? sizingFor(score, lanes) : undefined;
+  const planned = planSystems(
+    score,
+    score.meta.layout === 'score' ? fitFor(score, lanes, spec, (bar) => bar.id === score.bars[0]?.id) : undefined,
+  );
 
   // System membership is independent of pagination, so ties can be resolved once the
   // systems are known and before they are placed on pages.
@@ -110,9 +136,20 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
       for (const item of bar.items) {
         if (item.kind === 'note') systemOfNote.set(item.id, index);
       }
+      // The other staves and voices: their notes are on this system too, for ties and slurs.
+      if (multi) {
+        for (const lane of lanes) {
+          for (const voice of voiceViewsOf(score, lane.staff, bar)) {
+            for (const item of voice.view.items) {
+              if (item.kind === 'note') systemOfNote.set(item.id, index);
+            }
+          }
+        }
+      }
     }
   });
-  const tiesBySystem = planTies(score, systemOfNote);
+  const tiesBySystem = planTies(notesInReadingOrder(score).map((entry) => entry.note), systemOfNote);
+  const tiesByStaff = multi ? planLaneTies(score, lanes, systemOfNote) : new Map<Id, Map<number, LayoutTie[]>>();
   const slursBySystem = planSlurs(score, systemOfNote);
   const ottavasBySystem = planOttavas(score, systemOfNote);
   const shifts = ottavaShifts(score);
@@ -126,11 +163,15 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
       const allocated = allocateWidths(score, system, spec, {
         isFirstSystem: index === 0,
         showSignatures: showsSignatures(index),
+        ...(sizing === undefined ? {} : { sizing }),
       });
       const bars = allocated.map((entry) => entry.bar);
+      const top = multi ? lanes[0] : undefined;
       const vertical = systemVertical(
         {
-          bars,
+          // The top staff's ink is every voice of it; the other staves are stacked below (lanes.ts).
+          bars: top === undefined ? bars : allocated.flatMap((entry) => voiceViewsOf(score, top.staff, entry.bar).map((voice) => voice.view)),
+          ...(top === undefined ? {} : { clef: top.staff.clef }),
           shifts,
           ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up'),
           ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down'),
@@ -143,7 +184,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         spec,
       );
 
-      return {
+      const layoutBars = allocated.map((entry) => buildBar(score, entry, shifts, spec.barNumbers, top?.staff.clef));
+      const built: LayoutSystem = {
         index,
         x: spec.margin.left,
         // Placed onto a page below; y is assigned in the pagination pass.
@@ -154,13 +196,37 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         belowStaff: vertical.belowStaff,
         chordBaselineOffset: vertical.chordBaselineOffset,
         staveY: 0,
-        bars: allocated.map((entry) => buildBar(score, entry, shifts, spec.barNumbers)),
+        bars: layoutBars,
         ties: tiesBySystem.get(index) ?? [],
         slurs: slursBySystem.get(index) ?? [],
         ottavas: ottavasBySystem.get(index) ?? [],
         ...(vertical.ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset: vertical.ottavaAboveOffset }),
         ...(vertical.ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset: vertical.ottavaBelowOffset }),
       };
+      if (multi) {
+        const lanesBuilt = buildLanes({
+          score,
+          spec,
+          lanes,
+          allocated,
+          topBars: layoutBars,
+          shifts,
+          vertical,
+          systemX: built.x,
+          tiesByStaff,
+          systemIndex: index,
+        });
+        built.height = lanesBuilt.height;
+        built.belowStaff = lanesBuilt.belowStaff;
+        built.staves = lanesBuilt.staves;
+        built.groups = lanesBuilt.groups;
+        built.staffSpan = lanesBuilt.staffSpan;
+        layoutBars.forEach((bar, barIndex) => {
+          const alignment = lanesBuilt.alignments[barIndex];
+          if (alignment !== undefined) bar.alignment = alignment;
+        });
+      }
+      return built;
     });
 
   let built = buildSystems((index) => policy === 'every' || index === 0);
@@ -200,6 +266,9 @@ function paginate(score: Score, systems: LayoutSystem[], spec: PageSpec): Layout
     }
     system.y = y;
     system.staveY = y + system.aboveStaff;
+    if (system.staves !== undefined && system.groups !== undefined && system.staffSpan !== undefined) {
+      placeLanes({ staves: system.staves, groups: system.groups, staffSpan: system.staffSpan }, system.staveY, spec);
+    }
     page.systems.push(system);
     y += system.height + spec.systemGap;
   }
@@ -352,12 +421,13 @@ function hasMark(section: { letter: string | null; name: string | null } | null)
   return section !== null && (section.letter != null || (section.name != null && section.name !== ''));
 }
 
-/** The note item's `ottava` field only when the note is under a line, so an unmarked chart's items are unchanged. */
-function ottavaField(shift: 'up' | 'down' | undefined): { ottava?: 'up' | 'down' } {
-  return shift === undefined ? {} : { ottava: shift };
-}
-
-function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'down'>, barNumbers: boolean): LayoutBar {
+function buildBar(
+  score: Score,
+  entry: AllocatedBar,
+  shifts: Map<Id, 'up' | 'down'>,
+  barNumbers: boolean,
+  clef: Clef = 'treble',
+): LayoutBar {
   const { bar } = entry;
   return {
     barId: bar.id,
@@ -368,7 +438,7 @@ function buildBar(score: Score, entry: AllocatedBar, shifts: Map<Id, 'up' | 'dow
     prefix: entry.prefix,
     prefixWidth: entry.prefixWidth,
     metrics: barMetrics(bar, score.meta.time),
-    items: buildBarItems(score, bar, entry, shifts, barNumbers),
+    items: buildBarItems(score, bar, entry, shifts, barNumbers, clef),
   };
 }
 
@@ -378,11 +448,12 @@ function buildBarItems(
   entry: AllocatedBar,
   shifts: Map<Id, 'up' | 'down'>,
   barNumbers: boolean,
+  clef: Clef,
 ): LayoutBarItem[] {
   const time = score.meta.time;
   const items: LayoutBarItem[] = [];
 
-  if (entry.prefix.clef) items.push({ kind: 'clef', clef: 'treble' });
+  if (entry.prefix.clef) items.push({ kind: 'clef', clef });
   if (entry.prefix.keySignature) {
     items.push({ kind: 'keySignature', key: score.meta.key, fifths: keyFifths(score.meta.key) });
   }
@@ -418,43 +489,7 @@ function buildBarItems(
     items.push({ kind: 'ending', numbers: bar.ending.numbers, role: bar.ending.role });
   }
 
-  const accidentals = resolveBarAccidentals(bar, score.meta.key);
-  const ordered = [...bar.items].sort((a, b) => a.onset - b.onset);
-  for (const item of ordered) {
-    const tuplet = tupletOf(item.id, bar);
-    if (item.kind === 'note') {
-      items.push({
-        kind: 'note',
-        noteId: item.id,
-        onset: item.onset,
-        beat: beatOfOnset(item.onset, time),
-        duration: item.duration,
-        pitch: item.pitch,
-        ...ottavaField(shifts.get(item.id)),
-        accidental: item.accidental,
-        accidentalGlyph: accidentals.get(item.id) ?? null,
-        tie: item.tie,
-        tupletId: tuplet === null ? null : tuplet.id,
-        flagged: item.review.flagged,
-        ...(item.fermata === true ? { fermata: true } : {}),
-        ...(item.articulations === undefined ? {} : { articulations: item.articulations }),
-        ...(item.graces === undefined || item.graces.length === 0
-          ? {}
-          : { graces: graceItems(item, score.meta.key) }),
-      });
-    } else {
-      items.push({
-        kind: 'rest',
-        restId: item.id,
-        onset: item.onset,
-        beat: beatOfOnset(item.onset, time),
-        duration: item.duration,
-        tupletId: tuplet === null ? null : tuplet.id,
-        flagged: item.review.flagged,
-        ...(item.fermata === true ? { fermata: true } : {}),
-      });
-    }
-  }
+  items.push(...noteAndRestItems(score, bar, shifts));
 
   for (const chord of bar.chords) {
     items.push({
@@ -493,31 +528,11 @@ function buildBarItems(
     }
   }
 
-  for (const tuplet of bar.tuplets) {
-    items.push({
-      kind: 'tupletBracket',
-      tupletId: tuplet.id,
-      actual: tuplet.actual,
-      normal: tuplet.normal,
-      memberIds: tuplet.memberIds,
-    });
-  }
+  items.push(...tupletBracketItems(bar));
 
   items.push({ kind: 'endBarline', position: 'end', barline: bar.endBarline });
 
   return items;
-}
-
-function graceItems(note: Note, key: KeySignature): GraceItem[] {
-  const glyphs = graceAccidentals(note, key);
-  return (note.graces ?? []).map((grace, index) => ({
-    graceId: grace.id,
-    pitch: grace.pitch,
-    value: grace.value,
-    slashed: grace.slashed,
-    accidental: grace.accidental,
-    accidentalGlyph: glyphs[index] ?? null,
-  }));
 }
 
 /** The onset at or before this one, which is what a chord symbol sits above. */
@@ -538,7 +553,7 @@ function anchorFor(bar: BarView, onset: number): Id | null {
  * Ties are resolved across the whole score, then assigned to systems. A tie whose
  * ends straddle a system break becomes two half-ties, one on each side.
  */
-function planTies(score: Score, systemOfNote: Map<Id, number>): Map<number, LayoutTie[]> {
+function planTies(notes: readonly Note[], systemOfNote: Map<Id, number>): Map<number, LayoutTie[]> {
   const bySystem = new Map<number, LayoutTie[]>();
   const push = (system: number, tie: LayoutTie): void => {
     const list = bySystem.get(system);
@@ -547,7 +562,7 @@ function planTies(score: Score, systemOfNote: Map<Id, number>): Map<number, Layo
   };
 
   let pending: Id | null = null;
-  for (const { note } of notesInReadingOrder(score)) {
+  for (const note of notes) {
     const closes = note.tie === 'stop' || note.tie === 'both';
     const opens = note.tie === 'start' || note.tie === 'both';
 
@@ -602,4 +617,29 @@ function planSlurs(score: Score, systemOfNote: Map<Id, number>): Map<number, Lay
     }
   }
   return bySystem;
+}
+
+/**
+ * Ties on every staff and voice (SIB2-227): each voice is its own line, so a tie pairs within a voice, never across the
+ * staves. Keyed by staff id, then system index; the top staff's first voice resolves exactly as `system.ties` does.
+ */
+function planLaneTies(
+  score: Score,
+  lanes: readonly Lane[],
+  systemOfNote: Map<Id, number>,
+): Map<Id, Map<number, LayoutTie[]>> {
+  const result = new Map<Id, Map<number, LayoutTie[]>>();
+  for (const lane of lanes) {
+    const merged = new Map<number, LayoutTie[]>();
+    const voices = new Set<number>([1]);
+    for (const staffBar of lane.staff.bars) for (const voice of staffBar.voices) voices.add(voice.index);
+    for (const index of [...voices].sort((a, b) => a - b)) {
+      const notes = score.bars.flatMap((bar) => notesOf(barView(score, bar, { staff: lane.staff.id, voice: index })));
+      for (const [system, ties] of planTies(notes, systemOfNote)) {
+        merged.set(system, [...(merged.get(system) ?? []), ...ties]);
+      }
+    }
+    result.set(lane.staff.id, merged);
+  }
+  return result;
 }
