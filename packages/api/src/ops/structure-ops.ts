@@ -1,7 +1,10 @@
 import {
   AddressError,
+  INSTRUMENT_PRESETS,
+  MAX_SETUP_INSTRUMENTS,
   MAX_VOICES,
   allStaves,
+  planSetup,
   emptyVoice,
   nextId,
   parseAddress,
@@ -12,7 +15,7 @@ import {
   voiceHoldsNotation,
   voiceIndexes,
 } from '@sibei/model';
-import type { Clef, Id, Part, Score, Spanner, Staff, StaffBar, StaffType } from '@sibei/model';
+import type { Clef, Id, Part, PartSetup, Score, Spanner, Staff, StaffBar, StaffType } from '@sibei/model';
 import { OperationError } from './errors.js';
 import type {
   ClefSetPayload,
@@ -332,5 +335,59 @@ export function setInstrument(score: Score, target: string | undefined, payload:
     },
     operation: { type: 'instrument.set', ...(target === undefined ? {} : { target }), payload },
     changed: [part.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// score.create with instruments (SIB2-288)
+// ---------------------------------------------------------------------------
+
+/**
+ * The parts a `score.create` starts from: the recorded `parts` on replay, else the presets `instruments` names, or
+ * undefined for the plain lead sheet. An unknown preset is refused with the list of known ones.
+ */
+export function plannedSetup(payload: { instruments?: unknown; parts?: unknown }): PartSetup[] | undefined {
+  if (payload.parts !== undefined) {
+    if (!Array.isArray(payload.parts) || payload.parts.length === 0) fail('parts is a list of at least one part');
+    return payload.parts as PartSetup[];
+  }
+  if (payload.instruments === undefined) return undefined;
+  const ids = payload.instruments;
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) fail('instruments is a list of preset names');
+  if (ids.length === 0) return undefined;
+  if (ids.length > MAX_SETUP_INSTRUMENTS) fail(`a new chart starts with at most ${MAX_SETUP_INSTRUMENTS} instruments`);
+  const planned = planSetup(ids as string[]);
+  if (!planned.ok) {
+    fail(`unknown instrument ${JSON.stringify(planned.unknown)}; the presets are ${INSTRUMENT_PRESETS.map((preset) => preset.id).join(', ')}`);
+  }
+  return planned.parts;
+}
+
+/**
+ * Put a setup onto a freshly made score: its parts (each staff empty in every bar), instrument names on when any part
+ * has one, and `layout: 'score'` when there is more than one staff. One part, one staff and no name is left as it was.
+ */
+export function withSetup(score: Score, setup: readonly PartSetup[]): Score {
+  const parts = setup.map((part): Part => {
+    if (!Array.isArray(part.staves) || part.staves.length === 0) fail('every part of a setup needs a staff');
+    return {
+      id: part.id,
+      name: validName(part.name),
+      ...(part.shortName === undefined || part.shortName === '' ? {} : { shortName: validName(part.shortName) }),
+      instrument: validProgram(part.instrument),
+      transposition: validTransposition(part.transposition),
+      staves: part.staves.map((staff) => newStaff(score, staff.id, validStaffType(staff.type), validClef(staff.clef))),
+    };
+  });
+  const staffCount = parts.reduce((sum, part) => sum + part.staves.length, 0);
+  const named = parts.some((part) => part.name !== '');
+  return {
+    ...score,
+    parts,
+    meta: {
+      ...score.meta,
+      ...(staffCount > 1 ? { layout: 'score' as const } : {}),
+      ...(named ? { showInstrumentNames: true } : {}),
+    },
   };
 }

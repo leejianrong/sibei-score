@@ -11,7 +11,7 @@ import type {
   ScoreCreatePayload,
   SectionSetPayload,
 } from '@sibei/api';
-import { optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
+import { allOf, optionalNumber, parseDuration, parseFlags, required, requiredPositional } from './args.js';
 import type { Flags } from './args.js';
 import { auth } from './auth.js';
 import { CliError, DEFAULT_BASE_URL, createClient } from './client.js';
@@ -79,6 +79,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
                --github-client-id and SBSCORE_GITHUB_CLIENT_SECRET are all set; none set means local)
   sbscore new [--title T] [--composer C] [--key K] [--time 4/4]
               [--bars N] [--pickup] [--id ID]
+              [--instrument PRESET]...   start from instruments, top to bottom: piano, bass, drums, trumpet-bb, alto-sax-eb,
+                                         tenor-sax-bb, flute, violin, cello, guitar, voice, lead-sheet (repeat the flag)
   sbscore list
   sbscore open <id>                        the full document, as JSON
   sbscore show <id>                        the text projection
@@ -398,6 +400,10 @@ async function create(flags: Flags, client: Client, io: Io, json: boolean): Prom
   const bars = optionalNumber(flags, 'bars');
   if (bars !== undefined) payload.barCount = bars;
   if (flags.switches.has('pickup')) payload.pickup = true;
+  // `--instrument piano --instrument bass --instrument drums` starts a multi-part chart (SIB2-288). The server judges
+  // the names, so the list of presets has one author.
+  const instruments = allOf(flags, 'instrument');
+  if (instruments.length > 0) payload.instruments = instruments;
 
   const result = await client.create([{ type: 'score.create', payload }]);
   io.out(json ? JSON.stringify(result) : `${result.scoreId}  version ${result.version}`);

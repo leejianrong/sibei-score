@@ -11,6 +11,7 @@ import type {
   Id,
   KeySignature,
   NavKind,
+  PartSetup,
   Score,
   OctaveShift,
   SpannerPlacement,
@@ -55,6 +56,15 @@ export interface ScoreCreatePayload {
   pickup?: boolean;
   /** *Recorded.* Exactly the bars to create, with their ids. Authoritative on replay. */
   bars?: { id: Id; number: number }[];
+  /**
+   * Start from instrument presets (SIB2-288), top to bottom: `piano`, `bass`, `drums`, `trumpet-bb`... (the catalogue is
+   * `INSTRUMENT_PRESETS` in the model). Builds each part with its staves, clefs, General MIDI program, transposition and
+   * name, turns on instrument names, and sets `layout: 'score'` when there is more than one staff. Absent or empty is
+   * the plain one-staff lead sheet, exactly as before.
+   */
+  instruments?: string[];
+  /** *Recorded.* The parts `instruments` resolved to, with their ids. Authoritative on replay, so the catalogue may change. */
+  parts?: PartSetup[];
 }
 
 export interface MetaSetPayload {

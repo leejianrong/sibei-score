@@ -558,6 +558,8 @@ export type Operation =
         time?: { beats: number; beatValue: NoteValue };
         barCount?: number;
         pickup?: boolean;
+        /** Start from instrument presets, top to bottom (SIB2-288): `piano`, `bass`, `drums`... */
+        instruments?: string[];
       };
     }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }

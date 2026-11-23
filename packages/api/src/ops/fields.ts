@@ -17,7 +17,7 @@ import type { Operation, OperationType } from './operations.js';
  * Adding a payload field means adding it here too, or a new write that uses it is refused.
  */
 const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
-  'score.create': ['id', 'title', 'composer', 'style', 'key', 'time', 'barCount', 'pickup', 'bars'],
+  'score.create': ['id', 'title', 'composer', 'style', 'key', 'time', 'barCount', 'pickup', 'bars', 'instruments', 'parts'],
   'score.import': ['document'],
   'meta.set': ['title', 'subtitle', 'composer', 'arranger', 'style', 'key', 'time', 'footer', 'footerPages', 'signaturePolicy', 'chordStyle', 'barsPerSystem', 'tempo', 'layout', 'showInstrumentNames'],
   'note.add': ['pitch', 'drum', 'head', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations', 'id'],
