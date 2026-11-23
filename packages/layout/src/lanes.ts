@@ -1,6 +1,7 @@
 import type { BarItem, BarView, Id, Part, Score, Staff, StaffType, TimeSignature } from '@sibei/model';
 import { TICKS_PER_QUARTER, allStaves, barCapacity, barView, isDrumKitStaff, itemTicks, keyFifths } from '@sibei/model';
 import { noteAndRestItems, tupletBracketItems } from './bar-items.js';
+import { crossingFlips } from './crossing.js';
 import type { Clef, LayoutBarItem, LayoutOttava, LayoutTie } from './items.js';
 import type { LayoutBar } from './layout.js';
 import type { PageSpec } from './page.js';
@@ -183,17 +184,38 @@ export function voiceViewsOf(score: Score, staff: Staff, bar: BarView): VoiceVie
  * The notes whose stems a numbered voice fixes: in a staff-bar with two or more voices that have music, voices 1 and 3
  * stem up and 2 and 4 down (ADR-0041). Every other note keeps the stem its pitch gives it, so a single voice is untouched.
  */
-export function voiceStems(perBar: readonly (readonly VoiceView[])[]): Map<Id, 'up' | 'down'> {
+export function voiceStems(
+  perBar: readonly (readonly VoiceView[])[],
+  shifts?: ReadonlyMap<Id, 'up' | 'down'>,
+): Map<Id, 'up' | 'down'> {
   const stems = new Map<Id, 'up' | 'down'>();
   for (const voices of perBar) {
     if (voices.filter((voice) => voice.view.items.length > 0).length < 2) continue;
+    // Where two voices cross at a note the stems turn away from each other (`crossingFlips`, SIB2-233).
+    const flips = crossingFlips(
+      voices.map((voice) => ({
+        index: voice.index,
+        notes: voice.view.items.flatMap((item) =>
+          item.kind === 'note'
+            ? [{ id: item.id, onset: item.onset, pitch: item.pitch, duration: item.duration, tupletId: tupletOf(voice.view, item.id) }]
+            : [],
+        ),
+      })),
+      shifts,
+    );
     for (const voice of voices) {
       for (const item of voice.view.items) {
-        if (item.kind === 'note') stems.set(item.id, voice.index % 2 === 1 ? 'up' : 'down');
+        if (item.kind !== 'note') continue;
+        const numbered = voice.index % 2 === 1 ? 'up' : 'down';
+        stems.set(item.id, flips.has(item.id) ? (numbered === 'up' ? 'down' : 'up') : numbered);
       }
     }
   }
   return stems;
+}
+
+function tupletOf(view: BarView, id: Id): Id | null {
+  return view.tuplets.find((tuplet) => tuplet.memberIds.includes(id))?.id ?? null;
 }
 
 /**
@@ -397,7 +419,8 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       perBar.flatMap((voices) => voices.map((voice) => voice.view)),
       input.shifts,
       kit ? 'treble' : lane.staff.clef,
-      kit ? kitStems(perBar) : voiceStems(perBar),
+      kit ? kitStems(perBar) : voiceStems(perBar, input.shifts),
+      true,
     );
     const bars = allocated.map((entry, barIndex): LayoutStaffBar => {
       const voices = perBar[barIndex] ?? [];

@@ -178,9 +178,10 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
             ? {}
             : {
                 clef: top.staff.clef,
-                stems: voiceStems(allocated.map((entry) => voiceViewsOf(score, top.staff, entry.bar))),
+                stems: voiceStems(allocated.map((entry) => voiceViewsOf(score, top.staff, entry.bar)), shifts),
               }),
           shifts,
+          ...(top === undefined ? {} : { lowFermatas: true }),
           ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up' && line.staff === undefined),
           ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down' && line.staff === undefined),
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),

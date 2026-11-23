@@ -56,3 +56,48 @@ export function ottavaStavesChart(): Score {
   ];
   return score;
 }
+
+/**
+ * Fermatas on a grand staff: bar 1 a bass note below the staff (the fermata hangs under it, not across the staff on the
+ * far side), bar 2 a stem-down voice in the right hand (under, its own side) with the upper voice's above, bar 3 a note
+ * inside the staff (above it, as ever) and bar 4 a high treble note (above its ledger lines).
+ */
+export function fermatasStavesChart(): Score {
+  const ids = createIdFactory();
+  const make = (number: number): BarBuilder => new BarBuilder(ids, { number });
+  const count = 4;
+  const w = dur(1);
+  const upper = [
+    make(1).chord(1, 'C', BEAT).note('E5', w),
+    make(2).chord(1, 'F', BEAT).note('A5', w),
+    make(3).chord(1, 'G7', BEAT).note('D5', w),
+    make(4).chord(1, 'C', BEAT).note('C7', w),
+  ].map((b) => b.build());
+  const lower = [make(1).rest(w), make(2).note('C5', w), make(3).rest(w), make(4).rest(w)].map((b) => b.build());
+  const bass = [make(1).note('E2', w), make(2).note('F2', w), make(3).note('B2', w), make(4).note('C2', w)].map((b) => b.build());
+  const mark = (view: (typeof upper)[number]): void => {
+    const item = view.items.find((x) => x.kind === 'note');
+    if (item !== undefined) item.fermata = true;
+  };
+  mark(upper[1]!);
+  mark(upper[3]!);
+  mark(lower[1]!);
+  mark(bass[0]!);
+  mark(bass[2]!);
+  return makeStaffedScore({
+    id: 'fermatas-staves',
+    title: 'Fermatas on a Grand Staff',
+    composer: 'fixture',
+    bars: upper,
+    parts: [
+      {
+        name: 'Piano',
+        instrument: 0,
+        staves: [
+          { clef: 'treble', bars: upper.map((view, i) => (i === 1 ? [voiceOfView(view), voiceOfView(lower[1]!)] : voiceOfView(view))) },
+          { clef: 'bass', bars: bass.map((view) => voiceOfView(view)) },
+        ],
+      },
+    ],
+  });
+}

@@ -8,7 +8,7 @@ import { articulationsChart } from './articulations-chart.js';
 import { longFormChart } from './long-form-chart.js';
 import { fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart } from './multi-staff-charts.js';
 import { clefsAndKeysChart, voiceCollisionsChart } from './staff-engraving-charts.js';
-import { ottavaStavesChart } from './staff-refinement-charts.js';
+import { fermatasStavesChart, ottavaStavesChart } from './staff-refinement-charts.js';
 import { drumChart } from './drum-chart.js';
 import { staffFurnitureChart } from './staff-furniture-chart.js';
 import { nastyChart } from './nasty-chart.js';
@@ -59,4 +59,5 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'staff-furniture': staffFurnitureChart,
   'drum-kit': drumChart,
   'ottava-staves': ottavaStavesChart,
+  'fermatas-staves': fermatasStavesChart,
 };
