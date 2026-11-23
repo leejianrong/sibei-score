@@ -3,6 +3,8 @@ import { createApi } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, ScoreStore } from '@sibei/api';
 import { EXIT, run } from '@sibei/cli';
+import { barViews } from '@sibei/model';
+import type { Score } from '@sibei/model';
 
 /**
  * `sbscore transpose <id> --to <key>` over a real server (V6, ADR-0016). The applier owns the
@@ -42,8 +44,13 @@ const json = <T>(text: string): T => JSON.parse(text) as T;
 interface Document {
   score: {
     meta: { key: { tonic: string; alter: number; mode: string } };
-    bars: { number: number; items: { kind: string; pitch?: { step: string; alter: number; octave: number } }[]; chords: { text: string }[] }[];
   };
+}
+
+/** The first staff's first voice of a bar, read off the stored document through the model's accessor (ADR-0041). */
+function barOne(document: Document): { items: { kind: string; pitch?: { step: string; alter: number; octave: number } }[]; chords: { text: string }[] } {
+  const view = barViews(document.score as unknown as Score).find((b) => b.number === 1)!;
+  return view as unknown as ReturnType<typeof barOne>;
 }
 
 async function aChartInC(): Promise<void> {
@@ -63,7 +70,7 @@ describe('sbscore transpose', () => {
     const document = json<Document>((await sbscore('open', 'tune')).out);
     expect(document.score.meta.key).toEqual({ tonic: 'E', alter: -1, mode: 'major' });
 
-    const bar1 = document.score.bars.find((b) => b.number === 1)!;
+    const bar1 = barOne(document);
     const pitches = bar1.items
       .filter((i) => i.kind === 'note')
       .map((i) => `${i.pitch!.step}${i.pitch!.alter === -1 ? 'b' : i.pitch!.alter === 1 ? '#' : ''}${i.pitch!.octave}`);
@@ -98,7 +105,7 @@ describe('sbscore transpose', () => {
     expect((await sbscore('transpose', 'pinned', '--to', 'Eb')).code).toBe(EXIT.ok);
 
     const document = json<Document>((await sbscore('open', 'pinned')).out);
-    const bar1 = document.score.bars.find((b) => b.number === 1)!;
+    const bar1 = barOne(document);
     const pitches = bar1.items
       .filter((i) => i.kind === 'note')
       .map((i) => `${i.pitch!.step}${i.pitch!.alter === -1 ? 'b' : i.pitch!.alter === 1 ? '#' : ''}${i.pitch!.octave}`);
