@@ -34,7 +34,7 @@ kind since V1 (ADR-0026); V7 was the write path and the surfaces, not the render
 **undo/redo** by replay of the append-only op log (ADR-0003): `undo`/`redo` *control* operations
 resolved by `replayLog`, the `POST /v1/scores/:id/undo|redo` routes, `sbscore undo|redo`, and ctrl-Z
 / ctrl-shift-Z in the score view — an agent `batch` undoing as one unit. From V8b the **MusicXML
-codec** (`packages/codec`): `scoreToMusicXml`/`musicXmlToScore` for single-voice lead sheets, with
+codec** (`packages/codec`): `scoreToMusicXml`/`musicXmlToScore` for lead sheets (and, from ADR-0041 slice 5a, parts, staves and voices), with
 its own dependency-free XML reader and a round-trip whose every lossy case is named in a test. From
 V8d **MusicXML export is wired**: `GET …/export?format=musicxml` (a codec at the edge, not a render —
 it ignores paper/font, honours `--for` via `writtenPart`, cached like the PDF) and `sbscore export
@@ -175,7 +175,7 @@ model already has `Tuplet`). See the SLICES V15/V16/V17 notes, `docs/eval.md` an
 packages/
   model      score types, tick arithmetic, pitch, derived metric validity
   music      the chord grammar: parse/format chord symbols to structure, and the OCR corrector
-  codec      MusicXML at the edges (ADR-0004): score <-> MusicXML string, single-voice. Own XML reader
+  codec      MusicXML at the edges (ADR-0004): score <-> MusicXML string, parts/staves/voices. Own XML reader
   layout     score -> engine-independent positions: the four-bar grid
   engrave    layout positions -> glyphs, ours, off a SMuFL font's own metrics
   pdf        server-side render: SVG -> PDF, metadata pinned. No DOM
