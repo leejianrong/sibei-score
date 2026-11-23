@@ -522,6 +522,7 @@ export interface MetaSetPayload {
 export type Operation =
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
+  | { type: 'note.rm'; target: string }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
   | { type: 'chord.rm'; target: string }
