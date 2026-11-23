@@ -19,27 +19,38 @@ import { text } from './text.js';
  * opens one, so consecutive bars meet on the line rather than straddling it.
  */
 
-function line(x: number, width: number, staveY: number, kind: string): SvgElement {
+/**
+ * A barline that runs through several staves (ADR-0041, `LayoutSystem.staffSpan`): one tall line from the top
+ * line of the first staff to the bottom line of the last, with repeat dots still drawn on each staff itself.
+ */
+export interface BarlineJoin {
+  y: number;
+  height: number;
+  /** The top line of each staff the line joins, for the repeat dots. */
+  staveYs: readonly number[];
+}
+
+function line(x: number, width: number, staveY: number, kind: string, join?: BarlineJoin): SvgElement {
   return el('rect', {
     class: `se-barline se-barline-${kind}`,
     x,
-    y: positionY(TOP_LINE, staveY),
+    y: join === undefined ? positionY(TOP_LINE, staveY) : join.y,
     width,
-    height: positionY(BOTTOM_LINE, staveY) - positionY(TOP_LINE, staveY),
+    height: join === undefined ? positionY(BOTTOM_LINE, staveY) - positionY(TOP_LINE, staveY) : join.height,
     fill: '#000000',
   });
 }
 
 /** Repeat dots sit in the two spaces either side of the middle line. */
-function repeatDots(font: MusicFont, x: number, staveY: number): SvgElement[] {
-  return [3, 5].map((position) =>
-    font.element('repeatDot', x, positionY(position, staveY)),
+function repeatDots(font: MusicFont, x: number, staveY: number, join?: BarlineJoin): SvgElement[] {
+  return (join?.staveYs ?? [staveY]).flatMap((y) =>
+    [3, 5].map((position) => font.element('repeatDot', x, positionY(position, y))),
   );
 }
 
 /** The line a system opens with, before its first bar. */
-export function openingBarline(font: MusicFont, x: number, staveY: number): SvgElement {
-  return line(x, font.ink.thinBarline, staveY, 'single');
+export function openingBarline(font: MusicFont, x: number, staveY: number, join?: BarlineJoin): SvgElement {
+  return line(x, font.ink.thinBarline, staveY, 'single', join);
 }
 
 /**
@@ -50,26 +61,27 @@ export function endBarline(
   kind: EndBarline,
   x: number,
   staveY: number,
+  join?: BarlineJoin,
 ): SvgElement[] {
   const { thinBarline, thickBarline, barlineSeparation, repeatDotSeparation } = font.ink;
 
   switch (kind) {
     case 'single':
-      return [line(x - thinBarline, thinBarline, staveY, 'single')];
+      return [line(x - thinBarline, thinBarline, staveY, 'single', join)];
 
     case 'double': {
       const second = x - thinBarline;
       return [
-        line(second - barlineSeparation - thinBarline, thinBarline, staveY, 'double'),
-        line(second, thinBarline, staveY, 'double'),
+        line(second - barlineSeparation - thinBarline, thinBarline, staveY, 'double', join),
+        line(second, thinBarline, staveY, 'double', join),
       ];
     }
 
     case 'final': {
       const thick = x - thickBarline;
       return [
-        line(thick - barlineSeparation - thinBarline, thinBarline, staveY, 'final'),
-        line(thick, thickBarline, staveY, 'final'),
+        line(thick - barlineSeparation - thinBarline, thinBarline, staveY, 'final', join),
+        line(thick, thickBarline, staveY, 'final', join),
       ];
     }
 
@@ -78,9 +90,9 @@ export function endBarline(
       const thin = thick - barlineSeparation - thinBarline;
       const dotX = thin - repeatDotSeparation - font.width('repeatDot');
       return [
-        ...repeatDots(font, dotX, staveY),
-        line(thin, thinBarline, staveY, 'repeat'),
-        line(thick, thickBarline, staveY, 'repeat'),
+        ...repeatDots(font, dotX, staveY, join),
+        line(thin, thinBarline, staveY, 'repeat', join),
+        line(thick, thickBarline, staveY, 'repeat', join),
       ];
     }
   }
@@ -112,15 +124,16 @@ export function startBarline(
   kind: StartBarline,
   x: number,
   staveY: number,
+  join?: BarlineJoin,
 ): SvgElement[] {
   if (kind === 'none') return [];
 
   const { thinBarline, thickBarline, barlineSeparation, repeatDotSeparation } = font.ink;
   const thin = x + thickBarline + barlineSeparation;
   return [
-    line(x, thickBarline, staveY, 'repeat'),
-    line(thin, thinBarline, staveY, 'repeat'),
-    ...repeatDots(font, thin + thinBarline + repeatDotSeparation, staveY),
+    line(x, thickBarline, staveY, 'repeat', join),
+    line(thin, thinBarline, staveY, 'repeat', join),
+    ...repeatDots(font, thin + thinBarline + repeatDotSeparation, staveY, join),
   ];
 }
 

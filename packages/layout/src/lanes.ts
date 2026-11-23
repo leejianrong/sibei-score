@@ -43,6 +43,10 @@ const GROUP_GAP = 6;
 /** The padding left and right of a bar's first and last column. */
 export const ALIGN_LEFT_PAD = 10;
 export const ALIGN_RIGHT_PAD = 10;
+/** Room an accidental takes left of the first column's head (about a space and a quarter), added to the left padding. */
+export const ALIGN_ACCIDENTAL_ROOM = 14;
+/** Room an opening repeat sign takes (a thick and a thin line and the dots, about one and a half spaces). */
+export const ALIGN_REPEAT_START = 16;
 /** A column's rigid share of a bar, and how much more each doubling of its rhythmic distance buys. */
 const COLUMN_BASE = 19;
 const COLUMN_STRETCH = 12;
@@ -167,7 +171,24 @@ export function voiceViewsOf(score: Score, staff: Staff, bar: BarView): VoiceVie
   return indices.map((index) => ({ index, view: barView(score, bar, { staff: staff.id, voice: index }) }));
 }
 
-const NO_PREFIX: BarPrefix = { clef: false, keySignature: false, timeSignature: false };
+/**
+ * The notes whose stems a numbered voice fixes: in a staff-bar with two or more voices that have music, voices 1 and 3
+ * stem up and 2 and 4 down (ADR-0041). Every other note keeps the stem its pitch gives it, so a single voice is untouched.
+ */
+export function voiceStems(perBar: readonly (readonly VoiceView[])[]): Map<Id, 'up' | 'down'> {
+  const stems = new Map<Id, 'up' | 'down'>();
+  for (const voices of perBar) {
+    if (voices.filter((voice) => voice.view.items.length > 0).length < 2) continue;
+    for (const voice of voices) {
+      for (const item of voice.view.items) {
+        if (item.kind === 'note') stems.set(item.id, voice.index % 2 === 1 ? 'up' : 'down');
+      }
+    }
+  }
+  return stems;
+}
+
+const NO_PREFIX: BarPrefix ={ clef: false, keySignature: false, timeSignature: false };
 
 /** The items of every voice on a staff, merged by onset: the widest item at each onset stands for the column. */
 function unionView(score: Score, base: BarView, views: readonly BarView[]): BarView {
@@ -235,10 +256,25 @@ export function fitFor(score: Score, lanes: readonly Lane[], spec: PageSpec, isF
  */
 export function alignBar(
   views: readonly BarView[],
-  box: { x: number; width: number; prefixWidth: number; isPickup: boolean },
+  box: { x: number; width: number; prefixWidth: number; isPickup: boolean; bar?: { startBarline: string } },
   time: TimeSignature,
 ): LayoutAlignment {
-  const left = box.x + box.prefixWidth + ALIGN_LEFT_PAD;
+  // An accidental on a note of the first column hangs to the left of its head, so the column starts that much later or
+  // the accidental would sit on the barline (slice 4). Whether one is drawn depends on the key and the bar so far
+  // (resolved later); a note that is altered or asked to show one is the conservative read.
+  const firstOnset = Math.min(...views.flatMap((view) => view.items.map((item) => item.onset)));
+  const opensWithAccidental = views.some((view) =>
+    view.items.some(
+      (item) =>
+        item.kind === 'note' &&
+        item.onset === firstOnset &&
+        item.accidental !== 'hide' &&
+        (item.pitch.alter !== 0 || item.accidental === 'show' || item.accidental === 'parens'),
+    ),
+  );
+  // A repeat sign that opens the bar (its thick and thin lines and dots) is drawn between the prefix and the music.
+  const repeatRoom = box.bar !== undefined && box.bar.startBarline !== 'none' ? ALIGN_REPEAT_START : 0;
+  const left = box.x + box.prefixWidth + repeatRoom + ALIGN_LEFT_PAD + (opensWithAccidental ? ALIGN_ACCIDENTAL_ROOM : 0);
   const right = Math.max(left, box.x + box.width - ALIGN_RIGHT_PAD);
 
   const onsets = new Set<number>();
@@ -334,6 +370,7 @@ export function buildLanes(input: BuildLanesInput): BuiltLanes {
       perBar.flatMap((voices) => voices.map((voice) => voice.view)),
       input.shifts,
       lane.staff.clef,
+      voiceStems(perBar),
     );
     const bars = allocated.map((entry, barIndex): LayoutStaffBar => {
       const voices = perBar[barIndex] ?? [];

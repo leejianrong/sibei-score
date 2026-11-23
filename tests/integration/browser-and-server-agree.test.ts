@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { aabaChart, articulationsChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, twoVoiceChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { aabaChart, articulationsChart, everyGlyphChart, fullBandChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -50,6 +50,9 @@ const FIXTURES: Record<string, () => Score> = {
   'two-voice': twoVoiceChart,
   'lead-bass': leadBassChart,
   'full-band': fullBandChart,
+  'voice-collisions': voiceCollisionsChart,
+  'clefs-and-keys': clefsAndKeysChart,
+  'staff-furniture': staffFurnitureChart,
 };
 
 /** Derived from the packages that own them, so a face or a paper added later is covered here. */

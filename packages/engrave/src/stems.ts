@@ -32,6 +32,16 @@ export function noteheadFor(duration: Duration): MusicGlyphName {
   return 'noteheadBlack';
 }
 
+/**
+ * The notehead on a percussion staff: an x, in the weight of the duration. A basic head for any unpitched note until
+ * slice 6 maps a drum to its own head and line (ADR-0041).
+ */
+export function percussionNoteheadFor(duration: Duration): MusicGlyphName {
+  if (duration.value === 1) return 'noteheadXWhole';
+  if (duration.value === 2) return 'noteheadXHalf';
+  return 'noteheadXBlack';
+}
+
 /** A whole note has no stem; everything shorter does. */
 export function hasStem(duration: Duration): boolean {
   return duration.value > 1;

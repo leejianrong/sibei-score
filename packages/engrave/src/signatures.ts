@@ -1,7 +1,7 @@
-import type { TimeSignature } from '@sibei/model';
+import type { Clef, TimeSignature } from '@sibei/model';
 import type { Digit, MusicFont, MusicGlyphName } from './font.js';
 import { units } from './font.js';
-import { positionY } from './staff.js';
+import { clefTopOffset, positionY } from './staff.js';
 import type { SvgElement } from './svg.js';
 
 /**
@@ -18,12 +18,26 @@ import type { SvgElement } from './svg.js';
 /** The G line: second from the bottom, which is where a G clef's origin sits. */
 const G_LINE = 6;
 
-export function clef(font: MusicFont, x: number, staveY: number): SvgElement {
-  return font.element('gClef', x, positionY(G_LINE, staveY));
+/**
+ * The clef glyph and the staff position its origin sits on (ADR-0041, slice 4). SMuFL draws each clef around the line
+ * it names: G on the second line from the bottom, F on the fourth (the second from the top), C on the middle line
+ * (alto) or the fourth (tenor); the unpitched percussion clef is centred on the middle line.
+ */
+const CLEFS: Record<Clef, { glyph: MusicGlyphName; line: number }> = {
+  treble: { glyph: 'gClef', line: G_LINE },
+  bass: { glyph: 'fClef', line: 2 },
+  alto: { glyph: 'cClef', line: 4 },
+  tenor: { glyph: 'cClef', line: 2 },
+  percussion: { glyph: 'unpitchedPercussionClef1', line: 4 },
+};
+
+export function clef(font: MusicFont, x: number, staveY: number, kind: Clef = 'treble'): SvgElement {
+  const spec = CLEFS[kind];
+  return font.element(spec.glyph, x, positionY(spec.line, staveY));
 }
 
-export function clefWidth(font: MusicFont): number {
-  return font.width('gClef');
+export function clefWidth(font: MusicFont, kind: Clef = 'treble'): number {
+  return font.width(CLEFS[kind].glyph);
 }
 
 /**
@@ -44,16 +58,36 @@ export interface KeySignatureLayout {
   width: number;
 }
 
+/**
+ * A key signature's staff positions in another clef: the treble pattern moved by the clef's distance from treble,
+ * and any accidental pushed off the staff folded back an octave, which is how every clef keeps the run inside the
+ * staff (alto and bass are the treble pattern one and two steps down, tenor one up with the top sharps wrapped).
+ * Treble is the table itself, untouched.
+ */
+function positionsIn(table: readonly number[], kind: Clef): readonly number[] {
+  if (kind === 'treble') return table;
+  const shift = ((clefTopOffset(kind) % 7) + 7) % 7;
+  // The smallest move that lands the pattern in the staff: tenor goes up one, the others down.
+  const move = shift > 3 ? shift - 7 : shift;
+  return table.map((position) => {
+    let moved = position + move;
+    while (moved < -1) moved += 7;
+    while (moved > 8) moved -= 7;
+    return moved;
+  });
+}
+
 export function keySignature(
   font: MusicFont,
   fifths: number,
   x: number,
   staveY: number,
+  kind: Clef = 'treble',
 ): KeySignatureLayout {
   const sharps = fifths > 0;
   const count = Math.min(Math.abs(fifths), 7);
   const glyph: MusicGlyphName = sharps ? 'accidentalSharp' : 'accidentalFlat';
-  const positions = sharps ? SHARP_POSITIONS : FLAT_POSITIONS;
+  const positions = positionsIn(sharps ? SHARP_POSITIONS : FLAT_POSITIONS, kind);
   const step = font.width(glyph) + KEY_ACCIDENTAL_GAP;
 
   const elements: SvgElement[] = [];
