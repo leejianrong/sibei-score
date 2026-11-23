@@ -1,4 +1,4 @@
-import type { Bar, IdFactory, Score } from '@sibei/model';
+import type { BarView, IdFactory, Score } from '@sibei/model';
 import { createIdFactory, dur, makeScore, makeSection } from '@sibei/model';
 import type { BarSpec } from './builder.js';
 import { BarBuilder } from './builder.js';
@@ -74,7 +74,7 @@ type ASectionEnding = 'turnaround' | 'to-bridge' | 'final';
  * the same fourteen bars typed out three times is three times the places to make a typo
  * that nobody would ever notice in a snapshot.
  */
-function aSection(ids: IdFactory, start: number, ending: ASectionEnding): Bar[] {
+function aSection(ids: IdFactory, start: number, ending: ASectionEnding): BarView[] {
   const bar = (offset: number, spec: Omit<BarSpec, 'number'> = {}): BarBuilder =>
     new BarBuilder(ids, { number: start + offset, ...spec });
 
@@ -185,7 +185,7 @@ function aSection(ids: IdFactory, start: number, ending: ASectionEnding): Bar[] 
 function aSectionEnding(
   bar: (offset: number, spec?: Omit<BarSpec, 'number'>) => BarBuilder,
   ending: ASectionEnding,
-): Bar[] {
+): BarView[] {
   if (ending === 'final') {
     return [
       bar(14)
@@ -240,7 +240,7 @@ function aSectionEnding(
  * The bridge: sixteen bars away to the subdominant and the flat keys, and back. It is
  * where the accidentals live, and its first bar closes the tie that began on page 1.
  */
-function bridge(ids: IdFactory, start: number): Bar[] {
+function bridge(ids: IdFactory, start: number): BarView[] {
   const bar = (offset: number): BarBuilder => new BarBuilder(ids, { number: start + offset });
 
   return [

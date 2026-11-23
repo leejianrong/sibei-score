@@ -1,4 +1,4 @@
-import type { Bar, Score } from '@sibei/model';
+import type { BarView, Score } from '@sibei/model';
 import { createIdFactory, dur, makeScore } from '@sibei/model';
 import { BarBuilder } from './builder.js';
 import type { BarSpec } from './builder.js';
@@ -17,7 +17,7 @@ import type { BarSpec } from './builder.js';
 export function slurChart(): Score {
   const ids = createIdFactory();
   const make = (spec: BarSpec): BarBuilder => new BarBuilder(ids, spec);
-  const bars: Bar[] = [
+  const bars: BarView[] = [
     make({ number: 1 }).chord(1, 'Cmaj7', 480).note('A5', dur(4)).note('G5', dur(4)).note('F5', dur(4)).note('E5', dur(4)).build(),
     make({ number: 2 }).chord(1, 'Dm7', 480).note('C4', dur(4)).note('D4', dur(4)).note('E4', dur(4)).note('F4', dur(4)).build(),
     make({ number: 3 }).chord(1, 'G7', 480).note('E4', dur(4)).note('B4', dur(4)).note('D5', dur(4)).note('C5', dur(4)).build(),

@@ -1,4 +1,4 @@
-import { transposePitch, transposeSpelling } from '@sibei/model';
+import { barViews, transposePitch, transposeSpelling, withBarViews } from '@sibei/model';
 import type { Interval, KeySignature, Score } from '@sibei/model';
 import { transposeChordText } from './transpose.js';
 
@@ -86,7 +86,7 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
   if (interval === null) return score;
 
   const key = writtenKey(score.meta.key, interval);
-  const bars = score.bars.map((bar) => ({
+  const views = barViews(score).map((bar) => ({
     ...bar,
     items: bar.items.map((item) =>
       item.kind === 'note'
@@ -105,7 +105,7 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
     })),
   }));
 
-  return { ...score, meta: { ...score.meta, key }, bars };
+  return withBarViews({ ...score, meta: { ...score.meta, key } }, views);
 }
 
 /**

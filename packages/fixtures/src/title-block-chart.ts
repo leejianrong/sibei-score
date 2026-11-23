@@ -1,4 +1,4 @@
-import type { Bar, Score } from '@sibei/model';
+import type { BarView, Score } from '@sibei/model';
 import { createIdFactory, dur, makeScore } from '@sibei/model';
 import { BarBuilder } from './builder.js';
 
@@ -9,7 +9,7 @@ import { BarBuilder } from './builder.js';
 export function titleBlockChart(): Score {
   const ids = createIdFactory();
   const make = (number: number): BarBuilder => new BarBuilder(ids, { number });
-  const bars: Bar[] = [
+  const bars: BarView[] = [
     make(1).chord(1, 'Dm7', 480).note('D5', dur(2)).note('F5', dur(2)).build(),
     make(2).chord(1, 'G7', 480).note('G5', dur(1)).build(),
     make(3).chord(1, 'Cmaj7', 480).note('E5', dur(1)).build(),

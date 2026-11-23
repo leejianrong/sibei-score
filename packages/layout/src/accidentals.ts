@@ -1,4 +1,4 @@
-import type { Alter, Bar, KeySignature, Note } from '@sibei/model';
+import type { Alter, BarView, KeySignature, Note } from '@sibei/model';
 import { keySignatureAccidentals } from '@sibei/model';
 
 /**
@@ -38,7 +38,7 @@ export function barAccidentalState(key: KeySignature): AccidentalState {
 }
 
 /** Accidentals for one bar, keyed by note id. */
-export function resolveBarAccidentals(bar: Bar, key: KeySignature): Map<string, Alter | null> {
+export function resolveBarAccidentals(bar: BarView, key: KeySignature): Map<string, Alter | null> {
   const state = barAccidentalState(key);
   const result = new Map<string, Alter | null>();
   const ordered = [...bar.items].sort((a, b) => a.onset - b.onset);

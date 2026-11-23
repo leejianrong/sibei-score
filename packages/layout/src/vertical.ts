@@ -1,4 +1,4 @@
-import type { Bar, Id, OctaveShift, Pitch } from '@sibei/model';
+import type { BarView, Id, OctaveShift, Pitch } from '@sibei/model';
 import { STEPS } from '@sibei/model';
 import type { PageSpec } from './page.js';
 
@@ -74,7 +74,7 @@ export interface SystemVertical {
 }
 
 export interface SystemVerticalInput {
-  bars: Bar[];
+  bars: BarView[];
   hasChords: boolean;
   hasRehearsalMark: boolean;
   /** Notes drawn under an ottava line, so the ink is measured where it is drawn (SIB2-184). */

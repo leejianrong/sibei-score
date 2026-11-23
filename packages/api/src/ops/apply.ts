@@ -38,6 +38,10 @@ import {
   durationTicks,
   itemTicks,
   tupletOf,
+  barViews,
+  mapBarView,
+  migrateDocument,
+  withBarViews,
 } from '@sibei/model';
 import type {
   AccidentalDisplay,
@@ -46,6 +50,7 @@ import type {
   GraceNote,
   GraceValue,
   Bar,
+  BarView,
   BarItem,
   Chord,
   Duration,
@@ -254,8 +259,11 @@ function importScore(payload: ScoreImportPayload): Applied {
   if (typeof document?.id !== 'string' || document.id === '') {
     throw new OperationError({ kind: 'validation', detail: 'score.import needs a document with an id' });
   }
+  // An old log's `score.import` carries the document in the shape of its day (ADR-0028: old operation shapes stay
+  // readable forever). The payload is logged exactly as given; only the score it folds to is brought current.
+  const current = document.schemaVersion < SCHEMA_VERSION ? migrateDocument(document).score : document;
   return {
-    score: structuredClone(document),
+    score: structuredClone(current),
     operation: { type: 'score.import', payload: { document } },
     changed: [document.id],
   };
@@ -527,7 +535,7 @@ function addRest(score: Score, target: string, payload: RestAddPayload): Applied
  * a shared onset because an imported document may contain one, but nothing here needs to make a
  * fresh one.
  */
-function refuseOccupiedOnset(bar: Bar, onset: number, target: string): void {
+function refuseOccupiedOnset(bar: BarView, onset: number, target: string): void {
   const existing = bar.items.find((item) => item.onset === onset);
   if (existing === undefined) return;
   throw new OperationError({
@@ -609,8 +617,8 @@ function removeItem(score: Score, target: string, kind: 'note' | 'rest'): Applie
 // ---------------------------------------------------------------------------
 
 /** Re-lay a bar's items after a tuplet change: `memberIds` back to back from the first, later items shifted by the delta. */
-function relayRun(bar: Bar, memberIds: readonly Id[], tuplets: Tuplet[]): Bar {
-  const probe: Bar = { ...bar, tuplets };
+function relayRun(bar: BarView, memberIds: readonly Id[], tuplets: Tuplet[]): BarView {
+  const probe: BarView = { ...bar, tuplets };
   const members = bar.items.filter((item) => memberIds.includes(item.id)).sort((a, b) => a.onset - b.onset);
   const first = members[0] as BarItem;
   const last = members[members.length - 1] as BarItem;
@@ -803,7 +811,7 @@ function setText(score: Score, target: string, payload: TextSetPayload): Applied
 /** The bar a direction's dashed line ends on after a `text.set` (SIB2-170): kept unless `until` says otherwise. */
 function nextLineEnd(
   score: Score,
-  start: Bar,
+  start: BarView,
   existing: Annotation | undefined,
   payload: TextSetPayload,
 ): Id | undefined {
@@ -825,9 +833,9 @@ function nextLineEnd(
 /** Remove a direction by its id (`annotation-3`, which `show` prints) or by the beat it sits on. */
 function removeText(score: Score, target: string): Applied {
   const address = parseAddress(target);
-  let found: { bar: Bar; annotation: Annotation } | null = null;
+  let found: { bar: BarView; annotation: Annotation } | null = null;
   if (address.form === 'id') {
-    for (const bar of score.bars) {
+    for (const bar of barViews(score)) {
       const annotation = bar.annotations.find((candidate) => candidate.id === address.id);
       if (annotation !== undefined) found = { bar, annotation };
     }
@@ -879,7 +887,7 @@ function transpose(score: Score, payload: TransposePayload): Applied {
   const interval = keyInterval(score.meta.key, to);
   const changed: Id[] = [];
 
-  const bars = score.bars.map((bar) => {
+  const views = barViews(score).map((bar) => {
     const items = bar.items.map((item) => {
       if (item.kind !== 'note') return item;
       changed.push(item.id);
@@ -898,7 +906,7 @@ function transpose(score: Score, payload: TransposePayload): Applied {
     return reflag({ ...bar, items, chords });
   });
 
-  const next: Score = { ...score, meta: { ...score.meta, key: to }, bars };
+  const next: Score = withBarViews({ ...score, meta: { ...score.meta, key: to } }, views);
   return {
     score: next,
     operation: { type: 'transpose', payload: { to } },
@@ -1102,7 +1110,7 @@ function addGrace(score: Score, target: string, payload: GraceAddPayload): Appli
 
 /** Remove one grace by id, or every grace on a note by its address. Absent is the none state, never `[]`. */
 function removeGrace(score: Score, target: string): Applied {
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     for (const item of bar.items) {
       if (item.kind !== 'note' || item.graces === undefined || !item.graces.some((grace) => grace.id === target)) continue;
       const rest = item.graces.filter((grace) => grace.id !== target);
@@ -1153,7 +1161,7 @@ function withoutSlursOn(score: Score, noteId: Id): Score {
 /** Reading-order index of every item, so "later" means the same on every bar. */
 function readingOrder(score: Score): Map<Id, number> {
   const order = new Map<Id, number>();
-  for (const bar of score.bars) for (const item of orderedItems(bar)) order.set(item.id, order.size);
+  for (const bar of barViews(score)) for (const item of orderedItems(bar)) order.set(item.id, order.size);
   return order;
 }
 
@@ -1378,9 +1386,9 @@ function removeBreak(score: Score, target: string): Applied {
  * moves are pure functions of the document and the payload, and the new ids are recorded, so replay
  * (and undo, which is replay) reproduces them exactly.
  */
-function shiftBars(score: Score, after: number, by: number): Pick<Score, 'bars' | 'sections'> {
+function shiftBars(score: Score, after: number, by: number): { bars: BarView[]; sections: Score['sections'] } {
   return {
-    bars: score.bars.map((bar) => (bar.number > after ? { ...bar, number: bar.number + by } : bar)),
+    bars: barViews(score).map((bar) => (bar.number > after ? { ...bar, number: bar.number + by } : bar)),
     sections: score.sections.map((s) => (s.startBar > after ? { ...s, startBar: s.startBar + by } : s)),
   };
 }
@@ -1409,7 +1417,7 @@ function addBars(score: Score, target: string | undefined, payload: BarAddPayloa
   const bars = [...shifted.bars.slice(0, at), ...added, ...shifted.bars.slice(at)];
 
   return {
-    score: { ...score, bars, sections: shifted.sections },
+    score: withBarViews({ ...score, sections: shifted.sections }, bars),
     operation: { type: 'bar.add', ...(target === undefined ? {} : { target }), payload: { ...payload, ids } },
     changed: ids,
   };
@@ -1447,7 +1455,7 @@ function removeBar(score: Score, target: string): Applied {
   // A direction's dashed line that ended on the removed bar loses its end rather than dangling (SIB2-170).
   const remaining = {
     ...score,
-    bars: score.bars
+    bars: barViews(score)
       .filter((b) => b.id !== bar.id)
       .map((b) =>
         b.annotations.some((a) => a.lineEndBarId === bar.id)
@@ -1463,7 +1471,7 @@ function removeBar(score: Score, target: string): Applied {
   };
   const shifted = shiftBars(remaining, bar.number, -1);
   return {
-    score: { ...score, bars: shifted.bars, sections: shifted.sections },
+    score: withBarViews({ ...score, sections: shifted.sections }, shifted.bars),
     operation: { type: 'bar.rm', target },
     changed: [bar.id],
   };
@@ -1556,11 +1564,8 @@ function chordReview(text: string): Review {
 // ---------------------------------------------------------------------------
 
 /** Rewrite one bar, then normalise its stored review: the derivable reason never survives a rewrite. */
-function mapBar(score: Score, barId: Id, change: (bar: Bar) => Bar): Score {
-  return {
-    ...score,
-    bars: score.bars.map((bar) => (bar.id === barId ? reflag(change(bar)) : bar)),
-  };
+function mapBar(score: Score, barId: Id, change: (bar: BarView) => BarView): Score {
+  return mapBarView(score, barId, (view) => reflag(change(view)));
 }
 
 function reflagAllBars(score: Score): Score {
@@ -1582,7 +1587,7 @@ function reflagAllBars(score: Score): Score {
  * the import pipeline and nothing here can recompute them, so a rhythm edit, a key change or a
  * transpose has no business clearing them.
  */
-function reflag(bar: Bar): Bar {
+function reflag<T extends Bar>(bar: T): T {
   const reasons = bar.review.reasons.filter((reason) => reason !== 'metrically-invalid');
   return { ...bar, review: { flagged: reasons.length > 0, reasons } };
 }

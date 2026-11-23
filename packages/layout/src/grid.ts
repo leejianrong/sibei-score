@@ -1,4 +1,4 @@
-import type { Bar, Score } from '@sibei/model';
+import type { BarView, Score } from '@sibei/model';
 import { gridBars, pickupBar, startsSection } from '@sibei/model';
 
 /**
@@ -12,15 +12,15 @@ export const BARS_PER_SYSTEM = 4;
 
 export interface PlannedSystem {
   /** Present only on the first system of the score. */
-  pickup: Bar | null;
+  pickup: BarView | null;
   /** One to four bars that occupy grid slots. */
-  bars: Bar[];
+  bars: BarView[];
 }
 
 export function planSystems(score: Score): PlannedSystem[] {
   const pickup = pickupBar(score);
-  const rows: Bar[][] = [];
-  let current: Bar[] = [];
+  const rows: BarView[][] = [];
+  let current: BarView[] = [];
 
   const perSystem = score.meta.barsPerSystem ?? BARS_PER_SYSTEM;
   for (const bar of gridBars(score)) {

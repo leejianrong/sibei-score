@@ -1,6 +1,6 @@
 import type {
   Annotation,
-  Bar,
+  BarView,
   BarItem,
   Chord,
   Duration,
@@ -80,7 +80,7 @@ export class BarBuilder {
     return this;
   }
 
-  build(): Bar {
+  build(): BarView {
     const items: BarItem[] = [];
     const tuplets: Tuplet[] = [];
     let cursor = 0;

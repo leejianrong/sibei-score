@@ -1,4 +1,5 @@
-import type { Id, Score } from '@sibei/model';
+import { barViews } from '@sibei/model';
+import type { BarView, Id, Score } from '@sibei/model';
 import { OperationError } from './errors.js';
 import type { Operation } from './operations.js';
 
@@ -74,8 +75,8 @@ export function checkBeforeFold(caps: WriteCaps, operations: readonly Operation[
  */
 export function checkAfterFold(caps: WriteCaps, before: Score | null, after: Score): void {
   const prior = new Map<Id, number>();
-  for (const bar of before?.bars ?? []) prior.set(bar.id, size(bar));
-  for (const bar of after.bars) {
+  for (const bar of before === null ? [] : barViews(before)) prior.set(bar.id, size(bar));
+  for (const bar of barViews(after)) {
     const now = size(bar);
     if (now > caps.maxItemsPerBar && now > (prior.get(bar.id) ?? 0)) {
       refuse(`a bar is capped at ${caps.maxItemsPerBar} items (notes, rests, chords and annotations), bar ${bar.number} would have ${now}`);
@@ -83,6 +84,6 @@ export function checkAfterFold(caps: WriteCaps, before: Score | null, after: Sco
   }
 }
 
-function size(bar: Score['bars'][number]): number {
+function size(bar: BarView): number {
   return bar.items.length + bar.chords.length + bar.annotations.length;
 }

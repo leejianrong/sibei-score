@@ -1,4 +1,4 @@
-import type { Bar, BarItem, Duration, Id, TimeSignature, Tuplet } from './score.js';
+import type { BarView, BarItem, Duration, Id, TimeSignature, Tuplet } from './score.js';
 
 /**
  * Ticks are the model's only unit of musical time. 480 per quarter keeps every
@@ -19,12 +19,12 @@ export function durationTicks(duration: Duration): number {
 }
 
 /** The tuplet an item belongs to, or null. The bar owns the grouping. */
-export function tupletOf(itemId: Id, bar: Bar): Tuplet | null {
+export function tupletOf(itemId: Id, bar: BarView): Tuplet | null {
   return bar.tuplets.find((t) => t.memberIds.includes(itemId)) ?? null;
 }
 
 /** Ticks an item actually occupies, with tuplet scaling applied. */
-export function itemTicks(item: BarItem, bar: Bar): number {
+export function itemTicks(item: BarItem, bar: BarView): number {
   const plain = durationTicks(item.duration);
   const tuplet = tupletOf(item.id, bar);
   if (tuplet === null) return plain;

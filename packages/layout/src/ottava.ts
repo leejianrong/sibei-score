@@ -1,5 +1,5 @@
 import type { Id, OctaveShift, Pitch, Score } from '@sibei/model';
-import { orderedItems } from '@sibei/model';
+import { barViews, orderedItems } from '@sibei/model';
 import type { LayoutOttava } from './items.js';
 
 /**
@@ -19,7 +19,7 @@ export function ottavaShifts(score: Score): Map<Id, OctaveShift> {
   const lines = (score.spanners ?? []).filter((spanner) => spanner.kind === 'ottava' && spanner.octaveShift !== undefined);
   if (lines.length === 0) return shifts;
   const order: Id[] = [];
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     for (const item of orderedItems(bar)) if (item.kind === 'note') order.push(item.id);
   }
   for (const line of lines) {

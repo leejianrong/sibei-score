@@ -12,9 +12,10 @@
  * v2 (V6d) gave `Note` and `Chord` a `spellingPinned` flag, backfilled `false` onto every one
  * written before it — the first real shape change since the first commit. v3 (KAN-610) stopped
  * storing a bar's derivable `metrically-invalid` review reason, dropped from every bar that carried
- * it.
+ * it. v4 (ADR-0041, SIB2-225) moved a bar's notes, rests and tuplets into `parts > staves > per-bar voices`, and its
+ * chords and annotations into the `harmony` lane; a `Bar` is now only the global measure grid's entry.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * An app-owned stable identifier, e.g. `note-17` (ADR-0007). Internal: it does not
@@ -234,15 +235,16 @@ export interface Ending {
   role: EndingRole;
 }
 
+/**
+ * One entry of the global measure grid (ADR-0041's "measure"): what is true of bar N for every staff. The
+ * field keeps its pre-ADR-0041 name `bars` and the type `Bar`, because renaming it would touch every consumer for
+ * no change in meaning. A bar's notes, rests and tuplets live in `Score.parts`, its chords and annotations in
+ * `Score.harmony`; read them through the accessors in `staves.ts` (`barView`), never by hand.
+ */
 export interface Bar {
   id: Id;
   /** 0 is the pickup bar; bar 1 is the first full bar (ADR-0007). */
   number: number;
-  /** In onset order. Ordinal addressing breaks ties by insertion order (ADR-0007). */
-  items: BarItem[];
-  tuplets: Tuplet[];
-  chords: Chord[];
-  annotations: Annotation[];
   startBarline: StartBarline;
   endBarline: EndBarline;
   ending: Ending | null;
@@ -253,6 +255,63 @@ export interface Bar {
    * which would otherwise force a break. Optional-and-absent, so no stored document changes (ADR-0028).
    */
   lineBreak?: LineBreak;
+}
+
+/** One voice's content of one bar of one staff (ADR-0041). `index` is 1-based and is the `v2` of an address. */
+export interface Voice {
+  index: number;
+  /** In onset order. Ordinal addressing breaks ties by insertion order (ADR-0007). */
+  items: BarItem[];
+  tuplets: Tuplet[];
+}
+
+/** One staff's content of one bar: its voices. `barId` ties it to the global grid. */
+export interface StaffBar {
+  barId: Id;
+  voices: Voice[];
+}
+
+export type StaffType = 'standard' | 'percussion' | 'tab';
+
+export type Clef = 'treble' | 'bass' | 'alto' | 'tenor' | 'percussion';
+
+/** `clef` is the staff's opening clef; a per-bar change is a later slice. Nothing draws it yet: every staff is treble. */
+export interface Staff {
+  id: Id;
+  type: StaffType;
+  clef: Clef;
+  bars: StaffBar[];
+}
+
+/**
+ * An instrument line (ADR-0041 "Part"; not the transposition *view* of `export --for`, ADR-0016). `instrument` is a
+ * General MIDI program or null; `transposition` is semitones from sounding to written pitch (0 for a concert part).
+ */
+export interface Part {
+  id: Id;
+  name: string;
+  instrument: number | null;
+  transposition: number;
+  staves: Staff[];
+}
+
+/** Chord symbols and text above the top staff for one bar, anchored by onset (ADR-0041's harmony lane). */
+export interface HarmonyBar {
+  barId: Id;
+  chords: Chord[];
+  annotations: Annotation[];
+}
+
+/**
+ * The pre-ADR-0041 `Bar`, rebuilt on demand: the grid entry plus the first staff's first voice and the harmony lane.
+ * Not stored. It is what a lead-sheet consumer wants and what `barView` returns, so single-voice code reads
+ * `view.items` without knowing how the document nests them.
+ */
+export interface BarView extends Bar {
+  items: BarItem[];
+  tuplets: Tuplet[];
+  chords: Chord[];
+  annotations: Annotation[];
 }
 
 export type LineBreak = 'after' | 'join';
@@ -399,9 +458,13 @@ export interface Score {
   schemaVersion: number;
   id: Id;
   meta: ScoreMeta;
-  /** In bar-number order. A pickup, when present, is `bars[0]` with number 0. */
+  /** The global measure grid, in bar-number order. A pickup, when present, is `bars[0]` with number 0. */
   bars: Bar[];
   sections: Section[];
+  /** Chords and text, one entry per bar of `bars` (a missing entry reads as empty). */
+  harmony: HarmonyBar[];
+  /** Instrument lines, each with staves holding per-bar voices. Every existing chart has one part, one staff, one voice. */
+  parts: Part[];
   /**
    * Slurs (SIB2-167), and later ottava and hairpins (ADR-0041). Optional-and-absent, so no document
    * written before it changes shape and `SCHEMA_VERSION` stays (ADR-0028): a missing lane reads as empty.

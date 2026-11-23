@@ -100,12 +100,55 @@ const DROP_METRICALLY_INVALID: DocumentMigration = {
 };
 
 /**
+ * v3 -> v4: the ADR-0041 document shape (SIB2-225). Each `Bar` becomes a grid entry plus one staff-bar holding one
+ * voice, and its chords and annotations move to the harmony lane; the document gains one part with one staff. Pure
+ * rearrangement: every id, onset and tick survives untouched, and nothing is invented but the structural ids
+ * `part-1` and `staff-1`. A bar missing a content list (a hand-written document) reads as empty.
+ */
+const STAVES_AND_VOICES: DocumentMigration = {
+  from: 3,
+  note:
+    'v4 moved bar notes, rests and tuplets into parts > staves > voices and chords and annotations into the ' +
+    'harmony lane (ADR-0041); one part, one staff, one voice, ids and onsets untouched',
+  migrate(document) {
+    const bars = (document.bars as RawDocument[] | undefined) ?? [];
+    const grid: RawDocument[] = [];
+    const staffBars: RawDocument[] = [];
+    const harmony: RawDocument[] = [];
+    for (const bar of bars) {
+      const { items, tuplets, chords, annotations, ...rest } = bar;
+      grid.push(rest);
+      staffBars.push({
+        barId: bar.id,
+        voices: [{ index: 1, items: items ?? [], tuplets: tuplets ?? [] }],
+      });
+      harmony.push({ barId: bar.id, chords: chords ?? [], annotations: annotations ?? [] });
+    }
+    return {
+      ...document,
+      bars: grid,
+      harmony,
+      parts: [
+        {
+          id: 'part-1',
+          name: '',
+          instrument: null,
+          transposition: 0,
+          staves: [{ id: 'staff-1', type: 'standard', clef: 'treble', bars: staffBars }],
+        },
+      ],
+    };
+  },
+};
+
+/**
  * The chain, in order — one migration per version step, so a document from any older build climbs
  * to the current shape (ADR-0028).
  */
 export const DOCUMENT_MIGRATIONS: readonly DocumentMigration[] = [
   PIN_SPELLINGS,
   DROP_METRICALLY_INVALID,
+  STAVES_AND_VOICES,
 ];
 
 /** Why a document could not be read. Distinguished so a caller can say something useful. */
@@ -218,6 +261,8 @@ function assertScoreShape(document: RawDocument, version: number): Score {
   if (typeof document.meta !== 'object' || document.meta === null) problems.push('meta is missing');
   if (!Array.isArray(document.bars)) problems.push('bars is not an array');
   if (!Array.isArray(document.sections)) problems.push('sections is not an array');
+  if (version >= 4 && !Array.isArray(document.parts)) problems.push('parts is not an array');
+  if (version >= 4 && !Array.isArray(document.harmony)) problems.push('harmony is not an array');
   if (problems.length > 0) {
     throw new DocumentMigrationError({ kind: 'not-a-document', detail: problems.join('; ') });
   }

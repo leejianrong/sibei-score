@@ -1,4 +1,4 @@
-import type { Bar, Ending, Score } from '@sibei/model';
+import type { BarView, Ending, Score } from '@sibei/model';
 import { createIdFactory, dur, makeScore, makeSection } from '@sibei/model';
 import { BarBuilder } from './builder.js';
 import type { BarSpec } from './builder.js';
@@ -25,7 +25,7 @@ const FORM = ['A', 'A', 'Bridge', 'A'] as const;
 const LETTERS = ['A', 'B', 'C', 'D'] as const;
 
 /** A plain bar: a chord on beat 1 and two half notes, so every bar has ink without noise. */
-function fill(bars: Bar[], make: (spec: BarSpec) => BarBuilder, number: number, chord: string, spec: Partial<BarSpec> = {}): void {
+function fill(bars: BarView[], make: (spec: BarSpec) => BarBuilder, number: number, chord: string, spec: Partial<BarSpec> = {}): void {
   const high = number % 2 === 0 ? 'C5' : 'E5';
   bars.push(
     make({ number, ...spec }).chord(1, chord, BEAT).note(high, dur(2)).note('G4', dur(2)).build(),
@@ -36,7 +36,7 @@ export function aabaChart(): Score {
   const ids = createIdFactory();
   const make = (spec: BarSpec): BarBuilder => new BarBuilder(ids, spec);
 
-  const bars: Bar[] = [];
+  const bars: BarView[] = [];
 
   // Pickup: bar 0 (ADR-0007), two eighth notes leading into the head.
   bars.push(make({ number: 0 }).note('D5', dur(8)).note('F5', dur(8)).build());

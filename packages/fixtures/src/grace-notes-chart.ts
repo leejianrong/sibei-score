@@ -1,4 +1,4 @@
-import type { Bar, BarItem, GraceNote, GraceValue, Score } from '@sibei/model';
+import type { BarView, BarItem, GraceNote, GraceValue, Score } from '@sibei/model';
 import { createIdFactory, dur, makeScore, parsePitch } from '@sibei/model';
 import { BarBuilder } from './builder.js';
 
@@ -13,7 +13,7 @@ import { BarBuilder } from './builder.js';
 export function graceNotesChart(): Score {
   const ids = createIdFactory();
   const make = (number: number): BarBuilder => new BarBuilder(ids, { number });
-  const bars: Bar[] = [
+  const bars: BarView[] = [
     make(1).chord(1, 'Cmaj7', 480).note('E5', dur(4)).note('G5', dur(2)).note('C5', dur(4)).build(),
     make(2).chord(1, 'A7', 480).note('C#5', dur(4)).note('E5', dur(4)).note('A4', dur(2)).build(),
     make(3).chord(1, 'Dm7', 480).note('D5', dur(4)).note('F5', dur(4)).note('A5', dur(2)).build(),

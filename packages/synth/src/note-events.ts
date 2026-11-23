@@ -12,7 +12,7 @@
  */
 
 import type { NoteEvents, Score } from '@sibei/model';
-import { TICKS_PER_QUARTER, barCapacity, durationTicks, mapNoteEventsToScore, pitchToMidi } from '@sibei/model';
+import { TICKS_PER_QUARTER, barViews, barCapacity, durationTicks, mapNoteEventsToScore, pitchToMidi } from '@sibei/model';
 import { extractLabels, itemSequence } from './labels.js';
 import { itemsEqual, scoreOmr } from './metrics.js';
 import type { OmrMetrics } from './metrics.js';
@@ -66,7 +66,7 @@ export function scoreToNoteEvents(score: Score, options: RenderOptions): NoteEve
   const notes: NoteEvents['notes'] = [];
   let id = 0;
   let endTicks = 0;
-  for (const bar of score.bars) {
+  for (const bar of barViews(score)) {
     const barStart = (bar.number - 1) * capacity;
     for (const item of bar.items) {
       const start = barStart + item.onset;
