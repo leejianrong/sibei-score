@@ -375,6 +375,11 @@ export interface Staff {
 export interface Part {
   id: Id;
   name: string;
+  /**
+   * The abbreviation printed at the head of every system after the first, and MusicXML's `<part-abbreviation>`
+   * (SIB2-286). Optional-and-absent, so no migration (ADR-0028); absent draws no name on later systems.
+   */
+  shortName?: string;
   instrument: number | null;
   transposition: number;
   staves: Staff[];
@@ -471,6 +476,12 @@ export interface ScoreMeta {
    * `SCHEMA_VERSION` stays (ADR-0028). No op sets it yet (a later slice adds the `meta.set` field with its verb).
    */
   layout?: ScoreLayoutKind;
+  /**
+   * Print each part's name at the left of its staves: the full name on the first system, the short name on later ones
+   * (SIB2-286). Optional-and-absent like `layout`: absent (or false) reserves no room and draws nothing, so every
+   * chart made before it renders byte-identically (ADR-0028, no migration).
+   */
+  showInstrumentNames?: boolean;
 }
 
 /** How a score's systems are broken. See `ScoreMeta.layout`. */

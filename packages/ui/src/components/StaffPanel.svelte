@@ -68,6 +68,7 @@
   let instrumentError = $state<{ part: string; text: string } | null>(null);
   const seedOf = (part: PartRow): InstrumentEdits => ({
     name: part.name,
+    shortName: part.shortName,
     program: part.instrument === null ? '' : String(part.instrument),
     transposition: String(part.transposition),
   });
@@ -242,6 +243,13 @@
           placeholder="Name, e.g. Piano"
           value={draftOf(part).name}
           oninput={(event) => setDraft(part, { name: (event.currentTarget as HTMLInputElement).value })}
+        />
+        <input
+          class="field"
+          aria-label={`Short name of part ${part.number}`}
+          placeholder="Short name, e.g. Pno."
+          value={draftOf(part).shortName}
+          oninput={(event) => setDraft(part, { shortName: (event.currentTarget as HTMLInputElement).value })}
         />
         <div class="row">
           <input

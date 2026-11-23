@@ -250,6 +250,12 @@
     await runOps([{ type: 'meta.set', payload: { layout: kind === 'lead-sheet' ? null : kind } }]);
   }
 
+  async function handleInstrumentNames(show: boolean): Promise<void> {
+    if (score === null || show === (score.meta.showInstrumentNames === true)) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { showInstrumentNames: show ? true : null } }]);
+  }
+
   async function handleSignaturePolicy(policy: 'every' | 'first' | 'page'): Promise<void> {
     if (score === null || policy === (score.meta.signaturePolicy ?? 'every')) return;
     deselect();
@@ -1696,6 +1702,14 @@
           <option value="score">Score (lines break by width)</option>
         </select>
         <p class="control-note">For a chart of several staves. A logged, undoable edit (<code>meta set --layout</code>).</p>
+        <label class="control-note"
+          ><input
+            type="checkbox"
+            aria-label="Print instrument names"
+            checked={score.meta.showInstrumentNames === true}
+            disabled={saving}
+            onchange={(event) => void handleInstrumentNames((event.currentTarget as HTMLInputElement).checked)}
+          /> Print instrument names (full on the first line, short after; <code>meta set --instrument-names</code>)</label>
       </RailPanel>
 
       <RailPanel title="Clef and key">

@@ -80,6 +80,8 @@ export interface MetaSetPayload {
   chordStyle?: 'standard' | 'dash' | 'words' | 'real-book' | null;
   /** How systems are broken (ADR-0041 section 5): `lead-sheet` (the four-bar grid, the default) or `score` (by width). `lead-sheet` or null clears it. */
   layout?: 'lead-sheet' | 'score' | null;
+  /** Print each part's name at the left of its staves (SIB2-286). `false` or null clears it. */
+  showInstrumentNames?: boolean | null;
   /** The tempo mark (SIB2-177): the beat and beats per minute. Null removes it. */
   tempo?: { unit: { value: number; dots?: number }; bpm: number } | null;
 }
@@ -363,6 +365,8 @@ export interface BarAddPayload {
 /** Add a part with one staff (more with `staff.add`). Ids are *recorded*. */
 export interface PartAddPayload {
   name?: string;
+  /** The abbreviation for later systems (SIB2-286). */
+  shortName?: string;
   /** A General MIDI program, 0-127, or null. */
   instrument?: number | null;
   /** Semitones from sounding to written pitch. */
@@ -411,6 +415,8 @@ export interface ClefSetPayload {
 
 export interface InstrumentSetPayload {
   name?: string;
+  /** The abbreviation for later systems (SIB2-286). Empty or null removes it. */
+  shortName?: string | null;
   instrument?: number | null;
   transposition?: number;
 }
