@@ -1,4 +1,4 @@
-import { barViews, transposePitch, transposeSpelling, withBarViews } from '@sibei/model';
+import { barViews, transposePitch, transposeSpelling, voiceSelects, withBarViews } from '@sibei/model';
 import type { Interval, KeySignature, Score } from '@sibei/model';
 import { transposeChordText } from './transpose.js';
 
@@ -71,14 +71,33 @@ export function partLabel(instrument: PartInstrument): string {
 }
 
 /**
+ * The spelled interval from sounding up to written for a part's `transposition` in semitones (ADR-0041): the letter
+ * count is the textbook interval for each of the twelve (a tritone is a diminished fifth), carried with its octaves.
+ * Negative semitones are a part written lower than it sounds (a piccolo).
+ */
+export function intervalOfSemitones(semitones: number): Interval {
+  const letters = [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6];
+  const sign = semitones < 0 ? -1 : 1;
+  const abs = Math.abs(semitones);
+  return { letterSteps: sign * ((letters[abs % 12] as number) + 7 * Math.floor(abs / 12)), semitones };
+}
+
+/**
  * The written version of a score for one instrument. The melody moves by the full interval
  * (octave included) and is respelled by the written key signature; the key signature itself and the
  * chord roots move by the same interval (ADR-0017). Note pins are honoured, exactly as under the
  * concert-key `transpose` op — a part is a different presentation of the same music, not a different
  * spelling policy.
  *
+ * Every staff and voice moves (ADR-0041 slice 5a), the chord lane once, and a percussion staff never (its pitches
+ * are only places on the staff). A part that carries its own `transposition` is already an instrument's part, so it
+ * moves by that interval rather than the requested instrument's, and comes back with `transposition: 0` — the
+ * transposition is applied, and a reader that applied it again would be wrong. (A view has one key signature, the
+ * requested instrument's, so such a part's own key is not drawn: per-part keys wait on the engraver.)
+ *
  * `concert` returns the score untouched, so a caller can ask for a part unconditionally and the
- * identity case costs nothing. Metric validity is a function of rhythm, which transposition does not
+ * identity case costs nothing — and a part's own transposition is then left for the MusicXML codec, which
+ * writes it as a `<transpose>`. Metric validity is a function of rhythm, which transposition does not
  * change, so the bars' review flags carry over as they are.
  */
 export function writtenPart(score: Score, instrument: PartInstrument): Score {
@@ -86,26 +105,52 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
   if (interval === null) return score;
 
   const key = writtenKey(score.meta.key, interval);
-  const views = barViews(score).map((bar) => ({
-    ...bar,
-    items: bar.items.map((item) =>
-      item.kind === 'note'
-        ? {
-            ...item,
-            pitch: transposePitch(item.pitch, interval, key, item.spellingPinned),
-            ...(item.graces === undefined
-              ? {}
-              : { graces: item.graces.map((grace) => ({ ...grace, pitch: transposePitch(grace.pitch, interval, key, false) })) }),
-          }
-        : item,
-    ),
-    chords: bar.chords.map((chord) => ({
-      ...chord,
-      text: transposeChordText(chord.text, interval, key, chord.spellingPinned),
-    })),
-  }));
+  const staves = new Map<string, { interval: Interval; key: KeySignature; percussion: boolean }>();
+  for (const part of score.parts) {
+    const own = part.transposition === 0 ? null : intervalOfSemitones(part.transposition);
+    for (const staff of part.staves) {
+      staves.set(staff.id, {
+        interval: own ?? interval,
+        key: own === null ? key : writtenKey(score.meta.key, own),
+        percussion: staff.type === 'percussion',
+      });
+    }
+  }
 
-  return withBarViews({ ...score, meta: { ...score.meta, key } }, views);
+  let out: Score = { ...score, meta: { ...score.meta, key } };
+  voiceSelects(score).forEach((select, index) => {
+    const how = staves.get(select.staff);
+    if (how === undefined) return;
+    const views = barViews(out, select).map((bar) => ({
+      ...bar,
+      items: how.percussion
+        ? bar.items
+        : bar.items.map((item) =>
+            item.kind === 'note'
+              ? {
+                  ...item,
+                  pitch: transposePitch(item.pitch, how.interval, how.key, item.spellingPinned),
+                  ...(item.graces === undefined
+                    ? {}
+                    : {
+                        graces: item.graces.map((grace) => ({
+                          ...grace,
+                          pitch: transposePitch(grace.pitch, how.interval, how.key, false),
+                        })),
+                      }),
+                }
+              : item,
+          ),
+      // The chord lane is shared by every staff: the first pass moves it, the others carry it as it is.
+      chords:
+        index === 0
+          ? bar.chords.map((chord) => ({ ...chord, text: transposeChordText(chord.text, interval, key, chord.spellingPinned) }))
+          : bar.chords,
+    }));
+    out = withBarViews(out, views, select);
+  });
+  // The own transposition of a part is now applied.
+  return { ...out, parts: out.parts.map((part) => (part.transposition === 0 ? part : { ...part, transposition: 0 })) };
 }
 
 /**

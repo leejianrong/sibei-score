@@ -249,7 +249,7 @@ describe('the importer reads leniently (ADR-0012 the codec half)', () => {
     expect(() => musicXmlToScore('<score-timewise/>')).toThrow(/timewise/);
   });
 
-  it('drops a second voice with a warning rather than refusing the import', () => {
+  it('keeps a second voice as a second voice (ADR-0041 slice 5a), even when the file never numbers its voices', () => {
     const twoVoices = [
       '<score-partwise><part-list><score-part id="P1"/></part-list><part id="P1"><measure number="1">',
       '<attributes><divisions>480</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time></attributes>',
@@ -260,6 +260,7 @@ describe('the importer reads leniently (ADR-0012 the codec half)', () => {
     ].join('');
     const { score, warnings } = musicXmlToScore(twoVoices);
     expect(barViews(score)[0]!.items).toHaveLength(1);
-    expect(warnings.some((w) => /single-voice/.test(w))).toBe(true);
+    expect(barViews(score, { voice: 2 })[0]!.items).toHaveLength(1);
+    expect(warnings).toEqual(['overlapping notes with one voice number were read as separate voices']);
   });
 });

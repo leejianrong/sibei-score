@@ -715,7 +715,7 @@ function isMusicXmlPath(path: string): boolean {
  * `sbscore import FILE.musicxml` (or `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any name) — a
  * MusicXML file becomes an editable draft with a fresh history (SIB2-152). Needs no OMR worker. The server
  * validates and unpacks it; a refused file is exit 2 and creates nothing. **Whatever the codec had to drop**
- * (extra parts or staves, a second voice, lyrics, dynamics, ...) is printed under the success line, and is in
+ * (lyrics, dynamics, chord tones, a fifth voice, ...) is printed under the success line, and is in
  * the job's `diagnostic` under `--json`, so a lossy import is never silent.
  */
 async function importMusicXml(paths: string[], client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
