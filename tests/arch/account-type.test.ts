@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
  */
 
 const UI = join(__dirname, '../../packages/ui/src');
-const COMPONENTS = ['SignInGate', 'AccountMenu', 'SessionBanner', 'DeviceApproval', 'TokenList', 'AccountSettings'];
+const COMPONENTS = ['SignInGate', 'AccountMenu', 'SessionBanner', 'ConnectionBanner', 'DeviceApproval', 'TokenList', 'AccountSettings'];
 const read = (path: string): string => readFileSync(join(UI, path), 'utf8');
 
 describe('the account chrome has one typeface', () => {

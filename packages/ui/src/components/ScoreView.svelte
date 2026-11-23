@@ -67,6 +67,7 @@
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
   import { allStaves, barByNumber, barViews, beatOfOnset, onsetOfBeat, sectionStartingAt } from '@sibei/model';
+  import ConnectionBanner from './ConnectionBanner.svelte';
   import RailPanel from './RailPanel.svelte';
   import SegmentedControl from './SegmentedControl.svelte';
   import SheetStack from './SheetStack.svelte';
@@ -319,6 +320,31 @@
   let conflict = $state(false);
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+  // Connection loss (SIB2-266): the live stream is down, or a write got no answer. The banner is sticky under the
+  // top bar, so it is in view whatever is scrolled; the failed batch is kept so Retry sends exactly it again.
+  let streamUp = $state(true);
+  let writeFailure = $state<{ message: string; retry: () => Promise<boolean> } | null>(null);
+  let retrying = $state(false);
+
+  /** A write that got no answer: say so where it is seen, put the controls back as stored, offer Retry. */
+  function writeUnanswered(error: unknown, retry: () => Promise<boolean>): boolean {
+    if (!(error instanceof OfflineError)) return false;
+    onReachable(false);
+    writeFailure = { message: 'The server did not answer, so your last change was not saved.', retry };
+    // Drop the selection: the inspector's controls were showing the edit as if it had landed.
+    deselect();
+    return true;
+  }
+
+  async function retryWrite(): Promise<void> {
+    if (writeFailure === null || retrying) return;
+    retrying = true;
+    try {
+      await writeFailure.retry();
+    } finally {
+      retrying = false;
+    }
+  }
 
   // Chord selection (V5e) is separate from item selection — a chord is not an item — and the two
   // are mutually exclusive: selecting one clears the other. In edit mode the overlay is looked up
@@ -1025,6 +1051,7 @@
     saveError = null;
     try {
       await submitOps(score.id, { operations, expectedVersion: version });
+      writeFailure = null;
       await load();
       // A chord is built a pitch at a time (SIB2-243), so adding or removing one keeps the chord selected.
       if (!keepSelection) deselect();
@@ -1034,6 +1061,7 @@
         conflict = true;
         return false;
       }
+      if (writeUnanswered(error, () => runOps(operations, keepSelection))) return false;
       saveError = error instanceof Error ? error.message : String(error);
       return false;
     } finally {
@@ -1065,6 +1093,7 @@
     saveError = null;
     try {
       await (direction === 'undo' ? undoScore : redoScore)(score.id, version);
+      writeFailure = null;
       await load();
       deselect();
     } catch (error) {
@@ -1072,6 +1101,7 @@
         conflict = true;
         return;
       }
+      if (writeUnanswered(error, async () => (await runMove(direction), true))) return;
       saveError = error instanceof Error ? error.message : String(error);
     } finally {
       saving = false;
@@ -1176,6 +1206,10 @@
       onChanged: (incoming) => {
         if (score !== null && !saving && incoming !== version) void load();
       },
+      onConnection: (up) => {
+        streamUp = up;
+        onReachable(up);
+      },
       onDeleted: () => {
         score = null;
         onTitle(null);
@@ -1204,6 +1238,17 @@
     </div>
   </div>
 {:else if score !== null}
+  {#if writeFailure !== null}
+    <ConnectionBanner
+      title="Not saved."
+      detail={writeFailure.message}
+      busy={retrying}
+      onretry={() => void retryWrite()}
+      ondismiss={() => (writeFailure = null)}
+    />
+  {:else if !streamUp}
+    <ConnectionBanner title="Connection lost." detail="Reconnecting to the server. Edits will not save until it answers." />
+  {/if}
   <section class="score">
     <aside class="rail">
       <div class="rail-head">
