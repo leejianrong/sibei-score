@@ -273,7 +273,7 @@ The editor opens and edits any staff and voice (this supersedes slice 2's "the b
   so its ops are byte-identical to before.
 - A slur or ottava joins two notes of one lane only; the controls stay off across lanes.
 
-Second half (SIB2-235): the controls that change the shape.
+Second half (SIB2-240): the controls that change the shape.
 
 - **The Staves and voices panel** (`StaffPanel.svelte`, `lib/staff-edits.ts`) in the rail: the active staff and voice (a staff row,
   a voice chip row 1-4 each, with the clef name), new staff / voice / part, remove staff / voice / part, a staff's opening clef and
