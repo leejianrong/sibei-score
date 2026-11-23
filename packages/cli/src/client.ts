@@ -92,7 +92,8 @@ export interface Client {
    * unsupported-instrument file is refused before any job exists, as a `CliError` carrying the server's
    * kind and message.
    */
-  importNoteEvents(document: Buffer): Promise<ImportJobWire>;
+  /** `splitPoint` is a piano file's hand-split pivot (SIB2-244), kept on the job. */
+  importNoteEvents(document: Buffer, splitPoint?: number): Promise<ImportJobWire>;
   /**
    * Import a MusicXML file (SIB2-152; `.musicxml`, `.xml`, or a compressed `.mxl`) as a draft. The bytes go up
    * unchanged and the server validates and unpacks; a refused file is a `CliError` with the server's kind
@@ -107,7 +108,7 @@ export interface Client {
    * — a `succeeded` one names the new draft, a `failed` one carries the diagnostic. `engine` names the
    * recogniser to use (`oemer`/`heuristic`); omitted, the worker keeps its default.
    */
-  reparse(id: string, engine?: string): Promise<ImportJobWire>;
+  reparse(id: string, engine?: string, splitPoint?: number): Promise<ImportJobWire>;
   /**
    * Audio jobs (SIB2-137): declare an upload, put the bytes where the server says (a presigned bucket URL
    * hosted, this API's own route locally), confirm, and return the queued job. It does **not** wait: a
@@ -459,8 +460,8 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
 
       return await pollJob(job);
     },
-    async importNoteEvents(document: Buffer): Promise<ImportJobWire> {
-      const response = await send('POST', '/v1/imports', undefined, document);
+    async importNoteEvents(document: Buffer, splitPoint?: number): Promise<ImportJobWire> {
+      const response = await send('POST', splitPoint === undefined ? '/v1/imports' : `/v1/imports?splitPoint=${splitPoint}`, undefined, document);
       const text = await response.text();
       if (!response.ok) fail(response.status, text);
       return await pollJob((safeParse(text) as { job: ImportJobWire }).job);
@@ -472,8 +473,8 @@ export function createClient(baseUrl: string = DEFAULT_BASE_URL, options: Client
       if (!response.ok) fail(response.status, text);
       return await pollJob((safeParse(text) as { job: ImportJobWire }).job);
     },
-    async reparse(id: string, engine?: string): Promise<ImportJobWire> {
-      const body = engine === undefined ? {} : { engine };
+    async reparse(id: string, engine?: string, splitPoint?: number): Promise<ImportJobWire> {
+      const body = { ...(engine === undefined ? {} : { engine }), ...(splitPoint === undefined ? {} : { splitPoint }) };
       const started = (await call<{ job: ImportJobWire }>('POST', `/v1/scores/${encodeURIComponent(id)}/reparse`, body)).job;
       return await pollJob(started);
     },

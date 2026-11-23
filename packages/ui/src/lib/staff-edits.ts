@@ -1,4 +1,4 @@
-import { STEPS, allStaves, parsePitch, voiceHoldsNotation, voiceIndexes } from '@sibei/model';
+import { STEPS, allStaves, parsePitch, pitchToMidi, voiceHoldsNotation, voiceIndexes } from '@sibei/model';
 import type { Clef, Score, StaffType } from '@sibei/model';
 import type { Duration } from '@sibei/model';
 import type { Operation } from './api.js';
@@ -100,6 +100,54 @@ export function addVoiceOp(staff: StaffRow): Operation {
 
 export function removeVoiceOp(staff: StaffRow, voice: number, force: boolean): Operation {
   return { type: 'voice.rm', target: `s${staff.number}.v${voice}`, ...withForce(force) };
+}
+
+/** Re-home one note, chord or pitch of a chord (`s1.bar3.beat2.E4`) on another staff, `s2` or `s2.v1` (SIB2-244). */
+export function moveNoteOp(target: string, to: string): Operation {
+  return { type: 'note.move', target, payload: { to } };
+}
+
+/** What the Staves panel's range form holds. Blank bar fields are not a range; a pitch limit is `below` or `above`, or neither. */
+export interface HandMoveEdits {
+  first: string;
+  last: string;
+  from: number;
+  to: number;
+  limit: 'all' | 'below' | 'above';
+  pitch: string;
+}
+
+export interface HandMoveParse {
+  ok: boolean;
+  error: string | null;
+  op: Operation | null;
+}
+
+/** The `hand.move` for the range form, or the first reason it cannot be sent (the server judges everything else). */
+export function handMoveOp(edits: HandMoveEdits): HandMoveParse {
+  const first = Number(edits.first.trim());
+  const last = Number(edits.last.trim());
+  if (edits.first.trim() === '' || !Number.isInteger(first) || edits.last.trim() === '' || !Number.isInteger(last)) {
+    return { ok: false, error: 'Name the first and the last bar, as whole numbers.', op: null };
+  }
+  if (first > last) return { ok: false, error: 'The range runs backwards: the first bar comes before the last.', op: null };
+  if (edits.from === edits.to) return { ok: false, error: 'Pick two different staves.', op: null };
+  const payload: { from: string; to: string; first: number; last: number; below?: string; above?: string } = {
+    from: `s${edits.from}`,
+    to: `s${edits.to}`,
+    first,
+    last,
+  };
+  if (edits.limit !== 'all') {
+    const pitch = edits.pitch.trim();
+    try {
+      parsePitch(pitch);
+    } catch {
+      return { ok: false, error: `${JSON.stringify(pitch)} is not a pitch — try C4 or Bb3.`, op: null };
+    }
+    payload[edits.limit] = pitch;
+  }
+  return { ok: true, error: null, op: { type: 'hand.move', payload } };
 }
 
 /** A staff's opening clef (`s2`), or the change that starts at a bar (`s2.bar5`); `null` clears a change. */
@@ -208,4 +256,15 @@ export function voiceForKey(score: Score, lane: Lane, key: string): number | nul
   if (staff === undefined) return null;
   const voice = Number(key);
   return voiceIndexes(staff).includes(voice) ? voice : null;
+}
+
+/** A split point typed as a MIDI number (`60`) or a pitch (`C4`), or null when it is neither (SIB2-244). The server judges the range. */
+export function splitPointOf(text: string): number | null {
+  const raw = text.trim();
+  if (/^\d+$/.test(raw)) return Number(raw);
+  try {
+    return pitchToMidi(parsePitch(raw));
+  } catch {
+    return null;
+  }
 }

@@ -28,6 +28,7 @@
     removePartOp,
     removeStaffOp,
     removeVoiceOp,
+    handMoveOp,
     setClefOp,
   } from '../lib/staff-edits.js';
   import type { InstrumentEdits, PartRow, StaffRow } from '../lib/staff-edits.js';
@@ -80,6 +81,27 @@
     instrumentError = null;
     confirming = null;
   });
+
+  // The range form (SIB2-244): the correction for a wrong hand split, the browser half of `sbscore hands move`.
+  let moveFirst = $state('');
+  let moveLast = $state('');
+  let moveFrom = $state(1);
+  let moveTo = $state(2);
+  let moveLimit = $state<'all' | 'below' | 'above'>('all');
+  let movePitch = $state('C4');
+  let moveError = $state<string | null>(null);
+
+  function moveRange(): void {
+    // Blank fields mean the selected bar, and a blank last bar means the first alone.
+    const first = moveFirst.trim() === '' && barNumber !== null ? String(barNumber) : moveFirst;
+    const parsed = handMoveOp({ first, last: moveLast.trim() === '' ? first : moveLast, from: moveFrom, to: moveTo, limit: moveLimit, pitch: movePitch });
+    if (!parsed.ok || parsed.op === null) {
+      moveError = parsed.error;
+      return;
+    }
+    moveError = null;
+    void run([parsed.op]);
+  }
 
   async function run(operations: Operation[], then?: () => void): Promise<void> {
     const landed = await onops(operations);
@@ -331,6 +353,44 @@
       </div>
     {/if}
   </div>
+
+  {#if staffCount > 1}
+    <div class="actions" role="group" aria-label="Move notes between staves">
+      <span class="part-title">Move notes between staves</span>
+      <div class="row">
+        <input class="field" inputmode="numeric" aria-label="First bar to move" placeholder={barNumber === null ? 'from bar' : String(barNumber)} bind:value={moveFirst} />
+        <input class="field" inputmode="numeric" aria-label="Last bar to move" placeholder={barNumber === null ? 'to bar' : String(barNumber)} bind:value={moveLast} />
+      </div>
+      <div class="row">
+        <select class="small-select" aria-label="Move from staff" bind:value={moveFrom}>
+          {#each parts.flatMap((part) => part.staves) as staff (staff.id)}
+            <option value={staff.number}>staff {staff.number}</option>
+          {/each}
+        </select>
+        <select class="small-select" aria-label="Move to staff" bind:value={moveTo}>
+          {#each parts.flatMap((part) => part.staves) as staff (staff.id)}
+            <option value={staff.number}>staff {staff.number}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="row">
+        <select class="small-select" aria-label="Which notes to move" bind:value={moveLimit}>
+          <option value="all">every note</option>
+          <option value="below">only notes below</option>
+          <option value="above">only notes at or above</option>
+        </select>
+        {#if moveLimit !== 'all'}
+          <input class="field" aria-label="Where the split falls" placeholder="C4" bind:value={movePitch} />
+        {/if}
+      </div>
+      <div class="row">
+        <button type="button" class="btn" disabled={saving} onclick={moveRange}>Move notes between staves</button>
+      </div>
+      {#if moveError !== null}
+        <p class="problem" role="alert">{moveError}</p>
+      {/if}
+    </div>
+  {/if}
 
   {#if error !== null}
     <p class="problem" role="alert">{error}</p>

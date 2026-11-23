@@ -130,7 +130,12 @@ draft with its warnings.
   free voice, so a melody over a held chord is two voices. A fifth simultaneous *line* on one staff is dropped with a
   warning, and a chord keeps at most ten pitches (the highest five and lowest five). Pieces are unchanged on the note
   F1 (the same notes are found; they are just written as chords).
-- **Correcting the split** is `note rm` plus `note add` by qualified address, note by note, today; a move op for notes
-  and bar ranges is a card.
-- `splitPoint` is not yet reachable from a surface (it would have to be kept on the job), so the default is what every
-  surface uses.
+- **Correcting the split** is `note move` (one note, chord or pitch) and `hands move` (a bar range, optionally only the
+  pitches below or at and above one) from SIB2-244: a re-home of the same onset and duration to another staff, the moved
+  note keeping its id and a rest left behind (ADR-0041 "As built: moving between staves").
+- **`splitPoint` is reachable (SIB2-244):** `sbscore import --note-events FILE --split-point N`, `POST /v1/imports?splitPoint=N`
+  and a field beside the library's import button. It is kept on the job inside the opaque `engine` marker
+  (`note-events;split=N`, no schema change: the column already says what the runner does with a job), so a retry reproduces
+  the draft. `sbscore reparse <id> --split-point N` (`POST /v1/scores/:id/reparse {splitPoint}`, and "Re-split hands" in the
+  score view) writes a **new** draft from the stored document at another pivot, costs no recognition quota and needs no
+  worker. `GET /v1/scores/:id/source` carries `kind: "note-events"` for such a draft.

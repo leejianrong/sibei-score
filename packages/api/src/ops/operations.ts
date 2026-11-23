@@ -414,6 +414,30 @@ export interface InstrumentSetPayload {
   transposition?: number;
 }
 
+/**
+ * Re-home a note, chord or one pitch of a chord on another staff or voice, same onset and duration (SIB2-244). The
+ * address is the note's (`bar3.n2`, `s1.bar3.beat2.E4`); `to` is a staff or voice (`s2`, `s2.v1`).
+ */
+export interface NoteMovePayload {
+  to: string;
+  /** *Recorded.* The ids the applier chose (the rests it wrote, a chord's new carrier), in order. */
+  ids?: Id[];
+}
+
+/** Move one hand's notes between bars `first` and `last` to another staff, optionally only pitches below / at and above one. */
+export interface HandMovePayload {
+  from: string;
+  to: string;
+  first: number;
+  last: number;
+  /** Only pitches lower than this one move (`C4`). */
+  below?: string;
+  /** Only pitches this one or higher move. */
+  above?: string;
+  /** *Recorded.* */
+  ids?: Id[];
+}
+
 export interface ScoreImportPayload {
   document: Score;
 }
@@ -440,6 +464,8 @@ export type Operation =
   | { type: 'note.add'; target: string; payload: NoteAddPayload }
   | { type: 'note.set'; target: string; payload: NoteSetPayload }
   | { type: 'note.rm'; target: string }
+  | { type: 'note.move'; target: string; payload: NoteMovePayload }
+  | { type: 'hand.move'; payload: HandMovePayload }
   | { type: 'rest.add'; target: string; payload: RestAddPayload }
   | { type: 'rest.rm'; target: string }
   | { type: 'chord.set'; target: string; payload: ChordSetPayload }
@@ -485,6 +511,8 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'note.add',
   'note.set',
   'note.rm',
+  'note.move',
+  'hand.move',
   'rest.add',
   'rest.rm',
   'chord.set',

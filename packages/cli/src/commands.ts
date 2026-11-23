@@ -1,7 +1,7 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
-import { NAV_KINDS, displayTitle, flaggedObjects, projectScore } from '@sibei/model';
+import { NAV_KINDS, displayTitle, flaggedObjects, parsePitch, pitchToMidi, projectScore } from '@sibei/model';
 import type { KeySignature, NavKind, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
@@ -92,9 +92,11 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
   sbscore import FILE.musicxml|.xml|.mxl   a MusicXML file into an editable draft (no worker; --musicxml forces it)
-  sbscore import --note-events FILE        a NoteEvents v1 file from the audio engine into a draft (no worker needed)
+  sbscore import --note-events FILE [--split-point 60|C4]   a NoteEvents v1 file from the audio engine into a draft (no worker needed);
+              a piano file's hands pivot on the split point (default middle C)
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
+  sbscore reparse <id> --split-point 62   re-split a piano NoteEvents draft at another pitch (a NEW draft; no re-upload)
               (produces a NEW draft — the original and its corrections survive; no re-upload)
   sbscore audio submit <file> [--instrument piano]   upload audio to be transcribed; prints the job id
   sbscore audio list|show <id>|retry <id>|rm <id>    look at, requeue or delete an audio job
@@ -113,6 +115,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
               [--drum NAME|none] [--head x|diamond|circle-x|normal|default]   a drum, on a percussion staff
   sbscore note rm  <id> <address>   (bar3.n2.Eb5 names one pitch of a chord; note add onto a held onset stacks a chord)
+  sbscore note move <id> <address> --to s2[.v1]   re-home a note, chord or one pitch (bar3.n2.E4) on another staff, same time
+  sbscore hands move <id> <bars> --from s1 --to s2 [--below C4|--above C4]   a bar range (3-8) to the other hand; a chord splits at the pitch
   sbscore rest add <id> <address> --dur 4
   sbscore rest rm  <id> <address>
   sbscore chord set <id> <address> --text F#m7b5 [--spell]
@@ -312,6 +316,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return meta(flags, client, io, json);
     case 'note':
       return note(flags, client, io, json);
+    case 'hands':
+      return hands(flags, client, io, json);
     case 'rest':
       return rest(flags, client, io, json);
     case 'chord':
@@ -654,7 +660,7 @@ async function importChart(
   cwd: string,
 ): Promise<ExitCode> {
   const paths = flags.positional.slice(1);
-  if (flags.switches.has('note-events')) return importNoteEvents(paths, client, io, json, cwd);
+  if (flags.switches.has('note-events')) return importNoteEvents(paths, flags, client, io, json, cwd);
   if (flags.switches.has('musicxml') || (paths.length === 1 && isMusicXmlPath(paths[0]!))) return importMusicXml(paths, client, io, json, cwd);
   if (paths.length === 0) {
     throw new CliError(EXIT.usage, 'usage', 'import needs at least one image file: `sbscore import chart.png`');
@@ -691,12 +697,24 @@ async function importChart(
   return EXIT.ok;
 }
 
+/** `--split-point 60` (or `C4`): the MIDI pitch a piano import pivots its hands on. The server judges the range. */
+function splitPointOf(flags: Flags): number | undefined {
+  const raw = flags.options.get('split-point');
+  if (raw === undefined) return undefined;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  try {
+    return pitchToMidi(parsePitch(raw));
+  } catch {
+    throw new CliError(EXIT.usage, 'usage', `--split-point is a MIDI number like 60 or a pitch like C4, not ${JSON.stringify(raw)}`);
+  }
+}
+
 /**
  * `sbscore import --note-events FILE` — a NoteEvents v1 document from the audio engine becomes a draft
  * (ADR-0040). Needs no OMR worker. The bytes go up unchanged and the server validates; a refused file is
  * exit 2 (validation) and creates nothing. The draft's barring and doubtful notes are flagged for review.
  */
-async function importNoteEvents(paths: string[], client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
+async function importNoteEvents(paths: string[], flags: Flags, client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
   if (paths.length !== 1) {
     throw new CliError(EXIT.usage, 'usage', 'import --note-events takes exactly one file: `sbscore import --note-events take1.json`');
   }
@@ -707,7 +725,7 @@ async function importNoteEvents(paths: string[], client: Client, io: Io, json: b
   } catch (error) {
     throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
   }
-  const job = await client.importNoteEvents(bytes);
+  const job = await client.importNoteEvents(bytes, splitPointOf(flags));
   if (job.status === 'failed') {
     throw new CliError(EXIT.validation, 'import-failed', `import failed: ${job.diagnostic ?? 'unknown error'}`);
   }
@@ -767,7 +785,7 @@ async function importMusicXml(paths: string[], client: Client, io: Io, json: boo
 async function reparse(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const id = requiredPositional(flags, 1, 'a score id', 'reparse');
   const engine = flags.options.get('engine');
-  const job = await client.reparse(id, engine);
+  const job = await client.reparse(id, engine, splitPointOf(flags));
   if (job.status === 'failed') {
     throw new CliError(EXIT.validation, 'reparse-failed', `reparse failed: ${job.diagnostic ?? 'unknown error'}`);
   }
@@ -1003,7 +1021,32 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
   if (sub === 'rm') {
     return submit(flags, client, io, json, id, [{ type: 'note.rm', target } as Operation]);
   }
-  throw new CliError(EXIT.usage, 'usage', 'note takes add, set or rm');
+  if (sub === 'move') {
+    const to = flags.options.get('to');
+    if (to === undefined) throw new CliError(EXIT.usage, 'usage', 'note move needs --to, a staff or voice like s2 or s2.v1');
+    return submit(flags, client, io, json, id, [{ type: 'note.move', target, payload: { to } } as Operation]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'note takes add, set, rm or move');
+}
+
+/**
+ * `hands move <id> <bars> --from s1 --to s2 [--below C4 | --above C4]` (SIB2-244): the correction for a wrong piano hand
+ * split. `<bars>` is `5`, `3-8` or `bar3-bar8`. Only the pitches below (or at and above) the named one move, so a chord
+ * that straddles the split point is cut in two.
+ */
+async function hands(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  if (flags.positional[1] !== 'move') throw new CliError(EXIT.usage, 'usage', 'hands takes move: `sbscore hands move <id> 3-8 --from s1 --to s2`');
+  const id = requiredPositional(flags, 2, 'a score id', 'hands move');
+  const range = /^(?:bar)?(\d+)(?:-(?:bar)?(\d+))?$/.exec(requiredPositional(flags, 3, 'a bar range like 3-8', 'hands move'));
+  if (range === null) throw new CliError(EXIT.usage, 'usage', 'a bar range is 5, 3-8 or bar3-bar8');
+  const first = Number(range[1]);
+  const last = range[2] === undefined ? first : Number(range[2]);
+  const payload: { from: string; to: string; first: number; last: number; below?: string; above?: string } = { from: required(flags, 'from', 'hands move'), to: required(flags, 'to', 'hands move'), first, last };
+  const below = flags.options.get('below');
+  const above = flags.options.get('above');
+  if (below !== undefined) payload.below = below;
+  if (above !== undefined) payload.above = above;
+  return submit(flags, client, io, json, id, [{ type: 'hand.move', payload } as Operation]);
 }
 
 async function rest(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {

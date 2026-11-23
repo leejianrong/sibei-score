@@ -29,6 +29,7 @@
   } from '../lib/api.js';
   import { UNTITLED } from '@sibei/model';
   import type { ImportJobView, ScoreListing } from '../lib/api.js';
+  import { splitPointOf } from '../lib/staff-edits.js';
   import { getMe } from '../lib/api.js';
   import { NEW_CHART_COMMAND, SERVE_COMMAND } from '../lib/branding.js';
   import { rememberReturn } from '../lib/session.js';
@@ -61,6 +62,8 @@
   // file picker.
   let fileInput = $state<HTMLInputElement | null>(null);
   let importing = $state(false);
+  // Where a piano file's hands pivot (SIB2-244); blank is middle C.
+  let splitText = $state('');
   let importNote = $state('');
   // What a MusicXML import could not keep (SIB2-152): shown, with a way in, instead of opening the draft silently.
   let importReport = $state<{ scoreId: string; lines: string[] } | null>(null);
@@ -159,6 +162,13 @@
     const musicXml = files.length === 1 && isMusicXmlFile(files[0]!);
     // A single .json is an audio engine's NoteEvents (ADR-0040): quick, and no recogniser involved.
     const noteEvents = files.length === 1 && isNoteEventsFile(files[0]!);
+    // The piano hand-split pivot (SIB2-244): typed as a number or a pitch, blank for the default, used only by a NoteEvents file.
+    const splitPointValue = splitText.trim() === '' || !noteEvents ? undefined : (splitPointOf(splitText) ?? undefined);
+    if (noteEvents && splitText.trim() !== '' && splitPointValue === undefined) {
+      actionError = `${JSON.stringify(splitText.trim())} is not a pitch for the hand split — try 60 or C4.`;
+      importing = false;
+      return;
+    }
     importNote = musicXml
       ? 'Reading the MusicXML file…'
       : noteEvents
@@ -168,7 +178,7 @@
       let job: ImportJobView = musicXml
         ? await submitMusicXml(files[0]!)
         : noteEvents
-          ? await submitNoteEvents(files[0]!)
+          ? await submitNoteEvents(files[0]!, splitPointValue)
           : await submitImport(files);
       while (job.status === 'queued' || job.status === 'running') {
         await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
@@ -243,6 +253,13 @@
           </svg>
           {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import a file'}
         </button>
+        <input
+          class="split-input"
+          aria-label="Hand split for a piano file"
+          placeholder="split C4"
+          title="Where a piano file's hands pivot: a MIDI number or a pitch. Blank is middle C."
+          bind:value={splitText}
+        />
         <a class="import-btn" href={hashOf(AUDIO)}>Transcribe audio</a>
       {/if}
     </div>
@@ -496,6 +513,16 @@
     padding: 6px 12px;
     cursor: pointer;
     transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .split-input {
+    width: 84px;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    padding: 6px 8px;
   }
   .import-btn svg {
     width: 13px;

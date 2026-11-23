@@ -82,7 +82,7 @@ sbscore check <id> [--json] [--strict]       # list every flagged object: addres
 sbscore show <id>                            # the text projection — a four-bar grid with addresses
 sbscore duplicate <id> [--id NEW]            # a copy with a fresh history (ADR-0003)
 sbscore import <file>...                     # OMR a photo/scan into a new draft chart (ADR-0019)
-sbscore import --note-events FILE            # a NoteEvents v1 file (audio engine) into a draft (ADR-0040)
+sbscore import --note-events FILE [--split-point 60|C4]   # a NoteEvents v1 file (audio engine) into a draft (ADR-0040)
 sbscore import FILE.musicxml|.xml|.mxl       # a MusicXML file into an editable draft (SIB2-152; `--musicxml` forces it)
 sbscore reparse <id> [--engine oemer|heuristic]  # re-OMR a chart's kept scans into a new draft
 sbscore rm <id>                              # delete a chart (destroys its op log; asks in the UI)
@@ -152,8 +152,9 @@ percussion staff, and **piano a grand staff** (treble and bass in one part, set 
 guesses which hand plays each note (a pitch rule around middle C that follows each hand's recent range
 and keeps a chord in one hand where it fits) and says so in a `hand-split:` line, so check both staves.
 A chord is one stacked item in one voice (the notes a hand strikes and releases together); a melody over a
-held chord is two voices, and a fifth simultaneous line on a staff is dropped with a warning. Moving a wrongly assigned note is `note rm` plus `note add` with an
-address such as `s2.bar3.beat2`. A file that
+held chord is two voices, and a fifth simultaneous line on a staff is dropped with a warning. Correct the guess with `note move` and `hands move` (below), or move the pivot:
+`--split-point 62` (a MIDI number, or a pitch like `D4`; default middle C) is kept on the import and
+`sbscore reparse <id> --split-point 62` re-splits a piano draft into a new one from the stored file. A file that
 is not valid v1, has a `schema_version` other than 1, or names another instrument (guitar, other) is refused with
 exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.
 
@@ -187,6 +188,12 @@ sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide
 sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
                 [--artic staccato,accent,marcato|none]                        # marks by the notehead; none clears
 sbscore note rm  <id> <address>      # bar3.n2.Eb5 removes one pitch of a chord
+sbscore note move <id> <address> --to s2[.v1]   # re-home a note, a chord or one pitch (bar3.n2.E4) on another staff, same time and length
+sbscore hands move <id> <bars> --from s1 --to s2 [--below C4 | --above C4]   # bars 5, 3-8 or bar3-bar8; a chord splits at the pitch
+# A move keeps the note's id and leaves a rest of the same length behind. The target must hold only rests (or a note of the same
+# length, which the pitches join as a chord) over that time; anything else, a note in a tuplet, a drum or a slurred note is refused
+# naming the bar, never overwritten. One undo takes a whole `hands move` back. In the browser: select a note, "Move to other
+# staff" in the inspector; the Staves panel has the range form.
 sbscore rest add <id> <address> --dur 4
 sbscore rest rm  <id> <address>
 # Stacked chord: `note add` onto a beat a note of the same duration already holds adds a pitch to its chord (one

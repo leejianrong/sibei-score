@@ -487,3 +487,24 @@ the inspector are the whole chord's, and the pitch field edits the carrying note
 spelling pin** closed in SIB2-252: clicking one head of a chord selects that pitch (hit-testing already returned the head), and a
 "Chosen head" section of the inspector sets its tie, accidental display and spelling lock at once, each a `note set` at the pitch's
 address (`note set bar3.n2.E4 --tie start` on the CLI). A lone note has no such section.
+
+## As built: moving between staves (SIB2-244)
+
+The correction for a wrong piano hand split is a **re-home**: the same onset and duration, another staff or voice. Two ops
+share one core (`packages/api/src/ops/move-ops.ts`): `note.move` (target a note, chord or `bar3.n2.E4` pitch; payload `to`
+`s2` or `s2.v1`) and `hand.move` (payload `from`, `to`, `first`, `last`, optional `below`/`above`, a pitch: below is strictly
+lower, above is at or higher). Decisions:
+
+- The moved note **keeps its id**; a pitch taken out of a chord keeps its own id too, except the carrying pitch (the chord's
+  id), which stays with the chord, so the copy that moves gets a new one. Every id the move chooses is recorded in `ids`, so
+  replay and undo reproduce it (ADR-0003); a `hand.move` is one undo unit.
+- The source is **filled with a rest** of the same length (a voice never has a hole); a chord that loses only some pitches stays,
+  smaller.
+- The target must hold only rests (a rest the span cuts into is split, the remainder re-written as rests) or a note of the same
+  onset and length, which the pitches join as a chord. Anything else is **refused naming the bar**, never overwritten. Also
+  refused: a note in a tuplet, a drum, a whole note carrying a slur or ottava, grace notes joining another chord, and a
+  voice the target staff does not have (`voice add`). A `hand.move` that moves nothing is an error, not a silent success.
+- Surfaces: `sbscore note move <id> <addr> --to s2[.v1]`, `sbscore hands move <id> 3-8 --from s1 --to s2 [--below C4]`, the
+  inspector's "Move to other staff" (the chosen head alone when one head of a chord is chosen) and the Staves panel's range
+  form. MCP takes both through `edit_score`'s operations (the enum is `OPERATION_TYPES`). The text projection is unchanged.
+

@@ -23,6 +23,8 @@ const KNOWN_FIELDS: Record<OperationType, readonly string[]> = {
   'note.add': ['pitch', 'drum', 'head', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations', 'id'],
   'note.set': ['pitch', 'drum', 'head', 'duration', 'accidental', 'tie', 'spellingPinned', 'articulations'],
   'note.rm': [],
+  'note.move': ['to', 'ids'],
+  'hand.move': ['from', 'to', 'first', 'last', 'below', 'above', 'ids'],
   'rest.add': ['duration', 'id'],
   'rest.rm': [],
   'chord.set': ['text', 'spellingPinned', 'id'],
