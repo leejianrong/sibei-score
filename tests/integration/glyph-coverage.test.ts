@@ -1,5 +1,5 @@
 import { ENGRAVED_ITEM_KINDS, styleForRole } from '@sibei/engrave';
-import { everyGlyphChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
+import { navigationChart, everyGlyphChart, invalidBarChart, nastyChart } from '@sibei/fixtures';
 import type { LayoutBarItemKind, LayoutResult } from '@sibei/layout';
 import { LAYOUT_BAR_ITEM_KINDS, LAYOUT_TEXT_ROLES, layout } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -40,7 +40,9 @@ describe('the item-kind contract', () => {
   });
 
   it('is exercised end to end by the every-glyph fixture', () => {
-    const emitted = kindsEmittedBy(layout(everyGlyphChart()));
+    // The every-glyph chart, plus the navigation chart for the marks a chart carries only on request (SIB2-175):
+    // adding them to every-glyph would have moved its committed snapshot for no new coverage.
+    const emitted = new Set([...kindsEmittedBy(layout(everyGlyphChart())), ...kindsEmittedBy(layout(navigationChart()))]);
     const missing = LAYOUT_BAR_ITEM_KINDS.filter((kind) => !emitted.has(kind));
     expect(missing).toEqual([]);
   });

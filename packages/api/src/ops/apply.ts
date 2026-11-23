@@ -9,6 +9,8 @@ import {
   MIN_TEMPO,
   TEMPO_UNITS,
   LINE_BREAKS,
+  NAV_KINDS,
+  NAV_SIGNS,
   MAX_BARS_PER_SYSTEM,
   MIN_BARS_PER_SYSTEM,
   SCORE_LAYOUT_KINDS,
@@ -110,6 +112,8 @@ import type {
   BarAddPayload,
   BarlineSetPayload,
   BreakSetPayload,
+  NavSetPayload,
+  NavRmPayload,
   EndingSetPayload,
   LoggedOperation,
   NoteSetPayload,
@@ -233,6 +237,10 @@ function dispatch(score: Score | null, operation: Operation): Applied {
       return setBreak(score, operation.target, operation.payload ?? {});
     case 'break.rm':
       return removeBreak(score, operation.target);
+    case 'nav.set':
+      return setNav(score, operation.target, operation.payload);
+    case 'nav.rm':
+      return removeNav(score, operation.target, operation.payload ?? {});
     case 'fermata.set':
       return setFermata(score, operation.target, true);
     case 'fermata.rm':
@@ -1580,6 +1588,65 @@ function removeBreak(score: Score, target: string): Applied {
       return rest;
     }),
     operation: { type: 'break.rm', target },
+    changed: [bar.id],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// nav.set, nav.rm (SIB2-175)
+// ---------------------------------------------------------------------------
+
+/**
+ * Put a navigation mark on a bar (ADR-0021 amendment). A bar holds a segno and a coda and at most one jump text, so
+ * naming a second jump kind replaces the first rather than stacking two end texts. Setting a kind the bar has is a
+ * no-op that is refused, like the other structure ops, so a retry never looks like a change.
+ */
+function setNav(score: Score, target: string, payload: NavSetPayload): Applied {
+  const bar = resolveBar(score, target);
+  const kind = payload?.kind;
+  if (kind === undefined || !NAV_KINDS.includes(kind)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a navigation mark is one of ${NAV_KINDS.join(', ')}, not ${JSON.stringify(kind ?? null)}`,
+    });
+  }
+  const have = bar.nav ?? [];
+  if (have.includes(kind)) {
+    throw new OperationError({ kind: 'validation', detail: `bar ${bar.number} already has ${kind}` });
+  }
+  const kept = NAV_SIGNS.includes(kind) ? have : have.filter((k) => NAV_SIGNS.includes(k));
+  const next = NAV_KINDS.filter((k) => k === kind || kept.includes(k));
+  return {
+    score: mapBar(score, bar.id, (b) => ({ ...b, nav: next })),
+    operation: { type: 'nav.set', target, payload },
+    changed: [bar.id],
+  };
+}
+
+/** Remove one mark, or with no `kind` every mark of the bar. A bar with nothing to remove is refused. */
+function removeNav(score: Score, target: string, payload: NavRmPayload): Applied {
+  const bar = resolveBar(score, target);
+  const have = bar.nav ?? [];
+  const kind = payload.kind;
+  if (kind !== undefined && !NAV_KINDS.includes(kind)) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `a navigation mark is one of ${NAV_KINDS.join(', ')}, not ${JSON.stringify(kind)}`,
+    });
+  }
+  if (have.length === 0 || (kind !== undefined && !have.includes(kind))) {
+    throw new OperationError({
+      kind: 'validation',
+      detail: `bar ${bar.number} has ${kind === undefined ? 'no navigation mark' : kind + ' set'}, so there is nothing to remove`,
+    });
+  }
+  const left = kind === undefined ? [] : have.filter((k) => k !== kind);
+  return {
+    score: mapBar(score, bar.id, (b) => {
+      const { nav: _gone, ...rest } = b;
+      return left.length === 0 ? rest : { ...rest, nav: left };
+    }),
+    operation: { type: 'nav.rm', target, payload },
     changed: [bar.id],
   };
 }

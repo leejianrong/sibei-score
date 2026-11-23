@@ -189,6 +189,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up' && line.staff === undefined),
           ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down' && line.staff === undefined),
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
+          hasNavMark: bars.some((bar) => (bar.nav ?? []).length > 0),
           hasRehearsalMark:
             bars.some((bar) => hasMark(sectionStartingAt(score, bar.number))) ||
             // The tempo mark takes the same band as a rehearsal letter (SIB2-177).
@@ -502,6 +503,8 @@ function buildBarItems(
   if (score.meta.tempo !== undefined && bar.id === (score.bars.find((b) => b.number !== 0) ?? score.bars[0])?.id) {
     items.push({ kind: 'tempo', unit: score.meta.tempo.unit, bpm: score.meta.tempo.bpm });
   }
+
+  for (const nav of bar.nav ?? []) items.push({ kind: 'nav', nav });
 
   if (bar.ending !== null) {
     items.push({ kind: 'ending', numbers: bar.ending.numbers, role: bar.ending.role });

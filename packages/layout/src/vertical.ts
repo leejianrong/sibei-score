@@ -54,6 +54,8 @@ export const GRACE_SCALE = 0.65;
 export const GRACE_STEM_UNITS = 23;
 
 /** An ottava line sits this far past the highest or lowest note ink, and takes this much room itself (SIB2-184). */
+/** The row above the rehearsal row that holds a system's navigation marks (SIB2-175): a segno, coda or "D.S. al Coda". */
+export const NAV_BAND = 42;
 export const OTTAVA_GAP = 15;
 export const OTTAVA_BAND = 6;
 
@@ -91,6 +93,8 @@ export interface SystemVerticalInput {
   bars: BarView[];
   hasChords: boolean;
   hasRehearsalMark: boolean;
+  /** A bar of this system carries a navigation mark (SIB2-175): its row sits above everything else. */
+  hasNavMark?: boolean;
   /** Notes drawn under an ottava line, so the ink is measured where it is drawn (SIB2-184). */
   shifts?: Map<Id, OctaveShift>;
   ottavaAbove?: boolean;
@@ -195,7 +199,7 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
   const chordBand = input.hasChords ? chordBaselineOffset + spec.chordAscent : inkAbove;
   const markBand = input.hasRehearsalMark ? chordBand + spec.rehearsalBand : chordBand;
 
-  const aboveStaff = Math.max(spec.aboveStaff, markBand);
+  const aboveStaff = Math.max(spec.aboveStaff, markBand + (input.hasNavMark === true ? NAV_BAND : 0));
   const belowStaff = Math.max(spec.belowStaff, inkBelow);
 
   return {

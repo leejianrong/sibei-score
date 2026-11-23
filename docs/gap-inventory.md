@@ -89,7 +89,7 @@ so MCP can do what the ops can and nothing more; its column follows the Ops colu
 | F12 | Non-grid system breaks | P | P | P | S | - | M | M | M | `BARS_PER_SYSTEM` is 4 and a section forces a break; no way to say "five bars here" or let a section share a line |
 | F13 | Style / tempo text | S | S | P | S | M | S | M | S | One small italic line, left under the title; MusicXML drops it; the rail now has a Title block (SIB2-178) |
 | F14 | Free page text / copyright | M | M | M | M | M | M | M | M | No page-level text object |
-| F15 | Segno, coda, D.S., D.C., Fine | M | M | M | M | M | M | M | M | Excluded by ADR-0021 |
+| F15 | Segno, coda, D.S., D.C., Fine | S | S | S | S | S | S | S | S | ADR-0021 amended (SIB2-175): `Bar.nav`, `nav.set`/`nav.rm`, `<segno/>`/`<sound>` in MusicXML |
 | F16 | Rehearsal and named boxes | S | S | S | S | P | S | S | S | Closed by SIB2-176: `Section.name` draws as a second box beside the letter (or alone). MusicXML keeps the letter only |
 | F17 | Repeats | S | S | S | S | S | S | S | S | |
 | F17b | 1st / 2nd endings | S | S | S | S | S | S | S | S | |

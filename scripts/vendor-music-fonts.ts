@@ -123,6 +123,8 @@ const GLYPHS: readonly string[] = [
   'noteheadDiamondHalf',
   'noteheadDiamondWhole',
   'repeatDot',
+  'segno',
+  'coda',
   'fermataAbove',
   'fermataBelow',
   'articStaccatoAbove',

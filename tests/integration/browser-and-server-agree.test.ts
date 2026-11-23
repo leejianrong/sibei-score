@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, everyGlyphChart, fullBandChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, everyGlyphChart, fullBandChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -39,6 +39,7 @@ const FIXTURES: Record<string, () => Score> = {
   review: reviewChart,
   'long-form': longFormChart,
   'aaba-chart': aabaChart,
+  navigation: navigationChart,
   untitled: untitledChart,
   slurs: slurChart,
   marks: marksChart,

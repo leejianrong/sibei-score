@@ -16,6 +16,8 @@
 
 import {
   DRUMS,
+  NAV_SIGNS,
+  NAV_TEXT,
   TICKS_PER_QUARTER,
   annotationsOfBar,
   barViews,
@@ -40,6 +42,7 @@ import type {
   Ending,
   GraceNote,
   Interval,
+  NavKind,
   KeySignature,
   Note,
   NoteValue,
@@ -277,6 +280,10 @@ function measure(
     }
   }
 
+  // Navigation signs (SIB2-175) open the measure, above the staff; the jump texts close it, below.
+  const signs = lead ? (bar.nav ?? []).filter((kind) => NAV_SIGNS.includes(kind)) : [];
+  for (const kind of signs) children.push(navDirection(kind));
+
   // All harmonies at the top of the measure, each offset from the measure start to its onset. A
   // harmony carries no duration, so this places every chord at its beat without disturbing a note.
   for (const chord of lead ? [...bar.chords].sort((a, b) => a.onset - b.onset) : []) {
@@ -324,6 +331,8 @@ function measure(
     }
   }
 
+  for (const kind of lead ? (bar.nav ?? []).filter((k) => !NAV_SIGNS.includes(k)) : []) children.push(navDirection(kind));
+
   const right = rightBarline(bar);
   if (right !== null) children.push(right);
 
@@ -347,6 +356,28 @@ function tempoDirection(tempo: Tempo): XmlElement {
     ]),
     elem('sound', { tempo: Number(quarters.toFixed(2)) }),
   ]);
+}
+
+/**
+ * One navigation mark (SIB2-175): the sign or the printed words, with the `<sound>` a player would follow. The
+ * words carry the "al Coda" / "al Fine" part, which `<sound>` has no attribute for, so import reads both.
+ */
+function navDirection(kind: NavKind): XmlElement {
+  const sound: Record<NavKind, Record<string, string>> = {
+    segno: { segno: 'segno' },
+    coda: { coda: 'coda' },
+    'to-coda': { tocoda: 'coda' },
+    fine: { fine: 'yes' },
+    dc: { dacapo: 'yes' },
+    'dc-al-fine': { dacapo: 'yes' },
+    'dc-al-coda': { dacapo: 'yes' },
+    ds: { dalsegno: 'segno' },
+    'ds-al-fine': { dalsegno: 'segno' },
+    'ds-al-coda': { dalsegno: 'segno' },
+  };
+  const type =
+    kind === 'segno' ? elem('segno', {}) : kind === 'coda' ? elem('coda', {}) : leaf('words', NAV_TEXT[kind] ?? '');
+  return elem('direction', { placement: 'above' }, [elem('direction-type', {}, [type]), elem('sound', sound[kind])]);
 }
 
 function rehearsal(letter: string): XmlElement {
