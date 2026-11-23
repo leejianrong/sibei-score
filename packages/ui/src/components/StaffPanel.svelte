@@ -246,7 +246,7 @@
         />
         <input
           class="field"
-          aria-label={`Short name of part ${part.number}`}
+          aria-label={`Abbreviation of part ${part.number}`}
           placeholder="Short name, e.g. Pno."
           value={draftOf(part).shortName}
           oninput={(event) => setDraft(part, { shortName: (event.currentTarget as HTMLInputElement).value })}
