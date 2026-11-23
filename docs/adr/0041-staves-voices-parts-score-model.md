@@ -285,3 +285,23 @@ The editor opens and edits any staff and voice (this supersedes slice 2's "the b
   position (a rest replaced, a note added) carry `qualifierOf(score, lane)`, which is empty for a one-staff, one-voice chart
   so its ops are byte-identical to before.
 - A slur or ottava joins two notes of one lane only; the controls stay off across lanes.
+
+Second half (SIB2-240): the controls that change the shape.
+
+- **The Staves and voices panel** (`StaffPanel.svelte`, `lib/staff-edits.ts`) in the rail: the active staff and voice (a staff row,
+  a voice chip row 1-4 each, with the clef name), new staff / voice / part, remove staff / voice / part, a staff's opening clef and
+  a clef change from the selected bar, and a part's name, General MIDI program and transposition. Each is the op of the same
+  name (`staff.add`, `clef.set`, `instrument.set`, ...), addressed `p1`, `s2`, `s2.v2`, so it is the browser half of the CLI verbs
+  and one undo (ctrl-Z, by replay) takes it back.
+- **A removal that would take notes with it is not sent.** The row says so ("Remove its notes first, or remove it with its music.")
+  and only the explicit "Remove with its music" sends `force: true`; an empty staff, voice or part goes straight away. The
+  server's own refusal remains the backstop.
+- **New note / rest** (`NewItem.svelte`) sits under the bar panel: a beat, a pitch and a duration, sent as `note.add` /
+  `rest.add` at `s2.v2.bar3.beat1`, the qualifier from the clicked staff and the active voice. This is also the first browser
+  `note.add`, so a lead sheet gets it too (Q79 debt closed).
+- **Keyboard:** the bare keys `1` to `4` pick that voice of the active staff, only on a chart with more than one lane, only
+  when the key is not typed into a field or a focused control, and never with a modifier; nothing else in the score view binds a
+  bare digit, and ctrl-Z / ctrl-shift-Z are unchanged.
+- **Not drawn:** a clef change at a bar is stored and set from the panel, but the engraver draws a staff's opening clef only.
+- **Library and export rail:** the library lists title, composer and key, none of which depend on the staff count, so it is
+  unchanged; the export rail renders and exports the whole system, MusicXML per slice 5a.

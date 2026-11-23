@@ -50,7 +50,7 @@
   import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
   import type { ChordBox } from '../lib/chord-hit.js';
   import { barAt, barBoxFor, pageBarBoxes } from '../lib/bar-hit.js';
-  import { FIRST_LANE, clampLane, laneLabel, needsQualifier, notePinnedIn, qualifierOf, tupletOf } from '../lib/lanes.js';
+  import { FIRST_LANE, clampLane, laneLabel, needsQualifier, notePinnedIn, qualifierOf, staffClef, tupletOf } from '../lib/lanes.js';
   import type { Lane } from '../lib/lanes.js';
   import { renderScorePages } from '../lib/render.js';
   import { ottavaOp, ottavasOnNote, removeOttavaOp, removeSlurOp, slurOp, slursOnNote } from '../lib/slur-edits.js';
@@ -60,6 +60,10 @@
   import ChordInspector from './ChordInspector.svelte';
   import type { ChordSelection } from './ChordInspector.svelte';
   import StructureInspector from './StructureInspector.svelte';
+  import StaffPanel from './StaffPanel.svelte';
+  import NewItem from './NewItem.svelte';
+  import { newItemOp, seedPitchFor, voiceForKey } from '../lib/staff-edits.js';
+  import type { NewItem as NewItemSpec } from '../lib/staff-edits.js';
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
   import { barByNumber, barViews, beatOfOnset, sectionStartingAt } from '@sibei/model';
@@ -782,23 +786,32 @@
    * trust the response (`changed[]` names ids, not values), and deselect. A 409 is the one path that
    * does not re-read — it raises the conflict panel, and reloading is the only way out (ADR-0003).
    */
-  async function runOps(operations: Operation[]): Promise<void> {
-    if (score === null) return;
+  async function runOps(operations: Operation[]): Promise<boolean> {
+    if (score === null) return false;
     saving = true;
     saveError = null;
     try {
       await submitOps(score.id, { operations, expectedVersion: version });
       await load();
       deselect();
+      return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         conflict = true;
-        return;
+        return false;
       }
       saveError = error instanceof Error ? error.message : String(error);
+      return false;
     } finally {
       saving = false;
     }
+  }
+
+  /** Put a note or a rest at a beat of the selected bar, in the active staff and voice (slice 5b). */
+  async function handleNewItem(item: NewItemSpec): Promise<void> {
+    if (score === null || barSel === null) return;
+    const lane = { staff: barSel.staffIndex + 1, voice: activeLane.voice };
+    await runOps([newItemOp(qualifierOf(score, lane), barSel.barNumber, item)]);
   }
 
   async function handleReload(): Promise<void> {
@@ -857,6 +870,25 @@
     }
     window.addEventListener('keydown', onKeydown);
     return () => window.removeEventListener('keydown', onKeydown);
+  });
+
+  /**
+   * Keys 1 to 4 pick that voice of the active staff (slice 5b), only on a chart that has more than one lane and only
+   * when nothing else wants the key: not in a text field, not with a modifier, not over a focused control (a button
+   * or a select owns its own keys). Nothing else in the score view binds a bare digit, so a lead sheet is unaffected.
+   */
+  $effect(() => {
+    function onVoiceKey(event: KeyboardEvent): void {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (score === null || !editable || saving || !multiLane || isTextField(event.target)) return;
+      if (event.target instanceof HTMLElement && ['BUTTON', 'SELECT', 'A'].includes(event.target.tagName)) return;
+      const voice = voiceForKey(score, activeLane, event.key);
+      if (voice === null) return;
+      event.preventDefault();
+      laneChoice = { staff: activeLane.staff, voice };
+    }
+    window.addEventListener('keydown', onVoiceKey);
+    return () => window.removeEventListener('keydown', onVoiceKey);
   });
 
   /**
@@ -994,6 +1026,21 @@
           edit, not a view: the version bumps.
         </p>
       </div>
+
+      {#if editable}
+        <div class="group control-row">
+          <h3>Staves and voices</h3>
+          <StaffPanel
+            {score}
+            lane={activeLane}
+            barNumber={barSel?.barNumber ?? null}
+            {saving}
+            error={chordSelection === null && selection === null && barStructure === null ? saveError : null}
+            onops={runOps}
+            onlane={(next) => (laneChoice = next)}
+          />
+        </div>
+      {/if}
 
       <div class="group control-row">
         <h3>Title block</h3>
@@ -1324,6 +1371,15 @@
               onrmtext={(id) => void runOps([{ type: 'text.rm', target: id }])}
               ondeselect={deselect}
               onreload={handleReload}
+            />
+          {/key}
+          {#key `${barStructure.barNumber}:${barSel!.staffIndex}`}
+            <NewItem
+              barNumber={barStructure.barNumber}
+              laneText={laneLabel(score, { staff: barSel!.staffIndex + 1, voice: activeLane.voice })}
+              seedPitch={seedPitchFor(staffClef(score, barSel!.staffIndex + 1) ?? 'treble')}
+              {saving}
+              onnew={(item) => void handleNewItem(item)}
             />
           {/key}
         {:else}
