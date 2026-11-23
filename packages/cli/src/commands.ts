@@ -92,7 +92,8 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore rm <id>
   sbscore import <file>...                 OMR a photo/scan into a new chart (a draft to correct)
   sbscore import FILE.musicxml|.xml|.mxl   a MusicXML file into an editable draft (no worker; --musicxml forces it)
-  sbscore import --note-events FILE [--split-point 60|C4]   a NoteEvents v1 file from the audio engine into a draft (no worker needed);
+  sbscore import --note-events FILE... [--split-point 60|C4]   a NoteEvents v1 file from the audio engine into a draft (no worker needed);
+              several files are one stem each, imported as one multi-part score on one bar grid;
               a piano file's hands pivot on the split point (default middle C)
               (several files = one chart, pages in order (Q26); title/key/meter default, set them after)
   sbscore reparse <id> [--engine oemer|heuristic]   re-run OMR on an imported chart's kept scans
@@ -720,16 +721,18 @@ function splitPointOf(flags: Flags): number | undefined {
  * exit 2 (validation) and creates nothing. The draft's barring and doubtful notes are flagged for review.
  */
 async function importNoteEvents(paths: string[], flags: Flags, client: Client, io: Io, json: boolean, cwd: string): Promise<ExitCode> {
-  if (paths.length !== 1) {
-    throw new CliError(EXIT.usage, 'usage', 'import --note-events takes exactly one file: `sbscore import --note-events take1.json`');
+  if (paths.length === 0) {
+    throw new CliError(EXIT.usage, 'usage', 'import --note-events needs a file: `sbscore import --note-events take1.json` (several files are one stem each)');
   }
-  const path = paths[0]!;
-  let bytes: Buffer;
-  try {
-    bytes = readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
-  } catch (error) {
-    throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
-  }
+  const files = paths.map((path) => {
+    try {
+      return readFileSync(isAbsolute(path) ? path : `${cwd}/${path}`);
+    } catch (error) {
+      throw new CliError(EXIT.usage, 'input', `cannot read ${path}: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
+  });
+  // One file goes up unchanged; several are one stem each, sent as a JSON array the server checks as a set (SIB2-147).
+  const bytes = files.length === 1 ? files[0]! : Buffer.from(`[${files.map((f) => f.toString('utf8').trim()).join(',')}]`);
   const job = await client.importNoteEvents(bytes, splitPointOf(flags));
   if (job.status === 'failed') {
     throw new CliError(EXIT.validation, 'import-failed', `import failed: ${job.diagnostic ?? 'unknown error'}`);
@@ -737,7 +740,7 @@ async function importNoteEvents(paths: string[], flags: Flags, client: Client, i
   io.out(
     json
       ? JSON.stringify(job)
-      : `imported NoteEvents to ${job.scoreId} — a draft: open it, check the flagged bars and notes, set key/meter/sections` +
+      : `imported ${files.length === 1 ? 'NoteEvents' : `${files.length} NoteEvents stems`} to ${job.scoreId} — a draft: open it, check the flagged bars and notes, set key/meter/sections` +
           (job.diagnostic === null ? '' : `\n${job.diagnostic}`),
   );
   return EXIT.ok;

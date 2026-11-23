@@ -370,12 +370,15 @@ export async function submitImport(files: readonly File[]): Promise<ImportJobVie
  * unknown-version or unsupported-instrument file is a 422 whose message surfaces as the import error.
  * No OMR worker is involved, so this works on a server started without one.
  */
-export async function submitNoteEvents(file: File, splitPoint?: number): Promise<ImportJobView> {
+export async function submitNoteEvents(files: File | File[], splitPoint?: number): Promise<ImportJobView> {
   let response: Response;
   try {
+    // Several files are one stem each (SIB2-147): sent as one JSON array the server checks as a set.
+    const list = Array.isArray(files) ? files : [files];
+    const body: Blob | string = list.length === 1 ? list[0]! : `[${(await Promise.all(list.map((f) => f.text()))).map((t) => t.trim()).join(',')}]`;
     response = await fetch(splitPoint === undefined ? `${V1}/imports` : `${V1}/imports?splitPoint=${splitPoint}`, {
       method: 'POST',
-      body: file,
+      body,
       headers: { 'content-type': 'application/json', accept: 'application/json' },
     });
   } catch (cause) {

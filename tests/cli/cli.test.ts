@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from '@sibei/api';
 import { openSqliteStore } from '@sibei/api/sqlite';
 import type { Api, RequestLine, ScoreStore, WorkerClient } from '@sibei/api';
+import { fullBandChart } from '@sibei/fixtures';
 import { OMR_SCHEMA_VERSION } from '@sibei/model';
+import { scoreToStems } from '@sibei/synth';
 import type { OmrDocument } from '@sibei/model';
 import { EXIT, run } from '@sibei/cli';
 
@@ -742,6 +744,33 @@ describe('the import verb (V11)', () => {
       expect(result.code).toBe(EXIT.validation);
     }
     expect((await runImport('import', '--note-events')).code).toBe(EXIT.usage);
+  });
+
+  it('imports several NoteEvents files as the stems of one multi-part score (SIB2-147)', async () => {
+    const files = scoreToStems(fullBandChart(), { seed: 3, level: 'light' }).map((stem, i) => {
+      const path = join(dir, `stem${i}.json`);
+      writeFileSync(path, JSON.stringify(stem));
+      return path;
+    });
+    const result = await runImport('import', '--note-events', ...files);
+    expect(result.code).toBe(EXIT.ok);
+    expect(result.out).toContain('imported 4 NoteEvents stems to import-');
+    expect(result.out).toContain('piano: hand-split');
+    const id = /to (import-\S+)/.exec(result.out)![1]!;
+    const opened = json<{ score: { parts: Array<{ name: string }> } }>((await runImport('open', id, '--json')).out);
+    expect(opened.score.parts.map((p) => p.name)).toEqual(['Voice', 'Piano', 'Bass', 'Drums']);
+
+    // Stems of different recordings are refused whole, with the validation code.
+    const odd = scoreToStems(fullBandChart(), { seed: 3, level: 'light' });
+    odd[1] = { ...odd[1]!, source: { ...odd[1]!.source, sha256: 'a'.repeat(64) } };
+    const bad = odd.map((stem, i) => {
+      const path = join(dir, `odd${i}.json`);
+      writeFileSync(path, JSON.stringify(stem));
+      return path;
+    });
+    const refused = await runImport('import', '--note-events', ...bad);
+    expect(refused.code).toBe(EXIT.validation);
+    expect(refused.err).toContain('stems[1].source.sha256');
   });
 
   it('imports a MusicXML file by its extension, listing what was dropped, and refuses a bad one with exit 2 (SIB2-152)', async () => {

@@ -200,7 +200,8 @@
     importReport = null;
     const musicXml = files.length === 1 && isMusicXmlFile(files[0]!);
     // A single .json is an audio engine's NoteEvents (ADR-0040): quick, and no recogniser involved.
-    const noteEvents = files.length === 1 && isNoteEventsFile(files[0]!);
+    // Several .json files are one stem each of one recording (SIB2-147).
+    const noteEvents = files.every(isNoteEventsFile);
     // The piano hand-split pivot (SIB2-244): typed as a number or a pitch, blank for the default, used only by a NoteEvents file.
     const splitPointValue = splitText.trim() === '' || !noteEvents ? undefined : (splitPointOf(splitText) ?? undefined);
     if (noteEvents && splitText.trim() !== '' && splitPointValue === undefined) {
@@ -211,13 +212,13 @@
     importNote = musicXml
       ? 'Reading the MusicXML file…'
       : noteEvents
-      ? 'Reading the NoteEvents file…'
+      ? files.length === 1 ? 'Reading the NoteEvents file…' : `Reading ${files.length} NoteEvents stems…`
       : `Recognising ${files.length === 1 ? 'the page' : `${files.length} pages`}… this can take a minute.`;
     try {
       let job: ImportJobView = musicXml
         ? await submitMusicXml(files[0]!)
         : noteEvents
-          ? await submitNoteEvents(files[0]!, splitPointValue)
+          ? await submitNoteEvents(files, splitPointValue)
           : await submitImport(files);
       while (job.status === 'queued' || job.status === 'running') {
         await new Promise((resolve) => setTimeout(resolve, IMPORT_POLL_MS));
@@ -326,7 +327,7 @@
     class="file-picker"
     type="file"
     accept={photoImport ? 'image/png,image/jpeg,application/json,.json,.musicxml,.xml,.mxl' : 'application/json,.json,.musicxml,.xml,.mxl'}
-    multiple={photoImport}
+    multiple
     bind:this={fileInput}
     onchange={onFilesChosen}
     aria-hidden="true"
