@@ -95,22 +95,28 @@ export function intervalOfSemitones(semitones: number): Interval {
  * transposition is applied, and a reader that applied it again would be wrong. (A view has one key signature, the
  * requested instrument's, so such a part's own key is not drawn: per-part keys wait on the engraver.)
  *
- * `concert` returns the score untouched, so a caller can ask for a part unconditionally and the
+ * `concert` returns the score untouched (unless `ownParts` asks for the parts' own transpositions, SIB2-239), so a caller can ask for a part unconditionally and the
  * identity case costs nothing — and a part's own transposition is then left for the MusicXML codec, which
  * writes it as a `<transpose>`. Metric validity is a function of rhythm, which transposition does not
  * change, so the bars' review flags carry over as they are.
  */
-export function writtenPart(score: Score, instrument: PartInstrument): Score {
+export function writtenPart(score: Score, instrument: PartInstrument, options: { ownParts?: boolean } = {}): Score {
   const interval = partInterval(instrument);
-  if (interval === null) return score;
+  // `ownParts` (SIB2-239) asks the concert view for each part's own transposition: the trumpet staff is written at its
+  // own pitch, every other staff and the chord lane stay concert, and so does the one score key (the engraver draws
+  // a single key signature, so a transposing staff's accidentals are spelled for its own key and drawn against it).
+  const ownOnly = interval === null;
+  if (ownOnly && (options.ownParts !== true || score.parts.every((part) => part.transposition === 0))) return score;
 
-  const key = writtenKey(score.meta.key, interval);
+  const key = interval === null ? score.meta.key : writtenKey(score.meta.key, interval);
   const staves = new Map<string, { interval: Interval; key: KeySignature; percussion: boolean }>();
   for (const part of score.parts) {
     const own = part.transposition === 0 ? null : intervalOfSemitones(part.transposition);
+    const use = own ?? interval;
+    if (use === null) continue;
     for (const staff of part.staves) {
       staves.set(staff.id, {
-        interval: own ?? interval,
+        interval: use,
         key: own === null ? key : writtenKey(score.meta.key, own),
         percussion: staff.type === 'percussion',
       });
@@ -143,7 +149,7 @@ export function writtenPart(score: Score, instrument: PartInstrument): Score {
           ),
       // The chord lane is shared by every staff: the first pass moves it, the others carry it as it is.
       chords:
-        index === 0
+        index === 0 && interval !== null
           ? bar.chords.map((chord) => ({ ...chord, text: transposeChordText(chord.text, interval, key, chord.spellingPinned) }))
           : bar.chords,
     }));

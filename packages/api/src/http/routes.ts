@@ -9,6 +9,7 @@ import {
   EXPORT_PAPERS,
   parseExportBarNumbers,
   parseExportBlankStaves,
+  parseExportWritten,
   parseExportFont,
   parseExportPage,
   parseExportFormat,
@@ -717,6 +718,9 @@ async function exportScore(
   const blankStaves = parseExportBlankStaves(query.get('blankstaves'));
   if (blankStaves === null) return send(response, unsupported('blankstaves', query.get('blankstaves'), ['yes', 'no']));
 
+  const written = parseExportWritten(query.get('written'));
+  if (written === null) return send(response, unsupported('written', query.get('written'), ['yes', 'no']));
+
   const outcome = await context.exporter.export(context.owner, scoreId, {
     format,
     instrument,
@@ -726,6 +730,7 @@ async function exportScore(
     ...(format === 'svg' ? { page } : {}),
     barNumbers,
     blankStaves,
+    written,
   });
   if (!outcome.ok) {
     if (outcome.reason === 'no-such-page') {

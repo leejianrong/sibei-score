@@ -86,6 +86,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore export <id> [--pdf|--musicxml|--svg] [-o PATH] [--paper a4|letter] [--font normal|jazz]
               [--page-numbers[=top-right|…]] [--page-number-format n|page|of] [--page-number-first yes|no]
               [--blank-staves]   fill the rest of the last PDF page with empty staves
+              [--written]   write each transposing part at its own written pitch (the print is concert by default)
               [--no-bar-numbers]   leave the bar numbers off the PDF (they head each line by default)
               [--for bb-trumpet|bb-tenor|eb-alto|eb-bari|f-horn]
   sbscore rm <id>
@@ -178,6 +179,8 @@ Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
 Export:  --pdf (the default) or --musicxml. MusicXML is a codec at the edges (ADR-0004);
   it is lossy in known ways and ignores --paper, --font, --page-numbers, --blank-staves and --no-bar-numbers, which are page choices.
   --blank-staves fills the rest of the last PDF page with empty ruled staves to write in (off by default).
+  --written prints a part that has its own transposition (a Bb trumpet beside a concert piano) at written pitch on the
+  PDF or SVG; without it a print is the concert score (ADR-0016). MusicXML always writes the transposed part.
   --no-bar-numbers leaves the bar number off the head of each line (drawn by default).
   --svg writes each page as an SVG, the same markup the browser draws, one file per page ("Title - page 2.svg"):
   give -o a directory for a chart of several pages. There is no --png: rasterise the SVG with your own tool.
@@ -510,6 +513,8 @@ async function exportScore(
   if (numberFirst !== undefined) query.pagenumberfirst = numberFirst;
   // Empty staves to fill the last page (SIB2-181): off unless asked for.
   if (flags.switches.has('blank-staves')) query.blankstaves = 'yes';
+  // A transposing part at its own written pitch on the PDF/SVG (SIB2-239); concert unless asked.
+  if (flags.switches.has('written')) query.written = 'yes';
   // Bar numbers head each system by default; `--no-bar-numbers` leaves them out (SIB2-191).
   if (flags.switches.has('no-bar-numbers')) query.barnumbers = 'no';
 

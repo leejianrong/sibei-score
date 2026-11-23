@@ -106,6 +106,8 @@
   let numberFirst = $state(true);
   // Empty staves to fill the last page (SIB2-181): a render choice, off by default.
   let blankStaves = $state(false);
+  // Each transposing part at its own written pitch (SIB2-239): off by default (a print is concert, ADR-0016).
+  let written = $state(false);
   // Bar numbers at each system start (SIB2-191): drawn by default; a render choice like the paper.
   let barNumbers = $state(true);
   const pageNumbers = $derived<PageNumberSettings | null>(
@@ -143,13 +145,20 @@
   // export URL, but the part is a preview only: it is not the concert truth, so editing is off while
   // one is shown (a click on the written B♭ Tenor pitch would otherwise submit it as concert).
   let instrument = $state<ExportInstrument>('concert');
-  const editable = $derived(instrument === 'concert');
+  const hasTransposingPart = $derived(score !== null && score.parts.some((part) => part.transposition !== 0));
+  const editable = $derived(instrument === 'concert' && !(written && hasTransposingPart));
 
   // The score actually rendered: the stored one for the concert view, its written part otherwise.
   // `writtenPart` is a pure transform (@sibei/music), the same one the server runs before an export,
   // so the sheet on screen and the exported part are the one render (ADR-0016).
   const renderScore = $derived.by(() =>
-    score === null ? null : instrument === 'concert' ? score : writtenPart(score, instrument),
+    score === null
+      ? null
+      : instrument === 'concert'
+        ? written
+          ? writtenPart(score, 'concert', { ownParts: true })
+          : score
+        : writtenPart(score, instrument),
   );
 
   // The transpose target (V6e). Seeded to the chart's current key and snapped back to it after every
@@ -330,7 +339,7 @@
   );
   const review = $derived(score === null ? null : reviewSummary(score));
   const bars = $derived(score === null ? 0 : score.bars.filter((bar) => bar.number !== 0).length);
-  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers, blankStaves, barNumbers }));
+  const route = $derived(exportRoute({ format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers }));
   const formatLabel = $derived(FORMATS.find((f) => f.value === format)?.label ?? 'PDF');
 
   // The same font metrics `pages` above just rendered from — hit-testing calls the engraver's
@@ -1253,6 +1262,14 @@
         <p class="control-note">Drawn by default. A render choice, not stored in the chart (<code>export --no-bar-numbers</code>).</p>
       </div>
 
+      {#if hasTransposingPart}
+        <div class="group control-row">
+          <h3>Transposing parts</h3>
+          <label class="control-note"><input type="checkbox" bind:checked={written} /> Write each at its own written pitch</label>
+          <p class="control-note">The print is concert by default. A view, nothing stored (<code>export --written</code>); editing is off while it is on.</p>
+        </div>
+      {/if}
+
       <div class="group">
         <h3>Part</h3>
         <select
@@ -1289,7 +1306,7 @@
           display={(value) => FORMATS.find((f) => f.value === value)?.label ?? value}
           onselect={(chosen) => (format = chosen)}
         />
-        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, barNumbers })} download>
+        <a class="export" href={exportUrl(score.id, { format, paper, font, instrument, pageNumbers, blankStaves, written: written && hasTransposingPart, barNumbers })} download>
           Export {editable
             ? formatLabel
             : `${INSTRUMENTS.find((o) => o.value === instrument)?.label} part`}

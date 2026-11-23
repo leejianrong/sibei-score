@@ -238,6 +238,7 @@ export interface ExportQuery {
   barnumbers?: string;
   /** `yes` fills the last page with empty staves (SIB2-181). */
   blankstaves?: string;
+  written?: string;
 }
 
 /** Bytes off the wire, plus what the server called them. */
