@@ -15,10 +15,11 @@
  *   stable and does not flip note by note), how wide a hand would have to reach (an octave and a third, 16
  *   semitones, is free; beyond it costs heavily), whether it would cross the other hand's still-sounding notes, and a
  *   mild pull toward the split point (middle C by default) that is what decides the first notes of a piece.
- * - **Voices.** A voice holds one item per onset (stacked chords, SIB2-243, are a later change here), so the notes a hand plays at once are
- *   spread over its voices, highest first (voice 1 stems up, voice 2 down...), and a note that starts while another
- *   still sounds takes the next free voice. A chord of three is therefore three voices on that staff; the model has
- *   no stacked chord, which is the named imperfection. A fifth simultaneous note on a staff is dropped, with a warning.
+ * - **Voices.** Notes a hand strikes together and releases together are one **stacked chord** (SIB2-243, ADR-0041): one
+ *   item in one voice carrying all its pitches. The chords and lines a hand plays are spread over its voices, highest
+ *   first (voice 1 stems up, voice 2 down...), and a chord or note that starts while another still sounds takes the
+ *   next free voice, so a melody over a held chord is two voices and a chord of three is one. A fifth simultaneous
+ *   line (not a fifth tone) on a staff is dropped, with a warning; a chord keeps at most ten pitches.
  * - **Barring** is the beat grid's: a pickup when notes precede the first downbeat, bar 1 flagged when the barring is
  *   a guess, notes tied across bar lines, rests filling every gap in every voice used in the bar.
  * - **Review.** Every note under the confidence floor, one a warning points at, or one the quantizer shortened is
@@ -31,6 +32,7 @@
 import { makeBar, makeNote, makeRest } from './build.js';
 import { makeStaffedScore } from './build-staves.js';
 import type { VoiceInit } from './build-staves.js';
+import { MAX_CHORD_TONES } from './chord-notes.js';
 import { durationTicks } from './duration.js';
 import type { NoteEvents } from './note-events.js';
 import { NOTE_CONFIDENCE_FLOOR, inferKey, splitTicks } from './note-events-map.js';
@@ -39,7 +41,7 @@ import { restPieces } from './note-events-drums.js';
 import { GRID_TICKS, beatGrid, onsetBias, snap } from './note-events-quantize.js';
 import type { QuantizedItem, QuantizeWarning } from './note-events-quantize.js';
 import { spellPitchAt } from './spelling.js';
-import type { BarItem, KeySignature, Review, Score } from './score.js';
+import type { BarItem, KeySignature, Review, Score, StackedNote } from './score.js';
 
 /** Middle C: the default pivot between the hands. */
 export const DEFAULT_SPLIT_POINT = 60;
@@ -144,6 +146,8 @@ export function mapPianoEventsToScore(events: NoteEvents, options: NoteEventsMap
   for (const hand of [1, 2] as const) {
     for (const id of assignVoices(placed.filter((p) => p.hand === hand), warnings)) shortened.add(id);
   }
+  // A chord keeps at most ten pitches (a hand has five fingers; ten is the model's own bound).
+  for (const p of capChords(placed, warnings)) p.voice = 0;
   // A note the voices could not hold is gone (voice 0).
   const kept = placed.filter((p) => p.voice > 0);
   for (const p of kept) if (shortened.has(p.id)) p.unsure = true;
@@ -230,7 +234,14 @@ function voiceItems(
       at += durationTicks(duration);
     }
   };
-  for (const p of [...notes].sort((a, b) => a.start - b.start)) {
+  // Notes struck and released together are one chord: a voice never holds two units at one start, so a start (and end)
+  // groups exactly the pitches of one chord. The highest pitch carries the item, the rest are its stack (SIB2-243).
+  const units = new Map<string, PianoNote[]>();
+  for (const p of [...notes].sort((a, b) => a.start - b.start || b.midi - a.midi || cmp(a.id, b.id))) {
+    units.set(`${p.start}:${p.end}`, [...(units.get(`${p.start}:${p.end}`) ?? []), p]);
+  }
+  for (const unit of units.values()) {
+    const p = unit[0]!;
     const from = Math.max(p.start, span.start);
     const to = Math.min(p.end, spanEnd);
     const onset = from - span.start;
@@ -240,18 +251,29 @@ function voiceItems(
     pieces.forEach((duration, i) => {
       const continues = i < pieces.length - 1 || p.end > spanEnd;
       const follows = i > 0 || p.start < span.start;
+      const tie = continues ? (follows ? 'both' : 'start') : follows ? 'stop' : 'none';
       notesMade += 1;
-      items.push(
-        makeNote({
-          id: `note-${idPart}-${notesMade}`,
-          onset: at,
-          duration,
-          pitch: spellPitchAt(p.midi, key),
-          tie: continues ? (follows ? 'both' : 'start') : follows ? 'stop' : 'none',
-          confidence: p.confidence,
-          ...(flagged.has(p.id) ? { review: flag() } : {}),
-        }),
-      );
+      const note = makeNote({
+        id: `note-${idPart}-${notesMade}`,
+        onset: at,
+        duration,
+        pitch: spellPitchAt(p.midi, key),
+        tie,
+        confidence: Math.min(...unit.map((u) => u.confidence)),
+        ...(unit.some((u) => flagged.has(u.id)) ? { review: flag() } : {}),
+      });
+      if (unit.length > 1) {
+        note.stack = unit.slice(1).map(
+          (other, k): StackedNote => ({
+            id: `note-${idPart}-${notesMade}-${k + 1}`,
+            pitch: spellPitchAt(other.midi, key),
+            accidental: 'auto',
+            tie,
+            spellingPinned: false,
+          }),
+        );
+      }
+      items.push(note);
       at += durationTicks(duration);
     });
     cursor = to - span.start;
@@ -394,8 +416,15 @@ function handCost(
  */
 function assignVoices(hand: PianoNote[], warnings: QuantizeWarning[]): string[] {
   const cut: string[] = [];
-  const holding: Array<PianoNote | null> = Array.from({ length: MAX_VOICES }, () => null);
-  const ordered = [...hand].sort((a, b) => a.start - b.start || b.midi - a.midi || cmp(a.id, b.id));
+  // A unit is the notes struck and released together (a chord, or a single note): it takes one voice.
+  const byKey = new Map<string, PianoNote[]>();
+  for (const n of hand) byKey.set(`${n.start}:${n.end}`, [...(byKey.get(`${n.start}:${n.end}`) ?? []), n]);
+  const units = [...byKey.values()].map((members) => {
+    const sorted = [...members].sort((a, b) => b.midi - a.midi || cmp(a.id, b.id));
+    return { members: sorted, top: sorted[0]!, start: sorted[0]!.start, end: sorted[0]!.end };
+  });
+  const holding: Array<(typeof units)[number] | null> = Array.from({ length: MAX_VOICES }, () => null);
+  const ordered = units.sort((a, b) => a.start - b.start || b.top.midi - a.top.midi || cmp(a.top.id, b.top.id));
   for (const n of ordered) {
     let free = holding.findIndex((h) => h === null || h.end <= n.start);
     if (free < 0) {
@@ -405,23 +434,48 @@ function assignVoices(hand: PianoNote[], warnings: QuantizeWarning[]): string[] 
         if (h !== null && h.start < n.start && (soonest < 0 || h.end < holding[soonest]!.end)) soonest = i;
       });
       if (soonest < 0) {
-        n.voice = 0;
+        for (const member of n.members) member.voice = 0;
         warnings.push({
           code: 'dropped-note',
-          message: `note ${n.id} was a fifth voice at one moment on one hand; dropped`,
-          timeS: n.t,
-          noteId: n.id,
+          message: `note ${n.top.id} was a fifth voice at one moment on one hand; dropped`,
+          timeS: n.top.t,
+          noteId: n.top.id,
         });
         continue;
       }
       const victim = holding[soonest]!;
-      warnings.push({ code: 'overlap', message: `note ${victim.id} overlaps ${n.id}; shortened`, timeS: n.t, noteId: victim.id });
+      warnings.push({ code: 'overlap', message: `note ${victim.top.id} overlaps ${n.top.id}; shortened`, timeS: n.top.t, noteId: victim.top.id });
       victim.end = n.start;
-      cut.push(victim.id);
+      for (const member of victim.members) {
+        member.end = n.start;
+        cut.push(member.id);
+      }
       free = soonest;
     }
     holding[free] = n;
-    n.voice = free + 1;
+    for (const member of n.members) member.voice = free + 1;
   }
   return cut;
+}
+
+/** The notes past a chord's tenth pitch (lowest first to go is wrong: the top and bottom matter most, so the middle goes). */
+function capChords(notes: readonly PianoNote[], warnings: QuantizeWarning[]): PianoNote[] {
+  const byKey = new Map<string, PianoNote[]>();
+  for (const n of notes) {
+    if (n.voice === 0) continue;
+    const key = `${n.hand}:${n.voice}:${n.start}:${n.end}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), n]);
+  }
+  const dropped: PianoNote[] = [];
+  for (const unit of byKey.values()) {
+    if (unit.length <= MAX_CHORD_TONES) continue;
+    const sorted = [...unit].sort((a, b) => b.midi - a.midi);
+    const keep = new Set([...sorted.slice(0, 5), ...sorted.slice(-(MAX_CHORD_TONES - 5))]);
+    for (const n of sorted) {
+      if (keep.has(n)) continue;
+      dropped.push(n);
+      warnings.push({ code: 'dropped-note', message: `note ${n.id} was an eleventh pitch of one chord; dropped`, timeS: n.t, noteId: n.id });
+    }
+  }
+  return dropped;
 }

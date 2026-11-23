@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allStaves, mapNoteEventsToScore, parseNoteEvents, pitchToMidi, scoreMetrics } from '@sibei/model';
+import { allStaves, chordTones, mapNoteEventsToScore, parseNoteEvents, pitchToMidi, scoreMetrics } from '@sibei/model';
 import type { Note, NoteEvents, Score } from '@sibei/model';
 import { scoreToMusicXml } from '@sibei/codec';
 import { renderScoreToSvg } from '@sibei/pdf';
@@ -35,7 +35,9 @@ const map = (events: NoteEvents): Score => mapNoteEventsToScore(events, { id: 'i
 function notesOf(score: Score, staff: 1 | 2, bar: number): Note[] {
   return allStaves(score)[staff - 1]!.bars[bar - 1]!.voices.flatMap((v) => v.items.filter((i): i is Note => i.kind === 'note'));
 }
-const midis = (notes: Note[]): number[] => notes.map((n) => pitchToMidi(n.pitch)).sort((a, b) => a - b);
+/** Every struck pitch of the notes, a stacked chord's included, low to high. */
+const midis = (notes: Note[]): number[] =>
+  notes.flatMap((n) => chordTones(n).map((tone) => pitchToMidi(tone.pitch))).sort((a, b) => a - b);
 
 describe('mapNoteEventsToScore for piano', () => {
   // Right hand: C5 E5 G5 C6 in quarters; left hand: C3 G3 in halves. Four bars of the same.
@@ -78,10 +80,13 @@ describe('mapNoteEventsToScore for piano', () => {
     const chord = map(piano([[0, 1920, 60], [0, 1920, 64], [0, 1920, 67]], { bars: 1 }));
     expect(midis(notesOf(chord, 1, 1))).toEqual([60, 64, 67]);
     expect(notesOf(chord, 2, 1)).toHaveLength(0);
-    // The three notes are three voices of the staff, the top note in voice 1 (the model has no stacked chord).
+    // The three notes are one stacked chord in one voice (SIB2-243), the top note carrying it.
     const voices = allStaves(chord)[0]!.bars[0]!.voices;
-    expect(voices.map((v) => v.items.filter((i) => i.kind === 'note').length)).toEqual([1, 1, 1]);
-    expect((voices[0]!.items[0] as Note).pitch).toMatchObject({ step: 'G', octave: 4 });
+    expect(voices).toHaveLength(1);
+    const item = voices[0]!.items[0] as Note;
+    expect(item.pitch).toMatchObject({ step: 'G', octave: 4 });
+    expect(chordTones(item).map((tone) => pitchToMidi(tone.pitch))).toEqual([60, 64, 67]);
+    expect(voices[0]!.items.filter((i) => i.kind === 'note')).toHaveLength(1);
   });
 
   it('splits a chord too wide for one hand between the hands', () => {
@@ -123,6 +128,23 @@ describe('mapNoteEventsToScore for piano', () => {
     expect(midis(voices[1]!.items.filter((i): i is Note => i.kind === 'note'))).toEqual([65, 67]);
     expect(scoreMetrics(two).every((m) => m.valid)).toBe(true);
     expect(notesOf(two, 2, 1)).toHaveLength(0);
+  });
+
+  it('writes a melody over a held chord as two voices, the chord one stacked item (SIB2-243)', () => {
+    const both = map(piano([[0, 1920, 60], [0, 1920, 64], [0, 1920, 67], [0, 480, 76], [480, 480, 77], [960, 480, 79], [1440, 480, 77]], { bars: 1 }));
+    const voices = allStaves(both)[0]!.bars[0]!.voices;
+    expect(voices).toHaveLength(2);
+    const chord = voices.flatMap((v) => v.items).find((i): i is Note => i.kind === 'note' && i.stack !== undefined);
+    expect(chord === undefined ? [] : chordTones(chord).map((t) => pitchToMidi(t.pitch))).toEqual([60, 64, 67]);
+    expect(scoreMetrics(both).every((m) => m.valid)).toBe(true);
+  });
+
+  it('ties every pitch of a chord across a bar line', () => {
+    const tied = map(piano([[1440, 960, 60], [1440, 960, 64], [1440, 960, 67], [0, 1440, 72]], { bars: 2 }));
+    const first = notesOf(tied, 1, 1).find((n) => n.stack !== undefined)!;
+    const second = notesOf(tied, 1, 2)[0]!;
+    expect(chordTones(first).map((t) => t.tie)).toEqual(['start', 'start', 'start']);
+    expect(chordTones(second).map((t) => t.tie)).toEqual(['stop', 'stop', 'stop']);
   });
 
   it('ties a note across a bar line in its own voice', () => {
