@@ -72,30 +72,37 @@ export function noteShifts(font: MusicFont, context: VoiceContext): Map<Id, Voic
   if (voicesWithMusic(voices) < 2) return shifts;
   const mine = stemsOf(voice, voices);
   const positionOf = (note: NoteItem): number => staffPositionIn(writtenPitch(note.pitch, note.ottava), clef);
+  // A stacked chord (SIB2-243) collides by any of its pitches, so each pitch is a position of its own.
+  const positionsOf = (note: NoteItem): number[] => [
+    positionOf(note),
+    ...(note.tones ?? []).map((tone) => staffPositionIn(writtenPitch(tone.pitch, note.ottava), clef)),
+  ];
 
   for (const note of notesOf(voice)) {
-    const position = positionOf(note);
     let dx = 0;
     for (const other of voices) {
       if (other.index >= voice.index || !hasMusic(other)) continue;
       const theirs = stemsOf(other, voices);
       for (const against of notesOf(other)) {
         if (against.onset !== note.onset) continue;
-        const there = positionOf(against);
         const width = font.width(noteheadFor(against.duration));
-        let collides: boolean;
-        if (theirs === mine) {
-          // Two up voices (1 and 3) or two down: heads on one line or adjacent ones.
-          collides = Math.abs(there - position) <= 1;
-        } else {
-          // Opposite stems: the down voice's head should sit lower. A unison or second, or a crossing, collides.
-          const up = mine === 'up' ? position : there;
-          const down = mine === 'up' ? there : position;
-          collides = down - up <= 1;
+        for (const position of positionsOf(note)) {
+          for (const there of positionsOf(against)) {
+            let collides: boolean;
+            if (theirs === mine) {
+              // Two up voices (1 and 3) or two down: heads on one line or adjacent ones.
+              collides = Math.abs(there - position) <= 1;
+            } else {
+              // Opposite stems: the down voice's head should sit lower. A unison or second, or a crossing, collides.
+              const up = mine === 'up' ? position : there;
+              const down = mine === 'up' ? there : position;
+              collides = down - up <= 1;
+            }
+            // A unison of the same head shares it: nothing to move.
+            const shared = there === position && noteheadFor(against.duration) === noteheadFor(note.duration);
+            if (collides && !shared) dx = Math.max(dx, width);
+          }
         }
-        // A unison of the same head shares it: nothing to move.
-        const shared = there === position && noteheadFor(against.duration) === noteheadFor(note.duration);
-        if (collides && !shared) dx = Math.max(dx, width);
       }
     }
     if (dx > 0) shifts.set(note.noteId, { dx });
