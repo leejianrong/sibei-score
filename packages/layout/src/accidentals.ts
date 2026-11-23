@@ -1,4 +1,5 @@
-import type { Alter, BarView, KeySignature, Note } from '@sibei/model';
+import type { AccidentalDisplay, Alter, BarView, KeySignature, Pitch, TieRole } from '@sibei/model';
+import { chordTones } from '@sibei/model';
 import { keySignatureAccidentals } from '@sibei/model';
 
 /**
@@ -10,11 +11,18 @@ import { keySignatureAccidentals } from '@sibei/model';
  * far; and the far end of a tie does not repeat it.
  */
 
-export interface AccidentalState {
-  resolve(note: Note): Alter | null;
+/** What an accidental depends on: a note, or one pitch of a stacked chord. */
+export interface Pitched {
+  pitch: Pitch;
+  accidental: AccidentalDisplay;
+  tie: TieRole;
 }
 
-function stateKey(note: Note): string {
+export interface AccidentalState {
+  resolve(note: Pitched): Alter | null;
+}
+
+function stateKey(note: Pitched): string {
   return `${note.pitch.step}${note.pitch.octave}`;
 }
 
@@ -37,13 +45,21 @@ export function barAccidentalState(key: KeySignature): AccidentalState {
   };
 }
 
-/** Accidentals for one bar, keyed by note id. */
+/**
+ * Accidentals for one bar, keyed by note id — and, for a stacked chord, by each of its pitches' own ids too, resolved
+ * low to high so that the same line or space inside one chord is spoken once (SIB2-243).
+ */
 export function resolveBarAccidentals(bar: BarView, key: KeySignature): Map<string, Alter | null> {
   const state = barAccidentalState(key);
   const result = new Map<string, Alter | null>();
   const ordered = [...bar.items].sort((a, b) => a.onset - b.onset);
   for (const item of ordered) {
-    if (item.kind === 'note') result.set(item.id, state.resolve(item));
+    if (item.kind !== 'note') continue;
+    if (item.stack === undefined || item.stack.length === 0) {
+      result.set(item.id, state.resolve(item));
+      continue;
+    }
+    for (const tone of chordTones(item)) result.set(tone.id, state.resolve(tone));
   }
   return result;
 }
@@ -54,7 +70,7 @@ export function resolveBarAccidentals(bar: BarView, key: KeySignature): Map<stri
  * state and does not change it: the principal note resolves its own accidental as if the graces were not there, so
  * a grace sharp before a sharp principal draws both, which is the safe reading.
  */
-export function graceAccidentals(note: Note, key: KeySignature): (Alter | null)[] {
+export function graceAccidentals(note: import('@sibei/model').Note, key: KeySignature): (Alter | null)[] {
   const fromKey = keySignatureAccidentals(key);
   const seen = new Map<string, Alter>();
   return (note.graces ?? []).map((grace) => {

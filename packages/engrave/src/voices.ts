@@ -84,7 +84,7 @@ export function stemMerges(
   const third = voices.find((voice) => voice.index === 3);
   if (first === undefined || third === undefined || voicesWithMusic(voices) < 2) return merges;
   const mergeable = (note: NoteItem): boolean =>
-    note.duration.value >= 2 && note.duration.value < 8 && note.tupletId === null && !flips.has(note.noteId);
+    note.duration.value >= 2 && note.duration.value < 8 && note.tupletId === null && !flips.has(note.noteId) && note.tones === undefined;
   const positionOf = (note: NoteItem): number => staffPositionIn(writtenPitch(note.pitch, note.ottava), clef);
   for (const b of notesOf(third)) {
     const a = notesOf(first).find((note) => note.onset === b.onset);
@@ -138,9 +138,13 @@ export function noteShifts(font: MusicFont, context: VoiceContext): Map<Id, Voic
   const turned = (note: NoteItem, numbered: 'up' | 'down' | 'auto'): 'up' | 'down' | 'auto' =>
     numbered !== 'auto' && flips.has(note.noteId) ? (numbered === 'up' ? 'down' : 'up') : numbered;
   const positionOf = (note: NoteItem): number => staffPositionIn(writtenPitch(note.pitch, note.ottava), clef);
+  // A stacked chord (SIB2-243) collides by any of its pitches, so each pitch is a position of its own.
+  const positionsOf = (note: NoteItem): number[] => [
+    positionOf(note),
+    ...(note.tones ?? []).map((tone) => staffPositionIn(writtenPitch(tone.pitch, note.ottava), clef)),
+  ];
 
   for (const note of notesOf(voice)) {
-    const position = positionOf(note);
     const mine = turned(note, stemsOf(voice, voices));
     // One chord on one stem: the upper head of a second sits right of it, whichever voice it is in (`stemMerges`).
     const merge = context.merges?.get(note.noteId);
@@ -152,21 +156,24 @@ export function noteShifts(font: MusicFont, context: VoiceContext): Map<Id, Voic
         // The partner of a merged chord is not a collision: it shares the stem.
         if (merge !== undefined && merge.partner === against.noteId) continue;
         const theirs = turned(against, stemsOf(other, voices));
-        const there = positionOf(against);
         const width = font.width(noteheadFor(against.duration));
-        let collides: boolean;
-        if (theirs === mine) {
-          // Two up voices (1 and 3) or two down: heads on one line or adjacent ones.
-          collides = Math.abs(there - position) <= 1;
-        } else {
-          // Opposite stems: the down voice's head should sit lower. A unison or second, or a crossing, collides.
-          const up = mine === 'up' ? position : there;
-          const down = mine === 'up' ? there : position;
-          collides = down - up <= 1;
+        for (const position of positionsOf(note)) {
+          for (const there of positionsOf(against)) {
+            let collides: boolean;
+            if (theirs === mine) {
+              // Two up voices (1 and 3) or two down: heads on one line or adjacent ones.
+              collides = Math.abs(there - position) <= 1;
+            } else {
+              // Opposite stems: the down voice's head should sit lower. A unison or second, or a crossing, collides.
+              const up = mine === 'up' ? position : there;
+              const down = mine === 'up' ? there : position;
+              collides = down - up <= 1;
+            }
+            // A unison of the same head shares it: nothing to move.
+            const shared = there === position && noteheadFor(against.duration) === noteheadFor(note.duration);
+            if (collides && !shared) dx = Math.max(dx, width);
+          }
         }
-        // A unison of the same head shares it: nothing to move.
-        const shared = there === position && noteheadFor(against.duration) === noteheadFor(note.duration);
-        if (collides && !shared) dx = Math.max(dx, width);
       }
     }
     if (dx > 0) shifts.set(note.noteId, { dx });

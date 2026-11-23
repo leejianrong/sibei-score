@@ -41,6 +41,11 @@ export interface TieEnd {
   stemTipY?: number | null;
   /** The stem's centre x, or null with no stem. */
   stemX?: number | null;
+  /**
+   * A pitch of a stacked chord says which way its own tie arcs (SIB2-243): the upper pitches up and the lower down, so
+   * a tie never crosses the heads between it and the chord's edge. Absent for a lone note, which arcs away from its stem.
+   */
+  tieUp?: boolean;
 }
 
 export interface TieSpec {
@@ -61,7 +66,7 @@ export function tie(font: MusicFont, spec: TieSpec): SvgElement | null {
 
   // Away from the stems. Both ends agree in a single voice; if they disagree across a
   // system break, the note that starts the tie decides.
-  const up = (anchor.stem ?? 'down') === 'down';
+  const up = anchor.tieUp ?? (anchor.stem ?? 'down') === 'down';
   const direction = up ? -1 : 1;
 
   const startX =

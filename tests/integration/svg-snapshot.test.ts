@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, clefsAndKeysChart, everyGlyphChart, fullBandChart, grandStaffChart, leadBassChart, longFormChart, staffFurnitureChart, twoVoiceChart, voiceCollisionsChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import type { Score } from '@sibei/model';
 import { renderScoreToSvg } from '@sibei/pdf';
 import { describe, expect, it } from 'vitest';
@@ -77,6 +77,12 @@ describe('rendered SVG', () => {
     // SIB2-183: fermatas over a low note, a high one, a rest and a whole note, with the chord band
     // lifted to clear them. Articulations (SIB2-179) join this fixture.
     snapshotScore(marksChart(), 'marks');
+  });
+
+  it('matches the committed snapshot for the stacked-chords charts', () => {
+    // SIB2-243: triads, seconds, accidental columns, ledger lines, dots, beamed and tied chords; and a grand staff with chords.
+    snapshotScore(stackedChordsChart(), 'stacked-chords');
+    snapshotScore(pianoChordsChart(), 'piano-chords');
   });
 
   it('matches the committed snapshot for the grace-notes chart', () => {

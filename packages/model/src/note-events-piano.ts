@@ -15,7 +15,7 @@
  *   stable and does not flip note by note), how wide a hand would have to reach (an octave and a third, 16
  *   semitones, is free; beyond it costs heavily), whether it would cross the other hand's still-sounding notes, and a
  *   mild pull toward the split point (middle C by default) that is what decides the first notes of a piece.
- * - **Voices.** A voice holds one item per onset (ADR-0041: no chord notes), so the notes a hand plays at once are
+ * - **Voices.** A voice holds one item per onset (stacked chords, SIB2-243, are a later change here), so the notes a hand plays at once are
  *   spread over its voices, highest first (voice 1 stems up, voice 2 down...), and a note that starts while another
  *   still sounds takes the next free voice. A chord of three is therefore three voices on that staff; the model has
  *   no stacked chord, which is the named imperfection. A fifth simultaneous note on a staff is dropped, with a warning.

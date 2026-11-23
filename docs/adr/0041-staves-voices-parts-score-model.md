@@ -373,3 +373,82 @@ notes, how drum charts write a hat with a snare) as separate voices beside the f
 filled with rests, where slice 5a dropped them. A file with a drum staff but no usable instruments reads as the older
 one-line staff at the file's own display pitch. Still lossy: stems and beams as the file draws them, a drum's own
 `<notehead-text>`, instruments with no drum in the map (kept as plain hits).
+
+## As built: stacked chords (SIB2-243)
+
+A voice held one note-or-rest per onset, so a piano chord, a guitar chord or a block voicing was one **voice per tone**
+(the piano importer does this and flags it), which engraves as separate stemmed lines, spends the four-voice limit and
+is not how any notation program or MusicXML (`<chord/>`) works. A stacked chord is several simultaneous pitches sharing
+one stem, one duration and one beam position, in one voice.
+
+**Decision: a note carries the extra pitches** (`Note.stack?: StackedNote[]`, optional-and-absent, never `[]`). A
+`StackedNote` is `{ id, pitch, accidental, tie, spellingPinned }`: exactly what is per-note in notation. The carrying
+note's own `pitch` is one member of the chord. Everything per-chord (`onset`, `duration`, `articulations`, `fermata`,
+`graces`, tuplet membership, `review`, `confidence`) stays on the carrying note. **No migration** (ADR-0028): a stored
+document without `stack` means a lone note, which is every document that exists, and no stored document changes shape, so
+`SCHEMA_VERSION` stays 4. Old op logs replay unchanged because the only new behaviour is a `note.add` onto an onset that was
+refused before.
+
+Alternatives rejected:
+
+- **(b) a `ChordItem { notes[] }` in `Voice.items`** is the cleaner shape on paper, but it changes `BarItem` for every
+  consumer at once (layout, engraver, codec, projection, hit-testing, the importers), needs a v5 migration of every
+  stored voice, rewrites every note id into a child, and puts the whole single-note path at risk for a feature most
+  charts never use. The chord-as-attribute design keeps every `Voice.items` consumer correct without edits.
+- **(a) a membership field on separate sibling notes** (several `Note` items at one onset, joined by a `chordWith` id)
+  keeps ids flat, but then every consumer that sums or counts items (metric validity, the `nK` ordinals, tuplets, beams,
+  the width model) must learn to skip the followers, and an old reader sees overlapping notes in one voice, which ADR-0013
+  would flag as an over-full bar. A dropped follower silently becomes a second note at the same time.
+- **(c) infer chords from overlap** (two notes at one onset in a voice are a chord) would change the meaning of stored
+  documents that already hold such a bar, and needs a migration for a meaning change (ADR-0028); the stored ones are
+  invalid bars today and must stay flagged, not become chords.
+
+**Consequences, in the order they were decided.**
+
+- **One item per onset still holds**, so metric validity counts a chord once (ADR-0013), `nK` ordinals are unchanged,
+  and tuplets, slurs, graces and fermatas attach to the carrying note's id, the chord as a whole. Ties, accidentals
+  and spelling pins are per pitch (`StackedNote`), which is how MusicXML and notation programs treat them.
+- **Ids.** A stack member has its own stable id (prefix `note-`), listed by `idsOf` and so by `nextId`. Removing the
+  carrying note's own pitch promotes the lowest remaining stack member into it: the item keeps its id (so slurs,
+  tuplets and addresses survive) and the promoted member's own id retires. That is the one id loss, and it only happens
+  on an explicit `note rm` of the carrying pitch.
+- **Addressing (ADR-0007).** `bar12.n3` is the whole chord, as it always was. One pitch is `bar12.n3.Eb5`: the written
+  pitch (case-insensitive, as printed by `show`), which a chord never holds twice, so it is strict and unambiguous and does
+  not shift when other pitches are added or removed; a stack member's id (`note-9`) also resolves to that pitch. A pitch
+  the chord does not have is an error listing the ones it has. `Resolved.tone` carries the pitch.
+- **Ops.** `note.add` onto an onset that a **note** holds in the same voice adds a pitch to its chord; the duration must equal the
+  chord's, the pitch must be new, at most ten pitches, no drum (percussion keeps voices), and articulations are refused
+  (they belong to the chord: `note set bar12.n3`). A rest, or a note in another voice, is still refused as before.
+  `note set bar12.n3.Eb5` changes that pitch's `pitch`, `accidental`, `tie`, `spellingPinned`; `duration`, `head`,
+  `drum` and `articulations` are chord-level and refused there with a message that names the chord's address.
+  `note set bar12.n3 --dur` therefore moves every member. `note rm bar12.n3.Eb5` removes one pitch; `note rm bar12.n3`
+  removes the whole chord, as it always did. "Unchord" needs no verb: `note rm` the pitch, `note add` it in another voice.
+- **Transposition** (`transpose`, `writtenPart`) moves every pitch through `mapTones`, honouring each pitch's own pin.
+- **Projection.** A chord prints low to high in brackets with its ties per pitch: `n1 [c4 ~e4~ g4]/4`. A bar with no
+  chord prints byte-identically to before.
+- **Build order.** PR 1: model, ops, CLI addressing and projection (this section). PR 2: layout and engraver (one stem,
+  displaced seconds, accidental columns, ledger lines). PR 3: MusicXML `<chord/>` both ways, replacing the
+  "chord tones are dropped with a warning" lossy case. PR 4: the NoteEvents piano importer. PR 5: the browser editor.
+  Until PR 2 lands the engraver draws only the carrying note's pitch.
+
+**PR 2 as built (SIB2-246): layout and the engraver.**
+
+- **Layout** hands the engraver one `NoteItem` per chord with `tones?: ToneItem[]` (the other pitches, each with its id, the
+  accidental glyph resolved against the key and the bar, its display and its own tie role); a lone note has no `tones` key, so
+  every single-note chart lays out as it did. Accidentals are resolved low to high within the chord. Ties pair **per pitch**
+  (`planTies`): a pitch pairs with a later pitch of the same sound and a tie names the pitch's own id; lone notes pair as before.
+  Staff ink (`staffInk`) reaches from the highest head to the lowest, and the stem direction there matches the engraver's
+  (the head furthest from the middle line decides, a tie goes down). Bar width estimates add accidental columns (at most three)
+  and one notehead when two heads are a second apart.
+- **The engraver** (`engrave/src/chords.ts` is the pure geometry; `engraveChord`/`chordInk` in `engrave.ts` the ink): one stem
+  from the head at the far end to the head on the stem's side (`StemInput.attachPosition`), so beams and flags measure from the
+  stem-side head exactly as for a lone note; heads a second or unison apart cross the stem (walking from the stem's attached end,
+  the second met moves, and the next head is free again); accidentals go in columns left of the whole chord, nearest column
+  first, an accidental taking the nearest column where it is a seventh (six half spaces) clear of those already there; ledger
+  lines are one rule per line spanning every head that needs it; dots sit right of the rightmost head, one row per space; marks
+  go on the head side (the chord's far end from the stem) and fermatas over its highest head; each pitch registers its own tie
+  anchor, and its tie arcs up for the chord's upper half and down for the lower (`TieEnd.tieUp`).
+- **Not done here, and deliberate:** a stacked chord moves as a whole against another voice (each of its pitches counts in `noteShifts`, but the chord's own heads do not re-pack); clef-change
+  and percussion staves never stack (a note on a percussion staff refuses a stack).
+- Proofed with `pnpm proof stacked-chords` and `pnpm proof piano-chords` (new fixtures, committed snapshots); no existing
+  snapshot moved and the browser/server byte-identity test covers both new fixtures.

@@ -40,6 +40,7 @@ export function idsOf(score: Score): Id[] {
     ids.push(bar.id);
     for (const item of bar.items) {
       ids.push(item.id);
+      if (item.kind === 'note') for (const tone of item.stack ?? []) ids.push(tone.id);
       if (item.kind === 'note') for (const grace of item.graces ?? []) ids.push(grace.id);
     }
     for (const tuplet of bar.tuplets) ids.push(tuplet.id);
@@ -57,6 +58,7 @@ export function idsOf(score: Score): Id[] {
           if (staff === primary && voice.index === FIRST_VOICE) continue;
           for (const item of voice.items) {
             ids.push(item.id);
+            if (item.kind === 'note') for (const tone of item.stack ?? []) ids.push(tone.id);
             if (item.kind === 'note') for (const grace of item.graces ?? []) ids.push(grace.id);
           }
           for (const tuplet of voice.tuplets) ids.push(tuplet.id);

@@ -1,4 +1,4 @@
-import { barViews, transposePitch, transposeSpelling, voiceSelects, withBarViews } from '@sibei/model';
+import { barViews, mapTones, transposePitch, transposeSpelling, voiceSelects, withBarViews } from '@sibei/model';
 import type { Interval, KeySignature, Score } from '@sibei/model';
 import { transposeChordText } from './transpose.js';
 
@@ -134,8 +134,7 @@ export function writtenPart(score: Score, instrument: PartInstrument, options: {
         : bar.items.map((item) =>
             item.kind === 'note'
               ? {
-                  ...item,
-                  pitch: transposePitch(item.pitch, how.interval, how.key, item.spellingPinned),
+                  ...mapTones(item, (tone) => transposePitch(tone.pitch, how.interval, how.key, tone.spellingPinned)),
                   ...(item.graces === undefined
                     ? {}
                     : {

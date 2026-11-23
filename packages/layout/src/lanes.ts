@@ -322,7 +322,10 @@ export function alignBar(
         item.kind === 'note' &&
         item.onset === firstOnset &&
         item.accidental !== 'hide' &&
-        (item.pitch.alter !== 0 || item.accidental === 'show' || item.accidental === 'parens'),
+        (item.pitch.alter !== 0 ||
+          item.accidental === 'show' ||
+          item.accidental === 'parens' ||
+          (item.stack ?? []).some((tone) => tone.accidental !== 'hide' && (tone.pitch.alter !== 0 || tone.accidental === 'show' || tone.accidental === 'parens'))),
     ),
   );
   // A repeat sign that opens the bar (its thick and thin lines and dots) is drawn between the prefix and the music.

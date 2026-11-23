@@ -1,5 +1,5 @@
 import { MUSIC_FONT_NAMES } from '@sibei/engrave';
-import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, everyGlyphChart, fullBandChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
+import { navigationChart, clefChangeChart, fermatasStavesChart, ottavaStavesChart, drumChart, aabaChart, articulationsChart, everyGlyphChart, fullBandChart, clefsAndKeysChart, staffFurnitureChart, grandStaffChart, leadBassChart, twoVoiceChart, voiceCollisionsChart, invalidBarChart, longFormChart, nastyChart, marksChart, graceNotesChart, pianoChordsChart, stackedChordsChart, reviewChart, slurChart, titleBlockChart, untitledChart } from '@sibei/fixtures';
 import { PAPER_SIZES } from '@sibei/layout';
 import type { Paper } from '@sibei/layout';
 import type { Score } from '@sibei/model';
@@ -44,6 +44,8 @@ const FIXTURES: Record<string, () => Score> = {
   slurs: slurChart,
   marks: marksChart,
   'grace-notes': graceNotesChart,
+  'stacked-chords': stackedChordsChart,
+  'piano-chords': pianoChordsChart,
   'title-block': titleBlockChart,
   articulations: articulationsChart,
   // The multi-staff fixtures (SIB2-227): the engraver draws only the first staff until slice 4, and both paths must agree.

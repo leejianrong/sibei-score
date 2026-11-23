@@ -258,8 +258,8 @@ describe('content ops on a chosen staff and voice', () => {
     expect(pitchesAt(score, {})).toEqual(['C5']);
     expect(pitchesAt(score, { staff: 'staff-1', voice: 2 })).toEqual(['E4']);
     expect(pitchesAt(score, { staff: 'staff-2', voice: 1 })).toEqual(['C3']);
-    // ...but a second item in one voice at one onset is still refused.
-    expect(failure([...twoStaves, note('s1.v1.bar1.beat1'), note('s1.v1.bar1.beat1', 'D5')])).toMatch(/already has a note/);
+    // ...and a second note in one voice at one onset joins a chord when the duration matches, else it is refused.
+    expect(failure([...twoStaves, note('s1.v1.bar1.beat1'), note('s1.v1.bar1.beat1', 'D5', { value: 8, dots: 0 })])).toMatch(/share one duration/);
   });
 
   it('edits and removes by qualified address or by id', () => {
