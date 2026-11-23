@@ -52,6 +52,9 @@ export function projectScore(score: Score, options: ProjectionOptions = {}): str
     for (const bar of breaks) parts.push(`${bar.lineBreak === 'after' ? 'break after' : 'join at'} bar${bar.number}`);
     lines.push(`  lines: ${parts.join(', ')}`);
   }
+  // Navigation marks (SIB2-175), with the bar addresses `nav rm` accepts.
+  const navs = score.bars.flatMap((bar) => (bar.nav ?? []).map((kind) => `${kind} at bar${bar.number}`));
+  if (navs.length > 0) lines.push(`  navigation: ${navs.join(', ')}`);
   if (score.meta.signaturePolicy !== undefined) {
     lines.push(`  clef and key: ${score.meta.signaturePolicy === 'first' ? 'first system only' : 'first system of each page'}`);
   }

@@ -10,6 +10,7 @@ import type {
   EndingRole,
   Id,
   KeySignature,
+  NavKind,
   Score,
   StartBarline,
   StaffType,
@@ -536,6 +537,8 @@ export type Operation =
   | { type: 'tuplet.rm'; target: string }
   | { type: 'break.set'; target: string; payload: { kind: 'after' | 'join' } }
   | { type: 'break.rm'; target: string }
+  | { type: 'nav.set'; target: string; payload: { kind: NavKind } }
+  | { type: 'nav.rm'; target: string; payload?: { kind?: NavKind } }
   | { type: 'fermata.set'; target: string }
   | { type: 'fermata.rm'; target: string }
   | { type: 'slur.set'; target: string; payload: { to: string; placement?: 'above' | 'below' } }

@@ -21,6 +21,7 @@ const base: BarStructure = {
   ending: null,
   texts: [],
   lineBreak: 'none',
+  nav: [],
 };
 
 const edits = (over: Partial<StructureEdits> = {}): StructureEdits => ({
@@ -30,6 +31,7 @@ const edits = (over: Partial<StructureEdits> = {}): StructureEdits => ({
   endBarline: base.endBarline,
   ending: base.ending,
   lineBreak: base.lineBreak,
+  nav: base.nav,
   ...over,
 });
 
@@ -112,5 +114,25 @@ describe('structureOps: the line break (SIB2-174)', () => {
       'section.set',
       'break.set',
     ]);
+  });
+});
+
+describe('structureOps: navigation marks (SIB2-175)', () => {
+  it('sets and clears each sign on its own', () => {
+    expect(structureOps(base, edits({ nav: ['segno', 'coda'] }))).toEqual([
+      { type: 'nav.set', target: 'bar7', payload: { kind: 'segno' } },
+      { type: 'nav.set', target: 'bar7', payload: { kind: 'coda' } },
+    ]);
+    const had: BarStructure = { ...base, nav: ['segno', 'coda'] };
+    expect(structureOps(had, edits({ nav: ['coda'] }))).toEqual([{ type: 'nav.rm', target: 'bar7', payload: { kind: 'segno' } }]);
+  });
+
+  it('changes the jump text in one nav.set, and clears it with a nav.rm of the old kind', () => {
+    const had: BarStructure = { ...base, nav: ['segno', 'ds'] };
+    expect(structureOps(had, edits({ nav: ['segno', 'ds-al-coda'] }))).toEqual([
+      { type: 'nav.set', target: 'bar7', payload: { kind: 'ds-al-coda' } },
+    ]);
+    expect(structureOps(had, edits({ nav: ['segno'] }))).toEqual([{ type: 'nav.rm', target: 'bar7', payload: { kind: 'ds' } }]);
+    expect(structureOps(had, edits({ nav: ['segno', 'ds'] }))).toEqual([]);
   });
 });

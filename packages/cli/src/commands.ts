@@ -1,8 +1,8 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import type { Readable } from 'node:stream';
-import { displayTitle, flaggedObjects, projectScore } from '@sibei/model';
-import type { KeySignature, NoteValue, TimeSignature } from '@sibei/model';
+import { NAV_KINDS, displayTitle, flaggedObjects, projectScore } from '@sibei/model';
+import type { KeySignature, NavKind, NoteValue, TimeSignature } from '@sibei/model';
 import type {
   BarlineSetPayload,
   EndingSetPayload,
@@ -148,6 +148,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore ottava rm  <id> <ottava-id|from>
   sbscore break set <id> <bar> [--join]   end the line after <bar>; --join lets a section-start bar share the previous line
   sbscore break rm  <id> <bar>
+  sbscore nav set <id> <bar> --segno|--coda|--to-coda|--fine|--dc|--ds|--dc-al-fine|--dc-al-coda|--ds-al-fine|--ds-al-coda
+              a navigation mark: signs at the bar's start, jump texts at its end (a second jump replaces the first)
+  sbscore nav rm  <id> <bar> [--segno|--coda|...]   remove one mark, or every mark of the bar
   sbscore batch <id> --ops '[{"type":"note.add",...}]'   (or --ops @ops.json, or --ops - for stdin)
   sbscore undo <id>                        revert the last edit or batch (ADR-0003)
   sbscore redo <id>                        reapply the last undone edit
@@ -340,6 +343,8 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return ottava(flags, client, io, json);
     case 'break':
       return lineBreak(flags, client, io, json);
+    case 'nav':
+      return nav(flags, client, io, json);
     case 'ending':
       return ending(flags, client, io, json);
     case 'batch':
@@ -1418,6 +1423,30 @@ async function lineBreak(flags: Flags, client: Client, io: Io, json: boolean): P
     return submit(flags, client, io, json, id, [{ type: 'break.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'break takes set or rm');
+}
+
+/**
+ * `sbscore nav set <id> <bar> --ds-al-coda` and `nav rm <id> <bar> [--segno]` (SIB2-175): the kind is the flag.
+ * Exactly one is needed to set; none on `rm` clears the bar.
+ */
+async function nav(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `nav ${sub}`);
+  const target = barTarget(requiredPositional(flags, 3, 'a bar like 6 or bar6', `nav ${sub}`));
+  const named = NAV_KINDS.filter((kind) => flags.switches.has(kind));
+
+  if (sub === 'set') {
+    if (named.length !== 1) {
+      throw new CliError(EXIT.usage, 'usage', `nav set needs exactly one of ${NAV_KINDS.map((k) => `--${k}`).join(' ')}`);
+    }
+    return submit(flags, client, io, json, id, [{ type: 'nav.set', target, payload: { kind: named[0] as NavKind } }]);
+  }
+  if (sub === 'rm') {
+    if (named.length > 1) throw new CliError(EXIT.usage, 'usage', 'nav rm takes at most one mark flag');
+    const payload = named.length === 1 ? { kind: named[0] as NavKind } : {};
+    return submit(flags, client, io, json, id, [{ type: 'nav.rm', target, payload }]);
+  }
+  throw new CliError(EXIT.usage, 'usage', 'nav takes set or rm');
 }
 
 /** `1` or `1,2` → `[1]` / `[1, 2]`. The server normalises order and duplicates; this only reads. */

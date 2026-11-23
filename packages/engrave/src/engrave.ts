@@ -10,7 +10,7 @@ import type {
   NoteItem,
   RestItem,
 } from '@sibei/layout';
-import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, writtenPitch } from '@sibei/layout';
+import { ARTICULATION_BAND, LAYOUT_BAR_ITEM_KINDS, NAV_BAND, writtenPitch } from '@sibei/layout';
 import type { Clef, Id, TimeSignature } from '@sibei/model';
 import { TICKS_PER_WHOLE, beatTicks, durationTicks, headOf } from '@sibei/model';
 import { furnitureText } from './furniture.js';
@@ -71,6 +71,7 @@ import {
   rehearsalMark,
   text,
 } from './text.js';
+import { navMark } from './nav.js';
 import { ottavaLine } from './ottava.js';
 import { tempoMark } from './tempo.js';
 import { tuplet } from './tuplets.js';
@@ -196,6 +197,8 @@ type NoteAnchors = Map<Id, TieEnd>;
 interface Bands {
   /** Top of the system's above-staff band, where marks and brackets live. */
   top: number;
+  /** Where the rehearsal, tempo and ending row starts: `top`, or below the navigation row when the system has one. */
+  markTop: number;
   /** Where every chord symbol in this system puts its baseline. */
   chordBaseline: number;
 }
@@ -216,8 +219,10 @@ export function engraveSystem(
   // way — visible immediately in the proof of bar 12.
   const opensOnRepeat = system.bars[0]?.items.some((item) => item.kind === 'barline') ?? false;
 
+  const top = system.staveY - system.aboveStaff;
   const bands: Bands = {
-    top: system.staveY - system.aboveStaff,
+    top,
+    markTop: top + (system.bars.some((bar) => bar.items.some((item) => item.kind === 'nav')) ? NAV_BAND : 0),
     chordBaseline: system.staveY - system.chordBaselineOffset,
   };
 
@@ -331,8 +336,10 @@ function engraveStavedSystem(
   options: EngraveOptions,
   skipped: Map<LayoutBarItemKind, number>,
 ): SvgElement[] {
+  const top = system.staveY - system.aboveStaff;
   const bands: Bands = {
-    top: system.staveY - system.aboveStaff,
+    top,
+    markTop: top + (system.bars.some((bar) => bar.items.some((item) => item.kind === 'nav')) ? NAV_BAND : 0),
     chordBaseline: system.staveY - system.chordBaselineOffset,
   };
   // A barline reaches from the top line of the first staff to the bottom line of the last, except at a one-line
@@ -674,7 +681,7 @@ function engraveBar(
             font,
             item,
             bar.x + Math.max(bar.prefixWidth + units(0.5), afterBox),
-            bands.top,
+            bands.markTop,
             options.rehearsalFontSize,
           ),
         );
@@ -687,7 +694,7 @@ function engraveBar(
         // The top of the band, not a baseline: the box's own padding is the adapter's
         // to allow for, and layout reserved the band from `bands.top` down.
         if (item.text !== '') {
-          before.push(...rehearsalMark(item.text, bar.x, bands.top, options.rehearsalFontSize));
+          before.push(...rehearsalMark(item.text, bar.x, bands.markTop, options.rehearsalFontSize));
         }
         // The section's name (SIB2-176) is boxed beside the letter, or alone when it has no letter.
         const letterWidth =
@@ -702,7 +709,7 @@ function engraveBar(
             ...rehearsalMark(
               item.name,
               bar.x + letterWidth,
-              bands.top,
+              bands.markTop,
               options.rehearsalFontSize,
               'se-sectionnamebox',
               'se-sectionname',
@@ -722,6 +729,19 @@ function engraveBar(
       case 'endBarline':
         if (!mode.barlines) break;
         after.push(...endBarline(font, item.barline, bar.x + bar.width, staveY));
+        break;
+
+      case 'nav':
+        if (!mode.chrome) break;
+        before.push(
+          ...navMark(font, {
+            kind: item.nav,
+            start: bar.x + bar.prefixWidth + units(0.6),
+            end: bar.x + bar.width - units(0.6),
+            top: bands.top,
+            fontSize: options.chordFontSize,
+          }),
+        );
         break;
 
       case 'ending':
@@ -910,7 +930,7 @@ function engraveBar(
         role: item.role,
         x: bar.x,
         right: bar.x + bar.width,
-        y: bands.top + (hasRehearsalMark ? options.rehearsalFontSize * 2.2 : units(0.4)),
+        y: bands.markTop + (hasRehearsalMark ? options.rehearsalFontSize * 2.2 : units(0.4)),
         fontSize: options.endingFontSize,
       }),
     );
