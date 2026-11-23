@@ -37,7 +37,7 @@ import { CLEF_CHANGE_SIZE, clef, clefWidth, keySignature, timeSignature } from '
 import type { PlacedItem } from './spacing.js';
 import { ACCIDENTAL_GAP, accidentalGlyph, placeAligned, placeItems } from './spacing.js';
 import { MIDDLE_LINE, ledgerLines, ledgerPositions, positionY, staffLines, staffPosition, staffPositionIn } from './staff.js';
-import { accidentalRights, displacedHeads } from './chords.js';
+import { accidentalRights, headColumns } from './chords.js';
 import type { Stem, StemDirection } from './stems.js';
 import {
   beamCount,
@@ -1208,18 +1208,19 @@ function engraveChord(
   const attach = dir === 'up' ? bottom : top;
   const width = font.width(glyph);
   const stemmed = hasStem(item.duration);
-  const displaced = displacedHeads(positions, stemmed ? dir : 'up');
-  const moved = displaced.some(Boolean);
+  const columns = headColumns(positions, stemmed ? dir : 'up');
+  const reach = Math.max(...columns);
   const base = entry.x;
 
   // The stem is placed first, at the column its own side of the chord takes, then the far-side head is set against it.
   let normalX = base;
-  if (stemmed && dir === 'down' && moved) normalX = base + width - font.anchor(glyph, 'stemDownNW').x;
+  if (stemmed && dir === 'down' && reach > 0) normalX = base + reach * width - font.anchor(glyph, 'stemDownNW').x;
   const stemShape = stemmed
     ? stem(font, { notehead: glyph, direction: dir, noteX: normalX, position: stemSide, attachPosition: attach, staveY })
     : null;
-  const displacedX = stemShape === null ? base + width : dir === 'up' ? stemShape.right : stemShape.left - width;
-  const headXs = displaced.map((far) => (far ? displacedX : normalX));
+  const farX = (column: number): number =>
+    stemShape === null ? base + column * width : dir === 'up' ? stemShape.right + (column - 1) * width : stemShape.left - column * width;
+  const headXs = columns.map((column) => (column === 0 ? normalX : farX(column)));
   const left = Math.min(...headXs, entry.accidentalX ?? Number.POSITIVE_INFINITY);
   const rights = accidentalRights(
     font,

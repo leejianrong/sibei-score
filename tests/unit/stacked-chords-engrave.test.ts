@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { stackedChordsChart } from '@sibei/fixtures';
 import { layout } from '@sibei/layout';
 import type { NoteItem } from '@sibei/layout';
-import { accidentalColumns, displacedHeads } from '../../packages/engrave/src/chords.js';
+import { accidentalColumns, displacedHeads, headColumns } from '../../packages/engrave/src/chords.js';
 
 /** The chord geometry (SIB2-243): which head crosses the stem, how accidentals stack, and what layout hands the engraver. */
 
@@ -18,6 +18,20 @@ describe('displacedHeads', () => {
     expect(displacedHeads([8, 6, 4], 'up')).toEqual([false, false, false]);
     // A unison with another accidental cannot share a head.
     expect(displacedHeads([5, 5], 'up')).toEqual([false, true]);
+  });
+
+  it('puts a unison-plus-second cluster in three columns so no two heads overlap (SIB2-253)', () => {
+    // F4, F#4, G4: the G is a second from both, so it goes one head further out.
+    expect(headColumns([5, 5, 4], 'up')).toEqual([0, 1, 2]);
+    // Inner-pitch case, a triad with a unison in the middle: still no two heads within a second in one column.
+    for (const positions of [[5, 5, 4], [6, 5, 5, 4], [3, 4, 4]]) {
+      for (const direction of ['up', 'down'] as const) {
+        const columns = headColumns(positions, direction);
+        positions.forEach((a, i) => positions.forEach((b, j) => {
+          if (i < j && columns[i] === columns[j]) expect(Math.abs(a - b)).toBeGreaterThan(1);
+        }));
+      }
+    }
   });
 });
 

@@ -11,7 +11,7 @@ import {
   restPosition,
   restShiftOf,
   stemsOf,
-  displacedHeads,
+  headColumns,
   groupStemDirection,
   staffPosition,
   staffPositionIn,
@@ -174,14 +174,14 @@ function chordBoxes(
   ];
   const positions = members.map((member) => positionOf(member.pitch));
   const direction = forced ?? groupStemDirection(positions);
-  const displaced = displacedHeads(positions, direction);
-  const moved = displaced.some(Boolean);
+  const columns = headColumns(positions, direction);
+  const reach = Math.max(...columns);
   const width = font.width(glyph);
   const box = font.box(glyph);
   return members.map((member, index) => {
-    const far = displaced[index] === true;
-    // Up stem: the stem-side column is at the left and a far head is one head to its right; a down stem is the mirror.
-    const x = direction === 'up' ? (far ? left + width : left) : moved ? (far ? left : left + width) : left;
+    const column = columns[index] ?? 0;
+    // Up stem: the stem-side column is at the left and a far head is a head (or two) to its right; a down stem is the mirror.
+    const x = direction === 'up' ? left + column * width : left + (reach - column) * width;
     return {
       id: item.noteId,
       toneId: member.toneId,

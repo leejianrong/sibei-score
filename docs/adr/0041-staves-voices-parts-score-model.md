@@ -450,6 +450,9 @@ Alternatives rejected:
   anchor, and its tie arcs up for the chord's upper half and down for the lower (`TieEnd.tieUp`).
 - **Not done here, and deliberate:** a stacked chord moves as a whole against another voice (each of its pitches counts in `noteShifts`, but the chord's own heads do not re-pack); clef-change
   and percussion staves never stack (a note on a percussion staff refuses a stack).
+- **Three columns for a unison-plus-second cluster (SIB2-253).** `headColumns` gives each head a column across the stem (0 the stem's side,
+  1 the far side, 2 one head further out), the first where no head within a second already sits; F, F#, G needs all three, since the G is a second
+  from both. Layout's width, the engraver and the browser's hit-test all read it.
 - Proofed with `pnpm proof stacked-chords` and `pnpm proof piano-chords` (new fixtures, committed snapshots); no existing
   snapshot moved and the browser/server byte-identity test covers both new fixtures.
 
