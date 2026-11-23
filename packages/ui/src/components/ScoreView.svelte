@@ -323,6 +323,14 @@
     void barStructure;
     if (selectedPane !== null) selectedPane.scrollTop = 0;
   });
+  // On a phone the rail is a bottom drawer (SIB2-267): shut until asked for, open by itself when something is
+  // selected so its inspector is in view. On a wide window it is the rail it always was and this is unused.
+  let railOpen = $state(false);
+  $effect(() => {
+    if ((selection !== null || chordSelection !== null || barStructure !== null) && window.matchMedia('(max-width: 900px)').matches) {
+      railOpen = true;
+    }
+  });
   // Multi-selection (SIB2-278): ids added with ctrl/cmd-click, or by a bar range or select-all. Together with the
   // shift-click range above they make `pickedIds`; like everything else here it is ids, looked up fresh from the score.
   let extraIds = $state<Id[]>([]);
@@ -1437,8 +1445,11 @@
   {:else if !streamUp}
     <ConnectionBanner title="Connection lost." detail="Reconnecting to the server. Edits will not save until it answers." />
   {/if}
-  <section class="score">
-    <aside class="rail">
+  <section class="score" class:rail-open={railOpen}>
+    <aside class="rail" class:open={railOpen}>
+      <button type="button" class="rail-toggle" aria-expanded={railOpen} onclick={() => (railOpen = !railOpen)}>
+        <span class="grip" aria-hidden="true"></span>Controls
+      </button>
       <div class="rail-head">
         <h2 class="rail-title" class:untitled={score.meta.title === ''}>
           {displayTitle(score.meta.title)}
@@ -2499,15 +2510,76 @@
     color: var(--ink-soft);
   }
 
+  /* The drawer's handle exists only on a phone. */
+  .rail-toggle {
+    display: none;
+  }
+
   @media (max-width: 900px) {
     .score {
       grid-template-columns: 1fr;
     }
+    /* SIB2-267: the sheet comes first and the rail is a bottom drawer. Shut, only the handle shows; open, it is at
+       most half the screen, so the sheet above it can still be tapped. Every tap target inside is 40px or more. */
     .rail {
-      position: static;
+      position: fixed;
+      inset: auto 0 0 0;
+      top: auto;
       height: auto;
+      max-height: 52vh;
+      z-index: 25;
       border-right: 0;
-      border-bottom: 1px solid var(--rule);
+      border-top: 1px solid var(--rule);
+      box-shadow: 0 -6px 18px rgb(0 0 0 / 14%);
+    }
+    .rail:not(.open) > :not(.rail-toggle) {
+      display: none;
+    }
+    .rail-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      flex: none;
+      min-height: 48px;
+      border: 0;
+      background: var(--panel);
+      color: var(--ink-soft);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .grip {
+      width: 28px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--rule);
+    }
+    .rail > .rail-selected {
+      max-height: 34vh;
+    }
+    /* The chart's title is already in the top bar. */
+    .rail-head {
+      display: none;
+    }
+    /* Room to scroll the end of the sheet clear of an open drawer. */
+    .score.rail-open .stage {
+      padding-bottom: 56vh;
+    }
+    .rail :global(button),
+    .rail :global(select),
+    .rail :global(input:not([type='checkbox']):not([type='radio'])),
+    .rail :global(summary) {
+      min-height: 40px;
+    }
+    .rail :global(button) {
+      min-width: 40px;
+    }
+    .zoom button {
+      width: 40px;
+      height: 40px;
     }
     .stage {
       padding: 22px 14px 150px;
