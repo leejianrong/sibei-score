@@ -4,6 +4,7 @@ import { PAGE_NUMBER_FORMATS, PAGE_NUMBER_POSITIONS, PAPER_SIZES } from '@sibei/
 import type { PageNumberSettings, Paper } from '@sibei/layout';
 import type {
   AccidentalDisplay,
+  Clef,
   Duration,
   EndBarline,
   EndingRole,
@@ -11,6 +12,7 @@ import type {
   KeySignature,
   Score,
   StartBarline,
+  StaffType,
 } from '@sibei/model';
 
 /**
@@ -451,9 +453,9 @@ export async function reparseScore(id: Id, engine?: string): Promise<ImportJobVi
  * **Deliberately only the verbs the inspector needs.** V4c added the note and rest edits; V5e
  * adds `chord.set` and `chord.rm` for the chord inspector; V6e `transpose`; V7c the structure
  * verbs the Structure panel drives — `section.set`/`section.rm`, `barline.set`,
- * `ending.set`/`ending.rm`; SIB2-166 `tuplet.set`/`tuplet.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163/178 `meta.set` for the title block, page footer and chord style. `note.add` on its own and `score.create` exist on the
- * server and have no UI control yet — that is booked debt (Q79), not a gap this file is meant to
- * close.
+ * `ending.set`/`ending.rm`; SIB2-166 `tuplet.set`/`tuplet.rm`; SIB2-186 `bar.add`/`bar.rm`; SIB2-172/163/178 `meta.set` for the title block, page footer and chord style. `score.create` exists on the
+ * server and has no UI control yet — booked debt (Q79), not a gap this file is meant to close.
+ * Slice 5b adds `note.add` (the bar panel's Add note) and the part, staff, voice, clef and instrument verbs.
  */
 export interface NoteSetPayload {
   pitch?: string;
@@ -544,7 +546,18 @@ export type Operation =
   | { type: 'grace.rm'; target: string }
   | { type: 'meta.set'; payload: MetaSetPayload }
   | { type: 'bar.add'; target?: string }
-  | { type: 'bar.rm'; target: string };
+  | { type: 'bar.rm'; target: string }
+  // Notes and rests added by position (slice 5b); the address carries the staff and voice qualifier.
+  | { type: 'note.add'; target: string; payload: { pitch: string; duration: Duration } }
+  // Parts, staves and voices (ADR-0041 slice 2). A removal that holds notation is refused without `force`.
+  | { type: 'part.add'; payload: { name?: string; clef?: Clef; staffType?: StaffType } }
+  | { type: 'part.rm'; target: string; payload?: { force: true } }
+  | { type: 'staff.add'; target?: string; payload?: { type?: StaffType; clef?: Clef } }
+  | { type: 'staff.rm'; target: string; payload?: { force: true } }
+  | { type: 'voice.add'; target?: string }
+  | { type: 'voice.rm'; target: string; payload?: { force: true } }
+  | { type: 'clef.set'; target: string; payload: { clef: Clef | null } }
+  | { type: 'instrument.set'; target?: string; payload: { name?: string; instrument?: number | null; transposition?: number } };
 
 export interface Batch {
   operations: readonly Operation[];
