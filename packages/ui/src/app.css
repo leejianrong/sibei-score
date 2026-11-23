@@ -20,7 +20,7 @@
   --panel-2: #e9e7e1;
   --ink: #15171c;
   --ink-soft: #5f636b;
-  --ink-faint: #6b6f77;
+  --ink-faint: #62666e;
   --rule: #c3c0b7;
   --rule-soft: #d3d0c8;
   --accent: #22409c;
@@ -98,6 +98,19 @@ input {
 
 [hidden] {
   display: none !important;
+}
+
+/* Off-screen but still read by assistive technology: live regions and the sheet's text alternative (SIB2-269). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: pre;
+  border: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
