@@ -260,6 +260,32 @@ it as `<octave-shift type="down|up|stop" size="8">` (its `down` is our 8va) and 
 shift is dropped with a warning. Charts written before it need no migration (`spanners` is optional). In the
 browser, select a note, shift-click a second one, and press 8va or 8vb in the Selected panel's Ottava field.
 
+## Parts, staves and voices
+
+```sh
+sbscore part add <id> [--name Piano] [--instrument 0|none] [--transposition -2] [--staff-type standard|percussion|tab] [--clef bass]
+sbscore part rm  <id> <p2> [--force]
+sbscore staff add <id> [<p1>] [--type standard|percussion|tab] [--clef treble|bass|alto|tenor|percussion]
+sbscore staff rm  <id> <s2> [--force]
+sbscore voice add <id> [<s2>]                    # the next free voice of a staff, 2 to 4
+sbscore voice rm  <id> <s2.v2> [--force]
+sbscore clef set  <id> <s2|s2.bar5> --clef bass  # a staff's clef, or a change from bar 5 (--clef none clears a change)
+sbscore instrument set <id> [<p1>] [--name Piano] [--instrument 0|none] [--transposition -2]
+```
+
+A score is parts, each with staves, each with up to four voices (ADR-0041); a lead sheet is one of each, and every
+command above this section keeps working on it unchanged. `p2`, `s2` and `s2.v2` are the labels `show` prints (the
+second part, the second staff of the score in part order, its second voice); stable ids such as `part-2` and `staff-2`
+work too. Chords and text sit on one lane above the top staff and need no staff.
+
+**Addresses.** `bar12.beat3` and `bar12.n3` mean staff 1, voice 1 while the score has exactly one staff and one voice.
+Once it has more, a bare address is an error (exit 3) that lists the candidates, never a guess:
+`s2.bar12.beat3` is staff 2, `s2.v2.bar12.n3` is staff 2, voice 2, and `note-17` still names itself. Every verb that
+takes a note address (`note`, `rest`, `tuplet`, `slur`, `ottava`, `fermata`, `grace`) also takes `--staff N --voice M`,
+which only writes that qualifier for you. `part rm`, `staff rm` and `voice rm` refuse something holding notes or rests
+unless `--force`; a score always keeps one part, one staff, and voice 1. A bar is flagged when any voice of any staff
+does not fill it (an empty voice is fine). The PDF and the browser draw only staff 1, voice 1 until the engraver slice lands.
+
 ## Transpose, structure
 
 ```sh

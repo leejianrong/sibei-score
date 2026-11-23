@@ -1,6 +1,8 @@
 import type {
   AccidentalDisplay,
   Articulation,
+  Clef,
+  StaffType,
   Duration,
   EndBarline,
   GraceValue,
@@ -327,6 +329,71 @@ export interface BarAddPayload {
   ids?: Id[];
 }
 
+/**
+ * Structure (ADR-0041 section 2): parts, staves and voices. Every address below is the stable form a staff or part
+ * has in text: `s2`/`staff-2` for the second staff, `s2.v2` for its second voice, `p2`/`part-2` for a part.
+ *
+ * Content ops (note, rest, tuplet, slur, ottava, grace, fermata) carry no `staff`/`voice` field: **the staff and voice
+ * are part of the address**, `s2.v2.bar12.n3`, so an old payload (`bar12.n3`) is byte-for-byte what it always was and
+ * means the first staff, first voice while the score has just one of each (it is an error listing the candidates once
+ * it has more). One mechanism, so a target never disagrees with a field.
+ */
+
+/** Add a part with one staff (more with `staff.add`). Ids are *recorded*. */
+export interface PartAddPayload {
+  name?: string;
+  /** A General MIDI program, 0-127, or null. */
+  instrument?: number | null;
+  /** Semitones from sounding to written pitch. */
+  transposition?: number;
+  /** The type of its first staff: `standard` (the default), `percussion` or `tab`. Only the tag, for now. */
+  staffType?: StaffType;
+  /** The first staff's opening clef. Defaults to treble (percussion for a percussion staff). */
+  clef?: Clef;
+  /** *Recorded.* */
+  id?: Id;
+  /** *Recorded.* The first staff's id. */
+  staffId?: Id;
+}
+
+/** A part holding notation is refused unless `force` is true, the way `bar rm` refuses a bar with content. */
+export interface PartRmPayload {
+  force?: boolean;
+}
+
+/** Add a staff to the target part (the last part if there is no target). */
+export interface StaffAddPayload {
+  type?: StaffType;
+  clef?: Clef;
+  /** *Recorded.* */
+  id?: Id;
+}
+
+export interface StaffRmPayload {
+  force?: boolean;
+}
+
+/** Add a voice to the target staff (the only staff, if there is just one) as its lowest free index from 2 to 4. */
+export interface VoiceAddPayload {
+  /** *Recorded.* The index the applier chose. */
+  index?: number;
+}
+
+export interface VoiceRmPayload {
+  force?: boolean;
+}
+
+/** `s2` sets the staff's opening clef; `s2.bar5` a change from bar 5, where `null` clears the change. */
+export interface ClefSetPayload {
+  clef: Clef | null;
+}
+
+export interface InstrumentSetPayload {
+  name?: string;
+  instrument?: number | null;
+  transposition?: number;
+}
+
 export interface ScoreImportPayload {
   document: Score;
 }
@@ -378,7 +445,15 @@ export type Operation =
   | { type: 'grace.add'; target: string; payload: GraceAddPayload }
   | { type: 'grace.rm'; target: string; payload?: GraceRmPayload }
   | { type: 'bar.add'; target?: string; payload?: BarAddPayload }
-  | { type: 'bar.rm'; target: string };
+  | { type: 'bar.rm'; target: string }
+  | { type: 'part.add'; payload?: PartAddPayload }
+  | { type: 'part.rm'; target: string; payload?: PartRmPayload }
+  | { type: 'staff.add'; target?: string; payload?: StaffAddPayload }
+  | { type: 'staff.rm'; target: string; payload?: StaffRmPayload }
+  | { type: 'voice.add'; target?: string; payload?: VoiceAddPayload }
+  | { type: 'voice.rm'; target: string; payload?: VoiceRmPayload }
+  | { type: 'clef.set'; target: string; payload: ClefSetPayload }
+  | { type: 'instrument.set'; target?: string; payload: InstrumentSetPayload };
 
 export type OperationType = Operation['type'];
 
@@ -414,6 +489,14 @@ export const OPERATION_TYPES: readonly OperationType[] = [
   'grace.rm',
   'bar.add',
   'bar.rm',
+  'part.add',
+  'part.rm',
+  'staff.add',
+  'staff.rm',
+  'voice.add',
+  'voice.rm',
+  'clef.set',
+  'instrument.set',
 ];
 
 /**

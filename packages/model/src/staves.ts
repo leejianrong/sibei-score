@@ -1,6 +1,7 @@
 import type {
   Bar,
   BarView,
+  Clef,
   Chord,
   Annotation,
   BarItem,
@@ -229,4 +230,58 @@ export function annotationsOfBar(score: Score, barId: Id): Annotation[] {
 /** The chord symbols of one bar, without building a whole view. */
 export function chordsOfBar(score: Score, barId: Id): Chord[] {
   return score.harmony.find((entry) => entry.barId === barId)?.chords ?? NO_CHORDS;
+}
+
+// ---------------------------------------------------------------------------
+// Structure queries (ADR-0041 slice 2): which staves and voices a score has
+// ---------------------------------------------------------------------------
+
+/** At most four voices to a staff (ADR-0041, accepted): stems up for voices 1 and 3, down for 2 and 4. */
+export const MAX_VOICES = 4;
+
+/** The voice indexes a staff has, ascending. A staff always has voice 1, even with no bars yet. */
+export function voiceIndexes(staff: Staff): number[] {
+  const seen = new Set<number>([FIRST_VOICE]);
+  for (const staffBar of staff.bars) for (const voice of staffBar.voices) seen.add(voice.index);
+  return [...seen].sort((a, b) => a - b);
+}
+
+/** Every staff and voice of the score, in part, staff, voice order. */
+export function voiceSelects(score: Score): Required<VoiceSelect>[] {
+  return allStaves(score).flatMap((staff) => voiceIndexes(staff).map((voice) => ({ staff: staff.id, voice })));
+}
+
+/** Whether a voice of a staff holds any note, rest or tuplet. */
+export function voiceHoldsNotation(staff: Staff, index: number, barId?: Id): boolean {
+  return staff.bars.some(
+    (staffBar) =>
+      (barId === undefined || staffBar.barId === barId) &&
+      staffBar.voices.some((voice) => voice.index === index && (voice.items.length > 0 || voice.tuplets.length > 0)),
+  );
+}
+
+/** Whether any voice of a staff holds notation. */
+export function staffHoldsNotation(staff: Staff, barId?: Id): boolean {
+  return voiceIndexes(staff).some((index) => voiceHoldsNotation(staff, index, barId));
+}
+
+/** Whether any staff holds notation in this bar: what `bar rm` must check, since a second staff counts. */
+export function barHoldsNotation(score: Score, barId: Id): boolean {
+  return allStaves(score).some((staff) => staffHoldsNotation(staff, barId));
+}
+
+/** The staff's clef at a bar: the latest change at or before it, else the opening clef. */
+export function clefAt(score: Score, staff: Staff, barNumber: number): Clef {
+  let clef = staff.clef;
+  for (const bar of score.bars) {
+    if (bar.number > barNumber) continue;
+    const change = staff.bars.find((staffBar) => staffBar.barId === bar.id)?.clef;
+    if (change !== undefined) clef = change;
+  }
+  return clef;
+}
+
+/** A view of every bar for every staff and voice, in `voiceSelects` order: what a metric or a transpose walks. */
+export function allBarViews(score: Score): { select: Required<VoiceSelect>; views: BarView[] }[] {
+  return voiceSelects(score).map((select) => ({ select, views: barViews(score, select) }));
 }

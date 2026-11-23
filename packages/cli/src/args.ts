@@ -15,7 +15,7 @@ export interface Flags {
   switches: Set<string>;
 }
 
-const SWITCHES = new Set(['json', 'help', 'pickup', 'pdf', 'musicxml', 'spell', 'unspell', 'allow-rls-bypass', 'token-stdin', 'note-events', 'strict', 'page-numbers', 'blank-staves', 'no-bar-numbers', 'svg', 'png', 'join', 'up', 'down', 'slash']);
+const SWITCHES = new Set(['json', 'help', 'pickup', 'pdf', 'musicxml', 'spell', 'unspell', 'allow-rls-bypass', 'token-stdin', 'note-events', 'strict', 'page-numbers', 'blank-staves', 'no-bar-numbers', 'svg', 'png', 'join', 'up', 'down', 'slash', 'force']);
 
 /**
  * The short forms. There is exactly one, because `-o` for "write it here" is what every program

@@ -118,6 +118,14 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
   sbscore transpose <id> --to Eb           change the concert key (ADR-0016)
   sbscore bar add <id> [--after <bar>] [--count N]   add empty bars (default: at the end); later bars renumber
   sbscore bar rm  <id> <bar>               remove an empty bar; later bars renumber
+  sbscore part add <id> [--name Piano] [--instrument 0|none] [--transposition -2] [--staff-type standard|percussion|tab] [--clef bass]
+  sbscore part rm  <id> <p2> [--force]     a part holding music is refused unless --force
+  sbscore staff add <id> [<p1>] [--type standard|percussion|tab] [--clef treble|bass|alto|tenor|percussion]   (default: the last part)
+  sbscore staff rm  <id> <s2> [--force]
+  sbscore voice add <id> [<s2>]            the next free voice of a staff, 2 to 4 (omit <s2> when there is one staff)
+  sbscore voice rm  <id> <s2.v2> [--force]
+  sbscore clef set <id> <s2|s2.bar5> --clef treble|bass|alto|tenor|percussion|none   a staff's clef, or a change from a bar (none clears it)
+  sbscore instrument set <id> [<p1>] [--name Piano] [--instrument 0|none] [--transposition -2]
   sbscore section set <id> <bar> [--letter A] [--name Bridge]   a section boundary (ADR-0021)
   sbscore section rm  <id> <bar>
   sbscore barline set <id> <bar> [--start none|repeat-start] [--end single|double|final|repeat-end]
@@ -155,6 +163,9 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
 
 Where a verb takes <bar>, write 12 or bar12.
 Addresses (ADR-0007):  bar12  ·  bar12.beat3  ·  bar12.n3  ·  note-17
+  A score with more than one staff or voice needs a qualifier: s2.bar12.beat3 (staff 2), s2.v2.bar12.n3 (staff 2, voice 2);
+  a bare bar12.n3 is then an error listing the candidates. note/rest/tuplet/slur/ottava/fermata/grace also take
+  --staff N --voice M, which write the qualifier for you. Chords and text need none (they sit on one lane).
   Onsets only. A beat with nothing on it is an error listing the bar's real onsets.
   \`sbscore show\` prints the addresses this CLI accepts, so you never have to guess one.
 
@@ -302,6 +313,12 @@ async function dispatch(flags: Flags, options: RunOptions, json: boolean): Promi
       return transpose(flags, client, io, json);
     case 'bar':
       return bar(flags, client, io, json);
+    case 'part':
+    case 'staff':
+    case 'voice':
+    case 'clef':
+    case 'instrument':
+      return structure(verb as 'part' | 'staff' | 'voice' | 'clef' | 'instrument', flags, client, io, json);
     case 'section':
       return section(flags, client, io, json);
     case 'barline':
@@ -932,7 +949,7 @@ function articOf(flags: Flags): { articulations?: string[] } {
 async function note(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `note ${sub}`);
-  const target = requiredPositional(flags, 3, 'an address', `note ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, 'an address', `note ${sub}`));
 
   if (sub === 'add') {
     const payload = {
@@ -965,7 +982,7 @@ async function note(flags: Flags, client: Client, io: Io, json: boolean): Promis
 async function rest(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `rest ${sub}`);
-  const target = requiredPositional(flags, 3, 'an address', `rest ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, 'an address', `rest ${sub}`));
 
   if (sub === 'add') {
     const payload = { duration: parseDuration(required(flags, 'dur', 'rest add')) };
@@ -1039,9 +1056,103 @@ async function transpose(flags: Flags, client: Client, io: Io, json: boolean): P
   return submit(flags, client, io, json, id, [{ type: 'transpose', payload: { to } } as Operation]);
 }
 
+/**
+ * `--staff 2 --voice 2` is the `s2.v2.` qualifier on a bar address, spelled as flags (ADR-0041 section 2): the
+ * server sees the one address form either way. An id (`note-17`) names its own staff and voice, so it takes neither.
+ */
+function qualified(flags: Flags, address: string): string {
+  const staff = optionalNumber(flags, 'staff');
+  const voice = optionalNumber(flags, 'voice');
+  if (staff === undefined && voice === undefined) return address;
+  if (!/^bar\d/.test(address)) {
+    throw new CliError(EXIT.usage, 'usage', '--staff and --voice go with a bar address like bar3.n2; an id or a qualified address needs neither');
+  }
+  return `${staff === undefined ? '' : `s${staff}.`}${voice === undefined ? '' : `v${voice}.`}${address}`;
+}
+
 /** A bare number names a bar as `bar12` does (SIB2-189); anything else passes through for the server to judge. */
 function barTarget(raw: string): string {
   return /^\d+$/.test(raw) ? `bar${raw}` : raw;
+}
+
+/** `--instrument 24` or `--instrument none`: a General MIDI program, or none. The server judges the number. */
+function programOf(raw: string | undefined): number | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === 'none' || raw === '') return null;
+  if (!/^\d+$/.test(raw)) throw new CliError(EXIT.usage, 'usage', `--instrument takes a General MIDI program number or none, not ${JSON.stringify(raw)}`);
+  return Number(raw);
+}
+
+function signedOf(flags: Flags, name: string): number | undefined {
+  const raw = flags.options.get(name);
+  if (raw === undefined) return undefined;
+  if (!/^-?\d+$/.test(raw)) throw new CliError(EXIT.usage, 'usage', `--${name} takes a whole number, not ${JSON.stringify(raw)}`);
+  return Number(raw);
+}
+
+/**
+ * Parts, staves and voices (ADR-0041 section 2, SIB2-226).
+ *
+ * `sbscore part add <id> [--name Piano] [--instrument 0] [--transposition -2] [--staff-type percussion] [--clef bass]`,
+ * `part rm <id> <p2> [--force]`, `staff add <id> [<p1>] [--type standard|percussion|tab] [--clef bass]`,
+ * `staff rm <id> <s2> [--force]`, `voice add <id> [<s2>]`, `voice rm <id> <s2.v2> [--force]`,
+ * `clef set <id> <s2|s2.bar5> --clef bass|none` and `instrument set <id> [<p1>] [--name ..] [--instrument ..] [--transposition ..]`.
+ * `p2`, `s2` and `s2.v2` are the labels `sbscore show` prints; the stable ids (`part-2`, `staff-2`) work too. A
+ * `rm` of something holding music is refused unless `--force` says so.
+ */
+async function structure(noun: 'part' | 'staff' | 'voice' | 'clef' | 'instrument', flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
+  const sub = flags.positional[1] ?? '';
+  const id = requiredPositional(flags, 2, 'a score id', `${noun} ${sub}`);
+  const at = flags.positional[3];
+  const force = flags.switches.has('force') ? { force: true } : {};
+  const op = (type: string, target: string | undefined, payload?: Record<string, unknown>): Operation =>
+    ({ type, ...(target === undefined ? {} : { target }), ...(payload === undefined ? {} : { payload }) }) as Operation;
+  const named = (what: string): string => requiredPositional(flags, 3, what, `${noun} ${sub}`);
+
+  if (noun === 'part' && sub === 'add') {
+    const payload: Record<string, unknown> = {};
+    const name = flags.options.get('name');
+    if (name !== undefined) payload.name = name;
+    const program = programOf(flags.options.get('instrument'));
+    if (program !== undefined) payload.instrument = program;
+    const transposition = signedOf(flags, 'transposition');
+    if (transposition !== undefined) payload.transposition = transposition;
+    const staffType = flags.options.get('staff-type');
+    if (staffType !== undefined) payload.staffType = staffType;
+    const clef = flags.options.get('clef');
+    if (clef !== undefined) payload.clef = clef;
+    return submit(flags, client, io, json, id, [op('part.add', undefined, payload)]);
+  }
+  if (noun === 'part' && sub === 'rm') return submit(flags, client, io, json, id, [op('part.rm', named('a part like p2'), force)]);
+  if (noun === 'staff' && sub === 'add') {
+    const payload: Record<string, unknown> = {};
+    const type = flags.options.get('type');
+    if (type !== undefined) payload.type = type;
+    const clef = flags.options.get('clef');
+    if (clef !== undefined) payload.clef = clef;
+    return submit(flags, client, io, json, id, [op('staff.add', at, payload)]);
+  }
+  if (noun === 'staff' && sub === 'rm') return submit(flags, client, io, json, id, [op('staff.rm', named('a staff like s2'), force)]);
+  if (noun === 'voice' && sub === 'add') return submit(flags, client, io, json, id, [op('voice.add', at)]);
+  if (noun === 'voice' && sub === 'rm') return submit(flags, client, io, json, id, [op('voice.rm', named('a voice like s2.v2'), force)]);
+  if (noun === 'clef' && sub === 'set') {
+    const clef = required(flags, 'clef', 'clef set');
+    return submit(flags, client, io, json, id, [op('clef.set', named('a staff like s2, or a staff bar like s2.bar5'), { clef: clef === 'none' ? null : clef })]);
+  }
+  if (noun === 'instrument' && sub === 'set') {
+    const payload: Record<string, unknown> = {};
+    const name = flags.options.get('name');
+    if (name !== undefined) payload.name = name;
+    const program = programOf(flags.options.get('instrument'));
+    if (program !== undefined) payload.instrument = program;
+    const transposition = signedOf(flags, 'transposition');
+    if (transposition !== undefined) payload.transposition = transposition;
+    if (Object.keys(payload).length === 0) {
+      throw new CliError(EXIT.usage, 'usage', 'instrument set needs at least one of --name --instrument --transposition');
+    }
+    return submit(flags, client, io, json, id, [op('instrument.set', at, payload)]);
+  }
+  throw new CliError(EXIT.usage, 'usage', noun === 'clef' || noun === 'instrument' ? `${noun} takes set` : `${noun} takes add or rm`);
 }
 
 /**
@@ -1167,7 +1278,7 @@ async function ending(flags: Flags, client: Client, io: Io, json: boolean): Prom
 async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `fermata ${sub}`);
-  const target = requiredPositional(flags, 3, 'a note or rest address', `fermata ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, 'a note or rest address', `fermata ${sub}`));
   if (sub === 'set' || sub === 'rm') {
     return submit(flags, client, io, json, id, [{ type: `fermata.${sub}`, target } as Operation]);
   }
@@ -1182,7 +1293,7 @@ async function fermata(flags: Flags, client: Client, io: Io, json: boolean): Pro
 async function grace(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `grace ${sub}`);
-  const target = requiredPositional(flags, 3, sub === 'rm' ? 'a grace id or note address' : 'a note address', `grace ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, sub === 'rm' ? 'a grace id or note address' : 'a note address', `grace ${sub}`));
   if (sub === 'add') {
     const payload: Record<string, unknown> = { pitch: required(flags, 'pitch', 'grace add'), ...accidentalOf(flags) };
     const dur = flags.options.get('dur');
@@ -1206,7 +1317,7 @@ async function grace(flags: Flags, client: Client, io: Io, json: boolean): Promi
 async function tuplet(flags: Flags, client: Client, io: Io, json: boolean): Promise<ExitCode> {
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `tuplet ${sub}`);
-  const target = requiredPositional(flags, 3, 'an address', `tuplet ${sub}`);
+  const target = qualified(flags, requiredPositional(flags, 3, 'an address', `tuplet ${sub}`));
 
   if (sub === 'set') {
     const actual = optionalNumber(flags, 'notes');
@@ -1238,8 +1349,8 @@ async function ottava(flags: Flags, client: Client, io: Io, json: boolean): Prom
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `ottava ${sub}`);
   if (sub === 'set') {
-    const target = requiredPositional(flags, 3, 'the note it starts on', 'ottava set');
-    const to = requiredPositional(flags, 4, 'the note it ends on', 'ottava set');
+    const target = qualified(flags, requiredPositional(flags, 3, 'the note it starts on', 'ottava set'));
+    const to = qualified(flags, requiredPositional(flags, 4, 'the note it ends on', 'ottava set'));
     const up = flags.switches.has('up');
     const down = flags.switches.has('down');
     if (up === down) {
@@ -1249,7 +1360,7 @@ async function ottava(flags: Flags, client: Client, io: Io, json: boolean): Prom
     return submit(flags, client, io, json, id, [{ type: 'ottava.set', target, payload } as Operation]);
   }
   if (sub === 'rm') {
-    const target = requiredPositional(flags, 3, 'an ottava id or the note it starts on', 'ottava rm');
+    const target = qualified(flags, requiredPositional(flags, 3, 'an ottava id or the note it starts on', 'ottava rm'));
     return submit(flags, client, io, json, id, [{ type: 'ottava.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'ottava takes set or rm');
@@ -1259,14 +1370,14 @@ async function slur(flags: Flags, client: Client, io: Io, json: boolean): Promis
   const sub = flags.positional[1] ?? '';
   const id = requiredPositional(flags, 2, 'a score id', `slur ${sub}`);
   if (sub === 'set') {
-    const target = requiredPositional(flags, 3, 'the note it starts on', 'slur set');
-    const to = requiredPositional(flags, 4, 'the note it ends on', 'slur set');
+    const target = qualified(flags, requiredPositional(flags, 3, 'the note it starts on', 'slur set'));
+    const to = qualified(flags, requiredPositional(flags, 4, 'the note it ends on', 'slur set'));
     const placement = flags.options.get('placement');
     const payload = { to, ...(placement === undefined ? {} : { placement }) };
     return submit(flags, client, io, json, id, [{ type: 'slur.set', target, payload } as Operation]);
   }
   if (sub === 'rm') {
-    const target = requiredPositional(flags, 3, 'a slur id or the note it starts on', 'slur rm');
+    const target = qualified(flags, requiredPositional(flags, 3, 'a slur id or the note it starts on', 'slur rm'));
     return submit(flags, client, io, json, id, [{ type: 'slur.rm', target } as Operation]);
   }
   throw new CliError(EXIT.usage, 'usage', 'slur takes set or rm');

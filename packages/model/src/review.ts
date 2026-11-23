@@ -1,4 +1,4 @@
-import { barViews } from './staves.js';
+import { allBarViews, barViews } from './staves.js';
 import { invalidBars, isMetricallyValid } from './metrics.js';
 import { beatOfOnset } from './duration.js';
 import type { BarView, Review, ReviewReason, Score, TimeSignature } from './score.js';
@@ -84,6 +84,20 @@ export function barReview(bar: BarView, time: TimeSignature): Review {
   return { flagged: reasons.length > 0, reasons };
 }
 
+/**
+ * `barReview` for a bar of a whole score: flagged when *any* voice of any staff does not fill it (ADR-0041
+ * section 3; an empty voice is allowed). For a one-staff, one-voice score this is `barReview` exactly.
+ */
+export function scoreBarReview(score: Score, bar: BarView): Review {
+  const voices = allBarViews(score);
+  if (voices.length <= 1) return barReview(bar, score.meta.time);
+  const at = score.bars.findIndex((candidate) => candidate.id === bar.id);
+  const stored = bar.review.reasons.filter((reason) => reason !== 'metrically-invalid');
+  const invalid = voices.some(({ views }) => at >= 0 && !isMetricallyValid(views[at]!, score.meta.time));
+  const reasons = invalid ? [...stored, 'metrically-invalid' as const] : stored;
+  return { flagged: reasons.length > 0, reasons };
+}
+
 export interface ReviewSummary {
   /**
    * Whether anything at all carries a review flag — a bar, an item, a chord or an annotation.
@@ -137,11 +151,18 @@ function meterNote(count: number): string {
 function anythingFlagged(score: Score): boolean {
   return barViews(score).some(
     (bar) =>
-      barReview(bar, score.meta.time).flagged ||
+      scoreBarReview(score, bar).flagged ||
       bar.items.some((item) => item.review.flagged) ||
       bar.chords.some((chord) => chord.review.flagged) ||
       bar.annotations.some((annotation) => annotation.review.flagged),
-  );
+  ) || otherVoicesFlagged(score);
+}
+
+/** A flagged note or rest in any voice but the first staff's first (which `barViews` reads). */
+function otherVoicesFlagged(score: Score): boolean {
+  return allBarViews(score)
+    .slice(1)
+    .some(({ views }) => views.some((bar) => bar.items.some((item) => item.review.flagged)));
 }
 
 /** One flagged thing in a chart, as `sbscore check` lists it (SIB2-193). */
@@ -164,16 +185,19 @@ export interface FlaggedObject {
 export function flaggedObjects(score: Score): FlaggedObject[] {
   const time = score.meta.time;
   const found: FlaggedObject[] = [];
+  const multi = allBarViews(score).length > 1;
   for (const bar of barViews(score)) {
     const where = `bar${bar.number}`;
-    const barFlags = barReview(bar, time);
+    const barFlags = scoreBarReview(score, bar);
     if (barFlags.flagged) {
       found.push({ address: where, kind: 'bar', id: bar.id, text: null, reasons: barFlags.reasons });
     }
     const at = (onset: number): string => `${where}.beat${beatOfOnset(onset, time)}`;
+    // With several staves or voices a bare beat is ambiguous (ADR-0041), so a note says which it is on.
+    const own = (onset: number): string => (multi ? `s1.v1.${at(onset)}` : at(onset));
     for (const item of bar.items) {
       if (!item.review.flagged) continue;
-      found.push({ address: at(item.onset), kind: item.kind, id: item.id, text: null, reasons: item.review.reasons });
+      found.push({ address: own(item.onset), kind: item.kind, id: item.id, text: null, reasons: item.review.reasons });
     }
     for (const chord of bar.chords) {
       if (!chord.review.flagged) continue;
@@ -184,5 +208,16 @@ export function flaggedObjects(score: Score): FlaggedObject[] {
       found.push({ address: at(note.onset), kind: 'annotation', id: note.id, text: note.text, reasons: note.review.reasons });
     }
   }
+  // Items of every other staff and voice, with the qualified address a verb needs to reach them.
+  allBarViews(score).slice(1).forEach(({ select: pick }) => {
+    const staffNumber = score.parts.flatMap((part) => part.staves).findIndex((staff) => staff.id === pick.staff) + 1;
+    for (const bar of barViews(score, pick)) {
+      for (const item of bar.items) {
+        if (!item.review.flagged) continue;
+        const address = `s${staffNumber}.v${pick.voice}.bar${bar.number}.beat${beatOfOnset(item.onset, time)}`;
+        found.push({ address, kind: item.kind, id: item.id, text: null, reasons: item.review.reasons });
+      }
+    }
+  });
   return found;
 }

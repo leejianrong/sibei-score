@@ -159,6 +159,36 @@ Voice    { index (1-based), items: BarItem[], tuplets: Tuplet[] }
   `makeScore` files it, so a one-staff chart is still one call. Nothing outside `staves.ts` and the migration walks
   `parts` or `harmony` by hand, except `idsOf`.
 
+## As built: slice 2 (SIB2-226, ops and addresses)
+
+- **Ops** (`packages/api/src/ops/structure-ops.ts`): `part.add|rm`, `staff.add|rm`, `voice.add|rm`, `clef.set`,
+  `instrument.set`. New ids and the chosen voice index are *recorded* in the payload, so replay and undo reproduce
+  them. Staff type is the tag only. A part, staff or voice holding notation is refused unless the payload carries
+  `force: true` (the way `bar.rm` refuses a bar with content); a score keeps one part, one staff and voice 1, and a
+  part keeps one staff (remove the part instead). `voice.add` takes the lowest free index, 2 to 4. `StaffBar.clef`
+  (optional, absent by default, no migration) is a clef change at a bar; `clef.set` on `s2` sets the opening clef, on
+  `s2.bar5` a change, and `clef: null` there clears it.
+- **Content ops have no `staff`/`voice` payload field: the staff and voice are part of the address.** Every op that
+  targets bar contents already carries an address, so one mechanism serves note, rest, tuplet, slur (both ends),
+  ottava, fermata and grace, and a target can never disagree with a field. An old payload (`bar12.n3`) is what it
+  always was, and means the first staff, first voice while the score has one of each.
+- **Addresses** (`model/src/address.ts`): `s2.bar12.beat3`, `s2.v2.bar12.n3`, `v2.bar12.n3`; `s2` and `s2.v2` name a
+  staff or voice (`staff rm`, `voice rm`), `s2.bar5` a staff's bar (`clef set`). Staves count across parts in order.
+  Strictness is as ADR-0007: with more than one staff, or a staff with more than one voice, an unqualified or
+  partly qualified note address is an `ambiguous` failure listing the full qualified candidates (CLI exit 3, the
+  address class); `no-such-staff` and `no-such-voice` list what exists. Chord and text addresses ride the harmony
+  lane and never need a qualifier. Ids resolve anywhere, and the resolution carries the `select` to write back with.
+- **Metric validity** is per voice: `scoreMetrics`, `scoreBarReview` and the projection's `!` flag a bar when any
+  voice of any staff fails to fill it; an empty voice is valid. `transpose` moves every staff and voice (chords once).
+  `bar.rm` refuses a bar any staff holds.
+- **Surfaces.** CLI: `sbscore part|staff|voice|clef|instrument`, plus `--staff N --voice M` as sugar for the
+  qualifier. The projection prints the parts, staves and voices only when the score has more than the lead-sheet
+  shape (a default chart's text is byte-identical), the other voices under `s2.v1`-style headers, and addresses with
+  the qualifier. MCP takes the ops through its batch. The browser still edits staff 1, voice 1 (selecting a staff or
+  voice is slice 5).
+- **Not drawn yet.** The engraver (slice 4) still draws staff 1, voice 1 only; a multi-staff score renders without
+  error. Layout alignment is slice 3's.
+
 ## As built: slice 3 (SIB2-227, layout)
 
 Layout now aligns staves and voices; the engraver (slice 4) does not draw them yet. No schema change. Details and the

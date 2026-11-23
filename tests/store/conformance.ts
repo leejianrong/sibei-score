@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AudioJobStore, AuthStore, BlobLedger, JobStore, ScoreStore } from '@sibei/api';
 import type { MigrationResult, Score } from '@sibei/model';
-import { aScore, anEdit, creationOf, insert, update } from './helpers.js';
+import { applyOperation } from '@sibei/api';
+import type { Operation } from '@sibei/api';
+import { aScore, anEdit, anOperation, creationOf, insert, update } from './helpers.js';
 
 /**
  * The store contract, asserted once and run against every adapter (V19, ADR-0034).
@@ -199,6 +201,30 @@ export function storeConformance(label: string, open: OpenHarness): void {
       expect(await store.delete('local', 'soul')).toBe(true);
       expect(await store.get('local', 'soul')).toBeNull();
       expect(await store.operations('local', 'soul')).toEqual([]);
+    });
+
+    it('round-trips a document with several parts, staves and voices, and its ops, byte for byte (ADR-0041)', async () => {
+      const { store } = await fresh();
+      const ops: Operation[] = [
+        { type: 'score.create', payload: { id: 'big', barCount: 2 } },
+        { type: 'part.add', payload: { name: 'Bass', instrument: 32, staffType: 'standard', clef: 'bass' } },
+        { type: 'staff.add', target: 'p1', payload: { clef: 'bass' } },
+        { type: 'voice.add', target: 's1' },
+        { type: 'note.add', target: 's1.v2.bar1.beat1', payload: { pitch: 'E4', duration: { value: 4, dots: 0 } } },
+        { type: 'clef.set', target: 's2.bar2', payload: { clef: 'treble' } },
+      ];
+      let score: Score | null = null;
+      const logged: Operation[] = [];
+      for (const op of ops) {
+        const applied = applyOperation(score, op);
+        score = applied.score;
+        logged.push(applied.operation);
+      }
+      const doc = score!;
+      expect(await store.create('local', doc, logged.map((operation) => anOperation(operation)))).toMatchObject({ ok: true });
+      const record = await store.get('local', 'big');
+      expect(JSON.stringify(record?.score)).toBe(JSON.stringify(doc));
+      expect((await store.operations('local', 'big')).map((entry) => entry.operation)).toEqual(logged);
     });
 
     describe('tenancy: a chart id is unique per owner', () => {
