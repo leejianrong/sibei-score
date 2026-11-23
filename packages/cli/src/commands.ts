@@ -105,6 +105,7 @@ const USAGE = `sbscore — a jazz lead sheet, from the command line
               [--footer TEXT] [--footer-pages first|last|all]   page footer: copyright / credit (\\n = new line)
               [--tempo 4=120]   metronome mark above the first bar (4., 2, 8 units; empty removes it)
               [--chord-style standard|dash|words|real-book]   how chords print: Δ/m7, -7, maj/min, MA7/MI7
+              [--layout lead-sheet|score]   how systems break: the four-bar grid, or by width (a score of several staves)
   sbscore note add <id> <address> --pitch Eb5 --dur 8 [--accidental auto|show|hide|paren] [--spell] [--artic staccato,accent,marcato]
   sbscore note set <id> <address> [--pitch Eb5] [--dur 8] [--tie start|stop|both|none] [--accidental auto|show|hide|paren] [--spell|--unspell]
               [--artic staccato,accent,marcato|none]   marks over or under the head, by stem
@@ -929,11 +930,13 @@ async function meta(flags: Flags, client: Client, io: Io, json: boolean): Promis
   if (tempo !== undefined) payload.tempo = tempo === '' ? null : parseTempo(tempo);
   const chordStyle = flags.options.get('chord-style');
   if (chordStyle !== undefined) payload.chordStyle = chordStyle as NonNullable<MetaSetPayload['chordStyle']>;
+  const layout = flags.options.get('layout');
+  if (layout !== undefined) payload.layout = layout === '' ? null : (layout as 'lead-sheet' | 'score');
   if (Object.keys(payload).length === 0) {
     throw new CliError(
       EXIT.usage,
       'usage',
-      'meta set needs at least one of --title --subtitle --composer --arranger --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo',
+      'meta set needs at least one of --title --subtitle --composer --arranger --style --key --time --footer --footer-pages --signature-policy --chord-style --bars-per-system --tempo --layout',
     );
   }
   return submit(flags, client, io, json, id, [{ type: 'meta.set', payload }]);
