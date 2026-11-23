@@ -17,9 +17,9 @@ export type NoteEventsInstrument = 'voice' | 'bass' | 'piano' | 'drums' | 'guita
 
 /**
  * The instruments this repo can notate: a melody staff for `voice` and `bass` (ADR-0021, ADR-0040 #3), and a percussion
- * staff for `drums` (ADR-0041 slice 6, `note-events-drums.ts`). Piano, guitar and `other` are not yet.
+ * staff for `drums` (ADR-0041 slice 6, `note-events-drums.ts`). Piano is a grand staff with a guessed hand split (SIB2-144, `note-events-piano.ts`). Guitar and `other` are not yet.
  */
-export const NOTE_EVENTS_SUPPORTED_INSTRUMENTS: readonly NoteEventsInstrument[] = ['voice', 'bass', 'drums'];
+export const NOTE_EVENTS_SUPPORTED_INSTRUMENTS: readonly NoteEventsInstrument[] = ['voice', 'bass', 'drums', 'piano'];
 
 export interface NoteEventsBeat {
   t_s: number;

@@ -27,6 +27,7 @@ import { TICKS_PER_WHOLE, durationTicks } from './duration.js';
 import { makeBar, makeNote, makeRest, makeScore } from './build.js';
 import type { NoteEvents } from './note-events.js';
 import { mapDrumEventsToScore } from './note-events-drums.js';
+import { mapPianoEventsToScore } from './note-events-piano.js';
 import { GRID_TICKS, quantizeNoteEvents } from './note-events-quantize.js';
 import type { QuantizedItem } from './note-events-quantize.js';
 import { SEMITONE_OF_STEP } from './pitch.js';
@@ -41,6 +42,8 @@ export interface NoteEventsMapOptions {
   id: Id;
   title?: string;
   composer?: string;
+  /** Piano only: the MIDI pitch the hands pivot around when the split starts (default 60, middle C). */
+  splitPoint?: number;
 }
 
 export interface NoteEventsDraft {
@@ -52,6 +55,8 @@ export interface NoteEventsDraft {
 export function mapNoteEventsToScore(events: NoteEvents, options: NoteEventsMapOptions): NoteEventsDraft {
   // A drum track is polyphonic, many instruments at one moment: its own mapper, onto a percussion staff (ADR-0041 slice 6).
   if (events.instrument === 'drums') return mapDrumEventsToScore(events, options);
+  // A piano is two hands and chords: the hand-splitting grand-staff mapper (SIB2-144).
+  if (events.instrument === 'piano') return mapPianoEventsToScore(events, options);
   const quantized = quantizeNoteEvents(events);
   const key = inferKey(quantized.bars.flatMap((b) => b.items));
   const flaggedIds = flaggedSourceIds(events, quantized.warnings);

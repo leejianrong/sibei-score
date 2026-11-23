@@ -107,12 +107,12 @@ export function scoreToNoteEvents(score: Score, options: RenderOptions): NoteEve
   };
 }
 
-function note(id: string, on: number, off: number, pitch: number, confidence: number): NoteEvents['notes'][number] {
+export function note(id: string, on: number, off: number, pitch: number, confidence: number): NoteEvents['notes'][number] {
   return { id, onset_s: round3(on), offset_s: round3(Math.max(off, on + 0.001)), pitch, confidence: round3(confidence) };
 }
 
 /** A normal deviate by Box-Muller, clamped to 2.5 sigma so one draw cannot wreck a bar. */
-function gauss(rng: Rng, sigma: number): number {
+export function gauss(rng: Rng, sigma: number): number {
   if (sigma === 0) return 0;
   const u = Math.max(rng.next(), 1e-9);
   const v = rng.next();
@@ -120,8 +120,8 @@ function gauss(rng: Rng, sigma: number): number {
   return Math.max(-2.5, Math.min(2.5, z)) * sigma;
 }
 
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
-const round3 = (x: number): number => Math.round(x * 1000) / 1000;
+export const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+export const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 
 export interface NoteEventsImportMetrics extends OmrMetrics {
   /** Fraction of the truth's bars the draft reproduces exactly, bar for bar by number. */

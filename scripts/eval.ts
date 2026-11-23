@@ -47,8 +47,11 @@ import {
   aggregate,
   extractSystemChords,
   extractSystemLabels,
+  generatePianoScore,
   generateScore,
+  pianoScoreToNoteEvents,
   scoreNoteEventsImport,
+  scorePianoImport,
   scoreOmr,
   scoreToNoteEvents,
 } from '@sibei/synth';
@@ -370,6 +373,39 @@ function runNoteEventsEval(args: Args): NoteEventsRow[] {
   return rows;
 }
 
+interface PianoRow {
+  level: JitterLevel;
+  charts: number;
+  noteF1: number;
+  handAccuracy: number;
+}
+
+/**
+ * The piano rows (SIB2-144): a synthetic grand-staff passage per seed (`@sibei/synth` `generatePianoScore`: melody, chords
+ * and inner lines over bass, stride or arpeggios, with hands drifting toward each other now and then), rendered to
+ * piano NoteEvents at every jitter level, imported, and scored for the notes found (F1 on pitch at an absolute tick)
+ * and for **hand accuracy**: of those, the share the importer put on the staff the truth has them on.
+ */
+function runPianoEval(args: Args): PianoRow[] {
+  return JITTER_LEVELS.map((level) => {
+    const all = Array.from({ length: args.seeds }, (_unused, seed) => {
+      const truth = generatePianoScore({ seed, bars: args.bars });
+      return scorePianoImport(truth, pianoScoreToNoteEvents(truth, { seed, level }));
+    });
+    const mean = (pick: (m: (typeof all)[number]) => number): number => all.reduce((sum, m) => sum + pick(m), 0) / all.length;
+    return { level, charts: all.length, noteF1: mean((m) => m.noteF1), handAccuracy: mean((m) => m.handAccuracy) };
+  });
+}
+
+function printPianoTable(rows: PianoRow[]): void {
+  const head = ['piano import', 'charts', 'noteF1', 'handAcc'];
+  const body = rows.map((r) => [r.level, String(r.charts), fmt(r.noteF1), fmt(r.handAccuracy)]);
+  const widths = head.map((h, i) => Math.max(h.length, ...body.map((r) => (r[i] as string).length)));
+  const line = (cells: string[]): string => cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ');
+  process.stdout.write(`\n${line(head)}\n${widths.map((w) => '-'.repeat(w)).join('  ')}\n`);
+  for (const r of body) process.stdout.write(`${line(r)}\n`);
+}
+
 function printNoteEventsTable(rows: NoteEventsRow[]): void {
   const head = ['note-events import', 'charts', 'noteF1', 'noteAcc', 'barAcc', 'validBars'];
   const body = rows.map((r) => [r.level, String(r.charts), fmt(r.noteF1), fmt(r.noteAccuracy), fmt(r.barAccuracy), fmt(r.validBars)]);
@@ -413,7 +449,7 @@ function gitSha(): string {
   }
 }
 
-async function appendHistory(args: Args, report: EvalReport | null, real: RealEntry[], noteEvents: NoteEventsRow[]): Promise<void> {
+async function appendHistory(args: Args, report: EvalReport | null, real: RealEntry[], noteEvents: NoteEventsRow[], piano: PianoRow[]): Promise<void> {
   await mkdir(join(REPO, 'eval'), { recursive: true });
   const record = {
     timestamp: new Date().toISOString(),
@@ -423,6 +459,7 @@ async function appendHistory(args: Args, report: EvalReport | null, real: RealEn
     bars: args.bars,
     synthetic: report === null ? {} : report.byLevel,
     noteEvents,
+    piano,
     real: real.length > 0 ? aggregate(real.map((r) => r.metrics)) : null,
   };
   await appendFile(HISTORY, `${JSON.stringify(record)}\n`);
@@ -436,10 +473,14 @@ async function main(argv: string[]): Promise<number> {
 
   // The NoteEvents rows need nothing external, so every run prints them; `--engine note-events` prints only them.
   const noteEvents = runNoteEventsEval(args);
+  const piano = runPianoEval(args);
   if (args.engine === 'note-events') {
-    if (args.json) process.stdout.write(`${JSON.stringify({ noteEvents }, null, 2)}\n`);
-    else printNoteEventsTable(noteEvents);
-    if (args.history) await appendHistory(args, null, [], noteEvents);
+    if (args.json) process.stdout.write(`${JSON.stringify({ noteEvents, piano }, null, 2)}\n`);
+    else {
+      printNoteEventsTable(noteEvents);
+      printPianoTable(piano);
+    }
+    if (args.history) await appendHistory(args, null, [], noteEvents, piano);
     return 0;
   }
 
@@ -451,10 +492,11 @@ async function main(argv: string[]): Promise<number> {
   const real = args.engine === 'dump' ? [] : await runRealControlSet(predict);
 
   if (args.json) {
-    process.stdout.write(`${JSON.stringify({ byLevel: report.byLevel, real, noteEvents }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ byLevel: report.byLevel, real, noteEvents, piano }, null, 2)}\n`);
   } else {
     printTable(report, real);
     printNoteEventsTable(noteEvents);
+    printPianoTable(piano);
     if (real.length === 0) {
       process.stdout.write(
         `\n(no real control set in tests/fixtures/eval/real — add phone photos to keep the ` +
@@ -462,7 +504,7 @@ async function main(argv: string[]): Promise<number> {
       );
     }
   }
-  if (args.history) await appendHistory(args, report, real, noteEvents);
+  if (args.history) await appendHistory(args, report, real, noteEvents, piano);
   return 0;
 }
 

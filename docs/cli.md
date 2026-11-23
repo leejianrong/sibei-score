@@ -147,8 +147,14 @@ image, and needs **no worker**. The seconds are quantized to bars (using the fil
 one), the key is guessed, and the result is a draft like any other: notes the transcriber was unsure of
 are flagged `!` (with their confidence, `c5/4!41`), and **bar 1 is flagged when the file marks no
 downbeats**, because then where the bars start is a guess. The engine's warnings are printed under the
-success line and kept on the import record. Voice and bass only (one melody staff, ADR-0021). A file that
-is not valid v1, has a `schema_version` other than 1, or names another instrument is refused with
+success line and kept on the import record. Voice and bass make one melody staff (ADR-0021), drums a
+percussion staff, and **piano a grand staff** (treble and bass in one part, set by width): the importer
+guesses which hand plays each note (a pitch rule around middle C that follows each hand's recent range
+and keeps a chord in one hand where it fits) and says so in a `hand-split:` line, so check both staves.
+A chord is written as the notes of its hand in separate voices, a third voice and a fourth when needed (the
+model has no stacked chord yet). Moving a wrongly assigned note is `note rm` plus `note add` with an
+address such as `s2.bar3.beat2`. A file that
+is not valid v1, has a `schema_version` other than 1, or names another instrument (guitar, other) is refused with
 exit 2 and creates nothing. A silent file imports as an empty one-bar draft with its warnings.
 
 `import FILE.musicxml` (also `.xml`, or a compressed `.mxl`; `--musicxml` forces it for any file name)
