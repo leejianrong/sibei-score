@@ -79,3 +79,23 @@ describe('sbscore instrument set --short-name, meta set --instrument-names', () 
     expect((await sbscore('meta', 'set', 'tune', '--instrument-names', 'maybe')).code).toBe(EXIT.usage);
   });
 });
+
+describe('sbscore page set', () => {
+  it('sets margins, staff size and system gap in millimetres and clears them with an empty value', async () => {
+    await sbscore('new', '--id', 'pg');
+    expect((await sbscore('page', 'set', 'pg', '--margins', '15', '--margin-left', '22.5', '--staff-size', '7', '--system-gap', '6')).code).toBe(EXIT.ok);
+    let score = await open('pg');
+    expect(score.meta.page).toEqual({ staffSize: 7, systemGap: 6, margin: { top: 15, right: 15, bottom: 15, left: 22.5 } });
+    expect((await sbscore('show', 'pg')).out).toContain('page: staff 7mm, margins top 15 right 15 bottom 15 left 22.5mm, system gap 6mm');
+    await sbscore('page', 'set', 'pg', '--margins', '', '--staff-size', '', '--system-gap', '');
+    score = await open('pg');
+    expect(score.meta.page).toBeUndefined();
+  });
+
+  it('refuses a number out of range or not a number, and an empty call', async () => {
+    await sbscore('new', '--id', 'pg2');
+    expect((await sbscore('page', 'set', 'pg2', '--staff-size', '30')).code).not.toBe(EXIT.ok);
+    expect((await sbscore('page', 'set', 'pg2', '--staff-size', 'big')).code).toBe(EXIT.usage);
+    expect((await sbscore('page', 'set', 'pg2')).code).toBe(EXIT.usage);
+  });
+});
