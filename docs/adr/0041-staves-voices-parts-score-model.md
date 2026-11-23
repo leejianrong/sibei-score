@@ -1,7 +1,7 @@
 # ADR-0041: The score model becomes parts × staves × voices
 
-- **Status:** Proposed — the design for review. Nothing is built; implementation (SIB2-151) starts after the
-  2026-12-31 hosted launch, which ships on the current model.
+- **Status:** Accepted 2026-11-23 (the maintainer said "go ahead" to starting SIB2-151 on this design). Implementation
+  begins now on `main`; the hosted launch ships from the tag `launch/2026-11-23`, cut before it, on the current model.
 - **Date:** 2026-11-22
 - **Deciders:** Jian, in design discussion (the direction is ADR-0039 decision 3); this design is the agent's proposal
 - **Supersedes (in part):** the single-staff, single-voice, one-time-signature parts of
@@ -112,3 +112,17 @@ again with no copy.
 - Where tempo and swing feel live for playback (proposed: the measure grid).
 - The first slice order (proposed: model + migration + codec, then ops and addresses, then layout, engraver, CLI/UI/MCP,
   then percussion, then tab).
+
+## Acceptance and implementation strategy (2026-11-23)
+
+The open questions above are accepted as proposed: at most **4 voices per staff** (stems up for voices 1 and 3,
+down for 2 and 4); harmony attaches to the top part only until a case demands more; tempo and swing live on the
+measure grid; slice order as listed.
+
+**Implementation is a refactor first, then capability.** Slice 1 introduces the new document shape, its ADR-0028
+migration and a set of accessors (e.g. the items of staff *s*, voice *v*, measure *m*), and moves every consumer of
+`Bar.items`, `Bar.tuplets`, `Bar.chords` and `Bar.annotations` onto them, with **no change in behaviour**: every
+existing test, snapshot, and the browser/server byte-identity test must pass unmodified, which is the proof that a
+single-staff, single-voice chart is unchanged. Only then do later slices add multi-staff/voice capability (ops and
+addresses, then layout time-alignment, then engraving, then CLI/UI/MCP, then percussion, later tab). Hosted launch
+hotfixes branch from the tag, not from `main`.
