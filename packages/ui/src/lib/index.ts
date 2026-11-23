@@ -27,3 +27,4 @@ export * from './session.js';
 export * from './slur-edits.js';
 export * from './staff-edits.js';
 export * from './structure-edits.js';
+export * from './announce.js';
