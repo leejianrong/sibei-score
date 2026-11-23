@@ -47,6 +47,7 @@ import type {
   Rest,
   Score,
   Staff,
+  StackedNote,
   Tempo,
   Tuplet,
 } from '@sibei/model';
@@ -436,6 +437,7 @@ function writtenView(view: BarView, ctx: PartContext, percussion: boolean, conce
         ? {
             ...item,
             pitch: move(item.pitch),
+            ...(item.stack === undefined ? {} : { stack: item.stack.map((tone) => ({ ...tone, pitch: move(tone.pitch) })) }),
             ...(item.graces === undefined ? {} : { graces: item.graces.map((grace) => ({ ...grace, pitch: move(grace.pitch) })) }),
           }
         : item,
@@ -495,6 +497,8 @@ function itemElements(item: BarItem, bar: BarView, slurs: SlurMarks, ottavas: Ot
     // Grace notes come first, each a `<note><grace/>` with no duration (SIB2-185).
     ...(item.graces ?? []).map((grace) => graceElement(grace, at)),
     noteElement(item, bar, slurs.get(item.id) ?? [], at),
+    // A stacked chord's other pitches follow as `<chord/>` notes: same duration, voice and staff, no marks (SIB2-243).
+    ...(item.stack ?? []).map((tone) => noteElement(toneAsNote(item, tone), bar, [], at, item)),
     ...(lines?.stops ?? []).map((make) => make(at.staff)),
   ];
 }
@@ -544,11 +548,22 @@ function slurMarks(score: Score): SlurMarks {
   return marks;
 }
 
-function noteElement(note: Note, bar: BarView, slurs: SlurMark[], at: ItemContext): XmlElement {
-  const tuplet = tupletOf(note.id, bar);
+/**
+ * One pitch of a stacked chord as the note it is written as: the stack member's own pitch, accidental and tie on the
+ * carrying note's duration. Marks, fermata and graces belong to the first note of the chord, so they are left off.
+ */
+function toneAsNote(host: Note, tone: StackedNote): Note {
+  const { articulations: _a, fermata: _f, graces: _g, stack: _s, ...bare } = host;
+  return { ...bare, id: tone.id, pitch: tone.pitch, accidental: tone.accidental, tie: tone.tie, spellingPinned: tone.spellingPinned };
+}
+
+function noteElement(note: Note, bar: BarView, slurs: SlurMark[], at: ItemContext, chordOf?: Note): XmlElement {
+  const owner = chordOf ?? note;
+  const tuplet = tupletOf(owner.id, bar);
   const children: (XmlElement | null)[] = [
+    chordOf === undefined ? null : elem('chord', {}),
     at.percussion ? unpitchedElement(note) : pitchElement(note),
-    leaf('duration', itemTicks(note, bar)),
+    leaf('duration', itemTicks(owner, bar)),
     ...tieElements(note),
     // Which drum it strikes, as a score-instrument of the part (slice 6).
     at.percussion && note.drum !== undefined ? elem('instrument', { id: drumInstrumentId(at.partIndex, note.drum) }) : null,
