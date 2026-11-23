@@ -14,6 +14,7 @@ import { instrumentNamesChart } from './instrument-names-chart.js';
 import { drumChart } from './drum-chart.js';
 import { staffFurnitureChart } from './staff-furniture-chart.js';
 import { navigationChart } from './navigation-chart.js';
+import { dynamicsChart, dynamicsStavesChart } from './dynamics-chart.js';
 import { nastyChart } from './nasty-chart.js';
 import { marksChart } from './marks-chart.js';
 import { slurChart } from './slur-chart.js';
@@ -48,6 +49,8 @@ export const FIXTURE_REGISTRY: Record<string, () => Score> = {
   'long-form': longFormChart,
   'aaba-chart': aabaChart,
   navigation: navigationChart,
+  dynamics: dynamicsChart,
+  'dynamics-staves': dynamicsStavesChart,
   untitled: untitledChart,
   slurs: slurChart,
   marks: marksChart,

@@ -60,6 +60,30 @@ export const OTTAVA_GAP = 15;
 export const OTTAVA_BAND = 6;
 
 /**
+ * The dynamics row under the staff (SIB2-274). Its baseline sits `DYNAMICS_GAP + DYNAMICS_ASCENT` below the lowest ink
+ * (and any 8vb line); the glyphs reach `DYNAMICS_ASCENT` above it and `DYNAMICS_DESCENT` below. A hairpin is drawn in
+ * the same row, centred `DYNAMICS_MID` above the baseline. The engraver places by the same numbers.
+ */
+export const DYNAMICS_GAP = 8;
+export const DYNAMICS_ASCENT = 17;
+export const DYNAMICS_DESCENT = 7;
+export const DYNAMICS_MID = 6;
+
+/** Whether any note or rest of these bars carries a dynamic. */
+export function hasDynamics(bars: readonly BarView[]): boolean {
+  return bars.some((bar) => bar.items.some((item) => item.dynamic !== undefined));
+}
+
+/**
+ * Put a dynamics row under `inkBelow`: its baseline's offset below the bottom line, and the ink the row leaves. Only a
+ * staff that has a dynamic or a hairpin calls this, so a chart without either reserves nothing.
+ */
+export function dynamicsRow(inkBelow: number): { offset: number; inkBelow: number } {
+  const offset = inkBelow + DYNAMICS_GAP + DYNAMICS_ASCENT;
+  return { offset, inkBelow: offset + DYNAMICS_DESCENT };
+}
+
+/**
  * A fermata's room above the top line (SIB2-183): its baseline sits at least `FERMATA_BASE` above the staff and
  * `FERMATA_GAP` above the note's head or stem, and the glyph is about `FERMATA_HEIGHT` tall. The engraver
  * places it by the same three numbers (`packages/engrave/src/marks.ts`), so what layout reserves is what is drawn.
@@ -82,6 +106,8 @@ export interface SystemVertical {
   ottavaAboveOffset?: number;
   /** Units below the bottom staff line of an 8vb line, when the system has one. */
   ottavaBelowOffset?: number;
+  /** Units below the bottom staff line of the dynamics baseline, when the system's top staff has dynamics or a hairpin. */
+  dynamicsOffset?: number;
   height: number;
 }
 
@@ -99,6 +125,8 @@ export interface SystemVerticalInput {
   shifts?: Map<Id, OctaveShift>;
   ottavaAbove?: boolean;
   ottavaBelow?: boolean;
+  /** A hairpin is drawn under this staff on this system (SIB2-274); a dynamic is read off the bars. */
+  hairpinBelow?: boolean;
   /** The clef of the staff the ink is measured against; absent is treble, as every chart has always been. */
   clef?: Clef;
   /** Notes whose stem direction a voice fixes, so the ink is measured where it will be drawn. */
@@ -200,6 +228,13 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
     inkBelow = ottavaBelowOffset + OTTAVA_BAND;
   }
 
+  let dynamicsOffset: number | undefined;
+  if (input.hairpinBelow === true || hasDynamics(input.bars)) {
+    const row = dynamicsRow(inkBelow);
+    dynamicsOffset = row.offset;
+    inkBelow = row.inkBelow;
+  }
+
   const chordBaselineOffset = input.hasChords ? inkAbove + spec.chordClearance : 0;
   const chordBand = input.hasChords ? chordBaselineOffset + spec.chordAscent : inkAbove;
   const markBand = input.hasRehearsalMark ? chordBand + spec.rehearsalBand : chordBand;
@@ -213,6 +248,7 @@ export function systemVertical(input: SystemVerticalInput, spec: PageSpec): Syst
     chordBaselineOffset,
     ...(ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset }),
     ...(ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset }),
+    ...(dynamicsOffset === undefined ? {} : { dynamicsOffset }),
     height: aboveStaff + spec.staffHeight + belowStaff,
   };
 }

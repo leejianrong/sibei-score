@@ -20,10 +20,10 @@ import { buildFurniture, footerReserve } from './furniture.js';
 import type { Lane, LayoutAlignment, LayoutStaff, LayoutStaffGroup, LayoutStaffSpan } from './lanes.js';
 import { buildLanes, fitFor, isMultiLane, lanesOf, placeLanes, sizingFor, voiceStems, voiceViewsOf } from './lanes.js';
 import type { LayoutFurniture } from './furniture.js';
-import type { Clef, LayoutBarItem, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
+import type { Clef, LayoutBarItem, LayoutHairpin, LayoutOttava, LayoutSlur, LayoutText, LayoutTie } from './items.js';
 import type { LayoutSystemName } from './names.js';
 import { nameIndent, namesFor } from './names.js';
-import { ottavaShifts, planOttavas } from './ottava.js';
+import { ottavaShifts, planHairpins, planOttavas } from './ottava.js';
 import type { PageSpec, PageSpecInput } from './page.js';
 import { resolvePageSpec } from './page.js';
 import type { AllocatedBar, BarPrefix } from './widths.js';
@@ -83,6 +83,10 @@ export interface LayoutSystem {
   /** Units above the top staff line of an 8va line, and below the bottom staff line of an 8vb one. */
   ottavaAboveOffset?: number;
   ottavaBelowOffset?: number;
+  /** The hairpins on this system (SIB2-274); absent when there are none. */
+  hairpins?: LayoutHairpin[];
+  /** Units below the bottom staff line of the dynamics baseline, when the (top) staff has a dynamic or hairpin. */
+  dynamicsOffset?: number;
   /**
    * The staves of a multi-staff system, top to bottom, each with its voices' items, clef, y and ties; the braces and
    * bracket joining them; and the run a barline makes across them (SIB2-227). All three are absent on a single-staff
@@ -168,6 +172,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
   const tiesByStaff = multi ? planLaneTies(score, lanes, systemOfNote) : new Map<Id, Map<number, LayoutTie[]>>();
   const slursBySystem = planSlurs(score, systemOfNote);
   const ottavasBySystem = planOttavas(score, systemOfNote, multi ? staffOfNote : undefined);
+  const hairpinsBySystem = planHairpins(score, systemOfNote, multi ? staffOfNote : undefined);
   const shifts = ottavaShifts(score);
 
   // Which systems draw the clef and key signature (SIB2-173). Widths depend on it, pagination does not
@@ -201,6 +206,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
             : {}),
           ottavaAbove: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'up' && line.staff === undefined),
           ottavaBelow: (ottavasBySystem.get(index) ?? []).some((line) => line.shift === 'down' && line.staff === undefined),
+          hairpinBelow: (hairpinsBySystem.get(index) ?? []).some((line) => line.staff === undefined),
           hasChords: bars.some((bar) => bar.chords.length > 0 || bar.annotations.length > 0),
           hasNavMark: bars.some((bar) => (bar.nav ?? []).length > 0),
           hasRehearsalMark:
@@ -227,6 +233,8 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
         ties: tiesBySystem.get(index) ?? [],
         slurs: slursBySystem.get(index) ?? [],
         ottavas: ottavasBySystem.get(index) ?? [],
+        ...((hairpinsBySystem.get(index) ?? []).length === 0 ? {} : { hairpins: hairpinsBySystem.get(index) ?? [] }),
+        ...(vertical.dynamicsOffset === undefined ? {} : { dynamicsOffset: vertical.dynamicsOffset }),
         ...(vertical.ottavaAboveOffset === undefined ? {} : { ottavaAboveOffset: vertical.ottavaAboveOffset }),
         ...(vertical.ottavaBelowOffset === undefined ? {} : { ottavaBelowOffset: vertical.ottavaBelowOffset }),
       };
@@ -243,6 +251,7 @@ export function layout(score: Score, input: PageSpecInput = {}): LayoutResult {
           tiesByStaff,
           systemIndex: index,
           ottavas: built.ottavas,
+          hairpins: built.hairpins ?? [],
         });
         built.height = lanesBuilt.height;
         built.belowStaff = lanesBuilt.belowStaff;

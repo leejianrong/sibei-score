@@ -73,10 +73,13 @@ describe('every lossy case is named in the warnings', () => {
     expect(warnings(wrap(note(), '<staves>8</staves>', 6)).join('|')).toContain('further parts dropped');
   });
   it('lyrics', () => expect(warnings(wrap(note('<lyric><text>la</text></lyric>')))).toContain('lyrics were dropped'));
-  it('dynamics', () =>
-    expect(warnings(wrap('<direction><direction-type><dynamics><f/></dynamics></direction-type></direction>' + note()))).toContain(
-      'dynamics were dropped',
-    ));
+  it('dynamics are read onto the note after them (SIB2-274), not dropped; one outside the set is named', () => {
+    const direction = (mark: string): string => `<direction><direction-type><dynamics><${mark}/></dynamics></direction-type></direction>`;
+    const read = musicXmlToScore(wrap(direction('f') + note()));
+    expect(read.warnings).toEqual([]);
+    expect(barViews(read.score)[0]!.items[0]!.dynamic).toBe('f');
+    expect(warnings(wrap(direction('pppp') + note())).join('|')).toContain('the dynamic <pppp> was dropped');
+  });
   it('grace notes are read onto the note after them (SIB2-185), not dropped', () => {
     const grace = '<note><grace/><pitch><step>D</step><octave>4</octave></pitch><type>eighth</type></note>';
     const result = musicXmlToScore(wrap(grace + note()));
