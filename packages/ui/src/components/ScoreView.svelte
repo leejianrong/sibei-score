@@ -212,6 +212,12 @@
     await runOps([{ type: 'meta.set', payload: { barsPerSystem: count === 4 ? null : count } }]);
   }
 
+  async function handleLayout(kind: 'lead-sheet' | 'score'): Promise<void> {
+    if (score === null || kind === (score.meta.layout ?? 'lead-sheet')) return;
+    deselect();
+    await runOps([{ type: 'meta.set', payload: { layout: kind === 'lead-sheet' ? null : kind } }]);
+  }
+
   async function handleSignaturePolicy(policy: 'every' | 'first' | 'page'): Promise<void> {
     if (score === null || policy === (score.meta.signaturePolicy ?? 'every')) return;
     deselect();
@@ -1014,6 +1020,21 @@
           {/each}
         </select>
         <p class="control-note">Where one line should end instead, click a bar and set its line break. A logged, undoable edit (<code>meta set --bars-per-system</code>, <code>break set</code>).</p>
+      </div>
+
+      <div class="group control-row">
+        <h3>Layout</h3>
+        <select
+          class="part-select"
+          aria-label="How systems are broken"
+          value={score.meta.layout ?? 'lead-sheet'}
+          disabled={saving}
+          onchange={(event) => void handleLayout((event.currentTarget as HTMLSelectElement).value as 'lead-sheet' | 'score')}
+        >
+          <option value="lead-sheet">Lead sheet (four bars to a line)</option>
+          <option value="score">Score (lines break by width)</option>
+        </select>
+        <p class="control-note">For a chart of several staves. A logged, undoable edit (<code>meta set --layout</code>).</p>
       </div>
 
       <div class="group control-row">
