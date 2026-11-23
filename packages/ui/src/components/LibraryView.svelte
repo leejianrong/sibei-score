@@ -8,13 +8,13 @@
    * more (bar count, page count, review state) needs the document, and that is the score view's
    * request to make.
    *
-   * **There is no "New chart" button, and that is the card's shape rather than an oversight.**
-   * The UI's first write is V4c's whole subject, so the library points at the terminal instead —
-   * in the empty state, and in a footer that stays put once there are charts, because the
-   * library is where you notice you want another one. Q79 parity is knowingly unmet until V4c.
+   * **New chart (SIB2-270)** is the browser's `sbscore new`: a small form (title, key, time, bars,
+   * pickup) that sends the same `score.create`, and an Open a sample chart link that sends one
+   * `score.create` plus twelve `chord.set`s in one batch. With it every capability has both surfaces.
    */
   import {
     ApiError,
+    createScore,
     deleteScore,
     duplicateScore,
     getImport,
@@ -35,6 +35,16 @@
   import { rememberReturn } from '../lib/session.js';
   import { displayKey, relativeTime } from '../lib/format.js';
   import { AUDIO, hashOf } from '../lib/routing.js';
+  import {
+    chartId,
+    KEY_CHOICES,
+    MAX_BARS,
+    MIN_BARS,
+    newChartOps,
+    problemWith,
+    sampleChartOps,
+    TIME_CHOICES,
+  } from '../lib/new-chart.js';
 
   interface Props {
     onReachable: (reachable: boolean) => void;
@@ -212,6 +222,43 @@
     void runImport(files);
   }
 
+  // New chart (SIB2-270). The form is closed until asked for, except in an empty library where it is the way in.
+  let creating = $state(false);
+  let creatingBusy = $state(false);
+  let draftTitle = $state('');
+  let draftKey = $state('C');
+  let draftTime = $state('4/4');
+  let draftBars = $state(32);
+  let draftPickup = $state(false);
+  let createError = $state<string | null>(null);
+
+  async function makeChart(operations: Parameters<typeof createScore>[0]): Promise<void> {
+    creatingBusy = true;
+    createError = null;
+    try {
+      open(await createScore(operations));
+    } catch (error) {
+      createError = messageFor(error, 'create the chart');
+    } finally {
+      creatingBusy = false;
+    }
+  }
+
+  function submitNewChart(event: SubmitEvent): void {
+    event.preventDefault();
+    const form = { title: draftTitle, key: draftKey, time: draftTime, bars: Number(draftBars), pickup: draftPickup };
+    const problem = problemWith(form);
+    if (problem !== null) {
+      createError = problem;
+      return;
+    }
+    void makeChart(newChartOps(form, chartId(draftTitle)));
+  }
+
+  function openSample(): void {
+    void makeChart(sampleChartOps(chartId('sample blues')));
+  }
+
   function messageFor(error: unknown, verb: string): string {
     if (error instanceof OfflineError) return `Could not ${verb}: the server did not answer.`;
     if (error instanceof ApiError) return error.message;
@@ -220,6 +267,27 @@
 
   void load();
 </script>
+
+
+{#snippet newChartForm()}
+  <form class="new-chart" aria-label="New chart" onsubmit={submitNewChart}>
+    <label class="nc-field nc-title"><span>Title</span><input type="text" bind:value={draftTitle} placeholder={UNTITLED} autocomplete="off" /></label>
+    <label class="nc-field"><span>Key</span>
+      <select bind:value={draftKey}>{#each KEY_CHOICES as choice (choice)}<option value={choice}>{choice}</option>{/each}</select>
+    </label>
+    <label class="nc-field"><span>Time</span>
+      <select bind:value={draftTime}>{#each TIME_CHOICES as choice (choice)}<option value={choice}>{choice}</option>{/each}</select>
+    </label>
+    <label class="nc-field"><span>Bars</span><input type="number" min={MIN_BARS} max={MAX_BARS} bind:value={draftBars} /></label>
+    <label class="nc-check"><input type="checkbox" bind:checked={draftPickup} /><span>Pickup bar</span></label>
+    <button class="import-btn primary" type="submit" disabled={creatingBusy}>{creatingBusy ? 'Creating…' : 'Create chart'}</button>
+    {#if createError !== null}<div class="action-error nc-error" role="alert">{createError}</div>{/if}
+  </form>
+  <p class="nc-alt">
+    or <button class="linklike" type="button" onclick={openSample} disabled={creatingBusy}>open a sample chart</button>
+    (a twelve-bar blues you can edit and delete). In a terminal: <code>{NEW_CHART_COMMAND}</code>
+  </p>
+{/snippet}
 
 <section class="library">
   <!-- One hidden picker, driven by every Import button below. `accept` hints images and a NoteEvents .json (ADR-0040); the server is
@@ -247,23 +315,31 @@
         {/if}
       </span>
       {#if failure === null}
+        <button class="import-btn primary" onclick={() => (creating = !creating)} aria-expanded={creating}>New chart</button>
         <button class="import-btn" onclick={() => fileInput?.click()} disabled={importing}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
             <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
           </svg>
           {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import a file'}
         </button>
-        <input
-          class="split-input"
-          aria-label="Hand split for a piano file"
-          placeholder="split C4"
-          title="Where a piano file's hands pivot: a MIDI number or a pitch. Blank is middle C."
-          bind:value={splitText}
-        />
+        <label class="split-label" title="Where a piano file's hands pivot: a MIDI number or a pitch. Blank is middle C.">
+          <span>Piano split</span>
+          <input
+            class="split-input"
+            aria-label="Hand split for a piano file"
+            placeholder="C4"
+            title="Where a piano file's hands pivot: a MIDI number or a pitch. Blank is middle C."
+            bind:value={splitText}
+          />
+        </label>
         <a class="import-btn" href={hashOf(AUDIO)}>Transcribe audio</a>
       {/if}
     </div>
   </div>
+
+  {#if creating && !(charts !== null && charts.length === 0 && failure === null)}
+    {@render newChartForm()}
+  {/if}
 
   {#if importNote !== ''}
     <div class="import-note" role="status">
@@ -317,19 +393,14 @@
   {:else if charts !== null && charts.length === 0}
     <div class="state">
       <h2>No charts yet.</h2>
-      <p>
-        {#if photoImport}Import a photo or scan of a lead sheet to turn it into an editable draft (every parse is a
-        draft you correct, ADR-0019), or a MusicXML file{:else}Transcribe audio or import a NoteEvents or MusicXML file into an editable draft{/if}
-        — or author one in the terminal. Both talk to the same API, so a
-        chart made either way opens here immediately.
-      </p>
+      <p>Start one here, or bring one in{photoImport ? ' from a photo or scan (every parse is a draft you correct, ADR-0019)' : ''}. A chart made in the browser or the terminal opens in both.</p>
+      {@render newChartForm()}
       <button class="import-btn big" onclick={() => fileInput?.click()} disabled={importing}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
           <path d="M8 10.5V2.5M5 5.5 8 2.5l3 3M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10" />
         </svg>
         {importing ? 'Importing…' : photoImport ? 'Import a photo' : 'Import a file'}
       </button>
-      <div class="term"><span class="prompt">{'$ '}</span>{NEW_CHART_COMMAND}</div>
     </div>
   {:else}
     <div class="search-wrap">
@@ -436,7 +507,7 @@
     {/if}
 
     <div class="lib-foot">
-      <span>{photoImport ? 'Import a photo above' : 'Import above'}, or author a chart in the terminal.</span>
+      <span>Or author a chart in the terminal.</span>
       <code>{NEW_CHART_COMMAND}</code>
     </div>
   {/if}
@@ -456,6 +527,7 @@
 
   .lib-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
     gap: 24px;
@@ -482,8 +554,9 @@
 
   .lib-head-right {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 16px;
+    gap: 10px 14px;
   }
 
   /* The one visible file picker is a button; the real <input> is offscreen but focusable-by-proxy. */
@@ -547,6 +620,92 @@
     font-size: 12px;
     padding: 9px 16px;
     margin-bottom: 8px;
+  }
+
+  .import-btn.primary {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .split-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .new-chart {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 14px;
+    margin-top: 16px;
+    padding: 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--rule);
+    text-align: left;
+  }
+  .nc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .nc-field input,
+  .nc-field select {
+    font: inherit;
+    font-size: 13px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 6px 8px;
+    min-height: 32px;
+  }
+  .nc-title {
+    flex: 1 1 200px;
+  }
+  .nc-field input[type='number'] {
+    width: 72px;
+  }
+  .nc-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    min-height: 32px;
+  }
+  .nc-error {
+    flex-basis: 100%;
+    margin: 0;
+  }
+  .nc-alt {
+    margin: 8px 0 18px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-align: left;
+  }
+  .linklike {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .linklike:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
 
   .import-note {
