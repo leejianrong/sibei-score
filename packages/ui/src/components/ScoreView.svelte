@@ -45,7 +45,7 @@
   import { SERVE_COMMAND } from '../lib/branding.js';
   import { watchScore } from '../lib/events.js';
   import { absoluteTime, displayKey, formatBarRanges, paperLabel } from '../lib/format.js';
-  import { boxFor, findItem, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
+  import { boxFor, findItem, hitMargin, hitTest, loadFont, pageItemBoxes } from '../lib/hit-test.js';
   import type { Point } from '../lib/hit-test.js';
   import { beatSlotAt, chordAt, pageChordBoxes } from '../lib/chord-hit.js';
   import type { ChordBox } from '../lib/chord-hit.js';
@@ -413,6 +413,8 @@
   // The beat under the pointer while it is over a chord band and nothing is being saved — the
   // "click above the staff to add a chord" affordance (the approved V5e interaction).
   let hoverSlot = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
+  // The note or rest a click would select (SIB2-275): lit faintly under the pointer so a reader sees what the click hits.
+  let hoverItem = $state<{ pageIndex: number; box: { x: number; y: number; width: number; height: number } } | null>(null);
 
   // The whole render, re-run when the score, the paper or the face changes — which is what makes
   // the switches change the page rather than only the URL.
@@ -774,7 +776,7 @@
    * deselect — clicking white space is how the mockup's "Deselect" affordance behaves without a
    * second control for it.
    */
-  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false): void {
+  function handleSheetClick(pageIndex: number, point: Point, extend = false, additive = false, pxPerUnit?: number): void {
     // A part view is read-only: its notes are written pitches, and an edit there would be submitted
     // against the concert score at the wrong pitch. So a click does nothing until you are on concert.
     if (saving || !editable) return;
@@ -784,27 +786,30 @@
     saveError = null;
 
     if (noteInput !== null && score !== null) {
-      handleInputClick(page, point);
+      handleInputClick(page, point, pxPerUnit);
       return;
     }
 
     // A chord first: its band sits above the staff, clear of the notes, so a click there is never
     // ambiguous with a note. Clicking an existing chord edits it; clicking an empty beat in the band
     // adds one there (Q32). Only then does a click fall through to the notes and rests below.
-    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point);
+    const slop = hitMargin(pxPerUnit);
+    const itemBoxes = pageItemBoxes(page.layout, musicFont);
+    const chordHit = chordAt(pageChordBoxes(page.layout, musicFont), point, slop);
     if (chordHit !== null && !chordHit.plain) {
       selectChord(pageIndex, 'edit', chordHit.chordId, chordHit.addr, chordHit.barNumber, chordHit.beat, chordHit.text, chordHit);
       return;
     }
     if (score !== null) {
       const slot = beatSlotAt(page.layout, point, score.meta.time);
-      if (slot !== null && chordHit === null) {
+      // A click straight on a notehead is the note even when its head reaches up into the chord band (a high note).
+      if (slot !== null && chordHit === null && hitTest(itemBoxes, point, 0) === null) {
         selectChord(pageIndex, 'add', null, slot.addr, slot.barNumber, slot.beat, '', slot);
         return;
       }
     }
 
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    const hit = hitTest(itemBoxes, point, slop);
     // Shift-click a second note while one is selected: the other end of a slur (SIB2-168).
     if (extend && hit !== null && selectedId !== null && hit.id !== selectedId) {
       rangeId = hit.id;
@@ -943,10 +948,10 @@
   }
 
   /** In note input a click only moves the caret: onto a note (typing then overwrites it) or to the end of a bar's music. */
-  function handleInputClick(page: (typeof pages)[number], point: Point): void {
+  function handleInputClick(page: (typeof pages)[number], point: Point, pxPerUnit?: number): void {
     if (score === null || noteInput === null) return;
     const ctx = inputContext(score);
-    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point);
+    const hit = hitTest(pageItemBoxes(page.layout, musicFont), point, hitMargin(pxPerUnit));
     if (hit !== null) {
       if (hit.id === GHOST_ID) return;
       const found = findItem(page.layout, hit.id);
@@ -1044,7 +1049,8 @@
   }
 
   /** The pointer moved over a sheet: light the add-a-chord marker if it is in an empty band beat. */
-  function handleSheetHover(pageIndex: number, point: Point | null): void {
+  function handleSheetHover(pageIndex: number, point: Point | null, pxPerUnit?: number): void {
+    hoverItem = null;
     if (point === null || saving || score === null || !editable) {
       hoverSlot = null;
       return;
@@ -1055,7 +1061,17 @@
       return;
     }
     // Don't offer "add" where a chord already sits — that is an edit target, not an empty beat.
-    if (chordAt(pageChordBoxes(page.layout, musicFont), point) !== null) {
+    if (chordAt(pageChordBoxes(page.layout, musicFont), point, hitMargin(pxPerUnit)) !== null) {
+      hoverSlot = null;
+      return;
+    }
+    const itemBoxes = pageItemBoxes(page.layout, musicFont);
+    const over = hitTest(itemBoxes, point, hitMargin(pxPerUnit));
+    if (over !== null && noteInput === null) {
+      const box = boxFor(itemBoxes, over.id);
+      if (box !== null) hoverItem = { pageIndex, box };
+    }
+    if (over !== null && hitTest(itemBoxes, point, 0) !== null) {
       hoverSlot = null;
       return;
     }
@@ -2064,6 +2080,7 @@
             chordSelection={chordOverlay}
             barSelection={barOverlay}
             addHint={hoverSlot}
+            hoverItem={hoverItem}
             onselect={handleSheetClick}
             onhover={handleSheetHover}
           />
