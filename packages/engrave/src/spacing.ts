@@ -9,7 +9,7 @@ import { writtenPitch } from '@sibei/layout';
 import { restFor } from './rests.js';
 import { ledgerPositions, staffPosition } from './staff.js';
 import { dotsWidth, noteheadFor } from './stems.js';
-import { accidentalRoom, displacedHeads } from './chords.js';
+import { accidentalRoom, headColumns } from './chords.js';
 import type { ChordHead } from './chords.js';
 
 /**
@@ -174,13 +174,13 @@ function cellFor(font: MusicFont, item: NoteItem | RestItem): Cell {
     // A stacked chord (SIB2-243): the accidentals stack in columns, and heads a second apart need a notehead more.
     const heads = chordHeadsOf(item);
     const room = accidentalRoom(font, heads);
-    const second = displacedHeads(heads.map((head) => head.position), 'up').some(Boolean);
+    const across = Math.max(...headColumns(heads.map((head) => head.position), 'up'));
     return {
       item,
       leadIn: room + grace.width,
       graceWidth: grace.width,
       graceOffsets: grace.offsets,
-      rigid: room + grace.width + font.width(notehead) * (second ? 2 : 1) + dotsWidth(font, item.duration) + MIN_GAP,
+      rigid: room + grace.width + font.width(notehead) * (across + 1) + dotsWidth(font, item.duration) + MIN_GAP,
       wanted,
     };
   }

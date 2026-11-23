@@ -21,20 +21,31 @@ export interface ChordHead {
   display: AccidentalDisplay;
 }
 
-/** Whether each head (in the order given) sits on the far side of the stem. */
-export function displacedHeads(positions: readonly number[], direction: 'up' | 'down'): boolean[] {
+/**
+ * Which column each head (in the order given) takes across the stem: 0 is the stem's own side, 1 the far side, 2 one head
+ * further out. Walking from the stem's attached end, a head takes the first column where no head within a second (or a
+ * unison) already sits. A second or a unison needs two columns; a unison-plus-second cluster such as F, F#, G needs
+ * three, since the G is a second from both the F and the F# (SIB2-253).
+ */
+export function headColumns(positions: readonly number[], direction: 'up' | 'down'): number[] {
   const order = positions
     .map((position, index) => ({ position, index }))
     // Walk from the stem's attached end: the lowest head for an up stem, the highest for a down one.
     .sort((a, b) => (direction === 'up' ? b.position - a.position : a.position - b.position) || a.index - b.index);
-  const displaced = positions.map(() => false);
-  let previous: { position: number; displaced: boolean } | null = null;
+  const columns = positions.map(() => 0);
+  const taken: number[][] = [];
   for (const { position, index } of order) {
-    const move: boolean = previous !== null && !previous.displaced && Math.abs(previous.position - position) <= 1;
-    displaced[index] = move;
-    previous = { position, displaced: move };
+    let column = 0;
+    while (taken[column]?.some((other) => Math.abs(other - position) <= 1) === true) column += 1;
+    (taken[column] ??= []).push(position);
+    columns[index] = column;
   }
-  return displaced;
+  return columns;
+}
+
+/** Whether each head sits off the stem's own side (`headColumns` above zero). */
+export function displacedHeads(positions: readonly number[], direction: 'up' | 'down'): boolean[] {
+  return headColumns(positions, direction).map((column) => column > 0);
 }
 
 /** A column index (0 nearest the heads) for each head's accidental, or null where it draws none. */
