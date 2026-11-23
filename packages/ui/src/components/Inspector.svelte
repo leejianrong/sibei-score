@@ -20,6 +20,7 @@
   import type { AccidentalDisplay, Articulation, Dots, DrumId, Duration, Id, NoteValue, NoteheadKind, Spanner, TieRole } from '@sibei/model';
   import { untrack } from 'svelte';
   import SegmentedControl from './SegmentedControl.svelte';
+  import { thirdFrom } from '../lib/staff-edits.js';
 
   export interface NoteSelection {
     kind: 'note';
@@ -40,6 +41,8 @@
     head?: NoteheadKind;
     /** The grace notes before this note (SIB2-185), each removable. */
     graces: readonly { id: Id; pitch: string; value: 8 | 16 | 32; slashed: boolean }[];
+    /** Every pitch of the chord this note is, low to high (SIB2-243); a lone note has one. */
+    tones: readonly { id: Id; pitch: string }[];
   }
 
   export interface RestSelection {
@@ -95,6 +98,10 @@
     onrmottava?: (id: Id) => void;
     /** Grace notes (SIB2-185): add one before this note, or remove one by its id. Both apply at once. */
     ongraceadd?: (grace: { pitch: string; value: 8 | 16 | 32; slashed: boolean }) => void;
+    /** Stacked chords (SIB2-243): the head the click landed on, adding a pitch to the chord, removing one by its pitch. */
+    selectedTone?: Id | null;
+    ontoneadd?: (pitch: string) => void;
+    ontonerm?: (pitch: string) => void;
     ongracerm?: (id: Id) => void;
     onsave: (edits: NoteEdits | RestEdits) => void;
     /** The tuplet holding this item, or null. */
@@ -123,6 +130,9 @@
     onrmottava,
     ongraceadd,
     ongracerm,
+    selectedTone = null,
+    ontoneadd,
+    ontonerm,
     onsave,
     tuplet = null,
     onsettuplet,
@@ -164,6 +174,22 @@
     graceError = null;
     ongraceadd?.({ pitch: gracePitch, value: graceValue, slashed: graceSlashed });
     gracePitch = '';
+  }
+
+  // The pitch being added to the chord (SIB2-243), and what is wrong with it.
+  let tonePitch = $state('');
+  let toneError = $state<string | null>(null);
+
+  function addTone(pitch: string): void {
+    try {
+      parsePitch(pitch);
+    } catch {
+      toneError = `${JSON.stringify(pitch)} is not a pitch — try Eb4, F#5, or C4`;
+      return;
+    }
+    toneError = null;
+    ontoneadd?.(pitch);
+    tonePitch = '';
   }
 
   const NOTE_VALUES: readonly NoteValue[] = [1, 2, 4, 8, 16, 32];
@@ -382,6 +408,62 @@
           </div>
         {/each}
       </div>
+
+      {#if ontoneadd !== undefined && !isDrum && selection.kind === 'note'}
+        <div class="field slur-field" role="group" aria-label="Chord notes">
+          <span class="field-label">Chord pitches</span>
+          <p class="inspector-note">
+            Pitches struck together share one stem and one duration. Duration and marks above are the whole chord's.
+          </p>
+          {#each selection.tones as tone (tone.id)}
+            <div class="slur-row" class:tone-selected={tone.id === selectedTone}>
+              <span>{tone.pitch}</span>
+              {#if selection.tones.length > 1}
+                <button
+                  type="button"
+                  class="btn btn-cancel"
+                  disabled={saving}
+                  aria-label={`Remove ${tone.pitch} from the chord`}
+                  onclick={() => ontonerm?.(tone.pitch)}
+                >
+                  Remove
+                </button>
+              {/if}
+            </div>
+          {/each}
+          <div class="slur-row">
+            <input
+              class="grace-pitch"
+              aria-label="Note to add to the chord"
+              placeholder="G4"
+              value={tonePitch}
+              oninput={(event) => (tonePitch = (event.currentTarget as HTMLInputElement).value)}
+            />
+            <button type="button" class="btn btn-save" disabled={saving} onclick={() => addTone(tonePitch)}>Add pitch</button>
+          </div>
+          <div class="slur-row">
+            <button
+              type="button"
+              class="btn btn-cancel"
+              disabled={saving}
+              onclick={() => addTone(thirdFrom(selection.tones[selection.tones.length - 1]!.pitch, 1))}
+            >
+              Add above
+            </button>
+            <button
+              type="button"
+              class="btn btn-cancel"
+              disabled={saving}
+              onclick={() => addTone(thirdFrom(selection.tones[0]!.pitch, -1))}
+            >
+              Add below
+            </button>
+          </div>
+          {#if toneError !== null}
+            <p class="field-error">{toneError}</p>
+          {/if}
+        </div>
+      {/if}
 
       {#if ongraceadd !== undefined}
         <div class="field slur-field" role="group" aria-label="Grace notes">
@@ -608,6 +690,10 @@
     gap: 8px;
     font-size: 11px;
     color: var(--ink-soft);
+  }
+  .tone-selected {
+    color: var(--ink);
+    font-weight: 600;
   }
   .grace-pitch {
     width: 56px;

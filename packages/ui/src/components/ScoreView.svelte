@@ -21,7 +21,7 @@
   import { DEFAULT_MUSIC_FONT } from '@sibei/engrave';
   import type { MusicFontName } from '@sibei/engrave';
   import type { PageNumberFormat, PageNumberPosition, PageNumberSettings, Paper } from '@sibei/layout';
-  import { displayTitle, formatKeySignature, formatPitch, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
+  import { displayTitle, formatKeySignature, formatPitch, pitchToMidi, NEEDS_REVIEW, NO_SECTIONS_ADVISORY, reviewSummary } from '@sibei/model';
   import type { Id, KeySignature, Score } from '@sibei/model';
   import { writtenPart } from '@sibei/music';
   import {
@@ -62,7 +62,7 @@
   import StructureInspector from './StructureInspector.svelte';
   import StaffPanel from './StaffPanel.svelte';
   import NewItem from './NewItem.svelte';
-  import { newItemOp, seedPitchFor, voiceForKey } from '../lib/staff-edits.js';
+  import { chordToneAddress, newItemOp, seedPitchFor, voiceForKey } from '../lib/staff-edits.js';
   import type { NewItem as NewItemSpec } from '../lib/staff-edits.js';
   import { structureOps } from '../lib/structure-edits.js';
   import type { BarStructure, StructureEdits } from '../lib/structure-edits.js';
@@ -290,6 +290,8 @@
   // fresh from the current render each time, never cached at selection time, so a reload never
   // leaves it holding a stale copy of what it is inspecting.
   let selectedId = $state<Id | null>(null);
+  /** The head of a stacked chord the click landed on (SIB2-243); null for a lone note or after a keyboard selection. */
+  let selectedTone = $state<Id | null>(null);
   let selectedPage = $state<number | null>(null);
   // The second note of a slur (SIB2-168): shift-click beside the selected note. Like the selection it is
   // only an id and a page, its box and the slurs it would join looked up fresh from the render and model.
@@ -371,6 +373,9 @@
         articulations: item.articulations ?? [],
         ...(item.drum === undefined ? {} : { drum: item.drum }),
         ...(item.head === undefined ? {} : { head: item.head }),
+        tones: [{ id: item.noteId, pitch: item.pitch }, ...(item.tones ?? []).map((tone) => ({ id: tone.toneId, pitch: tone.pitch }))]
+          .sort((a, b) => pitchToMidi(a.pitch) - pitchToMidi(b.pitch))
+          .map((tone) => ({ id: tone.id, pitch: formatPitch(tone.pitch) })),
         graces: (item.graces ?? []).map((grace) => ({
           id: grace.graceId,
           pitch: formatPitch(grace.pitch),
@@ -648,6 +653,7 @@
       chordSel = null;
       barSel = null;
       selectedId = hit.id;
+      selectedTone = hit.toneId ?? null;
       selectedPage = pageIndex;
       laneChoice = { staff: hit.staffIndex + 1, voice: hit.voice };
       return;
@@ -763,6 +769,19 @@
     await runOps(operations);
   }
 
+  /** Add a pitch to the selected chord (SIB2-243): `note.add` onto the chord's own onset with its duration. */
+  async function handleToneAdd(pitch: string): Promise<void> {
+    if (selectedId === null || located === null || located.item.kind !== 'note') return;
+    await runOps([{ type: 'note.add', target: selectedId, payload: { pitch, duration: located.item.duration } } as Operation], true);
+  }
+
+  /** Remove one pitch of the selected chord by its written pitch, addressed by position (`bar3.beat2.E4`). */
+  async function handleToneRemove(pitch: string): Promise<void> {
+    if (score === null || located === null || located.item.kind !== 'note') return;
+    const here = qualifierOf(score, { staff: located.staffIndex + 1, voice: located.voice });
+    await runOps([{ type: 'note.rm', target: chordToneAddress(here, located.barNumber, located.item.beat, pitch) } as Operation], true);
+  }
+
   /** Bracket a run as a tuplet from the selected item, or take it off (SIB2-166). One op, so one undo. */
   async function handleSetTuplet(actual: number, normal: number, count: number): Promise<void> {
     if (selectedId === null) return;
@@ -798,14 +817,15 @@
    * trust the response (`changed[]` names ids, not values), and deselect. A 409 is the one path that
    * does not re-read — it raises the conflict panel, and reloading is the only way out (ADR-0003).
    */
-  async function runOps(operations: Operation[]): Promise<boolean> {
+  async function runOps(operations: Operation[], keepSelection = false): Promise<boolean> {
     if (score === null) return false;
     saving = true;
     saveError = null;
     try {
       await submitOps(score.id, { operations, expectedVersion: version });
       await load();
-      deselect();
+      // A chord is built a pitch at a time (SIB2-243), so adding or removing one keeps the chord selected.
+      if (!keepSelection) deselect();
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
@@ -1362,6 +1382,9 @@
               ongraceadd={(grace) =>
                 void runOps([{ type: 'grace.add', target: selection!.id, payload: grace } as Operation])}
               ongracerm={(id) => void runOps([{ type: 'grace.rm', target: id } as Operation])}
+              {selectedTone}
+              ontoneadd={(pitch) => void handleToneAdd(pitch)}
+              ontonerm={(pitch) => void handleToneRemove(pitch)}
               onsave={handleSave}
               tuplet={tupletOfItem(selection.id)}
               onsettuplet={handleSetTuplet}

@@ -1,4 +1,4 @@
-import { allStaves, voiceHoldsNotation, voiceIndexes } from '@sibei/model';
+import { STEPS, allStaves, parsePitch, voiceHoldsNotation, voiceIndexes } from '@sibei/model';
 import type { Clef, Score, StaffType } from '@sibei/model';
 import type { Duration } from '@sibei/model';
 import type { Operation } from './api.js';
@@ -183,6 +183,22 @@ export function newItemOp(qualifier: string, barNumber: number, item: NewItem): 
   return item.kind === 'note'
     ? { type: 'note.add', target, payload: { pitch: item.pitch, duration: item.duration } }
     : { type: 'rest.add', target, payload: { duration: item.duration } };
+}
+
+/**
+ * The natural pitch a third above (`1`) or below (`-1`) one, for the chord inspector's Add above / Add below
+ * (SIB2-243): C4 gives E4 above and A3 below. A diatonic step count, so the caller may spell it differently after.
+ */
+export function thirdFrom(pitch: string, direction: 1 | -1): string {
+  const parsed = parsePitch(pitch);
+  const index = parsed.octave * 7 + STEPS.indexOf(parsed.step) + 2 * direction;
+  const octave = Math.floor(index / 7);
+  return `${STEPS[index - octave * 7]}${octave}`;
+}
+
+/** `bar3.beat2.E4`: one pitch of the chord at a position, the address `note rm` and `note set` take (SIB2-243). */
+export function chordToneAddress(qualifier: string, barNumber: number, beat: number, pitch: string): string {
+  return `${qualifier}bar${barNumber}.beat${beat}.${pitch}`;
 }
 
 /** Which voice the key `1` to `4` selects on the active staff, or null when the staff has no such voice. */

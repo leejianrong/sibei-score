@@ -10,6 +10,9 @@ import {
   restFor,
   restPosition,
   restShiftOf,
+  stemsOf,
+  displacedHeads,
+  groupStemDirection,
   staffPosition,
   staffPositionIn,
   units,
@@ -18,6 +21,7 @@ import {
 import type { MusicFont, MusicFontName } from '@sibei/engrave';
 import type { LayoutBar, LayoutPage, NoteItem, RestItem } from '@sibei/layout';
 import { writtenPitch } from '@sibei/layout';
+import { formatPitch } from '@sibei/model';
 import type { Id } from '@sibei/model';
 
 /**
@@ -42,6 +46,12 @@ export interface ItemBox {
   /** The staff it sits on, as its index in the system's `staves` (0 for a one-staff chart), and its voice (1-based). */
   staffIndex: number;
   voice: number;
+  /**
+   * One head of a stacked chord (SIB2-243): the pitch's own id and written pitch, `id` staying the carrying note's so
+   * selection, slurs and the inspector keep addressing the chord. Absent on a lone note.
+   */
+  toneId?: Id;
+  pitch?: string;
   /** Layout units — the same space as the page's SVG `viewBox`. */
   x: number;
   y: number;
@@ -90,6 +100,13 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
               const y = positionY(position, staff.staveY);
               const box = font.box(glyph);
               const dx = item.kind === 'note' ? (shifts.get(item.noteId)?.dx ?? 0) : 0;
+              if (item.kind === 'note' && item.tones !== undefined && item.tones.length > 0 && !percussion) {
+                const forced = stemsOf(voice, staffBar.voices);
+                boxes.push(
+                  ...chordBoxes(font, item, glyph, placed.x + dx, staff.staveY, (pitch) => staffPositionIn(writtenPitch(pitch, item.ottava), staff.clef), staff.index, voice.index, forced === 'auto' ? null : forced),
+                );
+                continue;
+              }
               boxes.push({
                 id: item.kind === 'note' ? item.noteId : item.restId,
                 kind: item.kind,
@@ -110,6 +127,12 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
       for (const placed of placeItems(font, bar)) {
         const { item } = placed;
         const glyph = item.kind === 'note' ? noteheadFor(item.duration) : restFor(item.duration);
+        if (item.kind === 'note' && item.tones !== undefined && item.tones.length > 0) {
+          boxes.push(
+            ...chordBoxes(font, item, glyph, placed.x, system.staveY, (pitch) => staffPosition(writtenPitch(pitch, item.ottava)), 0, 1, null),
+          );
+          continue;
+        }
         const position = item.kind === 'note' ? staffPosition(writtenPitch(item.pitch, item.ottava)) : restPosition(item.duration);
         const y = positionY(position, system.staveY);
         const box = font.box(glyph);
@@ -127,6 +150,51 @@ export function pageItemBoxes(page: LayoutPage, font: MusicFont): ItemBox[] {
     }
   }
   return boxes;
+}
+
+/**
+ * One box per head of a stacked chord, where `engraveChord` draws it: the stem-side column at the block's left for an up
+ * stem (one head in for a down stem with a second), the far-side head across the stem. The direction is the voice's when
+ * it is numbered, else the head furthest from the middle line (a beam can change it, by at most one head's width here).
+ */
+function chordBoxes(
+  font: MusicFont,
+  item: NoteItem,
+  glyph: ReturnType<typeof noteheadFor>,
+  left: number,
+  staveY: number,
+  positionOf: (pitch: NoteItem['pitch']) => number,
+  staffIndex: number,
+  voice: number,
+  forced: 'up' | 'down' | null,
+): ItemBox[] {
+  const members = [
+    { toneId: item.noteId, pitch: item.pitch },
+    ...(item.tones ?? []).map((tone) => ({ toneId: tone.toneId, pitch: tone.pitch })),
+  ];
+  const positions = members.map((member) => positionOf(member.pitch));
+  const direction = forced ?? groupStemDirection(positions);
+  const displaced = displacedHeads(positions, direction);
+  const moved = displaced.some(Boolean);
+  const width = font.width(glyph);
+  const box = font.box(glyph);
+  return members.map((member, index) => {
+    const far = displaced[index] === true;
+    // Up stem: the stem-side column is at the left and a far head is one head to its right; a down stem is the mirror.
+    const x = direction === 'up' ? (far ? left + width : left) : moved ? (far ? left : left + width) : left;
+    return {
+      id: item.noteId,
+      toneId: member.toneId,
+      pitch: formatPitch(member.pitch),
+      kind: 'note' as const,
+      staffIndex,
+      voice,
+      x,
+      y: positionY(positions[index] as number, staveY) + box.top,
+      width,
+      height: box.height,
+    };
+  });
 }
 
 /**
@@ -157,7 +225,16 @@ export function hitTest(boxes: readonly ItemBox[], point: Point): ItemBox | null
 
 /** The box for an id already known — after a fresh render, to redraw the selection outline. */
 export function boxFor(boxes: readonly ItemBox[], id: Id): ItemBox | null {
-  return boxes.find((box) => box.id === id) ?? null;
+  const mine = boxes.filter((box) => box.id === id);
+  const first = mine[0];
+  if (first === undefined) return null;
+  if (mine.length === 1) return first;
+  // A stacked chord's outline covers every head.
+  const left = Math.min(...mine.map((box) => box.x));
+  const top = Math.min(...mine.map((box) => box.y));
+  const right = Math.max(...mine.map((box) => box.x + box.width));
+  const bottom = Math.max(...mine.map((box) => box.y + box.height));
+  return { ...first, x: left, y: top, width: right - left, height: bottom - top };
 }
 
 export interface LocatedItem {
